@@ -1,0 +1,19 @@
+[package]
+name = "motionvm-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The music: the HMI sequencer and the FM synthesis behind it"
+
+[dependencies]
+motionvm-formats.workspace = true
+nuked-opl3.workspace = true
+
+[dev-dependencies]
+motionvm-testutil.workspace = true
+
+[lints]
+workspace = true

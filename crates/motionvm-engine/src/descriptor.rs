@@ -1,0 +1,631 @@
+//! The scene graph: what the engine draws, and what it remembers about each item.
+//!
+//! A descriptor is the original's 0x5c-byte record. It carries one kind of
+//! content — a sprite, a block, a text, or nothing — plus a place, a level, a
+//! wait and a callback. The per-frame walk visits them in level order, and the
+//! drawer rebuilds the picture from the list rather than painting over what was
+//! there, which is why switching one off is enough to erase it.
+//!
+//! The savegame codecs live here too: the numbers they write are these enums
+//! and nothing else uses them.
+
+use crate::{Engine, Error, Result};
+use std::collections::BTreeMap;
+
+impl Engine {
+    /// Removes every descriptor the test picks out, keeping the selection on
+    /// whatever it was pointing at.
+    ///
+    /// `current` is an index, so anything that shortens the list moves it. The
+    /// original keeps a resolved pointer in `0xf2af0` and a handle in `0xdb4c0`
+    /// and neither is touched by a kill, so the selection survives — unless the
+    /// descriptor it named is the one that went, and then there is nothing left
+    /// to point at.
+    ///
+    /// The test is called once per descriptor, in list order, which is what
+    /// lets `KILLNDESC` decide by position.
+    pub(crate) fn forget_descriptors(&mut self, mut doomed: impl FnMut(&Descriptor) -> bool) {
+        let selected = self
+            .selected
+            .and_then(|i| self.descriptors.get(i))
+            .map(|d| d.handle);
+        self.descriptors.retain(|d| !doomed(d));
+        self.selected = selected.and_then(|h| self.descriptors.iter().position(|d| d.handle == h));
+    }
+
+    /// Makes a descriptor the current one, the way `ACTDESC` does.
+    ///
+    /// A handle that resolves to nothing changes nothing. The original looks the
+    /// record up first (0x71618) and jumps clear of *both* stores when the
+    /// lookup comes back empty (0x71624 → 0x71636), so the descriptor that was
+    /// selected stays selected. Clearing the selection instead would silently
+    /// disarm every `SD…` that follows, which is a worse failure than acting on
+    /// the wrong descriptor: nothing reports it.
+    pub(crate) fn select_descriptor(&mut self, handle: u32) {
+        if let Some(i) = self.descriptors.iter().position(|d| d.handle == handle) {
+            self.selected = Some(i);
+        }
+    }
+
+    /// The descriptors in the order the original's per-frame walk visits them.
+    ///
+    /// That walk (0x68c64) follows the sibling chain at +0x1E, and the chain is
+    /// built by the insertion at 0x6a648, which advances `while cur != sentinel
+    /// && cur.level <= new.level` before linking. So a new descriptor lands
+    /// after every entry of the same level or lower: the chain is exactly a
+    /// **stable sort by level**, and reproducing the order needs no links of
+    /// their own — which is why none are stored here.
+    ///
+    /// Descriptors belonging to a frozen screen are left out, as the walk
+    /// returns on `screen.flags & 4` before touching them. `FREEZESCR` sets
+    /// that bit; the two were read apart and belong together.
+    pub(crate) fn frame_order(&self) -> Vec<u32> {
+        let mut live: Vec<&Descriptor> = self
+            .descriptors
+            .iter()
+            .filter(|d| !self.display.frozen(d.screen))
+            .collect();
+        live.sort_by_key(|d| d.level);
+        live.iter().map(|d| d.handle).collect()
+    }
+
+    /// What the walk does to one descriptor: count its wait down, and when it
+    /// runs out hand back the word to run.
+    ///
+    /// Returns the callback only on the frame the wait reaches zero, because
+    /// that is when the handler executes it — a descriptor with no callback
+    /// (`+0x14` clear, which is what `SDWORD 0` and `SDWORD -1` leave) is
+    /// skipped entirely, wait and all.
+    pub fn tick_descriptor(&mut self, handle: u32) -> Option<i32> {
+        let d = self.descriptors.iter_mut().find(|d| d.handle == handle)?;
+        if d.callback <= 0 {
+            return None;
+        }
+        if d.wait == 0 {
+            return Some(d.callback);
+        }
+        if d.wait > 0 {
+            d.wait -= 1;
+        }
+        None
+    }
+
+    /// The current descriptor, or an error naming the word that wanted it.
+    ///
+    /// Every `SD…` word acts on whatever `ACTDESC` last selected. When that
+    /// lookup finds nothing — a stale handle, a descriptor that was never
+    /// created — quietly doing nothing produces a picture that is wrong in a
+    /// way nothing reports. Since a whole phase of the intro is `ACTDESC`
+    /// followed by setters, a silent miss there would simply not draw, and the
+    /// search would start at the renderer instead of here.
+    pub(crate) fn require_descriptor(&mut self, word: &str) -> Result<&mut Descriptor> {
+        let current = self.selected;
+        self.descriptor_mut().ok_or_else(|| Error::Unimplemented {
+            ordinal: 0,
+            name: format!("{word} with no current descriptor (ACTDESC selected {current:?})"),
+            at: motionvm_forth::Address(0),
+        })
+    }
+
+    /// The selected descriptor, or `None` when nothing is selected.
+    ///
+    /// The quiet counterpart to [`Engine::require_descriptor`]: for the words
+    /// whose handlers do nothing rather than fail when the lookup comes back
+    /// empty. Which of the two a word uses is the original's choice, not ours.
+    pub(crate) fn descriptor_mut(&mut self) -> Option<&mut Descriptor> {
+        let i = self.selected?;
+        self.descriptors.get_mut(i)
+    }
+}
+
+/// The `SD…` words as methods, acting on whatever `ACTDESC` last selected.
+///
+/// The kernel words are the interface the *bytecode* uses; these are the same
+/// behaviors for callers who already know which descriptor and which value
+/// they mean. `words/descriptors.rs` keeps the words themselves and is now only
+/// the stack ABI over these: pop, then call.
+///
+/// **The selection is not saved and restored.** It is engine state that the
+/// game's own bytecode shares — the original selects a descriptor and writes to
+/// it several words later — so a method that tidied up after itself would be a
+/// divergence, not an improvement.
+///
+/// Two families, and the difference is behavior rather than style: the ones
+/// returning [`Result`] go through `require_descriptor` and **fail** when
+/// nothing is selected, the ones returning `()` go through `descriptor_mut`
+/// and quietly do nothing. That split is inherited from the original's own
+/// handlers and is preserved word for word.
+impl Engine {
+    /// `SDACTIVE` and `SDINACTIVE`: whether the selected descriptor is drawn.
+    ///
+    /// Silent when nothing is selected.
+    pub(crate) fn set_active(&mut self, active: bool) {
+        if let Some(d) = self.descriptor_mut() {
+            d.active = active;
+        }
+    }
+
+    /// `SDX`, `SDCX`/`SDCEN`, `SDOX`: the horizontal coordinate and what it means.
+    ///
+    /// The three words differ only in the [`Placement`] they store beside the
+    /// number, which is exactly how the original encodes them.
+    pub(crate) fn place_x(&mut self, v: i32, mode: Placement) -> Result<()> {
+        let d = self.require_descriptor("SDX")?;
+        (d.x, d.x_mode) = (v, mode);
+        Ok(())
+    }
+
+    /// `SDY`, `SDCY`/`SDVCEN`, `SDOY`: the vertical coordinate and what it means.
+    ///
+    /// `SDOX` is `SDOY` turned sideways: 0x71212 tests the *x* at +4 and 0x6bd97
+    /// the horizontal mode, where 0x71419 and 0x6bdc8 take the y and the
+    /// vertical one. Both then place against the far edge — `SDOX` is a
+    /// *placement*, not a field to store under its own name. Recording it
+    /// without acting on it leaves the dialogue's right margin unplaced.
+    pub(crate) fn place_y(&mut self, v: i32, mode: Placement) -> Result<()> {
+        let d = self.require_descriptor("SDY")?;
+        (d.y, d.y_mode) = (v, mode);
+        Ok(())
+    }
+
+    /// `SDLEV`, `SDLV`, `SDZ`: the level the per-frame walk sorts by.
+    pub(crate) fn set_level(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDLEV")?.level = v;
+        Ok(())
+    }
+
+    /// `SDSPR`: the sprite to draw. Negative clears it.
+    pub(crate) fn set_sprite(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDSPR")?.sprite = (v >= 0).then_some(v as u32);
+        Ok(())
+    }
+
+    /// `SDBL`: the block to draw. Negative clears it.
+    ///
+    /// The same graphics pool as [`Engine::set_sprite`] — the two differ in
+    /// descriptor *type*, not in where the picture comes from.
+    pub(crate) fn set_block(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDBL")?.block = (v >= 0).then_some(v as u32);
+        Ok(())
+    }
+
+    /// `SDTXT`: the text entry to show, which makes this a text descriptor.
+    pub(crate) fn set_text(&mut self, v: i32) -> Result<()> {
+        let d = self.require_descriptor("SDTXT")?;
+        d.text = Some(v);
+        d.kind = DescriptorKind::Text;
+        Ok(())
+    }
+
+    /// `SDTB`: the text table to read from, which makes this a text descriptor.
+    pub(crate) fn set_text_table(&mut self, v: i32) -> Result<()> {
+        let d = self.require_descriptor("SDTB")?;
+        d.table = Some(v);
+        d.kind = DescriptorKind::Text;
+        Ok(())
+    }
+
+    /// `SDCOL`: the composite color, backing bit and all.
+    ///
+    /// Stored undivided. The drawer tests it at 0x69f50 with `cmpl $0x100` and
+    /// runs a backing pass for anything from 256 up; the low byte is the
+    /// palette index. Clamping it here threw both halves away.
+    pub(crate) fn set_color(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDCOL")?.color = v;
+        Ok(())
+    }
+
+    /// `SDFNT`: which registered font the text draws in.
+    pub(crate) fn set_font(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDFNT")?.font = Some(v);
+        Ok(())
+    }
+
+    /// `SDTDT`: the text template, which names the outline font and the gaps.
+    pub(crate) fn set_template(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDTDT")?.template = Some(v);
+        Ok(())
+    }
+
+    /// `SDWAIT`: how long the descriptor waits before it is taken down.
+    pub(crate) fn set_wait(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDWAIT")?.wait = v;
+        Ok(())
+    }
+
+    /// `SDWORD`: the callback word, already screened.
+    ///
+    /// `SDWORD` screens its argument exactly as `NEWSETDESC` does — 0 and -1
+    /// clear the field (0x72bf4-0x72c03), and the same three checks stand
+    /// between anything else and the store at 0x72c3a. The screening is
+    /// [`crate::stack::callable`] and stays at the call site, because it needs
+    /// module memory to decide and this does not.
+    pub(crate) fn set_callback(&mut self, v: i32) -> Result<()> {
+        self.require_descriptor("SDWORD")?.callback = v;
+        Ok(())
+    }
+
+    /// One of the setters kept by name rather than modeled.
+    ///
+    /// `key` must come from [`DESCRIPTOR_SETTERS`], because that is what the
+    /// field map is keyed on. Silent when nothing is selected.
+    pub(crate) fn set_field(&mut self, key: &'static str, v: i32) {
+        if let Some(d) = self.descriptor_mut() {
+            d.fields.insert(key, v);
+        }
+    }
+
+    /// What every `GD…` word starts from: the selected descriptor and the
+    /// corner it is actually drawn at.
+    ///
+    /// Nothing selected answers with a default descriptor rather than failing,
+    /// which is what the getters have always done — they are read by bytecode
+    /// that tests the answer, not by anything that could handle an error.
+    ///
+    /// `&mut self` because measuring a text may have to load its font — see
+    /// [`Engine::extent`](crate::Engine::extent) for why that borrow is real
+    /// and not a wart.
+    fn selected_with_corner(&mut self) -> (Descriptor, i32, i32) {
+        let d = self.descriptor_mut().cloned().unwrap_or_default();
+        let (cx, cy) = self.corner(&d);
+        (d, cx, cy)
+    }
+
+    /// `GDX`: the drawn left edge.
+    ///
+    /// The *drawn* corner, not the number that was stored. `SETT1` and `TSC`
+    /// both test a text for overhang by comparing against the screen origin,
+    /// and a centered descriptor answering with its center never overhangs —
+    /// which is why Gaby's line ran off the left of the screen with the clamp
+    /// sitting right there, never firing.
+    pub(crate) fn descriptor_x(&mut self) -> i32 {
+        self.selected_with_corner().1
+    }
+
+    /// `GDY`: the drawn top edge. See [`Engine::descriptor_x`].
+    pub(crate) fn descriptor_y(&mut self) -> i32 {
+        self.selected_with_corner().2
+    }
+
+    /// `GDLEV`, `GDLV`, `GDZ`: the level.
+    pub(crate) fn descriptor_level(&mut self) -> i32 {
+        self.selected_with_corner().0.level
+    }
+
+    /// `GDACTIVE`: whether the descriptor is drawn.
+    pub(crate) fn descriptor_active(&mut self) -> i32 {
+        i32::from(self.selected_with_corner().0.active)
+    }
+
+    /// `GDSPR`: the sprite id, or -1.
+    pub(crate) fn descriptor_sprite(&mut self) -> i32 {
+        self.selected_with_corner()
+            .0
+            .sprite
+            .map_or(-1, |s| s as i32)
+    }
+
+    /// `GDBL`: the block id, or -1.
+    pub(crate) fn descriptor_block(&mut self) -> i32 {
+        self.selected_with_corner().0.block.map_or(-1, |b| b as i32)
+    }
+
+    /// `GDTXT`: the text entry.
+    pub(crate) fn descriptor_text_entry(&mut self) -> i32 {
+        self.selected_with_corner().0.text.unwrap_or(0)
+    }
+
+    /// `GDTB`: the text table.
+    pub(crate) fn descriptor_table(&mut self) -> i32 {
+        self.selected_with_corner().0.table.unwrap_or(0)
+    }
+
+    /// `GDCOL`: the composite color `SDCOL` stored, undivided.
+    ///
+    /// Reaches the text record through the same accessor `SDCOL` writes
+    /// through and reads the same field (0x6a5e7 then +0xC at 0x731a0, against
+    /// 0x730d4/0x730df in the setter). So a backed text answers 421, not 165 —
+    /// the backing bit is part of the value and comes back out with it.
+    pub(crate) fn descriptor_color(&mut self) -> i32 {
+        self.selected_with_corner().0.color
+    }
+
+    /// The corner and the **stored** size, which is what the derived getters
+    /// below are built from.
+    ///
+    /// The size the handlers use is the stored one: 0x6b190 reads +0x2e and
+    /// 0x6b1b6 reads +0x32, which for a text is the measured extent plus four.
+    /// Deriving these from the bare measurement instead put every center and
+    /// every far edge two pixels off.
+    ///
+    /// Earlier still, `GDCX`, `GDCY`, `GDWIDTH` and `GDHEIGHT` were answered
+    /// out of whatever a *setter* had filed away under the same name. They are
+    /// geometry, not stored values, and nothing ever set those fields — so they
+    /// answered zero, and `TSC` had nothing to clamp with.
+    fn selected_box(&mut self) -> (i32, i32, i32, i32) {
+        let (d, cx, cy) = self.selected_with_corner();
+        let (w, h) = self.stored_extent(&d);
+        (cx, cy, w, h)
+    }
+
+    /// `GDCX`: the horizontal center. 0x712a9 halves the stored width and adds
+    /// the corner.
+    pub(crate) fn descriptor_center_x(&mut self) -> i32 {
+        let (cx, _, w, _) = self.selected_box();
+        cx + w / 2
+    }
+
+    /// `GDCY`: the vertical center. See [`Engine::descriptor_center_x`].
+    pub(crate) fn descriptor_center_y(&mut self) -> i32 {
+        let (_, cy, _, h) = self.selected_box();
+        cy + h / 2
+    }
+
+    /// `GDWIDTH` and `GDXLEN`: the stored width.
+    ///
+    /// Two names apiece, one handler: `GDWIDTH` is table 2 index 67 and
+    /// `GDXLEN` index 65, both 0x72c46. They are synonyms, not neighbors.
+    pub(crate) fn descriptor_width(&mut self) -> i32 {
+        self.selected_box().2
+    }
+
+    /// `GDHEIGHT` and `GDYLEN`: the stored height, both 0x72c77.
+    pub(crate) fn descriptor_height(&mut self) -> i32 {
+        self.selected_box().3
+    }
+
+    /// `GDOX`: the far right edge, corner plus size — added at 0x712ff.
+    pub(crate) fn descriptor_far_x(&mut self) -> i32 {
+        let (cx, _, w, _) = self.selected_box();
+        cx + w
+    }
+
+    /// `GDOY`: the far bottom edge, added at 0x71506.
+    pub(crate) fn descriptor_far_y(&mut self) -> i32 {
+        let (_, cy, _, h) = self.selected_box();
+        cy + h
+    }
+}
+
+/// What a coordinate on a descriptor means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Placement {
+    /// The value is the left or top edge. `NEWSETDESC` starts here.
+    #[default]
+    Edge,
+    /// The value is the center, so the edge is it minus half the drawn size.
+    ///
+    /// Verified by arithmetic against the frame captured from the original:
+    /// sprite 86 is 320x200, `2000 SD%SHR` makes it 640x400, and the title
+    /// macro sets the center to (320, 240). Minus half the size that is
+    /// exactly (0, 40) — the position the pixel comparison already agreed on.
+    Center,
+    /// The value is the far edge — the right one across, the bottom one down.
+    ///
+    /// Read from the pair of routines that work out a descriptor's rectangle,
+    /// `0x6beec` across and `0x6c57c` down. Both dispatch on the same mode and
+    /// differ only in which field they take:
+    ///
+    /// ```text
+    /// mode 1:  edge   = value
+    /// mode 2:  edge   = value - size/2
+    /// mode 3:  edge   = value - size
+    /// ```
+    ///
+    /// (The routines subtract a further 4 to 6 pixels, but that is the margin
+    /// of the area they mark for repainting, not part of the position.)
+    ///
+    /// For `SDOY` down this is the figure's feet, which is what a walking
+    /// character is placed by.
+    FarEdge,
+}
+
+/// What a descriptor draws.
+///
+/// The original keeps this in a two-byte field at offset 2 and switches on it:
+/// `SDSPR` writes 2 and allocates eight bytes, `SDBL` writes 3 with four, and
+/// `SDTXT` and `SDTB` both write 4 with 0x5c. A descriptor is therefore one of
+/// these and not several — which matters, because a descriptor that was once
+/// given a text and later a sprite would otherwise draw both.
+///
+/// It was called `Kind2` for a while, after a collision with
+/// [`motionvm_formats::Kind`] — a name that recorded the accident rather than
+/// the thing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DescriptorKind {
+    /// Nothing chosen yet. `NEWSETDESC` leaves a descriptor here when it is
+    /// given no graphic.
+    #[default]
+    Empty,
+    /// A sprite, from `SDSPR`.
+    Sprite,
+    /// A background block, from `SDBL`.
+    Block,
+    /// Text, from `SDTXT` or `SDTB`.
+    Text,
+}
+
+/// One entry of the engine's scene graph.
+///
+/// The original packs these into a 0x3E-byte struct; the field offsets that are
+/// known (`+4` x, `+6` y, `+8` level) came out of the `NEWSETDESC` and `SDX`
+/// handlers. Only the behavior is reproduced here, not the layout.
+#[derive(Debug, Clone, Default)]
+pub struct Descriptor {
+    /// What `NEWSETDESC` answered with, and what `ACTDESC` selects by.
+    pub handle: u32,
+    /// The screen that was current when the descriptor was made.
+    pub screen: u32,
+    /// The horizontal coordinate; what it means is [`Descriptor::x_mode`].
+    pub x: i32,
+    /// The vertical coordinate; what it means is [`Descriptor::y_mode`].
+    pub y: i32,
+    /// `SDLEV`, `SDLV`, `SDZ`: the order the per-frame walk draws in, low
+    /// first. Ties keep the order they were made in.
+    pub level: i32,
+    /// `SDSPR`: the sprite to draw.
+    pub sprite: Option<u32>,
+    /// `SDBL`: a background picture. Indexes the same graphics pool as
+    /// `sprite`; the two differ in descriptor type, not in where the picture
+    /// comes from.
+    pub block: Option<u32>,
+    /// `SDTXT`: index into a text table.
+    pub text: Option<i32>,
+    /// `SDTB`: the descriptor's text buffer or table id.
+    pub table: Option<i32>,
+    /// `SDFNT`: which registered font the text draws in. Unset falls back to
+    /// the system font, not to whatever was registered first.
+    pub font: Option<i32>,
+    /// `SDCOL`: field +0x0C of the text record, composite and unmasked.
+    ///
+    /// A plain value rather than an option, because the original has no
+    /// "unset" to model. The text record does not exist until `SDTXT`
+    /// (0x71b4f) or `SDTB` (0x71d45) allocates it, and both allocate through
+    /// 0x203F3 → 0x823E0, which is a *zeroing* allocator (`xor %al,%al;
+    /// rep stos`). `SDTB` then writes +0x00, +0x04, +0x08, +0x10 and +0x18
+    /// explicitly and leaves +0x0C to the allocator — so a text nobody gave a
+    /// color is deterministically **0**, black in 54 of the 60 shipped
+    /// palettes, and `GDCOL` (0x73177) answers 0 for it.
+    ///
+    /// Modeling it as an option invites two readers to pick different
+    /// defaults — 255 for the drawer, 0 for `GDCOL` — and nothing compares
+    /// them. 255 is magenta in 42 of the 60 palettes, and it is the help pages
+    /// that show it: every one of their texts runs on the default, because
+    /// `SHOW_DOC` contains no `SDCOL` at all and `XYLTITEM.` (module 2,
+    /// 0x01364) never gives them one.
+    pub color: i32,
+    /// `SDTDT`: the text template, which names the outline font and the gaps.
+    pub template: Option<i32>,
+    /// `SDWAIT`: field +0x18, a plain count of frames.
+    ///
+    /// The original's per-frame walk over the descriptors (0x68c64, driven by
+    /// `ANIMPLAY`) counts this down and runs [`Descriptor::callback`] when it
+    /// reaches zero. Neither the walk nor the callbacks happen here yet, which
+    /// is why a text shown with a wait never finishes.
+    pub wait: i32,
+    /// `SDWORD`: field +0x14, the address of a bytecode word.
+    ///
+    /// Not text word-wrapping, which is what this field was called until the
+    /// handler was read: `SDWORD` stores a word address that the frame walk
+    /// executes once the wait above expires, and clears the field for 0 or -1.
+    /// The game uses it to end a displayed text —
+    /// `_IINFO @ ACTDESC … SDACTIVE  0x53370 SDWORD  0 SDWAIT` in module 5 —
+    /// and `?TEXTREADY` waits for exactly that to have happened.
+    pub callback: i32,
+    /// How `x` and `y` are to be read, one mode per axis.
+    ///
+    /// The original keeps both in the low nibble of the word at +0x12 — bits
+    /// 0-1 across, bits 2-3 down — and each setter word writes its own:
+    /// `SDX`/`SDY` mean the edge, `SDCX`/`SDCY`/`SDCEN`/`SDVCEN` the center,
+    /// `SDOY` an offset. `NEWSETDESC` sets both to the edge, which is why
+    /// ignoring the whole thing worked until a figure came along that is placed
+    /// by its center.
+    pub x_mode: Placement,
+    /// What [`Descriptor::y`] means: an edge, a center, or the far edge.
+    pub y_mode: Placement,
+    /// Everything else a `SD*` word can set, kept by name.
+    ///
+    /// The descriptor struct in the original is 0x3E bytes of fields whose
+    /// meanings are not all known yet. Recording the rest by name keeps the
+    /// values — they are needed to reproduce a frame — without inventing a
+    /// meaning for each one before it has been measured.
+    pub fields: BTreeMap<&'static str, i32>,
+    /// Which of the three kinds this is, as the type field at offset 2 records.
+    pub kind: DescriptorKind,
+    /// Whether the drawer visits it. `SDINACTIVE` erases nothing — the next
+    /// draw simply leaves it out, which is how the original erases too.
+    pub active: bool,
+    /// `SDAUTOBUF`, set and never cleared. What the original's buffering
+    /// does with it is not established; carried so a savegame can carry it.
+    pub auto_buffer: bool,
+}
+
+/// A text template defined by `DEFTDT`, which takes seventeen arguments.
+#[derive(Debug, Clone)]
+pub struct TextTemplate {
+    /// The template number `DEFTDT` gave it, which `SDTDT` names.
+    pub id: i32,
+    /// The arguments as given, deepest first. What each one means is still open;
+    /// recording them keeps the information until it is needed.
+    pub args: Vec<i32>,
+}
+
+/// The two small enums a savegame has to carry, as numbers and back.
+///
+/// Written out by hand rather than derived, so that adding a variant makes the
+/// mapping a decision instead of silently renumbering every saved file.
+pub(crate) fn placement_code(p: Placement) -> u8 {
+    match p {
+        Placement::Edge => 0,
+        Placement::Center => 1,
+        Placement::FarEdge => 2,
+    }
+}
+
+pub(crate) fn placement_of(code: u8) -> std::result::Result<Placement, String> {
+    match code {
+        0 => Ok(Placement::Edge),
+        1 => Ok(Placement::Center),
+        2 => Ok(Placement::FarEdge),
+        n => Err(format!(
+            "savegame has placement mode {n}, which this build does not know"
+        )),
+    }
+}
+
+pub(crate) fn kind_code(k: DescriptorKind) -> u8 {
+    match k {
+        DescriptorKind::Empty => 0,
+        DescriptorKind::Sprite => 1,
+        DescriptorKind::Block => 2,
+        DescriptorKind::Text => 3,
+    }
+}
+
+pub(crate) fn kind_of(code: u8) -> std::result::Result<DescriptorKind, String> {
+    match code {
+        0 => Ok(DescriptorKind::Empty),
+        1 => Ok(DescriptorKind::Sprite),
+        2 => Ok(DescriptorKind::Block),
+        3 => Ok(DescriptorKind::Text),
+        n => Err(format!(
+            "savegame has descriptor kind {n}, which this build does not know"
+        )),
+    }
+}
+
+/// The one-argument descriptor setters, which are also the field keys they
+/// write.
+///
+/// Kept as a table rather than as a list of match arms so that the arm and the
+/// key cannot drift apart. Written out twice — once in a pattern and once in
+/// [`DESCRIPTOR_FIELDS`] — they would need an `expect` between them saying
+/// "arm and table list the same names", which is a promise nothing would be
+/// asking the compiler to keep.
+pub(crate) const DESCRIPTOR_SETTERS: &[&str] = &[
+    "SD%SHR",
+    "SDV%SHR",
+    "SDH%SHR",
+    "SDBUF",
+    "SDSTARTLINE",
+    "SDALINES",
+    "SDTRANS",
+    "SDSHADE",
+];
+
+/// Descriptor fields kept by name rather than modeled.
+///
+/// A superset of [`DESCRIPTOR_SETTERS`]: `INSERT` is a field too, but it is
+/// written by `SDINSERT`, which takes three arguments and is not one of these.
+/// A savegame may name any of them.
+pub(crate) const DESCRIPTOR_FIELDS: &[&str] = &[
+    "SD%SHR",
+    "SDV%SHR",
+    "SDH%SHR",
+    "SDBUF",
+    "SDSTARTLINE",
+    "SDALINES",
+    "SDTRANS",
+    "SDSHADE",
+    "INSERT",
+];

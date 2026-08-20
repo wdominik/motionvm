@@ -1,0 +1,11 @@
+# Stock rustfmt, deliberately.
+#
+# Nothing is configured on top of the defaults, so "formatted" has an answer
+# that requires no memory and no local knowledge: whatever `cargo fmt` does.
+#
+# Data tables whose line breaks carry meaning are exempt individually with
+# `#[rustfmt::skip]`, not by loosening a width here. There are two:
+# `TURN_WAY` in motionvm-engine/src/walk.rs and `STATUS_HINTS` in its lib.rs.
+# Matches the workspace edition. `cargo fmt` takes the edition from each
+# manifest, so this line only matters when rustfmt is invoked directly.
+edition = "2024"

@@ -1,0 +1,27 @@
+[package]
+name = "motionvm-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Command line tools for inspecting and extracting a MOTION game's resources"
+
+[[bin]]
+name = "motionvm-tools"
+path = "src/main.rs"
+
+[dependencies]
+motionvm-formats.workspace = true
+# For `IMPLEMENTED`: `extract` reports which of the kernel words the game
+# reaches for are built, which is the number that says how much of the engine
+# a reimplementation still owes.
+motionvm-forth.workspace = true
+# For `write_indexed_png`: the pictures these tools write are the same kind the
+# game draws, down to the transparent index.
+motionvm-render.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true

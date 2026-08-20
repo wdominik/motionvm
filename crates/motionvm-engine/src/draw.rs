@@ -1,0 +1,342 @@
+//! Turning the descriptor list into pixels.
+//!
+//! Two steps, and the original keeps them apart: the **drawer** (`0x6915b`)
+//! walks the descriptors in level order and fills each screen's surface, and
+//! the **presenter** (`0x1457D`) copies what changed onto the visible screen.
+//! A frame that only draws changes nothing anyone can see, which is why both
+//! appear in the loop and why a test that forgets the second measures the frame
+//! before it.
+//!
+//! The drawer rebuilds from the list rather than painting over what was there.
+//! That is what makes switching a descriptor off enough to erase it — and it is
+//! the original's order too: `SDINACTIVE` erases nothing, the next draw does.
+
+use crate::{Descriptor, DescriptorKind, Engine, Placement, line_height};
+use motionvm_formats::Palette;
+use motionvm_render::Framebuffer;
+
+/// The text backing's remap row, kept until the palette changes.
+///
+/// [`motionvm_render::backing_map`] is a 256×256 nearest-color search — about
+/// 196 000 operations — and it depends on nothing but the palette. It was being
+/// rebuilt for every text descriptor that asks for a backing, which measured at
+/// 39 µs each: six of them in the classroom, so 234 µs of a 666 µs draw.
+///
+/// The key is the palette itself rather than a generation counter. Comparing
+/// 768 bytes is nothing against rebuilding the row, and it cannot go stale —
+/// the palette is written from four places and a counter would have to be
+/// remembered at each of them.
+pub(crate) struct BackingCache {
+    for_palette: Option<Palette>,
+    row: [u8; 256],
+}
+
+impl Default for BackingCache {
+    fn default() -> Self {
+        Self {
+            for_palette: None,
+            row: [0; 256],
+        }
+    }
+}
+
+impl Engine {
+    /// The remap row for the palette in force, built if the palette has moved.
+    pub(crate) fn backing_row(&mut self) -> [u8; 256] {
+        let cache = &mut self.backing;
+        let palette = &self.display.palette;
+        if cache.for_palette.as_ref() != Some(palette) {
+            cache.row = motionvm_render::backing_map(palette);
+            cache.for_palette = Some(palette.clone());
+        }
+        cache.row
+    }
+
+    /// The presenter, 0x1457D: what has been drawn becomes what is seen.
+    ///
+    /// The original never draws to the visible screen. Everything paints one
+    /// software surface (`0xE7D7C`) and marks 8×8 tiles in an update map
+    /// (`0xE7D84`); this routine walks the map and copies just the marked
+    /// tiles into video memory. Video memory therefore **persists** — and
+    /// that, not the drawing, is what makes a fade look the way it does. See
+    /// `Engine::advance_curtain`, which is where a curtain writes its bands.
+    pub fn present(&mut self) {
+        self.video = self.display.compose();
+    }
+
+    /// The frame to show.
+    ///
+    /// Nothing is composed here: [`Self::present`] has already put the frame
+    /// where the original keeps it, and a running curtain has written its own
+    /// bands over it.
+    pub fn render(&mut self) -> Framebuffer {
+        let mut out = self.video.clone();
+        // The pointer, last of all. The mouse layer paints it straight onto
+        // the video surface (0x2543e: save-under, then the masked blit
+        // 0x26594), so it sits above everything. The 8-pixel alignment in
+        // that routine is block bookkeeping only: the shape goes into the
+        // block at the `& 7` remainder, so the net position on screen is
+        // exactly pointer minus hotspot.
+        //
+        // Not while a curtain runs, though: both handlers call `HIDEMOUSE`
+        // (0x74ae2) before the band loop and `SHOWMOUSE` (0x74b64) after it.
+        // Only the drawing is held back — `pointer_visible` is the script's
+        // own `SHOWMOUSE`/`HIDEMOUSE` state and nothing is claimed here about
+        // how the two nest.
+        if self.pointer_visible
+            && self.curtains.is_empty()
+            && let Some((id, hx, hy)) = self.cursor
+        {
+            let (mx, my) = (self.mouse.x, self.mouse.y);
+            if let Some(sprite) = self.sprite(id) {
+                out.blit_scaled(&sprite, mx - hx, my - hy, 1000, 1000);
+            }
+        }
+        out
+    }
+
+    /// The drawer, 0x6915b: descriptors onto the screen buffers.
+    ///
+    /// This is the only thing that puts a picture anywhere, and it runs when
+    /// the original runs it — once a frame out of `ANIMPLAY`, after the
+    /// controller has had its turn, and once inside `FADEIN` (0x74af9) before
+    /// the bands start moving. Nowhere else.
+    ///
+    /// That is the whole point of having it separate from [`Self::render`].
+    /// The buffers persist between calls, so they hold *what has been drawn* —
+    /// black until something draws, and unchanged while a fade runs, because a
+    /// fade returns to nobody and no frame passes. Composing from the
+    /// descriptor list at display time instead showed pictures the original had
+    /// never drawn: the inventory bar stood in the very first frames and was
+    /// then faded away, and a text that had just faded out came back for the
+    /// next fade to hide again.
+    pub fn draw(&mut self) {
+        self.draw_screens(None);
+    }
+
+    /// `FADEIN`'s one draw, restricted to the fading screen.
+    ///
+    /// The handler passes the screen record itself to the drawer (0x74af9),
+    /// right after `orb $0xD0` on its flags (0x74ae7) — the fade is what
+    /// brings the screen to life — and the band loop then runs synchronously
+    /// inside the handler, so no other screen gets a frame while it moves.
+    /// Drawing everything here instead let changes on *other* screens show
+    /// mid-fade, which the original never does.
+    pub fn draw_screen(&mut self, screen: u32) {
+        self.draw_screens(Some(screen));
+    }
+
+    pub(crate) fn draw_screens(&mut self, only: Option<u32>) {
+        // Every frame starts from nothing. The task manager deactivates a
+        // descriptor and expects it gone without ever calling `ERASESCR`, so
+        // the picture is rebuilt from the descriptor list each time rather than
+        // painted on top of the last one. Skipping this was invisible while a
+        // frame was only ever composed once — buffers start zeroed — and turned
+        // into smeared leftovers the moment a loop rendered twice.
+        for screen in &mut self.display.screens {
+            if only.is_none_or(|o| screen.handle == o) {
+                screen.buffer.fill(0);
+            }
+        }
+
+        let mut order: Vec<usize> = (0..self.descriptors.len())
+            .filter(|&i| self.descriptors[i].active)
+            .filter(|&i| only.is_none_or(|o| self.descriptors[i].screen == o))
+            .collect();
+        order.sort_by_key(|&i| self.descriptors[i].level);
+
+        for i in order {
+            let d = self.descriptors[i].clone();
+            // `block` indexes the same graphics pool as `sprite` — the ids the
+            // game passes to `SDBL` (43, 60, 64, 66, 1010) are all present as
+            // Gfx8 items, and 66 and 1010 are full 640x400 backgrounds. The two
+            // differ in descriptor *type*, not in where the picture comes from:
+            // the handler writes 2 with an eight-byte payload for a sprite and
+            // 3 with a four-byte one for a block, the difference being the
+            // animation state a background does not need.
+            if d.kind == DescriptorKind::Text {
+                self.draw_text_descriptor(&d);
+                continue;
+            }
+            let Some(id) = d.sprite.or(d.block) else {
+                continue;
+            };
+            let Some(sprite) = self.sprite(id) else {
+                continue;
+            };
+            // `SD%SHR` scales in thousandths; unset means full size.
+            let all = d.fields.get("SD%SHR").copied().unwrap_or(0);
+            let h = d.fields.get("SDH%SHR").copied().unwrap_or(all).max(0) as u32;
+            let v = d.fields.get("SDV%SHR").copied().unwrap_or(all).max(0) as u32;
+            let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
+            // The drawn corner depends on what the coordinate means. A centered
+            // sprite sits half its *scaled* size to the left and above the
+            // point — that is what makes the title logo, 320x200 at 2000 per
+            // mille with its center at (320, 240), land on (0, 40).
+            let (sw, sh) = (
+                sprite.width as i32 * h as i32 / 1000,
+                sprite.height as i32 * v as i32 / 1000,
+            );
+            let x = match d.x_mode {
+                Placement::Edge => d.x,
+                Placement::Center => d.x - sw / 2,
+                Placement::FarEdge => d.x - sw,
+            };
+            let y = match d.y_mode {
+                Placement::Edge => d.y,
+                Placement::Center => d.y - sh / 2,
+                Placement::FarEdge => d.y - sh,
+            };
+            if let Some(screen) = self.display.screen_mut(d.screen) {
+                screen.buffer.blit_scaled(&sprite, x, y, h, v);
+            }
+        }
+    }
+
+    /// Draws a text descriptor.
+    ///
+    /// The game gives a center point rather than a corner — `SDCEN` across and
+    /// `SDVCEN` down — so the block is measured first and placed around it.
+    /// Lines break on newlines that are already in the resource; word wrapping
+    /// (`SDWORD`) is a separate thing and not done here.
+    pub(crate) fn draw_text_descriptor(&mut self, d: &Descriptor) {
+        let Some(text) = self.descriptor_text(d) else {
+            return;
+        };
+        // `+FONT` only registers a font and hands back a handle; choosing one
+        // for a descriptor is `SDFNT`. Where nothing chose, the engine falls
+        // back to the system font, not to whatever was registered first —
+        // measured: with fonts 5, 6 and 8 each registered in turn and no
+        // `SDFNT`, the original reports the same width every time, and it is
+        // the one `000.FNT` gives.
+        //
+        // The intro does choose: `XYLTITEM.` ends with `_F1 @ SDFNT`, and `_F1`
+        // holds font 5.
+        let font = match d
+            .font
+            .and_then(|f| self.fonts.get(&f))
+            .or(self.system_font.as_ref())
+        {
+            Some(f) => f.clone(),
+            None => return,
+        };
+        let Some(refs) = self.font_refs.clone() else {
+            return;
+        };
+        // The value `SDCOL` carries is composite, and clamping it threw both
+        // halves away. The drawer tests it at 0x69f50 with `cmpl $0x100` and,
+        // for anything from 256 up, runs a backing pass before the glyphs; the
+        // low part is the palette index. `SETT1` passes 18 + 256, the speaker
+        // table 165 + 256.
+        let raw = d.color;
+        let color = (raw & 0xff) as u8;
+        // An empty text gets no backing. The color asks for one, but the
+        // drawer overrules it: having set the flag at 0x69f5d it runs the
+        // layout, compares the layout's +0x18 against 1 (`cmpw $1` at 0x69f75)
+        // and clears the flag again when it comes up short, so the backing
+        // block is jumped clean over at 0x69f9e.
+        //
+        // That field is the string's length. The layout writes it last, from
+        // its own text pointer at +0xC through 0x11d0e (0x6cdd2-0x6cde2), and
+        // 0x11d0e is `strlen`: a null pointer answers 0 (0x11d26), anything
+        // else is counted to the terminator (0x11d32).
+        //
+        // Without this an empty entry still painted its rectangle — four wide
+        // and one line tall once `SDTDT` has added its 4, plus the 12 of
+        // `backing_rect`, so a 16 x 34 box of darkened background standing in
+        // the picture with nothing in it. Only the backing is held back; the
+        // glyph passes below run either way and draw nothing, which is exactly
+        // what the original does with the same jumps.
+        let backing = raw >= 0x100 && !text.is_empty();
+
+        // The template names a second font and its own glyph gap. `DEFTDT`
+        // pops its nine values as id, font, then the fields at +0xc, +0xe, +4,
+        // +6, +8, +0xa and +0x10 — so in push order the font is args[7] and the
+        // gaps are args[6] and args[5]. Module 3 gives every template the same
+        // set: `8 2 2 -1 -1 -1 -1 _F2@ n`.
+        let template = d
+            .template
+            .and_then(|t| self.templates.iter().find(|x| x.id == t));
+        let outline = template
+            .and_then(|t| t.args.get(7).copied())
+            .and_then(|f| self.fonts.get(&f))
+            .cloned();
+        let outline_gap = template
+            .and_then(|t| t.args.get(6).copied())
+            .unwrap_or(motionvm_render::SPACING);
+        // The outline draws in its own color, out of the template's field
+        // +0x10 masked to a byte — `mov 0x10(%eax),%ax; xor %ah,%ah` at
+        // 0x6a128. The text takes the low byte of `SDCOL` instead
+        // (`and $0xff` at 0x6a219). Handing both passes the same color is
+        // what made the outline invisible: it was there, in the color of the
+        // letters it was supposed to sit behind.
+        let outline_color = template.and_then(|t| t.args.first().copied()).unwrap_or(0) as u8;
+
+        let lines: Vec<&str> = text.split('\n').collect();
+        // The backing goes down first, under the whole block, on the rectangle
+        // `backing_rect` derives — which is a good deal larger than the text.
+        let (bx, by, bw, bh) = self.backing_rect(d);
+        let row = backing.then(|| self.backing_row());
+        let Some(screen) = self.display.screen_mut(d.screen) else {
+            return;
+        };
+        if let Some(row) = &row {
+            screen.buffer.darken_rect(row, bx, by, bw, bh);
+        }
+        // The text goes down twice, and that is where the outline comes from.
+        //
+        // The layout at 0x6c9f8 fills two font slots in its result: `out[0]`
+        // from the descriptor's own font, `out[4]` from the *template's*, which
+        // module 3 sets to `_F2` for all nine templates. The drawer then runs
+        // 0x25c02 twice at the same position — first with `out[4]` and the
+        // template's glyph gap, then with `out[0]` and a gap of 1. So the
+        // outline is a second typeface drawn underneath, not an offset copy and
+        // not a second color; the negative gap keeps the wider outline glyphs
+        // lined up with the ones on top.
+        let passes = outline
+            .iter()
+            .map(|f| (f, outline_gap, outline_color))
+            .chain([(&font, motionvm_render::SPACING, color)]);
+        for (pass_font, gap, pass_color) in passes {
+            // Each pass is placed with *its own* font, not with the text's.
+            // The output routine at 0x257cf centers what it draws — it measures
+            // and subtracts half, at 0x25845 and again at 0x25878 — so two
+            // fonts of different height land concentric on the same point.
+            // Font 5 carries the letters at 18 tall and font 6 the outline at
+            // 20, which is exactly one pixel over and one under. Placing both
+            // from a top computed once, out of the text font, dropped the
+            // outline a pixel: doubled below, missing above.
+            let height = line_height(pass_font, gap);
+            // The gap belongs in the centring height, and this is why.
+            //
+            // At 0x2588e the output routine computes `font[+2] × lines`
+            // with no gap (0x25897, 0x258a1, 0x258a6), and centring on that
+            // looked like the faithful reading. It is not what the engine
+            // does: `the_intro_shows_its_two_texts_in_order` measures a line at
+            // 166 against a real run, and the gapless height puts it at 167.
+            //
+            // So either that branch is not the one this path takes, or the
+            // height there serves something other than the centring. Measured
+            // beats read — the same way the oracle test threw out a -1 truth
+            // flag that had looked just as convincing.
+            let block = (lines.len() as i32 * height - gap).max(0);
+            let top = match d.y_mode {
+                Placement::Edge => d.y,
+                Placement::Center => d.y - block / 2,
+                Placement::FarEdge => d.y - block,
+            };
+            for (i, line) in lines.iter().enumerate() {
+                let y = top + i as i32 * height;
+                let width = Framebuffer::text_width_spaced(pass_font, &refs, line, gap);
+                let x = match d.x_mode {
+                    Placement::Edge => d.x,
+                    Placement::Center => d.x - width / 2,
+                    Placement::FarEdge => d.x - width,
+                };
+                screen
+                    .buffer
+                    .draw_text_spaced(pass_font, &refs, line, x, y, pass_color, gap);
+            }
+        }
+    }
+}

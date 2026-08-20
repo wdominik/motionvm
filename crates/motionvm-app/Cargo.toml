@@ -1,0 +1,25 @@
+[package]
+name = "motionvm-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The window: shows what the engine renders and feeds it input"
+
+[[bin]]
+name = "motionvm"
+path = "src/main.rs"
+
+[dependencies]
+motionvm-engine.workspace = true
+motionvm-formats.workspace = true
+motionvm-audio.workspace = true
+motionvm-render.workspace = true
+cpal.workspace = true
+winit = "0.30"
+softbuffer = "0.4"
+
+[lints]
+workspace = true

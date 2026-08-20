@@ -1,0 +1,37 @@
+motionvm — third-party notices
+==============================
+
+motionvm itself is under the MIT license; see LICENSE.
+
+nuked-opl3 (LGPL-2.1-or-later)
+------------------------------
+
+The OPL3 core comes from `nuked-opl3`, a Rust port of Nuked-OPL3, and is
+LGPL-2.1-or-later, as every derivative of Nuked-OPL3 is. It was chosen anyway
+because it is the accurate one: it reproduces the chip register for register,
+measured against silicon, where the permissively licensed alternatives
+approximate the envelope and phase behavior. Nothing in the game's data
+defines what the chip does with a register, so an approximation cannot be
+checked against anything the project has.
+
+The LGPL's condition on a work that links it statically is that whoever
+receives the binary must be able to relink it against a modified version of the
+library. For a Rust binary that means the object files or the sources have to
+be on offer.
+
+**This is discharged by source availability.** motionvm is distributed as
+source; anyone with it can change the `nuked-opl3` dependency, rebuild, and get
+a binary with their own version of the library in it. Nothing further is
+required for that form of distribution.
+
+Anyone shipping a **pre-built binary** of motionvm takes on the obligation
+themselves: alongside the binary they must offer either its object files or the
+complete corresponding source, so the recipient can relink. That is the LGPL's
+requirement and not motionvm's.
+
+The game data
+-------------
+
+The game's own files — artwork, text, music, script modules and `ENGINE.EXE` —
+are **not** part of this project and are not redistributable. motionvm reads an
+existing installation and ships none of it. See "Game data" in README.md.

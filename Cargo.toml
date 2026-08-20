@@ -1,0 +1,85 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/motionvm-formats",
+    "crates/motionvm-tools",
+    "crates/motionvm-forth",
+    "crates/motionvm-render",
+    "crates/motionvm-audio",
+    "crates/motionvm-engine",
+    "crates/motionvm-app",
+    "crates/motionvm-testutil",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+license = "MIT"
+authors = ["wdominik"]
+repository = "https://github.com/wdominik/motionvm"
+description = "A reimplementation of the MOTION engine that runs Dunkle Schatten 2 natively"
+
+[workspace.dependencies]
+motionvm-formats = { path = "crates/motionvm-formats" }
+motionvm-forth = { path = "crates/motionvm-forth" }
+motionvm-render = { path = "crates/motionvm-render" }
+motionvm-audio = { path = "crates/motionvm-audio" }
+motionvm-engine = { path = "crates/motionvm-engine" }
+motionvm-app = { path = "crates/motionvm-app" }
+motionvm-testutil = { path = "crates/motionvm-testutil" }
+
+# The PNG codec. Encode only: the pictures the tools extract and the frame F12
+# writes. Nothing here decodes one.
+png = "0.18"
+
+# The OPL3 itself. A pure-Rust port of Nuked-OPL3 that tests itself bit-for-bit
+# against the C reference, so nothing is lost by not building C. Accuracy is
+# the whole point here: nothing in the game defines what the chip does with a
+# register, so the chip model is the one component that cannot be derived from
+# the material and has to be borrowed from someone who measured silicon.
+# LGPL-2.1-or-later, as every Nuked derivative is: handing out a linked binary
+# means letting the recipient relink it. NOTICE says what that obliges.
+nuked-opl3 = "0.1"
+# Sound output. Apache-2.0.
+cpal = "0.18"
+
+# Lints are declared here and switched on per crate with `[lints] workspace =
+# true`, which every member carries. Without that line in the member the table
+# below is inert, which is worth knowing because nothing warns about it.
+[workspace.lints.rust]
+# There is none, and there is no reason for there to be: this reads files and
+# pushes pixels around. `forbid` rather than `deny` so that it cannot be
+# switched off locally without also editing this line.
+unsafe_code = "forbid"
+# Everywhere, including public struct fields and enum variants, which are the
+# bulk of a format reader's surface — a field's documentation is where the
+# offset it was read from is cited, so an undocumented field is an unsourced
+# claim. `deny` rather than `warn` so that the rule holds without anyone having
+# to remember it.
+missing_docs = "deny"
+
+[workspace.lints.clippy]
+# The two groups that describe code which is probably wrong rather than code
+# which is merely unfashionable. Neither fires today. `pedantic` is deliberately
+# absent: this codebase makes deliberate choices it would argue with.
+correctness = "deny"
+suspicious = "deny"
+
+# The frontend is a software renderer: `blit` in motionvm-app walks every
+# physical window pixel on the CPU, and on a Retina display that is five
+# million of them a frame. Compiled well that is a millisecond; at opt-level 0
+# it is a slideshow, and a slideshow reads as broken hardware rather than as a
+# missing flag. So release lets the hot loops inline across crates, and dev
+# gets enough optimization to stay playable — lightly on this workspace's own
+# code, which still wants debugging, and fully on the dependencies, which do
+# not.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

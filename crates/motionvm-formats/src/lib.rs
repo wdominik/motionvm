@@ -1,0 +1,235 @@
+//! Readers for the resource formats of the MOTION engine (DigiTales, 1996), as
+//! shipped with "Im Netzwerk gefangen - Dunkle Schatten 2".
+//!
+//! Everything here was derived from the shipped data files and the strings in
+//! `ENGINE.EXE`. Each reader carries the evidence for its format: the offsets
+//! it reads, the address in the relocated image the layout was read at, and
+//! the corpus the reading was checked against.
+
+pub mod bnk;
+pub mod disasm;
+pub mod drv;
+pub mod error;
+pub mod font;
+pub mod gfx;
+pub mod hmi;
+pub mod le;
+pub mod lzw;
+pub mod pal;
+pub mod rsc;
+pub mod scr;
+pub mod text;
+
+pub use bnk::Bank as InstrumentBank;
+pub use drv::{Driver, DriverArchive};
+pub use error::{Error, Result};
+pub use gfx::Sprite;
+pub use hmi::Song;
+pub use le::{Image, KernelWord};
+pub use pal::Palette;
+pub use rsc::{Bank, Kind, Rsc};
+pub use scr::{Entry, ScrModule};
+pub use text::TextTable;
+
+/// Finds `name` in `dir` whatever case it is stored in.
+///
+/// The game's files are named in upper case on the disc — `ENGINE.EXE`,
+/// `000.FRT`, `MELODIC.BNK` — but a copy that has been through a CD-ROM
+/// driver, an archiver or a file manager very often arrives in lower case.
+/// On a case-insensitive filesystem that costs nothing and is invisible; on a
+/// case-sensitive one an exact-case `join` simply does not find the file, and
+/// the game reports a directory it is standing in as "not a MOTION game
+/// directory".
+///
+/// So every shipped file is looked up through here. The `NNN.RSC` containers
+/// were already found this way — [`rsc::Bank::open_dir`] scans and compares
+/// with `eq_ignore_ascii_case` — and this is the same rule for the files that
+/// are opened by name.
+///
+/// Returns the path as it is actually spelled on disk, so what gets opened is
+/// what was found. An exact match wins over a differently-cased one, which
+/// only matters on a filesystem holding both. `None` when the directory cannot
+/// be read or holds nothing by that name.
+///
+/// The comparison is ASCII-only, which is all these names are.
+pub fn find_ci(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    let exact = dir.join(name);
+    if exact.exists() {
+        return Some(exact);
+    }
+    std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
+        let p = e.path();
+        p.file_name()
+            .and_then(|f| f.to_str())
+            .is_some_and(|f| f.eq_ignore_ascii_case(name))
+            .then_some(p)
+    })
+}
+
+/// An empty `Vec` reserved for `count` items, but never for more than `have`
+/// bytes of input could describe at `per_item` bytes each.
+///
+/// Item counts come out of the file being read, so a damaged header can ask for
+/// a hundred million records inside a five-kilobyte file. Every loop that
+/// follows one of these checks its bounds as it goes and fails on the first
+/// missing byte — reserving is only an optimization, and capping it is what
+/// stops the reservation itself from aborting the process before the loop gets
+/// a chance to report the real problem.
+pub(crate) fn reserve<T>(count: usize, have: usize, per_item: usize) -> Vec<T> {
+    Vec::with_capacity(count.min(have / per_item.max(1) + 1))
+}
+
+/// Reads one byte at `off`, or `Err` if that is past the end.
+pub(crate) fn u8at(d: &[u8], off: usize) -> Result<u8> {
+    d.get(off).copied().ok_or(Error::Truncated {
+        off,
+        need: 1,
+        have: d.len(),
+    })
+}
+
+/// Reads a little-endian `u16` at `off`, or `Err` if it would run past the end.
+pub(crate) fn u16le(d: &[u8], off: usize) -> Result<u16> {
+    let b = d.get(off..off + 2).ok_or(Error::Truncated {
+        off,
+        need: 2,
+        have: d.len(),
+    })?;
+    Ok(u16::from_le_bytes([b[0], b[1]]))
+}
+
+/// Reads a little-endian `u32` at `off`, or `Err` if it would run past the end.
+pub(crate) fn u32le(d: &[u8], off: usize) -> Result<u32> {
+    let b = d.get(off..off + 4).ok_or(Error::Truncated {
+        off,
+        need: 4,
+        have: d.len(),
+    })?;
+    Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+/// Decodes a NUL-terminated CP437 byte string into a Rust `String`.
+///
+/// The game's text is code page 437; German umlauts land in the 0x80..0xFF
+/// range and would otherwise come out as mojibake.
+pub fn cp437_to_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|&b| cp437_char(b)).collect()
+}
+
+/// One byte in, one `char` out — always.
+///
+/// Relied on outside this crate: `GDTEXTLEN` answers with `chars().count()` of
+/// a decoded string and that has to equal the number of bytes the original
+/// counted with `strlen`. It does, because the mapping is one to one. What
+/// would *not* work is `str::len()`, which is the UTF-8 length and counts every
+/// umlaut twice. `a_decoded_string_has_one_char_per_byte` holds this down.
+///
+/// Maps one CP437 byte to its Unicode code point.
+pub fn cp437_char(b: u8) -> char {
+    if b < 0x80 {
+        return b as char;
+    }
+    const HIGH: [char; 128] = [
+        'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å', 'É', 'æ',
+        'Æ', 'ô', 'ö', 'ò', 'û', 'ù', 'ÿ', 'Ö', 'Ü', '¢', '£', '¥', '₧', 'ƒ', 'á', 'í', 'ó', 'ú',
+        'ñ', 'Ñ', 'ª', 'º', '¿', '⌐', '¬', '½', '¼', '¡', '«', '»', '░', '▒', '▓', '│', '┤', '╡',
+        '╢', '╖', '╕', '╣', '║', '╗', '╝', '╜', '╛', '┐', '└', '┴', '┬', '├', '─', '┼', '╞', '╟',
+        '╚', '╔', '╩', '╦', '╠', '═', '╬', '╧', '╨', '╤', '╥', '╙', '╘', '╒', '╓', '╫', '╪', '┘',
+        '┌', '█', '▄', '▌', '▐', '▀', 'α', 'ß', 'Γ', 'π', 'Σ', 'σ', 'µ', 'τ', 'Φ', 'Θ', 'Ω', 'δ',
+        '∞', 'φ', 'ε', '∩', '≡', '±', '≥', '≤', '⌠', '⌡', '÷', '≈', '°', '∙', '·', '√', 'ⁿ', '²',
+        '■', '\u{a0}',
+    ];
+    HIGH[(b - 0x80) as usize]
+}
+
+#[cfg(test)]
+mod tests {
+    /// One byte of CP437 is one `char`, umlauts included.
+    ///
+    /// The property `GDTEXTLEN` stands on: the original measures a line with
+    /// `strlen` over CP437 bytes, and this rebuild measures it as `chars()` of
+    /// the decoded string. Those agree only because the decode is one to one,
+    /// and the speech durations `TSX` works out from that length would drift by
+    /// one tick per umlaut if it ever stopped being true.
+    #[test]
+    fn a_decoded_string_has_one_char_per_byte() {
+        // Every byte, not a sample: the mapping has no gaps and no pairs.
+        let all: Vec<u8> = (0..=255u8).collect();
+        let decoded = super::cp437_to_string(&all);
+        assert_eq!(decoded.chars().count(), all.len());
+        // And the trap this protects against: UTF-8 length is not the same
+        // number, because the high half does not fit in one byte.
+        assert!(
+            decoded.len() > all.len(),
+            "if these were equal the test would be proving nothing"
+        );
+
+        let german = super::cp437_to_string(b"Gr\x81\xe1e, sch\x94n!");
+        assert_eq!(german, "Grüße, schön!");
+        assert_eq!(german.chars().count(), 13, "thirteen bytes, thirteen chars");
+        assert_eq!(
+            german.len(),
+            16,
+            "but sixteen bytes of UTF-8: three of them are two-byte"
+        );
+    }
+}
+
+#[cfg(test)]
+mod find_ci_tests {
+    use super::find_ci;
+
+    /// A directory of empty files with the given names, under `target/`.
+    fn dir_with(name: &str, files: &[&str]) -> std::path::PathBuf {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/find-ci")
+            .join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a test directory");
+        for f in files {
+            std::fs::write(dir.join(f), b"").expect("a test file");
+        }
+        dir
+    }
+
+    /// The case the disc uses, which is also the case the code asks for.
+    #[test]
+    fn an_exact_name_is_found() {
+        let dir = dir_with("exact", &["ENGINE.EXE", "000.FRT"]);
+        assert!(find_ci(&dir, "ENGINE.EXE").is_some());
+        assert!(find_ci(&dir, "000.FRT").is_some());
+    }
+
+    /// The case a copied install very often has. This is the one that used to
+    /// fail, and only on a case-sensitive filesystem — which is why it is
+    /// asserted rather than trusted.
+    #[test]
+    fn a_lowercased_install_is_found_too() {
+        let dir = dir_with("lower", &["engine.exe", "000.frt", "melodic.bnk"]);
+        for want in ["ENGINE.EXE", "000.FRT", "MELODIC.BNK"] {
+            let got = find_ci(&dir, want)
+                .unwrap_or_else(|| panic!("{want} was not found among lowercase files"));
+            // What comes back is the real spelling, so opening it works.
+            assert!(got.exists(), "{} does not exist", got.display());
+        }
+    }
+
+    /// Mixed case counts too — archivers produce this as readily as either.
+    #[test]
+    fn any_mixture_of_case_is_found() {
+        let dir = dir_with("mixed", &["Engine.Exe"]);
+        assert!(find_ci(&dir, "ENGINE.EXE").is_some());
+    }
+
+    #[test]
+    fn a_name_that_is_not_there_is_none() {
+        let dir = dir_with("absent", &["ENGINE.EXE"]);
+        assert!(find_ci(&dir, "000.FRT").is_none());
+    }
+
+    #[test]
+    fn a_directory_that_is_not_there_is_none() {
+        let dir = dir_with("gone", &[]);
+        assert!(find_ci(&dir.join("nope"), "ENGINE.EXE").is_none());
+    }
+}

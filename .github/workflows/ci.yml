@@ -1,0 +1,73 @@
+# The floor, not the gate.
+#
+# `just check` is the real gate and it runs the suite against a copy of the
+# game. The game's files are copyrighted and cannot be here, so CI runs the
+# same four commands without them: of the test suite's ~215 tests, the ~84 that
+# need the data skip themselves and say so. What this proves is that the
+# workspace builds, lints, documents and passes its data-free tests — on three
+# platforms rather than on the one it was written on.
+#
+# That last part is the point. Nothing here can catch a mistake in how the
+# engine reads the game, but it does catch the kind that only shows up
+# somewhere else: a path assumption, a platform-specific dependency, code that
+# happens to compile on one target.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A warning that only appears in CI is a warning nobody reads.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Finish the others: "it broke on Windows" and "it broke everywhere" want
+      # different reactions, and cancelling hides which one it is.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # rust-toolchain.toml pins the version; this installs what it names and
+      # adds the two components the checks below need.
+      - name: Install the pinned toolchain
+        run: rustup component add rustfmt clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # winit and cpal need X11/Wayland and ALSA headers to build at all. The
+      # other two runners bring their equivalents with the OS.
+      - name: System libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev \
+            libxkbcommon-dev libwayland-dev
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Lints
+        run: cargo clippy --workspace --all-targets
+
+      # No MOTIONVM_GAMEDATA and no MOTIONVM_SAVES: the data-dependent tests
+      # print why they skipped. `--nocapture` so that those reasons are in the
+      # log — a run that skipped everything must not read like a run that
+      # passed everything.
+      - name: Tests, without the game data
+        run: cargo test --workspace -- --nocapture
+
+      - name: Documentation
+        env:
+          RUSTDOCFLAGS: -D rustdoc::broken_intra_doc_links -D warnings
+        run: cargo doc --workspace --no-deps --document-private-items

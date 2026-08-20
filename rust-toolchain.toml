@@ -1,0 +1,11 @@
+# Pinned to stable rather than to a version, so that `cargo fmt` and
+# `cargo clippy` give the same answer here as on any other machine that has run
+# `rustup update`. A fixed version number would be reproducible but would also
+# make the first cargo invocation on a new machine download a toolchain.
+#
+# Note that this is not the MSRV. That is `rust-version` in Cargo.toml, which
+# says 1.98.0 — not a floor forced by any feature, but the policy: this builds
+# on current stable and does not carry an older one.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
