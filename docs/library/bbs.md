@@ -18,6 +18,27 @@ running x offset — and `HOTMEN`/`UNHOTMEN` move the highlight;
 `SAFEMEN`/`RESTMEN` push and pop an entire bar so submenus can replace
 it and restore it exactly.
 
+## Keys
+
+The terminal is worked from the keyboard, and the manual says so (text bank
+006, entry 60): *"danach kannst Du Dich mit den Pfeiltasten durch die Menüs
+bewegen und diese mit RETURN anwählen"*. `LTMANAGER` dispatches at `0x0c21c`,
+behind `_EDVMODE @ 3 =` and the cursor animation standing still:
+
+| Key | Also | Does |
+|---|---|---|
+| ← | `4` | `HOTMEN` one entry left, round the end |
+| → | `6` | `HOTMEN` one entry right |
+| ↑ | `8` | `SELUP`, only while `_SELFLAG` is set |
+| ↓ | `2` | `SELDOWN`, same gate |
+| Return | Space | take what is highlighted |
+| a letter | | jump the highlight to the entry whose hot-key it is, tested against `?MENHOT` and `?MENHOT + 32` so either case does |
+
+The four cursor codes are 331, 333, 328 and 336 — `0x100` over their scan codes,
+which is how [`?KEY`](../vm/kernel-words.md) answers a key that carries no
+character. The digits are the same four directions a second time — the numeric
+keypad with Num Lock on.
+
 ## Screens and the modem illusion
 
 Terminal screens are lists of text-row sprites (ids 4018–4209)
@@ -28,6 +49,38 @@ redraw. About twenty screens exist (login, main, file areas, mail,
 search, news, help, sysop, …). Below the menu sits a generic selection
 list on an 8-pixel text grid (`NEWSEL`, `SELUP`/`SELDOWN`, a highlight
 bar).
+
+### How the wipe is made
+
+Every change of screen runs the same three phases (`0x0a0bc` is one of a
+dozen):
+
+```
+phase 0:  HIDSCR   \ all sixteen row descriptors off, then 15 ->LTWAIT
+phase 1:  CLSCR    \ a black bar over one row every three frames, up to _LASTL
+phase 2:  DOFADE   \ the bars off again, one row every five frames
+```
+
+It reads as a slow redraw only because **hiding a descriptor does not erase
+it** (see [Screens](../engine/screens.md#the-drawn-buffer)). The rows stay on
+the screen after `HIDSCR`, and the bars are what takes them away.
+
+The two halves are built for exactly that, in module 316:
+
+| | built at | Level | `SDAUTOBUF` |
+|---|---|---|---|
+| `_BG`, the monitor (sprite 4009) | `0x00120` | 2 | no |
+| `SCRDESC[0..15]`, the text rows | `0x00f60` | 8 | **no** |
+| `BDESC[0..42]`, the bars (sprite 4148) | `0x01020` | 12 | **yes** |
+
+A row carries no buffer, so switching it off leaves it standing; a bar carries
+one, so taking it down puts back what was under it — which is how `DOFADE`
+uncovers the *new* screen a row at a time.
+
+And the bar is not a black rectangle over a picture: sprite 4148 is 509×8
+pixels of **index 9**, and index 9 is precisely what the monitor's screen area
+in sprite 4009 is painted in. Over the background it is pixel for pixel
+invisible. It can only erase text.
 
 ## Login as animation
 

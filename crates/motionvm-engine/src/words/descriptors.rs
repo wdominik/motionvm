@@ -64,6 +64,11 @@ impl Engine {
                         DescriptorKind::Empty
                     },
                     active: true,
+                    // `NEWSETDESC` writes the flag word 0xD000 at 0x70d07 —
+                    // active, dirty and changed — so a fresh descriptor is
+                    // drawn by the very next pass without anything marking it.
+                    dirty: true,
+                    changed: true,
                     callback: callable(a[5], mem),
                     wait: -1,
                     ..Default::default()
@@ -77,6 +82,11 @@ impl Engine {
             }
             "SDINACTIVE" => self.set_active(false),
             "SDACTIVE" => self.set_active(true),
+            // Not a toggle: `0x72104` hands the descriptor a buffer number out
+            // of a counter at 0xDB4B4, writes it to +0x1C and sets flag 0x08.
+            // What hangs off that number is the save-under the drawer fills —
+            // and having one is the only way anything in this engine is ever
+            // erased. See [`Descriptor::buffer`](crate::Descriptor::buffer).
             "SDAUTOBUF" => {
                 if let Some(d) = self.descriptor_mut() {
                     d.auto_buffer = true;
@@ -125,6 +135,9 @@ impl Engine {
                 if let Some(d) = self.descriptor_mut() {
                     d.fields.insert("INSERT", a[0]);
                 }
+                // What it inserts is part of what the descriptor shows, so the
+                // change is marked like any other (0x6ab6e).
+                self.touch_current();
             }
             // The placement words differ only in what the value means, and the
             // original encodes exactly that as a mode next to the coordinate.

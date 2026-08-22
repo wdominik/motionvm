@@ -15,14 +15,32 @@ that way.
 
 ## Getting started
 
-**Toolchain.** The workspace tracks current stable Rust via
-`rust-toolchain.toml` and uses the 2024 edition. The minimum supported version
-is `rust-version` in `Cargo.toml` (currently 1.98.0). That is a policy and not
-a floor forced by a feature: this project builds on current stable and does not
-keep an older one working, which is worth knowing because a distribution's Rust
-is often months behind. Use current language features where they make code
-clearer; raise the MSRV deliberately, in its own change with a stated reason —
-never as a side effect of reaching for a new API.
+**Toolchain.** The workspace tracks stable Rust via `rust-toolchain.toml` and
+uses the 2024 edition. The minimum supported version is `rust-version` in
+`Cargo.toml` (currently 1.97.0). It is not a floor forced by a feature — the
+whole workspace and all its targets compile on 1.95.0, and the oldest thing
+that really stops it is let-chains, stable in edition 2024 since 1.88.
+
+It is a **ceiling**, and the ceiling is CI. The runner images bring their own
+stable and lag the channel by a week or two, and the workflow deliberately
+builds on that rather than downloading a toolchain three times per push. A
+`rust-version` above what the images carry fails every job before a crate is
+compiled — which is what a 1.98.0 four days after 1.98.0's release did.
+
+So: use current language features where they make code clearer, but raise the
+MSRV deliberately, in its own change with a stated reason, and only to a stable
+the runners already have — never as a side effect of reaching for a new API.
+What CI would say is checkable without waiting for a push — install the
+version `rust-version` names and run the workflow's four commands on it:
+
+```sh
+rustup toolchain install 1.97.0 -c rustfmt -c clippy
+export RUSTUP_TOOLCHAIN=1.97.0 RUSTFLAGS="-D warnings"
+cargo fmt --all --check
+cargo clippy --workspace --all-targets
+cargo test --workspace
+cargo doc --workspace --no-deps --document-private-items
+```
 
 **Game data.** The game's files are not in the repository and cannot be; they
 are copyrighted. The `justfile` reads two locations:

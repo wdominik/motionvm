@@ -53,11 +53,11 @@ Known fields:
 | +0x08 | `i16` | Level (draw order) |
 | +0x0E | | Group: sibling-list head/tail; text: the layout record |
 | +0x12 | `u16` | **Placement modes**: bits 0–1 horizontal, bits 2–3 vertical |
-| +0x13 | `u8` | Flags: bit 7 active/visible; bit 3 grouped; screen byte: bit 2 = frozen |
+| +0x13 | `u8` | Flags: `0x80` active, `0x40` dirty, `0x20` buffer filled, `0x10` changed, `0x08` buffered (`SDAUTOBUF`); on a screen's byte, bit 2 = frozen |
+| +0x1C | `u16` | The buffer number `SDAUTOBUF` hands out, or −1 for none |
 | +0x14 | `u32` | **Completion callback** (set by `SDWORD` or `NEWSETDESC` arg 6) |
 | +0x17 | `u8` | Bit 7 = center the text block as a whole (set only by `SDBLK`, which no shipped script calls — see [Text rendering](text-rendering.md#centering)) |
 | +0x18 | `i32` | **Wait counter** (set by `SDWAIT`): −1 never, 0 due every frame, n counts down |
-| +0x1C | | Parent group |
 | +0x1E / +0x22 | | Sibling chain: next / previous |
 | +0x26 | | Owning screen |
 | +0x2E / +0x32 | `u16` | **Stored size** width / height (for text: measured + 4) |
@@ -125,15 +125,50 @@ A descriptor is exactly one type, set by the word that gives it content:
 is unrelated to the BLOCK resource type. All ids passed to `SDBL` in
 the game (43, 60, 64, 66, 1010) exist as GFX8 sprites.
 
+## `SDAUTOBUF` — the only thing that erases
+
+`SDAUTOBUF` (`0x72104`) raises a counter at `0xDB4B4`, writes the number it
+comes to into +0x1C and sets flag `0x08`. Hanging off that number is a **record
+of the picture under the descriptor**: the drawer copies the surface into it
+before every blit (`0x696ed` → `0x6b936` → `0x2825d`), filling in the same
+rectangle and level the descriptor has — width rounded up to a multiple of
+eight (`0x6ba18`), and for a text grown by the template's margin (`0x6baa7`) —
+and setting `0x20` to say the copy is there (`0x6bb89`, `0x6bd26`). When the
+descriptor is then hidden or moved, `0x6ab6e` marks that rectangle too
+(`0x6ac33`) and the copy goes back.
+
+**Without one, nothing disappears.** `SDINACTIVE` marks only its own rectangle
+on its own level, which repaints what is above it and nothing below (see
+[Screens](screens.md#the-damage-map)), so the descriptor's pixels stay on the
+surface.
+
+The game is consistent about it: `INITANI` gives every animation the flag
+(module 6, `0x007dc`), and so do the captions `_TI1`/`_TI2`, the descriptions
+`_IINFO`/`_MINFO`/`_TINFO` (module 3) and the menu sprites. Across all
+eighty-six modules only thirteen descriptors are made without it and hidden
+later — and four of those are the mailbox's own, where staying put is the
+point.
+
+motionvm reproduces the effect rather than the record: when a descriptor
+carrying the flag leaves a place, that place is built again out of the
+descriptor list. The two agree wherever the picture belongs to descriptors,
+which is everywhere the game uses the flag, and a rebuild cannot go out of date
+the way a remembered copy can. It is a deliberate difference and is written down
+as one — see [Departures](../departures.md#display-and-timing).
+
 ## Visibility, order, and the frame walk
 
 - The active bit is `0x80` in byte +0x13, set only by
   `SDACTIVE`/`SDINACTIVE` — and **a newly created descriptor is
-  visible**.
+  visible**, dirty and changed with it (`NEWSETDESC` writes `0xD000` at
+  `0x70d07`).
 - Descriptors hang in a **sibling chain per screen**, and insertion
   (`0x6a648`) advances past every entry of the same or lower level
   before linking: the chain is a **stable sort by level**. Draw order
   and the per-frame walk follow the chain; no separate sort exists.
+- Being active is not enough to be drawn: the dirty bit `0x40` has to be up
+  as well, and the damage map is what raises it. See
+  [Screens](screens.md#the-damage-map).
 - The per-frame walk (`0x68c64`, run from the
   [game loop](game-loop.md)) implements timed callbacks: a descriptor
   **with** a callback (+0x14) has its wait (+0x18) counted down; at
@@ -183,6 +218,7 @@ text answers 421, not 165 (see [Text rendering](text-rendering.md)).
 - The animation state inside the type-2 payload.
 - `SDBUF`, `SDSTARTLINE`, `SDALINES`, `SDTRANS`, `SDSHADE`, `SDINSERT`
   semantics.
+- What flag `0x10` picks between — see [Screens](screens.md#open-questions).
 
 ## See also
 

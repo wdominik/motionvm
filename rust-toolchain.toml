@@ -3,9 +3,19 @@
 # `rustup update`. A fixed version number would be reproducible but would also
 # make the first cargo invocation on a new machine download a toolchain.
 #
+# "stable" means *the stable this machine has*: rustup installs a channel that
+# is missing, and never updates one that is already there. That is worth
+# knowing because CI is such a machine — the runner images bring their own
+# stable and lag the channel by a week or two.
+#
 # Note that this is not the MSRV. That is `rust-version` in Cargo.toml, which
-# says 1.98.0 — not a floor forced by any feature, but the policy: this builds
-# on current stable and does not carry an older one.
+# says 1.97.0. It is not a floor forced by any feature — the workspace and all
+# its targets compile on 1.95.0, and only let-chains (stable in edition 2024
+# since 1.88) stop it going much further down. It is a ceiling instead:
+# **`rust-version` must stay at or below the stable the CI runner images
+# carry.** Raise it to a freshly released stable and CI goes red on all three
+# of them until the images catch up, which is exactly what happened when it
+# said 1.98.0 four days after 1.98.0 came out.
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy"]

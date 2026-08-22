@@ -128,13 +128,13 @@ created on startup if it is not there and its path is printed, so a fresh clone
 needs no setup. `--loc N` starts in a given location, `--shot PATH` moves the
 screenshot, and `--no-sound` runs silent.
 
-Requires a Rust toolchain of 1.98.0 or newer. That is current stable rather
-than an old floor: motionvm tracks stable and does not keep an older one
-working, so a Rust that came with your distribution may well be too old. Nothing
-else — no C compiler, no system libraries beyond what `winit`
-and `cpal` need for a window and an audio device. On Linux that means the
-X11/Wayland and ALSA development headers; `.github/workflows/ci.yml` names the
-Debian packages.
+Requires a Rust toolchain of 1.97.0 or newer. That is not the oldest one that
+would work — the workspace compiles on 1.95.0 — but it is recent, so a Rust
+that came with your distribution may well be too old; `rustup` is the reliable
+way to have one. Nothing else — no C compiler, no system libraries beyond what
+`winit` and `cpal` need for a window and an audio device. On Linux that means
+the X11/Wayland and ALSA development headers; `.github/workflows/ci.yml` names
+the Debian packages.
 
 **Where it has actually been played: macOS.** CI builds, lints and tests it on
 Linux and Windows too, but without the game data — so those two are known to
@@ -191,13 +191,16 @@ motionvm-tools script /path/to/gamedata 323 | less
 ## Controls
 
 The game is played with the mouse; the keys are the original's, delivered into
-`ICTRL`'s key variable exactly as the DOS engine's BIOS reads did.
+`ICTRL`'s key variable exactly as the DOS engine's BIOS reads did — a character
+where the key has one and a scan code where it has none, which is what lets the
+mailbox be worked with the cursor keys the way its manual describes.
 
 | | |
 |---|---|
 | Left click | Walk, use, or pick the thing under the pointer |
 | Right click | Open the verb menu on it |
 | Escape | The in-game menu — save, load, options, quit |
+| Cursor keys | Move through the in-game mailbox's menus and lists; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
 | F12 | Freeze the picture **and** write it out as an indexed PNG — to `shot.png` in the data directory, or wherever `--shot` says; the path is printed |
 | Close the window | Quit |

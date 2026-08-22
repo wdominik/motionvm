@@ -76,8 +76,21 @@ fn a_click_advances_the_intro() {
     eprintln!("intro reached task {task}, phase {phase}");
 }
 
+/// Switching a descriptor off does not erase it — only a save-under does, and
+/// only a fade wipes the surface.
+///
+/// `SDINACTIVE` (0x72033) runs 0x6ab6e, which marks the descriptor's rectangle
+/// on its **own** level (0x6e701): everything above it is repainted, nothing
+/// below is, and the descriptor itself is no longer drawn. So its pixels stay
+/// where they are. The drawer never clears a surface either — 0x6915b resets
+/// the damage map (0x69248) and repaints what that map names, nothing more.
+///
+/// What does clear a surface is `FADEOUT`, which fills the screen's rectangle
+/// with colour 0 before its first band (0x74d44) — and that is why the intro's
+/// `FADEOUT … SDINACTIVE … FADEIN` leaves nothing of the old picture behind
+/// while a bare `SDINACTIVE` leaves all of it.
 #[test]
-fn a_deactivated_descriptor_leaves_nothing_behind() {
+fn hiding_a_descriptor_leaves_its_picture_standing() {
     let Some(dir) = gamedata() else {
         eprintln!("skipping: no gamedata directory");
         return;
@@ -100,14 +113,22 @@ fn a_deactivated_descriptor_leaves_nothing_behind() {
     let drawn = first.pixels.iter().filter(|&&p| p != 0).count();
     assert!(drawn > 0, "the title screen draws something to begin with");
 
-    // Exactly what phase 1 of the intro does to the logo, and what the next
-    // drawn frame has to reflect: turn a descriptor off and it is gone. The
-    // drawer rebuilds from the list rather than painting on top of what was
-    // there, so nothing survives — but it takes a *draw* to happen, because
-    // switching a descriptor off changes no pixel by itself. That is the
-    // original's order too: `SDINACTIVE` erases nothing, 0x6915b does.
-    for d in game.engine.descriptors_mut() {
-        d.active = false;
+    // Through the words, not by hand: `SDINACTIVE` is where the marking lives,
+    // and a test that reached past it would be testing nothing.
+    let mut mem = motionvm_forth::Memory::default();
+    for handle in game
+        .engine
+        .descriptors()
+        .iter()
+        .map(|d| d.handle)
+        .collect::<Vec<_>>()
+    {
+        game.engine
+            .plain_word("ACTDESC", &mut vec![handle as i32], &mut mem)
+            .expect("ACTDESC");
+        game.engine
+            .plain_word("SDINACTIVE", &mut vec![], &mut mem)
+            .expect("SDINACTIVE");
     }
     game.engine.draw();
     // And it takes a *present* to show, which is the original's second step:
@@ -116,7 +137,31 @@ fn a_deactivated_descriptor_leaves_nothing_behind() {
     game.engine.present();
     let second = game.render();
     let left = second.pixels.iter().filter(|&&p| p != 0).count();
-    assert_eq!(left, 0, "{left} pixels of the previous frame survived");
+    assert!(
+        left > 0,
+        "nothing carries a save-under here, so the picture must still be \
+         standing after every descriptor was switched off"
+    );
+
+    // The fade is what takes it away, and it takes it away wholesale.
+    game.engine
+        .plain_word("ACTSCR", &mut vec![2], &mut mem)
+        .expect("ACTSCR");
+    game.engine
+        .plain_word("FADEOUT", &mut vec![1, 50, 8], &mut mem)
+        .expect("FADEOUT");
+    let held = game
+        .engine
+        .screens()
+        .iter()
+        .find(|s| s.handle == 2)
+        .expect("the main screen")
+        .buffer
+        .pixels
+        .iter()
+        .filter(|&&p| p != 0)
+        .count();
+    assert_eq!(held, 0, "{held} pixels survived the fade's fill");
 }
 
 /// The fade out must finish before the picture is swapped.
@@ -537,6 +582,11 @@ fn a_fade_in_draws_only_its_own_screen() {
         screen: 2,
         sprite: Some(11),
         active: true,
+        // With `SDAUTOBUF`, as everything that moves in the game has:
+        // `INITANI` sets it on every animation (module 6, 0x007dc). It is what
+        // takes the old spot away again when the descriptor moves — nothing
+        // else would, since the drawer paints and never clears.
+        auto_buffer: true,
         ..Default::default()
     });
     let two = |e: &motionvm_engine::Engine, x: i32| {
@@ -554,7 +604,14 @@ fn a_fade_in_draws_only_its_own_screen() {
 
     // Something moves on screen 2 — and then screen 1 fades in. The fade
     // draws screen 1 alone; screen 2 keeps showing what the last frame drew.
-    e.descriptors_mut()[1].x = 2;
+    //
+    // Moved through `SDX`, because that is where the marking is: the handler
+    // runs 0x6ab6e either side of the store (0x7112f, 0x7114e), and the
+    // save-under restore that clears the old spot hangs off it.
+    let mut mem = motionvm_forth::Memory::default();
+    e.plain_word("ACTDESC", &mut vec![2], &mut mem)
+        .expect("ACTDESC");
+    e.plain_word("SDX", &mut vec![2], &mut mem).expect("SDX");
     e.draw_screen(1);
     assert_eq!(
         two(&e, 0),

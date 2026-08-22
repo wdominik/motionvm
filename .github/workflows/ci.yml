@@ -38,9 +38,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # rust-toolchain.toml pins the version; this installs what it names and
-      # adds the two components the checks below need.
-      - name: Install the pinned toolchain
+      # The runner image's own stable, deliberately: this adds the two
+      # components the checks below need and nothing else.
+      #
+      # `rustup component add` does not install a channel and does not update
+      # one — it works on the toolchain that is already active. So what builds
+      # here is the stable the image was baked with, which lags the channel by
+      # a week or two. That is cheap (no toolchain download on three runners
+      # every push) and it is the constraint `rust-version` in Cargo.toml is
+      # kept under: a `rust-version` above the images' stable fails the job
+      # before a single crate is compiled.
+      - name: Toolchain components
         run: rustup component add rustfmt clippy
 
       - uses: Swatinem/rust-cache@v2

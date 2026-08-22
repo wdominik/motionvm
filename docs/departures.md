@@ -79,6 +79,24 @@ follows a measurement against the original rather than the instructions; what
 the instruction reading is missing is an
 [open question](open-questions.md). ([Text rendering](engine/text-rendering.md))
 
+**`SDAUTOBUF` rebuilds where the original remembers.** A descriptor carrying
+the flag is the only thing in this engine that disappears cleanly, and the
+original manages it with a copy: the drawer saves the surface under it before
+every blit (`0x696ed` → `0x6b936` → `0x2825d`) and `0x6ab6e` pastes the copy
+back when the descriptor is hidden or moves (`0x6ac33`). motionvm builds the
+vacated place again out of the descriptor list instead. The two agree wherever
+the picture under the descriptor came from descriptors, which is everywhere the
+game sets the flag — `INITANI` sets it on every animation, and so do the
+captions and the menu sprites — and a rebuild cannot go out of date the way a
+copy can: a copy holds the surface as it was when it was taken, and every
+repaint underneath it since is news the copy does not have. Where they part is
+pixels no *active* descriptor owns. The mailbox has them on purpose: a terminal
+row it has switched off keeps standing until a bar covers it, and when that bar
+goes the original's copy would put the old row back where a rebuild leaves the
+place empty.
+([Descriptors](engine/descriptors.md#sdautobuf--the-only-thing-that-erases),
+[Screens](engine/screens.md#the-drawn-buffer))
+
 **`SDBLK` is read but not built.** The word sets bit 7 of descriptor byte
 +0x17, which centers a text block as a whole on its widest line instead of
 centering each line. Nothing in the shipped game calls it — every text this game

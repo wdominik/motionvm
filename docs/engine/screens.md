@@ -96,18 +96,64 @@ why `FADEIN` needs no black background to open over.
 
 The engine renders into a **drawn buffer** at specific moments — the
 drawer (`0x6915b`) runs once per frame from the game loop's frame pump,
-and once inside `FADEIN` before the curtain opens. Nowhere else. Three
-consequences:
+and once inside `FADEIN` before the curtain opens. Nowhere else.
 
-- **Each draw is stateless**: the screen buffers are cleared and rebuilt
-  from the descriptor chain every time — deactivating a descriptor makes
-  it vanish on the next draw without any `ERASESCR`.
+**The drawer is incremental and the surface persists.** It clears no buffer:
+there is no fill anywhere in `0x6915b`. What it clears is the screen's
+**damage map**, and then it repaints only the descriptors that map names.
+
+### The damage map
+
+Every screen carries one `u16` per 8×8 tile of its view at `screen+0x41A`,
+`(view_w · view_h) >> 6` of them. Each holds **the lowest level that has to be
+redrawn in that tile**, or `0x7FFF` for nothing.
+
+| Step | Where | What |
+|---|---|---|
+| Mark | `0x6e701` | `map[tile] = min(map[tile], level)` over a rectangle, clipped to the view and taken relative to the screen origin at `+0x24`/`+0x26` |
+| Raise | `0x6ab6e` | Every change to a descriptor marks **its own rectangle at its own level** and sets `0x50` on it |
+| Spread | `0x6e8c8` | Before each pass, a descriptor is marked dirty when a tile it covers holds a level **at or below its own** (`0x6eb04`); descriptors neither active nor dirty are skipped (`0x6ea02`) |
+| Empty | `0x69248` | The pass then refills the whole map with `0x7FFF` |
+| Draw | `0x694ed`, `0x69680`, `0x69425` | A descriptor is drawn only with **both** `0x80` (active) and `0x40` (dirty); the bits go again at `0x69659`/`0x694c6` |
+
+A fresh descriptor arrives ready: `NEWSETDESC` writes the flag word `0xD000` at
+`0x70d07` — active, dirty, changed.
+
+### What follows from it
+
+- **Switching a descriptor off erases nothing.** The mark is on its own level,
+  so the repaint reaches what is above it and never what is below, and the
+  descriptor itself is no longer drawn. Its pixels stay on the surface until
+  something paints over them. The only thing that takes a picture away is
+  `SDAUTOBUF` — see [Descriptors](descriptors.md#sdautobuf--the-only-thing-that-erases). The in-game
+  mailbox is built on that difference; see [the BBS](../library/bbs.md).
+- **A whole screen is repainted on demand**: `0x6a8f9` sets `0x50` on every
+  descriptor of a screen and on its buffers. `FADEIN` reaches it through
+  `0x6b0fe` (`0x74af1`) before its single draw, which is how a full picture
+  comes back after a fade.
+- **A surface is wiped by a fill, not by a draw.** `FADEOUT` fills the screen's
+  rectangle with colour 0 before its first band (`0x74d44` → `0x188fd`) and
+  `ERASESCR` calls the same routine (`0x74801`).
 - **Between draws, the buffer holds the last drawn frame.** `FADEOUT`
   never draws; it fades out whatever was last rendered, even if
   descriptors have changed since (see [Transitions](transitions.md)).
 - **Before the first draw, the buffer is black.** State that exists but
   has never been drawn — the status bar during the very first frames,
   for instance — is simply not visible yet.
+
+### How motionvm runs the pass
+
+Same selection, different mechanics: it works out which descriptors have to be
+drawn exactly as above, takes the union of their rectangles together with the
+places `SDAUTOBUF` owes, paints the **whole** screen afresh, and then publishes
+only that region onto the surface. Everything outside it stays as it was.
+
+Painting in full and publishing in part rather than clipping each blit is a
+deliberate choice: a clipped blit still has to know it was clipped — the text
+passes place themselves from their own measurements — and a text backing is a
+*darkening* of what is under it (`0x186d5`), which cannot be run twice over the
+same pixels without showing. Publishing a region that was painted exactly once
+gives every pixel one pass over it and no arithmetic to repeat.
 
 ## Compositing rules
 
@@ -143,6 +189,11 @@ Known fields of the engine's screen structure:
 - **The meaning of `SCRVPOS` and `SCRPOS`.** The reading above is a
   hypothesis, strongly supported by the startup layout and by the
   pixel-exact title composition, and unconfirmed against the handlers.
+- **Descriptor flag `0x10`.** Set beside the dirty bit by `0x6ab6e` and
+  cleared with it by the drawer, it picks between two blitters —
+  `0x27765`/`0x29ae9` against `0x273e8`/`0x299e1`, whose destination is the
+  display's software surface at `0xE7D7C` (`0x69331`, `0x697cd`). What the
+  distinction is for is not established.
 - **Why the inventory bar's real sprites stay invisible** before the intro's
   first fade.
 

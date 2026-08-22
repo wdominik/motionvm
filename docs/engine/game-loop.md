@@ -105,11 +105,12 @@ the scripting interface exposes a wall-clock timer to this mechanism
 
 `ICTRL`, per invocation:
 
-1. Samples input: keyboard (`?KEY` → `_AKTKEY`), mouse position split
-   into picture-area and status-bar coordinates, buttons
-   (`MOUSELK`/`MOUSERK` → `_MLK`/`_MRK`), with `_MPRESSED` as a
-   one-frame click debounce — input handling is edge-triggered by
-   construction.
+1. Samples input: keyboard (`?KEY` → `_AKTKEY` — one keystroke out of the
+   BIOS buffer per invocation, and a scan code as often as a character; see
+   [Kernel words](../vm/kernel-words.md)), mouse position split into
+   picture-area and status-bar coordinates, buttons (`MOUSELK`/`MOUSERK` →
+   `_MLK`/`_MRK`), with `_MPRESSED` as a one-frame click debounce — input
+   handling is edge-triggered by construction.
 2. Runs UI-mode-specific input handling (free play, menu, save/load,
    document viewer, options, quit, ending sequences).
 3. In free play: hit-tests the scene (`SCANITEM` → the native

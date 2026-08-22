@@ -7,9 +7,23 @@
 //! appear in the loop and why a test that forgets the second measures the frame
 //! before it.
 //!
-//! The drawer rebuilds from the list rather than painting over what was there.
-//! That is what makes switching a descriptor off enough to erase it — and it is
-//! the original's order too: `SDINACTIVE` erases nothing, the next draw does.
+//! **The drawer is incremental, and the surface persists.** It never clears a
+//! screen buffer (0x6915b has no fill); it empties the screen's damage map
+//! (0x69248), works out from that map which descriptors have to be drawn again
+//! (0x6e8c8), and draws only those — a descriptor needs both the active bit
+//! 0x80 and the dirty bit 0x40 to be visited at all (0x694ed, 0x69680), and
+//! loses the dirty bit once it has been drawn (0x69659).
+//!
+//! So switching a descriptor off is *not* enough to erase it. `SDINACTIVE`
+//! marks its rectangle at its own level (0x6ab6e), which repaints everything
+//! above it and nothing below, and the descriptor itself is no longer drawn —
+//! its pixels stay. The only thing that erases is `SDAUTOBUF`: the original
+//! keeps a copy of the surface under such a descriptor and pastes it back
+//! (0x6ac33), and this rebuilds the same area from the descriptor list
+//! instead — see [`Descriptor::auto_buffer`](crate::Descriptor::auto_buffer).
+//! The in-game mailbox is built on exactly that difference: its terminal rows
+//! carry no `SDAUTOBUF`, so `HIDSCR` leaves them standing and `CLSCR` can wipe
+//! them a row at a time.
 
 use crate::{Descriptor, DescriptorKind, Engine, Placement, line_height};
 use motionvm_formats::Palette;
@@ -127,69 +141,170 @@ impl Engine {
     }
 
     pub(crate) fn draw_screens(&mut self, only: Option<u32>) {
-        // Every frame starts from nothing. The task manager deactivates a
-        // descriptor and expects it gone without ever calling `ERASESCR`, so
-        // the picture is rebuilt from the descriptor list each time rather than
-        // painted on top of the last one. Skipping this was invisible while a
-        // frame was only ever composed once — buffers start zeroed — and turned
-        // into smeared leftovers the moment a loop rendered twice.
+        let mine = |screen: u32| only.is_none_or(|o| screen == o);
+
+        // 0x6e8c8, once over the chain before anything is drawn: a descriptor
+        // joins the pass when a tile it covers is waiting for a repaint at or
+        // below its own level. The ones already marked are in either way, and
+        // the ones neither marked nor active are skipped (0x6ea02).
+        for i in 0..self.descriptors.len() {
+            let d = &self.descriptors[i];
+            if d.dirty || !d.active || !mine(d.screen) {
+                continue;
+            }
+            let d = d.clone();
+            let (x, y, w, h) = self.drawn_rect(&d);
+            let wanted = self
+                .display
+                .screens
+                .iter()
+                .find(|s| s.handle == d.screen)
+                .is_some_and(|s| s.damaged(x, y, w, h, d.level));
+            self.descriptors[i].dirty = wanted;
+        }
+
+        // 0x69248: the map is spent, and the pass starts from an empty one.
         for screen in &mut self.display.screens {
-            if only.is_none_or(|o| screen.handle == o) {
-                screen.buffer.fill(0);
+            if mine(screen.handle) {
+                screen.reset_damage();
             }
         }
 
+        // Where this pass is allowed to change the picture. Two things go in:
+        //
+        // * every place a descriptor carrying `SDAUTOBUF` has left — the
+        //   original pastes a remembered copy of the surface back there
+        //   (0x6ac33), and this builds the place again out of the descriptor
+        //   list instead; see
+        //   [`Descriptor::auto_buffer`](crate::Descriptor::auto_buffer);
+        // * every place a descriptor that has to be drawn is going to cover.
+        //
+        // Everything else on the surface stays exactly as it was, which is what
+        // makes the drawer incremental — and what lets the mailbox keep the
+        // rows it has switched off until its own black bars eat them.
+        //
+        // Only the screens this pass covers give their debt up: a `FADEIN`
+        // draws one screen alone (0x74af9), and what another screen is owed
+        // still is.
+        let (owed, kept) = std::mem::take(&mut self.rebuild)
+            .into_iter()
+            .partition::<Vec<_>, _>(|&(screen, _)| mine(screen));
+        self.rebuild = kept;
+
+        let mut region: Vec<(u32, (i32, i32, i32, i32))> = owed;
+        for i in 0..self.descriptors.len() {
+            let d = &self.descriptors[i];
+            if !d.active || !d.dirty || !mine(d.screen) {
+                continue;
+            }
+            let d = d.clone();
+            region.push((d.screen, self.drawn_rect(&d)));
+        }
+        if region.is_empty() {
+            return;
+        }
+
+        // Painted in full and published in part.
+        //
+        // A pass that painted straight onto the surface would have to clip
+        // every blit to the region, and a blit that is clipped still has to
+        // know it — the text passes place themselves from their own
+        // measurements, and the darkening a text backing does is not something
+        // that can be run twice over the same pixels without showing (which is
+        // exactly what it did: an answer's backing went a shade darker every
+        // time a neighbour moved). Painting the whole screen and then taking
+        // only the region out of the result gives every published pixel exactly
+        // one pass over it.
+        let screens: std::collections::BTreeSet<u32> =
+            region.iter().map(|&(screen, _)| screen).collect();
+        for screen in screens {
+            let Some(before) = self
+                .display
+                .screens
+                .iter()
+                .find(|s| s.handle == screen)
+                .map(|s| s.buffer.clone())
+            else {
+                continue;
+            };
+            self.paint_all(screen);
+            if let Some(s) = self.display.screen_mut(screen) {
+                let fresh = std::mem::replace(&mut s.buffer, before);
+                for &(_, (x, y, w, h)) in region.iter().filter(|&&(o, _)| o == screen) {
+                    s.buffer.paste_rect(&fresh, x, y, w, h);
+                }
+            }
+        }
+
+        // 0x69659: drawn is drawn.
+        for d in self.descriptors.iter_mut().filter(|d| mine(d.screen)) {
+            (d.dirty, d.changed) = (false, false);
+        }
+    }
+
+    /// Every active descriptor of one screen, over a cleared surface.
+    ///
+    /// The whole picture, the way the drawer would build it if nothing had ever
+    /// been drawn. `draw_screens` paints into this and then publishes only the
+    /// part of it that the pass is allowed to change.
+    fn paint_all(&mut self, screen: u32) {
+        if let Some(s) = self.display.screen_mut(screen) {
+            s.buffer.fill(0);
+        }
         let mut order: Vec<usize> = (0..self.descriptors.len())
-            .filter(|&i| self.descriptors[i].active)
-            .filter(|&i| only.is_none_or(|o| self.descriptors[i].screen == o))
+            .filter(|&i| self.descriptors[i].active && self.descriptors[i].screen == screen)
             .collect();
         order.sort_by_key(|&i| self.descriptors[i].level);
-
         for i in order {
             let d = self.descriptors[i].clone();
-            // `block` indexes the same graphics pool as `sprite` — the ids the
-            // game passes to `SDBL` (43, 60, 64, 66, 1010) are all present as
-            // Gfx8 items, and 66 and 1010 are full 640x400 backgrounds. The two
-            // differ in descriptor *type*, not in where the picture comes from:
-            // the handler writes 2 with an eight-byte payload for a sprite and
-            // 3 with a four-byte one for a block, the difference being the
-            // animation state a background does not need.
-            if d.kind == DescriptorKind::Text {
-                self.draw_text_descriptor(&d);
-                continue;
-            }
-            let Some(id) = d.sprite.or(d.block) else {
-                continue;
-            };
-            let Some(sprite) = self.sprite(id) else {
-                continue;
-            };
-            // `SD%SHR` scales in thousandths; unset means full size.
-            let all = d.fields.get("SD%SHR").copied().unwrap_or(0);
-            let h = d.fields.get("SDH%SHR").copied().unwrap_or(all).max(0) as u32;
-            let v = d.fields.get("SDV%SHR").copied().unwrap_or(all).max(0) as u32;
-            let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
-            // The drawn corner depends on what the coordinate means. A centered
-            // sprite sits half its *scaled* size to the left and above the
-            // point — that is what makes the title logo, 320x200 at 2000 per
-            // mille with its center at (320, 240), land on (0, 40).
-            let (sw, sh) = (
-                sprite.width as i32 * h as i32 / 1000,
-                sprite.height as i32 * v as i32 / 1000,
-            );
-            let x = match d.x_mode {
-                Placement::Edge => d.x,
-                Placement::Center => d.x - sw / 2,
-                Placement::FarEdge => d.x - sw,
-            };
-            let y = match d.y_mode {
-                Placement::Edge => d.y,
-                Placement::Center => d.y - sh / 2,
-                Placement::FarEdge => d.y - sh,
-            };
-            if let Some(screen) = self.display.screen_mut(d.screen) {
-                screen.buffer.blit_scaled(&sprite, x, y, h, v);
-            }
+            self.paint_descriptor(&d);
+        }
+    }
+
+    /// One descriptor onto its screen's surface.
+    fn paint_descriptor(&mut self, d: &Descriptor) {
+        // `block` indexes the same graphics pool as `sprite` — the ids the
+        // game passes to `SDBL` (43, 60, 64, 66, 1010) are all present as
+        // Gfx8 items, and 66 and 1010 are full 640x400 backgrounds. The two
+        // differ in descriptor *type*, not in where the picture comes from:
+        // the handler writes 2 with an eight-byte payload for a sprite and
+        // 3 with a four-byte one for a block, the difference being the
+        // animation state a background does not need.
+        if d.kind == DescriptorKind::Text {
+            self.draw_text_descriptor(d);
+            return;
+        }
+        let Some(id) = d.sprite.or(d.block) else {
+            return;
+        };
+        let Some(sprite) = self.sprite(id) else {
+            return;
+        };
+        // `SD%SHR` scales in thousandths; unset means full size.
+        let all = d.fields.get("SD%SHR").copied().unwrap_or(0);
+        let h = d.fields.get("SDH%SHR").copied().unwrap_or(all).max(0) as u32;
+        let v = d.fields.get("SDV%SHR").copied().unwrap_or(all).max(0) as u32;
+        let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
+        // The drawn corner depends on what the coordinate means. A centered
+        // sprite sits half its *scaled* size to the left and above the
+        // point — that is what makes the title logo, 320x200 at 2000 per
+        // mille with its center at (320, 240), land on (0, 40).
+        let (sw, sh) = (
+            sprite.width as i32 * h as i32 / 1000,
+            sprite.height as i32 * v as i32 / 1000,
+        );
+        let x = match d.x_mode {
+            Placement::Edge => d.x,
+            Placement::Center => d.x - sw / 2,
+            Placement::FarEdge => d.x - sw,
+        };
+        let y = match d.y_mode {
+            Placement::Edge => d.y,
+            Placement::Center => d.y - sh / 2,
+            Placement::FarEdge => d.y - sh,
+        };
+        if let Some(screen) = self.display.screen_mut(d.screen) {
+            screen.buffer.blit_scaled(&sprite, x, y, h, v);
         }
     }
 

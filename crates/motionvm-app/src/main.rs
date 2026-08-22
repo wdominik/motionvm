@@ -16,6 +16,7 @@
 //! in the palette. So the picture is scaled by whole numbers and centered in
 //! whatever space is left, with black around it.
 
+use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -26,7 +27,7 @@ use motionvm_render::Framebuffer;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 const WIDTH: u32 = 640;
@@ -39,28 +40,17 @@ const HEIGHT: u32 = 480;
 /// same one, so both follow this on their own.
 const SCALE: u32 = 3;
 
-// The key codes `?KEY` answers with.
-//
-// **`?KEY` returns plain ASCII**, not a flag. Settled by the comparisons the
-// game's own bytecode makes against `_AKTKEY`: every one of them, across
-// modules 2, 4 and 5, is against an ASCII code.
-//
-// | code | key | what reads it |
-// |---|---|---|
-// | 8 | Backspace | the debug input line, deleting a character (module 4, `0x051a0`) |
-// | 13 | Return | the dialogue and caption advance |
-// | 27 | Escape | the quit page (`0x02c40`) |
-// | 48…57 | `0`…`9` | the debug teleport, built up digit by digit (`0x04e60`) |
-// | 103 | `g` | the debug sprite viewer (`0x04d40`) |
-// | 105 | `i` | the debug Forth input line (`0x05020`) |
-//
-// Anything else is only ever tested as `_AKTKEY @ 0 >`, i.e. "a key was
-// pressed", so character keys simply pass their own code through.
-const BACKSPACE: i32 = 8;
-const RETURN: i32 = 13;
-const ESCAPE: i32 = 27;
-const SPACE: i32 = 32;
+/// How many keystrokes wait for the game.
+///
+/// The original does not hold one key, it reads a queue: `0x83e9c` is INT 16h
+/// AH=00, which takes the oldest keystroke out of the BIOS buffer, and that
+/// buffer holds fifteen. A single slot loses the second of two presses inside
+/// one 40 ms frame — visible when paging through the mailbox quickly, and in
+/// the debug input line at module 4 `0x051a0`, which takes one character per
+/// frame. A full buffer drops what arrives, as the BIOS does.
+const KEYS: usize = 15;
 
+mod keys;
 mod sound;
 
 fn main() {
@@ -287,7 +277,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         next_frame: Instant::now(),
         click: false,
         right_click: false,
-        key: 0,
+        pending: VecDeque::with_capacity(KEYS),
+        mods: ModifiersState::empty(),
         cursor: (0, 0),
         paused: false,
         frames: 0,
@@ -337,7 +328,14 @@ struct App {
     /// through the intro; one frame per press is what a click means here.
     click: bool,
     right_click: bool,
-    key: i32,
+    /// The keystrokes the game has not taken yet, oldest first — the BIOS
+    /// buffer [`KEYS`] stands for, drained one per frame the way `?KEY` drains
+    /// it.
+    pending: VecDeque<i32>,
+    /// Which modifiers are down. `0x2379b` asks the BIOS separately
+    /// (`0x83eb8`, AH=02) rather than reading them off the keystroke, and so
+    /// does this: winit reports them in their own event.
+    mods: ModifiersState,
     /// The pointer in game coordinates, not window ones.
     cursor: (i32, i32),
     /// Whether the frame clock is held, so a shot can be compared at leisure.
@@ -461,54 +459,66 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+            // Which modifiers are down arrives on its own, not on the
+            // keystroke — the same split the original works with, where
+            // `0x2379b` asks INT 16h AH=02 for the shift state after it has
+            // taken the key.
+            WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
                     return;
                 }
-                match &event.logical_key {
-                    // Escape belongs to the game, not to the window. `ICTRL`
-                    // compares `_AKTKEY` against 27 and opens the quit page on
-                    // it (module 4, `0x02c40`: `_AKTKEY @ _PutLit 27 =`), which
-                    // is how the original is left — through its own confirmation
-                    // page, `QUITANIM`, and `ENDGAME`. Exiting the event loop
-                    // here instead skipped all three, and there was no way to
-                    // reach the quit page at all.
-                    Key::Named(NamedKey::Escape) => self.key = ESCAPE,
-                    // F12 freezes the picture and writes it out indexed — the
-                    // same bytes the engine composed, without the window's
-                    // scaling and without a screen capture's color profile.
-                    // Comparing against the original has to happen on palette
-                    // indices; on colors, a capture is off by one in every
-                    // channel and buries a real shift in noise.
-                    //
-                    // Frozen because the scene keeps running: two shots a few
-                    // frames apart show a different line of dialogue or a
-                    // different step of an animation, which reads as a
-                    // displacement and is none.
-                    Key::Named(NamedKey::F12) => {
-                        self.paused = !self.paused;
-                        let frame = self.game.render();
-                        let path = self.shot.as_path();
-                        // The data directory need not exist yet: a player who
-                        // has never saved has never caused it to be made.
-                        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-                            let _ = std::fs::create_dir_all(parent);
-                        }
-                        match frame.write_png(path, self.game.palette()) {
-                            Ok(()) => eprintln!(
-                                "wrote {} ({}), picture {}",
-                                path.display(),
-                                if self.paused { "held" } else { "running again" },
-                                self.frames
-                            ),
-                            Err(e) => eprintln!("could not write {}: {e}", path.display()),
-                        }
+                // F12 freezes the picture and writes it out indexed — the same
+                // bytes the engine composed, without the window's scaling and
+                // without a screen capture's color profile. Comparing against
+                // the original has to happen on palette indices; on colors, a
+                // capture is off by one in every channel and buries a real
+                // shift in noise.
+                //
+                // Frozen because the scene keeps running: two shots a few
+                // frames apart show a different line of dialogue or a different
+                // step of an animation, which reads as a displacement and is
+                // none.
+                //
+                // It is the one key the window keeps for itself, and it costs
+                // the game nothing: the debug layer reads F9 (module 4,
+                // `0x052e0`), never F12.
+                if event.physical_key == PhysicalKey::Code(KeyCode::F12) {
+                    self.paused = !self.paused;
+                    let frame = self.game.render();
+                    let path = self.shot.as_path();
+                    // The data directory need not exist yet: a player who has
+                    // never saved has never caused it to be made.
+                    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                        let _ = std::fs::create_dir_all(parent);
                     }
-                    Key::Named(NamedKey::Enter) => self.key = RETURN,
-                    Key::Named(NamedKey::Space) => self.key = SPACE,
-                    Key::Named(NamedKey::Backspace) => self.key = BACKSPACE,
-                    Key::Character(c) => self.key = c.chars().next().map(|c| c as i32).unwrap_or(0),
-                    _ => {}
+                    match frame.write_png(path, self.game.palette()) {
+                        Ok(()) => eprintln!(
+                            "wrote {} ({}), picture {}",
+                            path.display(),
+                            if self.paused { "held" } else { "running again" },
+                            self.frames
+                        ),
+                        Err(e) => eprintln!("could not write {}: {e}", path.display()),
+                    }
+                    return;
+                }
+                // Everything else goes through the translator, Escape included.
+                // Escape belongs to the game, not to the window: `ICTRL`
+                // compares `_AKTKEY` against 27 and opens the quit page on it
+                // (module 4, `0x02c40`: `_AKTKEY @ _PutLit 27 =`), which is how
+                // the original is left — through its own confirmation page,
+                // `QUITANIM`, and `ENDGAME`. Exiting the event loop here
+                // instead skipped all three, and there was no way to reach the
+                // quit page at all.
+                //
+                // Repeats are kept. The BIOS buffer fills from the keyboard's
+                // own typematic repeat too, which is what lets a held cursor key
+                // walk down the mailbox's list.
+                if let Some(code) = keys::code(event.physical_key, &event.logical_key, self.mods)
+                    && self.pending.len() < KEYS
+                {
+                    self.pending.push_back(code);
                 }
             }
             // The window is scaled by a whole number and centered, so the
@@ -535,13 +545,16 @@ impl ApplicationHandler for App {
                     // between steps: the interpreter reads input only inside
                     // `step`, and `tick` writes all of this again immediately
                     // before it. The pending click and key ride along so this
-                    // cannot clobber an edge the game has not seen yet. winit
-                    // coalesces the requests, so a fast hand costs at most the
-                    // display's own rate in repaints.
+                    // cannot clobber an edge the game has not seen yet — the
+                    // key is only *looked* at, because taking it here would
+                    // spend a keystroke no step has run on. winit coalesces the
+                    // requests, so a fast hand costs at most the display's own
+                    // rate in repaints.
                     let (mx, my) = self.cursor;
+                    let waiting = self.pending.front().copied().unwrap_or(0);
                     if let Err(e) =
                         self.game
-                            .set_input(mx, my, self.click, self.right_click, self.key)
+                            .set_input(mx, my, self.click, self.right_click, waiting)
                     {
                         eprintln!("input: {e}");
                     }
@@ -590,15 +603,24 @@ impl App {
     /// so the batching costs nothing there.
     fn tick(&mut self, event_loop: &ActiveEventLoop) -> Duration {
         let (mx, my) = self.cursor;
+        // One keystroke per step, because a step is one round of `ICTRL` and
+        // `ICTRL` opens with a single `?KEY` (module 4, `0x022a0`) — which
+        // takes one keystroke out of the buffer and no more. Held by F12
+        // nothing steps, so nothing is taken: the buffer keeps what was struck
+        // for the picture that runs next.
+        let key = if self.paused {
+            0
+        } else {
+            self.pending.pop_front().unwrap_or(0)
+        };
         if let Err(e) = self
             .game
-            .set_input(mx, my, self.click, self.right_click, self.key)
+            .set_input(mx, my, self.click, self.right_click, key)
         {
             eprintln!("input: {e}");
         }
         self.click = false;
         self.right_click = false;
-        self.key = 0;
 
         // Held by F12: the picture stays put so it can be compared against the
         // original at the same moment. Input still reaches the game, so a click
@@ -637,8 +659,10 @@ impl App {
             }
             // A further step in the same picture gets what its own frame would
             // have given it: the pointer where it is, the edge-triggered click
-            // and key already delivered above and cleared.
-            if let Err(e) = self.game.set_input(mx, my, false, false, 0) {
+            // already delivered above, and the next keystroke waiting — it is a
+            // round of `ICTRL` like any other, so it drains one.
+            let key = self.pending.pop_front().unwrap_or(0);
+            if let Err(e) = self.game.set_input(mx, my, false, false, key) {
                 eprintln!("input: {e}");
             }
         }

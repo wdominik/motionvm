@@ -3,8 +3,9 @@
 //! A descriptor is the original's 0x5c-byte record. It carries one kind of
 //! content — a sprite, a block, a text, or nothing — plus a place, a level, a
 //! wait and a callback. The per-frame walk visits them in level order, and the
-//! drawer rebuilds the picture from the list rather than painting over what was
-//! there, which is why switching one off is enough to erase it.
+//! drawer paints onto a surface that persists: a descriptor is drawn when it
+//! is marked, and switching one off marks its neighbours rather than erasing
+//! it. What erases is `SDAUTOBUF` — see [`Descriptor::auto_buffer`].
 //!
 //! The savegame codecs live here too: the numbers they write are these enums
 //! and nothing else uses them.
@@ -90,6 +91,96 @@ impl Engine {
         None
     }
 
+    /// `0x6ab6e`: this descriptor has changed, so its rectangle wants
+    /// redrawing — and whatever its save-under is holding goes back first.
+    ///
+    /// The one routine every mutating `SD…` word runs through, which is why it
+    /// lives here beside the setters rather than in `words/`: the engine's own
+    /// code — the walk, the menu, the conversation — reaches the same setters,
+    /// and a change that skipped this would freeze that part of the picture
+    /// until something else happened to overlap it.
+    ///
+    /// The mark is on the descriptor's **own** level, so the repaint reaches
+    /// everything above it and nothing below. That is the whole reason hiding
+    /// something does not erase it.
+    pub(crate) fn touch(&mut self, index: usize) {
+        let Some(d) = self.descriptors.get(index).cloned() else {
+            return;
+        };
+        // Measured before anything is borrowed, because measuring can load.
+        let (x, y, w, h) = self.drawn_rect(&d);
+        if let Some(s) = self.display.screen_mut(d.screen) {
+            s.mark(x, y, w, h, d.level);
+        }
+        // 0x6ac33: a descriptor that carries a buffer also owes the picture
+        // that was under it. The next pass over this screen rebuilds the place
+        // it is leaving — see `Engine::draw_screens`.
+        if d.auto_buffer {
+            self.rebuild.push((d.screen, (x, y, w, h)));
+        }
+        let d = &mut self.descriptors[index];
+        d.dirty = true;
+        d.changed = true;
+    }
+
+    /// The same for whatever `ACTDESC` last selected, which is what the words
+    /// have in hand.
+    pub(crate) fn touch_current(&mut self) {
+        if let Some(i) = self.selected {
+            self.touch(i);
+        }
+    }
+
+    /// The rectangle to mark, or `None` when the size cannot be had yet.
+    ///
+    /// Measuring loads — a sprite's pixels, a text's table — and the *first*
+    /// sprite a run loads is also the one that decides the palette (see
+    /// [`Engine::sprite`](crate::Engine::sprite)). This runs whenever a field
+    /// is set, long before anything is drawn, so measuring an unloaded sprite
+    /// here would change which one that is. A picture nobody has loaded is
+    /// therefore not measured; the caller marks the whole screen instead, which
+    /// repaints more than the original would and never less.
+    /// The rectangle the descriptor covers on its screen's surface.
+    ///
+    /// What every mark on the damage map is measured against, and what the
+    /// save-under copies. Measuring loads — a sprite's pixels, a text's table —
+    /// but only through [`Engine::load_sprite`](crate::Engine::load_sprite),
+    /// which is the load without the palette that comes with drawing one. That
+    /// is what lets this be called from the setters, where it runs long before
+    /// anything reaches the screen.
+    pub(crate) fn drawn_rect(&mut self, d: &Descriptor) -> (i32, i32, i32, i32) {
+        if d.kind == DescriptorKind::Text {
+            // A text covers its backing, which is a good deal larger than the
+            // glyphs — and the original's buffer record grows by the template's
+            // margin for exactly that reason (0x6baa7).
+            return self.backing_rect(d);
+        }
+        let (x, y) = self.corner(d);
+        let (w, h) = self.stored_extent(d);
+        (x, y, w, h)
+    }
+
+    /// `0x6a8f9`: every descriptor on a screen has to be drawn again.
+    ///
+    /// The original's "all of it" switch, reached from `0x6b0fe` — which is
+    /// what `FADEIN` calls before its single draw (0x74af1). Nothing else puts
+    /// a whole picture back after `FADEOUT` has wiped the surface.
+    pub fn repaint_screen(&mut self, screen: u32) {
+        for d in self.descriptors.iter_mut().filter(|d| d.screen == screen) {
+            d.dirty = true;
+            d.changed = true;
+        }
+    }
+
+    /// A screen's surface has been wiped, so nothing owes it a rebuild.
+    ///
+    /// `FADEOUT` fills the surface with colour 0 before its bands start
+    /// (0x74d44) and `ERASESCR` calls the same routine (0x74801). Whatever was
+    /// waiting to be put back was on that surface.
+    pub(crate) fn forget_rebuilds(&mut self, screen: u32) {
+        self.rebuild.retain(|&(s, _)| s != screen);
+    }
+
     /// The current descriptor, or an error naming the word that wanted it.
     ///
     /// Every `SD…` word acts on whatever `ACTDESC` last selected. When that
@@ -138,11 +229,44 @@ impl Engine {
 impl Engine {
     /// `SDACTIVE` and `SDINACTIVE`: whether the selected descriptor is drawn.
     ///
-    /// Silent when nothing is selected.
+    /// Silent when nothing is selected, and silent when the bit is already
+    /// what it is asked for — both handlers test it first (0x71ff9, 0x7204c)
+    /// and do nothing at all when there is nothing to change.
+    ///
+    /// The order of the two lines is theirs: `SDACTIVE` sets the bit and then
+    /// marks (0x72002, 0x72025), `SDINACTIVE` marks and then clears it
+    /// (0x72055, 0x7205d). Both therefore mark while the descriptor still has
+    /// the shape the mark is about.
     pub(crate) fn set_active(&mut self, active: bool) {
-        if let Some(d) = self.descriptor_mut() {
-            d.active = active;
+        let Some(i) = self.selected else {
+            return;
+        };
+        if self.descriptors[i].active == active {
+            return;
         }
+        if active {
+            self.descriptors[i].active = true;
+            self.touch(i);
+        } else {
+            self.touch(i);
+            self.descriptors[i].active = false;
+        }
+    }
+
+    /// Marks around a change: the rectangle it leaves and the one it takes.
+    ///
+    /// `SDX` runs 0x6ab6e twice, before the store and after it (0x7112f,
+    /// 0x7114e), because a descriptor that moves damages both places. Every
+    /// setter here does the same, and every one of them leaves early when the
+    /// value is the one already there — as `SDX` (0x7111a) and `SDSPR`
+    /// (0x71715) do.
+    fn changing(&mut self, word: &'static str, change: impl FnOnce(&mut Descriptor)) -> Result<()> {
+        self.require_descriptor(word)?;
+        let i = self.selected.expect("require_descriptor found one");
+        self.touch(i);
+        change(&mut self.descriptors[i]);
+        self.touch(i);
+        Ok(())
     }
 
     /// `SDX`, `SDCX`/`SDCEN`, `SDOX`: the horizontal coordinate and what it means.
@@ -151,8 +275,10 @@ impl Engine {
     /// number, which is exactly how the original encodes them.
     pub(crate) fn place_x(&mut self, v: i32, mode: Placement) -> Result<()> {
         let d = self.require_descriptor("SDX")?;
-        (d.x, d.x_mode) = (v, mode);
-        Ok(())
+        if (d.x, d.x_mode) == (v, mode) {
+            return Ok(());
+        }
+        self.changing("SDX", |d| (d.x, d.x_mode) = (v, mode))
     }
 
     /// `SDY`, `SDCY`/`SDVCEN`, `SDOY`: the vertical coordinate and what it means.
@@ -164,20 +290,29 @@ impl Engine {
     /// without acting on it leaves the dialogue's right margin unplaced.
     pub(crate) fn place_y(&mut self, v: i32, mode: Placement) -> Result<()> {
         let d = self.require_descriptor("SDY")?;
-        (d.y, d.y_mode) = (v, mode);
-        Ok(())
+        if (d.y, d.y_mode) == (v, mode) {
+            return Ok(());
+        }
+        self.changing("SDY", |d| (d.y, d.y_mode) = (v, mode))
     }
 
     /// `SDLEV`, `SDLV`, `SDZ`: the level the per-frame walk sorts by.
     pub(crate) fn set_level(&mut self, v: i32) -> Result<()> {
-        self.require_descriptor("SDLEV")?.level = v;
-        Ok(())
+        if self.require_descriptor("SDLEV")?.level == v {
+            return Ok(());
+        }
+        // Marked twice over for a second reason here: the two marks go down at
+        // the old level and the new one, so both depths are repainted.
+        self.changing("SDLEV", |d| d.level = v)
     }
 
     /// `SDSPR`: the sprite to draw. Negative clears it.
     pub(crate) fn set_sprite(&mut self, v: i32) -> Result<()> {
-        self.require_descriptor("SDSPR")?.sprite = (v >= 0).then_some(v as u32);
-        Ok(())
+        let want = (v >= 0).then_some(v as u32);
+        if self.require_descriptor("SDSPR")?.sprite == want {
+            return Ok(());
+        }
+        self.changing("SDSPR", |d| d.sprite = want)
     }
 
     /// `SDBL`: the block to draw. Negative clears it.
@@ -185,24 +320,35 @@ impl Engine {
     /// The same graphics pool as [`Engine::set_sprite`] — the two differ in
     /// descriptor *type*, not in where the picture comes from.
     pub(crate) fn set_block(&mut self, v: i32) -> Result<()> {
-        self.require_descriptor("SDBL")?.block = (v >= 0).then_some(v as u32);
-        Ok(())
+        let want = (v >= 0).then_some(v as u32);
+        if self.require_descriptor("SDBL")?.block == want {
+            return Ok(());
+        }
+        self.changing("SDBL", |d| d.block = want)
     }
 
     /// `SDTXT`: the text entry to show, which makes this a text descriptor.
     pub(crate) fn set_text(&mut self, v: i32) -> Result<()> {
         let d = self.require_descriptor("SDTXT")?;
-        d.text = Some(v);
-        d.kind = DescriptorKind::Text;
-        Ok(())
+        if d.text == Some(v) && d.kind == DescriptorKind::Text {
+            return Ok(());
+        }
+        self.changing("SDTXT", |d| {
+            d.text = Some(v);
+            d.kind = DescriptorKind::Text;
+        })
     }
 
     /// `SDTB`: the text table to read from, which makes this a text descriptor.
     pub(crate) fn set_text_table(&mut self, v: i32) -> Result<()> {
         let d = self.require_descriptor("SDTB")?;
-        d.table = Some(v);
-        d.kind = DescriptorKind::Text;
-        Ok(())
+        if d.table == Some(v) && d.kind == DescriptorKind::Text {
+            return Ok(());
+        }
+        self.changing("SDTB", |d| {
+            d.table = Some(v);
+            d.kind = DescriptorKind::Text;
+        })
     }
 
     /// `SDCOL`: the composite color, backing bit and all.
@@ -211,20 +357,26 @@ impl Engine {
     /// runs a backing pass for anything from 256 up; the low byte is the
     /// palette index. Clamping it here threw both halves away.
     pub(crate) fn set_color(&mut self, v: i32) -> Result<()> {
-        self.require_descriptor("SDCOL")?.color = v;
-        Ok(())
+        if self.require_descriptor("SDCOL")?.color == v {
+            return Ok(());
+        }
+        self.changing("SDCOL", |d| d.color = v)
     }
 
     /// `SDFNT`: which registered font the text draws in.
     pub(crate) fn set_font(&mut self, v: i32) -> Result<()> {
-        self.require_descriptor("SDFNT")?.font = Some(v);
-        Ok(())
+        if self.require_descriptor("SDFNT")?.font == Some(v) {
+            return Ok(());
+        }
+        self.changing("SDFNT", |d| d.font = Some(v))
     }
 
     /// `SDTDT`: the text template, which names the outline font and the gaps.
     pub(crate) fn set_template(&mut self, v: i32) -> Result<()> {
-        self.require_descriptor("SDTDT")?.template = Some(v);
-        Ok(())
+        if self.require_descriptor("SDTDT")?.template == Some(v) {
+            return Ok(());
+        }
+        self.changing("SDTDT", |d| d.template = Some(v))
     }
 
     /// `SDWAIT`: how long the descriptor waits before it is taken down.
@@ -250,9 +402,19 @@ impl Engine {
     /// `key` must come from [`DESCRIPTOR_SETTERS`], because that is what the
     /// field map is keyed on. Silent when nothing is selected.
     pub(crate) fn set_field(&mut self, key: &'static str, v: i32) {
-        if let Some(d) = self.descriptor_mut() {
-            d.fields.insert(key, v);
+        let Some(i) = self.selected else {
+            return;
+        };
+        if self.descriptors[i].fields.get(key) == Some(&v) {
+            return;
         }
+        // Through the same marking as the modelled setters, because two of
+        // these — `SD%SHR` and its per-axis pair — change how large the
+        // descriptor draws, and a size that changes without a mark leaves the
+        // difference standing on the surface.
+        self.touch(i);
+        self.descriptors[i].fields.insert(key, v);
+        self.touch(i);
     }
 
     /// What every `GD…` word starts from: the selected descriptor and the
@@ -532,11 +694,55 @@ pub struct Descriptor {
     pub fields: BTreeMap<&'static str, i32>,
     /// Which of the three kinds this is, as the type field at offset 2 records.
     pub kind: DescriptorKind,
-    /// Whether the drawer visits it. `SDINACTIVE` erases nothing — the next
-    /// draw simply leaves it out, which is how the original erases too.
+    /// Whether the drawer visits it at all — bit 0x80 of the flag byte at
+    /// +0x13, set and cleared only by `SDACTIVE`/`SDINACTIVE`.
+    ///
+    /// **Clearing it erases nothing.** `SDINACTIVE` (0x72033) marks the
+    /// descriptor's rectangle on its *own* level (0x6ab6e → 0x6e701), so
+    /// everything above it is repainted and nothing below is — and the
+    /// descriptor itself is no longer drawn. Its pixels therefore stay on the
+    /// surface until something paints over them, unless it carries a
+    /// [`Descriptor::auto_buffer`].
     pub active: bool,
-    /// `SDAUTOBUF`, set and never cleared. What the original's buffering
-    /// does with it is not established; carried so a savegame can carry it.
+    /// Bit 0x40: the descriptor has to be drawn on the next pass.
+    ///
+    /// A new descriptor starts with it (`NEWSETDESC` writes the flag word
+    /// 0xD000 at 0x70d07); every change sets it (0x6ab6e); the damage map sets
+    /// it on the neighbours (0x6e8c8); the drawer clears it once it has drawn
+    /// (0x69659). Without it a descriptor is skipped even while active
+    /// (0x694ed, 0x69680).
+    pub dirty: bool,
+    /// Bit 0x10: this descriptor is what changed, as opposed to a neighbour.
+    ///
+    /// Set beside [`Descriptor::dirty`] by 0x6ab6e and cleared by the drawer
+    /// with it. In the original it picks between two blitters — 0x27765 /
+    /// 0x29ae9 against 0x273e8 / 0x299e1, whose destination is the display's
+    /// software surface at 0xE7D7C (0x69331, 0x697cd). motionvm has one
+    /// drawing path, onto the screen's own surface, and that path is the one
+    /// checked pixel for pixel against the original; the bit is carried so the
+    /// distinction is not lost, and what it is for is an open question.
+    pub changed: bool,
+    /// `SDAUTOBUF`: whether taking this descriptor away puts the picture back.
+    ///
+    /// `SDAUTOBUF` (0x72104) hands the descriptor a buffer number at +0x1C and
+    /// sets flag 0x08, and the original keeps a copy of the surface under it:
+    /// the drawer saves the area before every blit (0x696ed → 0x6b936 →
+    /// 0x2825d) and 0x6ab6e pastes the copy back when the descriptor is hidden
+    /// or moves (0x6ac33). That copy is what makes something disappear — and
+    /// without one, nothing does.
+    ///
+    /// **motionvm rebuilds the area instead of remembering it.** When a
+    /// descriptor with this flag goes away, its rectangle is cleared and every
+    /// active descriptor across it is drawn again (`Engine::draw_screens`), so
+    /// what comes back is what the scene graph says belongs there. The two
+    /// agree wherever the picture under the descriptor came from descriptors,
+    /// which is everywhere the game puts one of these: `INITANI` gives every
+    /// animation the flag (module 6, 0x007dc), as do the captions, the menu
+    /// sprites and the mailbox's bars. They differ only for pixels no
+    /// descriptor owns — the mailbox's own hidden terminal rows, say, which a
+    /// remembered copy would put back and a rebuild leaves out. A remembered
+    /// copy also goes stale: it holds the surface as it was when it was taken,
+    /// and every redraw underneath it since is news the copy does not have.
     pub auto_buffer: bool,
 }
 

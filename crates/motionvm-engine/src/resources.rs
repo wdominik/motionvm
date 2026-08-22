@@ -66,18 +66,32 @@ impl Engine {
         self.slots.iter().flatten().copied().collect()
     }
 
+    /// A sprite to **draw**, which is also what may decide the palette.
+    ///
+    /// The first sprite drawn brings its own 256 colors with it, as it does in
+    /// the original — every sprite carries a palette and the first one on the
+    /// screen sets it. That belongs to drawing and not to loading, which is why
+    /// [`Engine::load_sprite`] is separate: measuring a descriptor has to be
+    /// able to reach the picture's size without changing what the screen looks
+    /// like, and the incremental drawer measures constantly — every mark on the
+    /// damage map needs a rectangle.
     pub(crate) fn sprite(&mut self, id: u32) -> Option<Sprite> {
+        let fresh = !self.sprites.contains_key(&id);
+        let sprite = self.load_sprite(id)?;
+        if fresh && self.display.palette.raw.iter().all(|&v| v == 0) {
+            self.display.palette = sprite.palette.clone();
+        }
+        Some(sprite)
+    }
+
+    /// A sprite, without the palette that comes with drawing one.
+    pub(crate) fn load_sprite(&mut self, id: u32) -> Option<Sprite> {
         if let Some(s) = self.sprites.get(&id) {
             return Some(s.clone());
         }
         let bank = self.bank.as_ref()?;
         let item = bank.item(Kind::Gfx8, id as usize).ok()??;
         let sprite = Sprite::parse(item).ok()?;
-        // The first sprite drawn also decides the palette, which is how the
-        // original works: every sprite carries its own 256 colors.
-        if self.display.palette.raw.iter().all(|&v| v == 0) {
-            self.display.palette = sprite.palette.clone();
-        }
         self.sprites.insert(id, sprite.clone());
         Some(sprite)
     }

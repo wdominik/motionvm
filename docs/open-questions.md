@@ -68,8 +68,16 @@ See [Kernel words](vm/kernel-words.md).
 - **Descriptor fields still known by name only** — `SDBUF`,
   `SDSTARTLINE`, `SDALINES`, `SDTRANS`, `SDSHADE`, `SDINSERT`; modes
   `SDNORM`/`SDPOS`. ([Descriptors](engine/descriptors.md))
-- **Alt-F10** — the readme documents it as an immediate exit; where the
-  engine implements it is unmapped. ([Other files](formats/other-files.md))
+- **Descriptor flag `0x10`** — raised beside the dirty bit by `0x6ab6e` and
+  cleared with it by the drawer, it picks between two blitters:
+  `0x27765`/`0x29ae9` against `0x273e8`/`0x299e1`, whose destination is the
+  display's software surface at `0xE7D7C` (`0x69331`, `0x697cd`). What the
+  choice is for is unread. ([Screens](engine/screens.md))
+- **Alt-F10** — the readme documents it as an immediate exit. What `?KEY`
+  answers for it is settled — `0x2383d` maps the combination's scan code
+  `0x71` back onto F10 and marks it, giving `0x944` — but no module tests
+  that value, so where the engine acts on it is still unmapped.
+  ([Other files](formats/other-files.md))
 - **The tune loop flag** — set by `STARTTUNE`, never observed being read;
   looping may be the driver default. ([Audio](engine/audio.md))
 - **The sample-start words' second argument** — most plausibly a loop

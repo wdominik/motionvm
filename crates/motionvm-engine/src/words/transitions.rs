@@ -101,7 +101,24 @@ impl Engine {
                 // while it runs. `FADEOUT` never calls the drawer at all — it
                 // hides whatever the buffers already hold.
                 if opening {
+                    // `0x6b0fe` before the draw at `0x74af9`: it marks every
+                    // descriptor of the screen (through 0x6a8f9), which is what
+                    // puts a whole picture back after a `FADEOUT` wiped the
+                    // surface. Without it the drawer would repaint only what
+                    // had changed since, and a fade would open onto scraps.
+                    self.repaint_screen(screen);
                     self.draw_screen(screen);
+                } else {
+                    // `0x74d44`: `FADEOUT` fills the screen's rectangle with
+                    // colour 0 before the first band moves. It matters because
+                    // the surface persists — leave it and the old picture is
+                    // still there when the next scene is composed over it.
+                    // Everything saved under a descriptor goes with it: those
+                    // copies are of a picture that is no longer there.
+                    if let Some(s) = self.display.screen_mut(screen) {
+                        s.buffer.fill(0);
+                    }
+                    self.forget_rebuilds(screen);
                 }
                 self.curtains.push_back(Curtain {
                     opening,

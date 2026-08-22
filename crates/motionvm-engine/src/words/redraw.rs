@@ -30,13 +30,20 @@ impl Engine {
                     s.active = false;
                 }
             }
+            // `0x74801` calls the same fill `FADEOUT` uses. The surface
+            // persists, so what was saved from under a descriptor is a copy of
+            // a picture that has just been thrown away.
             "ERASESCR" => {
-                if let Some(s) = self.display.current_mut() {
-                    s.buffer.fill(0);
-                }
+                let Some(s) = self.display.current_mut() else {
+                    return Ok(Some(()));
+                };
+                s.buffer.fill(0);
+                let handle = s.handle;
+                self.forget_rebuilds(handle);
             }
             "REMSCR" => {
                 if let Some(h) = self.display.current {
+                    self.forget_rebuilds(h);
                     self.descriptors.retain(|d| d.screen != h);
                     self.display.screens.retain(|s| s.handle != h);
                     self.display.current = self.display.screens.last().map(|s| s.handle);

@@ -35,7 +35,9 @@ impl Engine {
                 if let Some(s) = self.display.current_mut() {
                     match name {
                         "SCRFVSIZE" => s.full_view = (x.max(0) as u16, y.max(0) as u16),
-                        "SCRVSIZE" => s.view = (x.max(0) as u16, y.max(0) as u16),
+                        // Through `set_view`, because the visible window is
+                        // also what the damage map is measured in.
+                        "SCRVSIZE" => s.set_view(x.max(0) as u16, y.max(0) as u16),
                         "SCRVPOS" => s.view_pos = (x as i16, y as i16),
                         _ => s.pos = (x as i16, y as i16),
                     }

@@ -162,7 +162,13 @@ impl Engine {
                 fields,
                 kind: kind_of(d.kind)?,
                 active: d.active,
+                // A savegame carries the game's state, not the surface: the
+                // original reloads the location and paints it again. So
+                // everything comes back dirty — the load is followed by a
+                // `FADEIN`, which would mark it all anyway (0x6a8f9).
                 auto_buffer: d.auto_buffer,
+                dirty: true,
+                changed: true,
             });
         }
 
@@ -175,7 +181,7 @@ impl Engine {
             };
             screen.size = s.size;
             screen.full_view = s.full_view;
-            screen.view = s.view;
+            screen.set_view(s.view.0, s.view.1);
             screen.view_pos = s.view_pos;
             screen.pos = s.pos;
             screen.origin = s.origin;

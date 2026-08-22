@@ -33,11 +33,12 @@ impl Engine {
     ///
     /// **Why it takes `&mut self`, and why that is not a wart.** Measuring a
     /// descriptor can load one: a text pulls in its table, a sprite its pixels.
-    /// And loading a sprite is not only a cache fill — the first one decides
-    /// the palette (`Engine::sprite`), because in the original every sprite
-    /// carries its own 256 colors and the first one drawn sets them. So
-    /// asking how big something is really can change what the screen looks
-    /// like, and the signature says so.
+    /// The load is a cache fill and nothing more — it goes through
+    /// [`Engine::load_sprite`](crate::Engine::load_sprite) rather than
+    /// `Engine::sprite`, so measuring cannot decide the palette the way drawing
+    /// can. That split is what lets the drawer measure freely: every mark on
+    /// the damage map is a rectangle, so a descriptor is measured whenever a
+    /// field of it is set, long before it is drawn.
     ///
     /// It reads as an artifact of lazy loading that interior caches could hide
     /// behind a `&self` and a `RefCell`. They should not: the state change is
@@ -72,7 +73,7 @@ impl Engine {
             return (width, height);
         }
         if let Some(id) = d.sprite.or(d.block)
-            && let Some(g) = self.sprite(id)
+            && let Some(g) = self.load_sprite(id)
         {
             let all = d.fields.get("SD%SHR").copied().unwrap_or(0);
             let h = d.fields.get("SDH%SHR").copied().unwrap_or(all).max(0) as u32;

@@ -101,6 +101,12 @@ pub struct Engine {
     /// Set when the game asks for a redraw. A still frame is composed on
     /// demand, so this only records that it was asked for.
     pub(crate) dirty: bool,
+    /// Places a descriptor carrying `SDAUTOBUF` has left, waiting to be built
+    /// again out of the descriptor list by the next drawing pass.
+    ///
+    /// The original remembers a copy of the picture instead and pastes it back
+    /// (0x6ac33); see [`Descriptor::auto_buffer`].
+    pub(crate) rebuild: Vec<(u32, (i32, i32, i32, i32))>,
     /// The word `CTRL` was handed: the game's own per-frame controller.
     ///
     /// `START` ends with `0x42150 CTRL`, and that address is `ICTRL` in module
@@ -550,6 +556,7 @@ impl Engine {
             cursor: None,
             pointer_visible: true,
             dirty: false,
+            rebuild: Vec::new(),
             controller: None,
             main_loop: false,
             entering_loop: false,
@@ -870,6 +877,7 @@ mod tests {
                 screen,
                 sprite: Some(sprite),
                 active: true,
+                dirty: true,
                 ..Default::default()
             });
         }

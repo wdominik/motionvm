@@ -22,7 +22,10 @@ pub const DISPLAY_H: u16 = 480;
 pub const TRANSPARENT: u8 = 0;
 
 /// An indexed image. One byte per pixel, top row first.
-#[derive(Debug, Clone)]
+///
+/// The default is a frame of no size, which is what a save-under buffer holds
+/// before the drawer has ever filled it.
+#[derive(Debug, Clone, Default)]
 pub struct Framebuffer {
     /// Pixels per row.
     pub width: u16,
@@ -49,6 +52,21 @@ impl Framebuffer {
     /// Sets every pixel to one index.
     pub fn fill(&mut self, index: u8) {
         self.pixels.fill(index);
+    }
+
+    /// Copies one rectangle of another frame of the same size over this one.
+    ///
+    /// What keeps a rebuild inside its own rectangle: the whole screen is
+    /// painted afresh and only the places that asked for it are taken from the
+    /// result. See `Engine::draw_screens`.
+    pub fn paste_rect(&mut self, src: &Self, x: i32, y: i32, w: i32, h: i32) {
+        for row in y.max(0)..(y + h).min(self.height as i32) {
+            for col in x.max(0)..(x + w).min(self.width as i32) {
+                if let Some(p) = src.get(col, row) {
+                    self.set(col, row, p);
+                }
+            }
+        }
     }
 
     /// The index at `(x, y)`, or `None` when that is off the frame.
@@ -346,7 +364,20 @@ pub struct Screen {
     /// switch it; an inactive screen keeps its surface and its configuration.
     pub active: bool,
     /// The drawing surface itself, `size` big.
+    ///
+    /// **It persists.** The original's drawer (0x6915b) never clears it: it
+    /// resets [`Screen::damage`] and then repaints only the descriptors that
+    /// are marked, so what nobody repaints stays exactly as it was. That is
+    /// what makes `SDINACTIVE` leave a picture standing, and the in-game
+    /// mailbox is built on it — see [`Screen::mark`].
     pub buffer: Framebuffer,
+    /// One entry per 8x8 tile of [`Screen::view`]: the lowest level that has to
+    /// be redrawn there, or [`Screen::UNDAMAGED`] for nothing.
+    ///
+    /// The original keeps the same array at `screen+0x41A`, `(view_w * view_h)
+    /// >> 6` entries of two bytes each, and its drawer refills it with
+    /// `0x7FFF` at the start of every pass (0x69248).
+    pub damage: Vec<i16>,
 }
 
 /// Writes an 8-bit indexed PNG.
@@ -462,6 +493,7 @@ impl Screen {
             frozen: false,
             active: true,
             buffer: Framebuffer::new(0, 0),
+            damage: Vec::new(),
         }
     }
 
@@ -469,6 +501,82 @@ impl Screen {
     pub fn set_size(&mut self, w: u16, h: u16) {
         self.size = (w, h);
         self.buffer = Framebuffer::new(w, h);
+    }
+
+    /// `SCRVSIZE`: the visible window, and with it the damage map's shape.
+    ///
+    /// The map is sized from the view rather than from the surface because
+    /// that is what the original measures it by — `(+0x1C * +0x1E) >> 6` at
+    /// 0x69231, and the clipping in 0x6e701 uses the same two fields.
+    pub fn set_view(&mut self, w: u16, h: u16) {
+        self.view = (w, h);
+        let (tw, th) = self.tiles();
+        self.damage = vec![Self::UNDAMAGED; tw * th];
+    }
+
+    /// Nothing in this tile wants redrawing. `0x7FFF`, as the original fills it.
+    pub const UNDAMAGED: i16 = 0x7fff;
+
+    /// The damage map's shape: the view in whole 8-pixel tiles.
+    ///
+    /// Truncating, as the original's `sar $3` is. Every screen the game builds
+    /// is a multiple of eight in both directions, so nothing is lost — and a
+    /// screen that was not would leave its last strip unmarkable in the
+    /// original too.
+    pub fn tiles(&self) -> (usize, usize) {
+        (self.view.0 as usize >> 3, self.view.1 as usize >> 3)
+    }
+
+    /// `0x6e701`: everything in this rectangle has to be redrawn from `level` up.
+    ///
+    /// The map holds a *minimum* per tile, so two marks in one frame keep the
+    /// lower level — the deeper repaint wins, which is the whole point of
+    /// storing a level instead of a flag.
+    ///
+    /// Coordinates are on the surface; the screen's origin is taken off first,
+    /// exactly as the handler does with `+0x24` and `+0x26`.
+    pub fn mark(&mut self, x: i32, y: i32, w: i32, h: i32, level: i32) {
+        let (tw, th) = self.tiles();
+        if tw == 0 || th == 0 || w <= 0 || h <= 0 {
+            return;
+        }
+        let level = level.clamp(i16::MIN as i32, Self::UNDAMAGED as i32) as i16;
+        for (tx, ty) in self.span(x, y, w, h) {
+            let slot = &mut self.damage[ty * tw + tx];
+            if *slot > level {
+                *slot = level;
+            }
+        }
+    }
+
+    /// Whether anything in the rectangle is waiting to be redrawn at or below
+    /// `level` — the test `0x6e8c8` makes for every descriptor (0x6eb04).
+    ///
+    /// A screen with no map answers yes: nothing can be ruled out, and drawing
+    /// too often costs time where drawing too seldom freezes the picture.
+    pub fn damaged(&self, x: i32, y: i32, w: i32, h: i32, level: i32) -> bool {
+        let (tw, th) = self.tiles();
+        if tw == 0 || th == 0 {
+            return true;
+        }
+        self.span(x, y, w, h)
+            .any(|(tx, ty)| self.damage[ty * tw + tx] as i32 <= level)
+    }
+
+    /// Every tile a surface rectangle touches, clipped to the view.
+    fn span(&self, x: i32, y: i32, w: i32, h: i32) -> impl Iterator<Item = (usize, usize)> + use<> {
+        let (tw, th) = self.tiles();
+        let (ox, oy) = (self.origin.0 as i32, self.origin.1 as i32);
+        let x0 = ((x - ox) >> 3).clamp(0, tw as i32);
+        let y0 = ((y - oy) >> 3).clamp(0, th as i32);
+        let x1 = ((x - ox + w + 7) >> 3).clamp(x0, tw as i32);
+        let y1 = ((y - oy + h + 7) >> 3).clamp(y0, th as i32);
+        (y0..y1).flat_map(move |ty| (x0..x1).map(move |tx| (tx as usize, ty as usize)))
+    }
+
+    /// `0x69248`: the drawer empties the map at the start of every pass.
+    pub fn reset_damage(&mut self) {
+        self.damage.fill(Self::UNDAMAGED);
     }
 }
 
