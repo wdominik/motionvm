@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The bundle description of motionvm.app, as .github/workflows/release.yml
+  writes it into the bundle: @VERSION@ is replaced there with the version from
+  Cargo.toml, so the number lives in one place. Everything else is what the
+  system needs to treat a folder holding one executable as an application.
+
+  There is no icon entry: the only fitting picture, the game's DS2.ICO, is the
+  game's and cannot ship with this.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>motionvm</string>
+	<!-- The file in Contents/MacOS the system starts. -->
+	<key>CFBundleExecutable</key>
+	<string>motionvm</string>
+	<!-- Reverse-DNS of the repository. The system's per-app records key on
+	     this, so it must stay stable across releases. -->
+	<key>CFBundleIdentifier</key>
+	<string>io.github.wdominik.motionvm</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>motionvm</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.games</string>
+	<!-- The floor of the Rust x86_64-apple-darwin target itself, nothing
+	     measured: the app is not tried on anything older than the macOS the
+	     release runner builds on. Lower than the truth costs a player on an
+	     old system a crash with a missing-symbol message instead of a clean
+	     "needs a newer macOS"; higher than the truth turns away a machine
+	     that would have worked. The target's floor is the one number with a
+	     source behind it. -->
+	<key>LSMinimumSystemVersion</key>
+	<string>10.12</string>
+	<!-- Without this the system would render the window at one point per
+	     pixel and scale it up, which is precisely the blur the frontend's
+	     whole-number scaling exists to avoid. -->
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>

@@ -111,8 +111,25 @@ It does not write into the *source* tree either. Savegames and screenshots go
 under the platform's data directory — `~/Library/Application Support/motionvm`
 on macOS, `%APPDATA%\motionvm` on Windows, `$XDG_DATA_HOME/motionvm` or
 `~/.local/share/motionvm` elsewhere — not into whatever directory the program
-happened to be started from. Both paths are printed as they are used, and
-`--saves` and `--shot` override them.
+happened to be started from. Both paths are printed as they are used.
+
+## Downloads
+
+Every release on the [Releases page](https://github.com/wdominik/motionvm/releases)
+carries two zips, built from the tag by `.github/workflows/release.yml`:
+
+| File | What it is |
+|---|---|
+| `motionvm-x.y.z-windows-x86_64.zip` | One `motionvm.exe`. The C runtime is linked in and everything else it uses ships with Windows 10 and later, so there is nothing to install beside it. SmartScreen says "Windows protected your PC" the first time — **More info → Run anyway** |
+| `motionvm-x.y.z-macos-universal.zip` | `motionvm.app`, one binary for Apple Silicon and Intel. macOS refuses the first start of an app it has not seen before — **System Settings → Privacy & Security → Open Anyway** lets it through, once; `xattr -dr com.apple.quarantine motionvm.app` in a terminal does the same |
+
+Unzip, start, point the folder dialog at your copy of the game. `LICENSE`,
+`NOTICE` and this README are in each zip. Linux builds from source, below.
+
+The release also carries the source archive of the tag the binaries were built
+from, and that is not decoration: the OPL3 core in them is LGPL-licensed, and
+`NOTICE` explains that whoever hands out a binary has to hand out the means to
+relink it — the archive is that means. See [Licensing](#licensing).
 
 ## Building and running
 
@@ -121,12 +138,19 @@ cargo build --release
 ./target/release/motionvm /path/to/gamedata
 ```
 
-`motionvm` takes the game directory as its first argument and defaults to
-`../gamedata`. Savegames go into `saves/` under the platform data directory
-(above) unless `--saves DIR` says otherwise — either way the directory is
-created on startup if it is not there and its path is printed, so a fresh clone
-needs no setup. `--loc N` starts in a given location, `--shot PATH` moves the
-screenshot, and `--no-sound` runs silent.
+`motionvm` takes the game directory as its first argument. Without one it asks:
+the platform's own folder dialog opens, and a directory that is not a MOTION
+game is reported in a message box and asked for again — so the binary can be
+double-clicked. Savegames go into `saves/` under the platform data directory
+(above); the directory is created on startup if it is not there and its path
+is printed, so a fresh clone needs no setup. `--loc N` starts in a given
+location and `--no-sound` runs silent.
+
+The window opens at twice the game's 640×480 and is only ever scaled by whole
+numbers: drag it bigger and the picture steps up to the next multiple that fits,
+with black around it. Alt+Enter (Option+Return on macOS) takes the whole screen
+the same way — a borderless window at the largest whole multiple, no change of
+display mode — and again to come back.
 
 Requires a Rust toolchain of 1.97.0 or newer. That is not the oldest one that
 would work — the workspace compiles on 1.95.0 — but it is recent, so a Rust
@@ -134,7 +158,11 @@ that came with your distribution may well be too old; `rustup` is the reliable
 way to have one. Nothing else — no C compiler, no system libraries beyond what
 `winit` and `cpal` need for a window and an audio device. On Linux that means
 the X11/Wayland and ALSA development headers; `.github/workflows/ci.yml` names
-the Debian packages.
+the Debian packages. The folder dialog adds nothing to that list: on Linux it
+goes through the XDG desktop portal, which costs nothing to build against and
+at run time needs the `xdg-desktop-portal` service GNOME and KDE desktops
+carry, or `zenity` as the fallback — and without either, the directory goes on
+the command line.
 
 **Where it has actually been played: macOS.** CI builds, lints and tests it on
 Linux and Windows too, but without the game data — so those two are known to
@@ -202,7 +230,8 @@ mailbox be worked with the cursor keys the way its manual describes.
 | Escape | The in-game menu — save, load, options, quit |
 | Cursor keys | Move through the in-game mailbox's menus and lists; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
-| F12 | Freeze the picture **and** write it out as an indexed PNG — to `shot.png` in the data directory, or wherever `--shot` says; the path is printed |
+| F12 | Freeze the picture **and** write it out as an indexed PNG — to `shot.png` in the data directory; the path is printed |
+| Alt+Enter | Borderless fullscreen, on and off (Option+Return on macOS). The picture keeps a whole-number scale — the largest that fits — with black around it |
 | Close the window | Quit |
 
 Escape opens the menu rather than quitting, because that is what the original

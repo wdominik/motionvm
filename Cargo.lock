@@ -378,6 +378,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
  "bitflags 2.13.1",
+ "block2 0.6.2",
+ "libc",
  "objc2 0.6.4",
 ]
 
@@ -765,20 +767,21 @@ dependencies = [
 
 [[package]]
 name = "motionvm-app"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "motionvm-audio",
  "motionvm-engine",
  "motionvm-formats",
  "motionvm-render",
+ "rfd",
  "softbuffer",
  "winit",
 ]
 
 [[package]]
 name = "motionvm-audio"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-testutil",
@@ -787,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-engine"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-forth",
@@ -797,21 +800,21 @@ dependencies = [
 
 [[package]]
 name = "motionvm-formats"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "motionvm-testutil",
 ]
 
 [[package]]
 name = "motionvm-forth"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "motionvm-formats",
 ]
 
 [[package]]
 name = "motionvm-render"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-testutil",
@@ -820,11 +823,11 @@ dependencies = [
 
 [[package]]
 name = "motionvm-testutil"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "motionvm-tools"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-forth",
@@ -949,6 +952,18 @@ dependencies = [
  "objc2-core-image",
  "objc2-foundation 0.2.2",
  "objc2-quartz-core 0.2.2",
+]
+
+[[package]]
+name = "objc2-app-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
+dependencies = [
+ "bitflags 2.13.1",
+ "block2 0.6.2",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]
@@ -1137,7 +1152,7 @@ checksum = "a1a1ae721c5e35be65f01a03b6d2ac13a54cb4fa70d8a5da293d7b0020261398"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -1330,6 +1345,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pollster"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
+
+[[package]]
 name = "proc-macro-crate"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1408,6 +1429,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1c93da5bb2c5d4e6c0ef7abeead62c89169a0a4882bfb83ac892f2423aea2fe"
 dependencies = [
  "bitflags 2.13.1",
+]
+
+[[package]]
+name = "rfd"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
+dependencies = [
+ "block2 0.6.2",
+ "dispatch2",
+ "js-sys",
+ "libc",
+ "log",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "percent-encoding",
+ "pollster",
+ "raw-window-handle",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "web-sys",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2233,7 +2281,7 @@ dependencies = [
  "memmap2",
  "ndk",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
  "objc2-ui-kit",
  "orbclient",

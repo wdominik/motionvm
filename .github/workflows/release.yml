@@ -1,0 +1,192 @@
+# The downloadable binaries, and the draft release that carries them.
+#
+# Three jobs build, one publishes — as a draft, which a person reads and
+# publishes by hand, because a release is a statement and this workflow is only
+# its courier. It runs on a tag `vX.Y.Z` and refuses a version that is not the
+# one in Cargo.toml, so a tag cannot lie about what it contains. Run by hand
+# ("Run workflow") it builds the same two zips as plain artifacts and creates
+# nothing, which is the way to try the packaging without a tag.
+#
+# Windows is one `motionvm.exe`. The C runtime is linked into it
+# (`+crt-static`), so a machine without the VC++ redistributable runs it, and
+# everything else it imports — user32, gdi32, ole32, WASAPI — is part of
+# Windows; no DLL rides along. macOS is `motionvm.app`, universal: arm64 and
+# x86_64 built separately and joined with `lipo`. Linux is built from source,
+# as the README says.
+#
+# What a binary owes: NOTICE explains that a pre-built motionvm has to come
+# with its complete corresponding source, so that the LGPL-licensed OPL3 core
+# in it can be relinked. GitHub attaches the tag's source archive to every
+# release, beside these zips, and the release notes say that this is it.
+#
+# `RUSTFLAGS` is set on the job and not in a `.cargo/config.toml`: an
+# environment `RUSTFLAGS` overrides a config file's, and ci.yml sets one
+# (`-D warnings`), so a config entry would hold here and silently not there.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Bash on every runner, Windows included (Git Bash): one dialect for the
+# scripts below, and one in which `$GITHUB_ENV`, `set -e` and quoting mean the
+# same thing everywhere.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # The one place the version is read. The builds take it from here, so the
+  # two zips cannot disagree on it, and a tag that names another number stops
+  # everything before a crate is compiled.
+  version:
+    name: The tag is the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: read
+        # `cargo metadata --no-deps` reads the manifests and nothing else — no
+        # registry, no network — which is all this needs.
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "motionvm-app") | .version')
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::the tag is $GITHUB_REF_NAME but Cargo.toml says $version — one of them is wrong"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "building motionvm $version"
+
+  windows:
+    name: Windows
+    needs: version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      # The C runtime goes into the executable. Without this the .exe imports
+      # vcruntime140.dll, which comes with the VC++ redistributable and not
+      # with Windows, and a machine that never installed one stops with "the
+      # code execution cannot proceed" before the first frame.
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release -p motionvm-app
+
+      # The zip holds a folder, so that unzipping in Downloads does not spray
+      # four files over it; the README is in it because the first thing a
+      # player needs to know is which files of the game it wants.
+      - name: Zip
+        run: |
+          dir="motionvm-$VERSION-windows-x86_64"
+          mkdir -p "dist/$dir"
+          cp target/release/motionvm.exe LICENSE NOTICE README.md "dist/$dir/"
+          (cd dist && 7z a "$dir.zip" "$dir")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    needs: version
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+
+      # The runner is arm64; the Intel half is a cross-build from the same
+      # machine, which the Apple SDK supports without anything further.
+      - name: Both halves of a universal binary
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build
+        run: |
+          cargo build --release -p motionvm-app --target aarch64-apple-darwin
+          cargo build --release -p motionvm-app --target x86_64-apple-darwin
+
+      # The bundle, by hand: a folder with a name, a plist and the executable
+      # is all a .app is. The plist is packaging/macos/Info.plist with the
+      # version written in — one source for the number. `lipo` leaves each
+      # half as the linker made it, so nothing has to be done to the binary
+      # afterwards for either kind of Mac to run it.
+      - name: Bundle
+        run: |
+          dir="dist/motionvm-$VERSION-macos-universal"
+          app="$dir/motionvm.app"
+          mkdir -p "$app/Contents/MacOS"
+          lipo -create -output "$app/Contents/MacOS/motionvm" \
+            target/aarch64-apple-darwin/release/motionvm \
+            target/x86_64-apple-darwin/release/motionvm
+          lipo -info "$app/Contents/MacOS/motionvm"
+          sed "s|<string>@VERSION@</string>|<string>$VERSION</string>|g" \
+            packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          plutil -lint "$app/Contents/Info.plist"
+          printf 'APPL????' > "$app/Contents/PkgInfo"
+          cp LICENSE NOTICE README.md "$dir/"
+          echo "DIR=$dir" >> "$GITHUB_ENV"
+
+      # `ditto`, not `zip`: Apple's own archiver for bundles, which keeps the
+      # modes and the structure Archive Utility expects.
+      - name: Zip
+        run: (cd dist && ditto -c -k --keepParent "$(basename "$DIR")" "$(basename "$DIR").zip")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # Only on a tag: a hand-started run ends with the artifacts above. The notes
+  # are the CHANGELOG's section for the version, which the release procedure
+  # in CONTRIBUTING writes first — so a version without one is a release that
+  # was not prepared, and stops here.
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [version, windows, macos]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release notes out of CHANGELOG.md
+        run: |
+          awk -v v="$VERSION" '
+            /^## \[/ { p = ($0 ~ "^## \\[" v "\\]"); next }
+            p' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no section for $VERSION"
+            exit 1
+          fi
+          printf '\n---\n\nThe source archive beside these binaries is the complete corresponding source that NOTICE refers to: the LGPL-licensed OPL3 core in them can be swapped and the game rebuilt from it.\n' >> notes.md
+          cat notes.md
+
+      - name: Draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "motionvm $VERSION" --notes-file notes.md dist/*.zip

@@ -16,6 +16,15 @@
 //! in the palette. So the picture is scaled by whole numbers and centered in
 //! whatever space is left, with black around it.
 
+// On Windows the release build is a windowed program, not a console one, so a
+// double-clicked `motionvm.exe` opens the game and not a black console behind
+// it. The price is that everything written to stderr — `savegames in …`,
+// `sound is off`, `the game stopped`, and `--help` — goes nowhere there; what
+// a double-clicking player has to see reaches them through the folder dialog
+// and its message box instead. Debug builds keep the console, so a Windows
+// developer still sees the messages. The attribute means nothing anywhere else.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
@@ -28,17 +37,25 @@ use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::window::{Fullscreen, Window, WindowId};
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
-/// How much bigger than the game the window is asked to be.
+/// How much bigger than the game the window is asked to be, to begin with.
 ///
 /// Only whole numbers: the art is 640x480 hand-drawn pixels and a fractional
 /// factor smears them. Nothing else needs telling — [`blit`] works the factor
 /// out from the window it is given, and the pointer mapping divides by the
-/// same one, so both follow this on their own.
-const SCALE: u32 = 3;
+/// same one, so both follow this on their own. Which is also why this is only
+/// the opening size: dragging the window edge moves the factor, and Alt+Enter
+/// takes the whole screen at the largest one that fits.
+///
+/// Two, because 1280x960 logical points fit under the title bar of a 1080p
+/// screen and three — 1920x1440 — do not: `resumed` cuts three back to two
+/// there anyway, so on most desktops asking for three is asking for two with
+/// a detour. A bigger screen is one drag or one keystroke away from using its
+/// space, and a smaller one is cut back to one the same way.
+const SCALE: u32 = 2;
 
 /// How many keystrokes wait for the game.
 ///
@@ -104,8 +121,8 @@ fn data_dir() -> Option<PathBuf> {
     }
 }
 
-/// The default for a file the program writes: under [`data_dir`] when there is
-/// one, otherwise the plain relative name it always used.
+/// Where a file the program writes goes: under [`data_dir`] when there is one,
+/// otherwise the plain relative name.
 fn data_path(name: &str) -> PathBuf {
     data_dir().map_or_else(|| PathBuf::from(name), |d| d.join(name))
 }
@@ -116,14 +133,9 @@ motionvm — the MOTION engine, for the games built with it
 usage: motionvm [GAMEDIR] [options]
 
   GAMEDIR         the directory holding 001.RSC and ENGINE.EXE.
-                  Defaults to ../gamedata.
+                  Without one, a folder dialog asks for it.
 
 options:
-  --saves DIR     where savegames are written. Defaults to saves/ under the
-                  platform data directory, printed on startup.
-                  Refused if it is inside GAMEDIR, which stays read-only.
-  --shot PATH     where F12 writes its screenshot. Defaults to shot.png in
-                  the same place; the path is printed with every shot.
   --loc N         start in location N instead of playing the intro.
   --no-sound      do not open an audio device.
   -h, --help      this text.
@@ -132,15 +144,13 @@ options:
 /// Everything the command line can say.
 #[derive(Debug)]
 struct Options {
-    dir: PathBuf,
-    /// Where the game's own save menu writes. The original puts its five slots
-    /// beside `ENGINE.EXE`, among the shipped data. That is not a place to
-    /// write to here — the game directory may well be a read-only copy of the
-    /// discs — so the slots go under [`data_dir`], never beside the sources.
-    saves: PathBuf,
-    /// Where F12 writes the indexed picture. Under [`data_dir`] for the same
-    /// reason as [`Options::saves`].
-    shot: PathBuf,
+    /// The game directory, when the command line names one. `None` means
+    /// nobody typed a path — a double-clicked binary, most often — and the
+    /// folder dialog asks instead. There is deliberately no silent default: a
+    /// relative `../gamedata` that happens to exist is a checkout's accident,
+    /// not a player's choice, and one that does not exist fails with a message
+    /// about a directory the player never named.
+    dir: Option<PathBuf>,
     wanted: Option<i32>,
     quiet: bool,
     help: bool,
@@ -160,9 +170,7 @@ struct Options {
 /// the directory.
 fn parse_args(args: &[String]) -> Result<Options, String> {
     let mut opt = Options {
-        dir: PathBuf::from("../gamedata"),
-        saves: data_path("saves"),
-        shot: data_path("shot.png"),
+        dir: None,
         wanted: None,
         quiet: false,
         help: false,
@@ -178,8 +186,6 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
         match a.as_str() {
             "-h" | "--help" => opt.help = true,
             "--no-sound" => opt.quiet = true,
-            "--saves" => opt.saves = PathBuf::from(value("--saves")?),
-            "--shot" => opt.shot = PathBuf::from(value("--shot")?),
             "--loc" => {
                 let v = value("--loc")?;
                 opt.wanted = Some(
@@ -197,18 +203,55 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             _ => positional = Some(a.clone()),
         }
     }
-    if let Some(p) = positional {
-        opt.dir = PathBuf::from(p);
-    }
+    opt.dir = positional.map(PathBuf::from);
     Ok(opt)
+}
+
+/// Asks for the game directory with the platform's own folder dialog, and
+/// keeps asking while the answer is not one.
+///
+/// `None` when the dialog is dismissed — that is the player deciding not to
+/// play, not an error — or when a wrong directory's complaint is answered with
+/// Cancel. A wrong directory is reported where the player is looking: the
+/// message [`Game::open`] writes for exactly this case, in a message box, with
+/// OK opening the dialog again. `Game::open` checks for the required files
+/// before it reads anything, so a wrong answer costs nothing and the loop is
+/// cheap to go round.
+///
+/// Called before the event loop exists, on the main thread, which is where
+/// rfd's synchronous dialogs belong in a program that has no window yet. On
+/// Linux the dialog is the XDG desktop portal's, so nothing links at build
+/// time — and a desktop with neither the portal service nor `zenity` answers
+/// `None` here, the same as a dismissal, which is why the caller's message
+/// says how to name the directory without the dialog.
+fn choose_game() -> Option<(PathBuf, Game)> {
+    loop {
+        let dir = rfd::FileDialog::new()
+            .set_title("Choose the game directory (it holds 001.RSC and ENGINE.EXE)")
+            .pick_folder()?;
+        match Game::open(&dir) {
+            Ok(game) => return Some((dir, game)),
+            Err(e) => {
+                let again = rfd::MessageDialog::new()
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_title("motionvm")
+                    .set_description(format!(
+                        "{e}\n\nOK chooses another directory; Cancel quits."
+                    ))
+                    .set_buttons(rfd::MessageButtons::OkCancel)
+                    .show();
+                if !matches!(again, rfd::MessageDialogResult::Ok) {
+                    return None;
+                }
+            }
+        }
+    }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Options {
         dir,
-        saves,
-        shot,
         wanted,
         quiet,
         help,
@@ -218,7 +261,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let mut game = Game::open(&dir)?;
+    // A path from the command line is taken at its word: a wrong one fails on
+    // stderr, the way a script wants. Only when nothing was typed does the
+    // program ask — and then the answer, and any complaint about it, goes
+    // through a window, because whoever double-clicked the binary has no
+    // stderr to read.
+    let (dir, mut game) = match dir {
+        Some(dir) => {
+            let game = Game::open(&dir)?;
+            (dir, game)
+        }
+        None => match choose_game() {
+            Some(chosen) => chosen,
+            None => {
+                eprintln!(
+                    "no game directory chosen.\n\
+                     If no dialog appeared, name the directory on the command line: \
+                     motionvm GAMEDIR"
+                );
+                return Ok(());
+            }
+        },
+    };
     // Before `start()`: the very first location is entered during startup and
     // its `STARTTUNE` has to find a sink already in place.
     let audio = if quiet {
@@ -236,6 +300,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
+    // Where the program writes — savegames and the F12 picture — is the
+    // platform data directory, and nothing on the command line moves it. The
+    // original keeps its five save slots beside `ENGINE.EXE`, among the
+    // shipped data; that is not a place to write to here, because the game
+    // directory may well be a read-only copy of the discs, which is also why
+    // the engine refuses a save directory inside it. And a flag that points the
+    // slots elsewhere is mostly a way to point them at something that is not a
+    // save directory; the one place they belong is the one `data_dir` names.
+    let saves = data_path("saves");
+    let shot = data_path("shot.png");
     if let Err(e) = game.set_saves(&saves) {
         // Not fatal: the game runs, the slot row simply stays empty and a click
         // on one stops by name rather than writing somewhere it should not.
@@ -343,9 +417,8 @@ struct App {
     /// How many frames have been stepped, printed with a shot so two captures
     /// can be shown to be the same moment.
     frames: u64,
-    /// Where F12 writes. Under the platform data directory unless `--shot`
-    /// named somewhere else; printed with every shot, because a default the
-    /// player cannot see is one they cannot find.
+    /// Where F12 writes: under the platform data directory, printed with every
+    /// shot, because a path the player cannot see is one they cannot find.
     shot: PathBuf,
     /// The palette expanded to window pixels, one color per index, so [`blit`]
     /// pays a lookup per pixel instead of three reads and two shifts.
@@ -466,6 +539,38 @@ impl ApplicationHandler for App {
             WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
+                    return;
+                }
+                // Alt+Enter is the window's too: borderless fullscreen, on and
+                // off. Borderless, so the display keeps its mode; the picture
+                // takes the largest whole multiple that fits and black fills
+                // the rest, which is what [`blit`] does with any window size,
+                // and winit puts the window back to its previous size on the
+                // way out. On macOS this is the same native fullscreen the
+                // green button gives.
+                //
+                // Keeping the key costs the game nothing. The translator would
+                // answer `0x91c` for it — Alt `0x800`, scan code `0x100`,
+                // Enter's `0x1c` — and the keystroke dispatches read out of the
+                // disassembly do not include it: module 216 tests 328, 336,
+                // 331 and 333 at `0x0c21c`, module 4 tests 315, 316 and 323 at
+                // `0x027a0` and `0x052e0`, and `ICTRL` compares against 27 at
+                // `0x02c40`. Not on repeat: a held key would flip in and out
+                // for as long as it is down.
+                if self.mods.alt_key()
+                    && !event.repeat
+                    && matches!(
+                        event.physical_key,
+                        PhysicalKey::Code(KeyCode::Enter | KeyCode::NumpadEnter)
+                    )
+                {
+                    if let Some(w) = &self.window {
+                        w.set_fullscreen(if w.fullscreen().is_some() {
+                            None
+                        } else {
+                            Some(Fullscreen::Borderless(None))
+                        });
+                    }
                     return;
                 }
                 // F12 freezes the picture and writes it out indexed — the same
@@ -808,16 +913,12 @@ mod tests {
     ///
     /// Taken as "the first argument not starting with `--`", the `5` of
     /// `--loc 5` becomes the game directory and the game looks for `001.RSC`
-    /// inside a directory called `5`. The same goes for `--saves`.
+    /// inside a directory called `5`.
     #[test]
     fn a_flags_value_is_not_the_game_directory() {
         let o = parse(&["--loc", "5"]).unwrap();
-        assert_eq!(o.dir, PathBuf::from("../gamedata"), "the default survives");
+        assert_eq!(o.dir, None, "nothing was named, so nothing is taken");
         assert_eq!(o.wanted, Some(5));
-
-        let o = parse(&["--saves", "mysaves"]).unwrap();
-        assert_eq!(o.dir, PathBuf::from("../gamedata"));
-        assert_eq!(o.saves, PathBuf::from("mysaves"));
     }
 
     #[test]
@@ -828,7 +929,7 @@ mod tests {
             vec!["--no-sound", "/games/ds2", "--loc", "5"],
         ] {
             let o = parse(&args).unwrap();
-            assert_eq!(o.dir, PathBuf::from("/games/ds2"), "{args:?}");
+            assert_eq!(o.dir, Some(PathBuf::from("/games/ds2")), "{args:?}");
             assert_eq!(o.wanted, Some(5), "{args:?}");
         }
     }
@@ -836,29 +937,26 @@ mod tests {
     #[test]
     fn defaults_are_what_the_readme_says() {
         let o = parse(&[]).unwrap();
-        assert_eq!(o.dir, PathBuf::from("../gamedata"));
+        assert_eq!(o.dir, None, "no path means the dialog, not ../gamedata");
         assert_eq!(o.wanted, None);
         assert!(!o.quiet);
-        assert!(o.saves.ends_with("saves"), "{}", o.saves.display());
-        assert!(o.shot.ends_with("shot.png"), "{}", o.shot.display());
     }
 
-    /// The point of the change that moved these: what the program writes must
-    /// not land in the working directory, because for anyone building from a
-    /// checkout that directory is the source tree.
+    /// What the program writes must not land in the working directory, because
+    /// for anyone building from a checkout that directory is the source tree —
+    /// and nothing on the command line can send it there either.
     ///
     /// Asserted as "absolute", not as a literal path, because the answer is the
     /// platform's and this suite runs on more than one. The one environment
     /// that legitimately has no answer — no `HOME` at all — is the documented
-    /// fallback, and there the old relative default is the right behavior.
+    /// fallback, and there the relative name is the right behavior.
     #[test]
     fn what_the_program_writes_does_not_land_in_the_working_directory() {
         if data_dir().is_none() {
             eprintln!("skipping: the environment names no home directory");
             return;
         }
-        let o = parse(&[]).unwrap();
-        for p in [&o.saves, &o.shot] {
+        for p in [data_path("saves"), data_path("shot.png")] {
             assert!(p.is_absolute(), "{} is relative", p.display());
             assert!(
                 p.starts_with(data_dir().unwrap()),
@@ -869,17 +967,8 @@ mod tests {
     }
 
     #[test]
-    fn both_written_paths_can_be_overridden() {
-        let o = parse(&["--saves", "/tmp/s", "--shot", "/tmp/p.png"]).unwrap();
-        assert_eq!(o.saves, PathBuf::from("/tmp/s"));
-        assert_eq!(o.shot, PathBuf::from("/tmp/p.png"));
-    }
-
-    #[test]
     fn a_flag_without_its_value_is_refused() {
         assert!(parse(&["--loc"]).is_err());
-        assert!(parse(&["--saves"]).is_err());
-        assert!(parse(&["--shot"]).is_err());
         // And a value that is not a number says so rather than being dropped.
         let e = parse(&["--loc", "seven"]).unwrap_err();
         assert!(e.contains("wants a number"), "{e}");

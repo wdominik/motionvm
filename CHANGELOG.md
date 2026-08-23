@@ -6,6 +6,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-23
+
+### Added
+
+- **A folder dialog asks for the game directory** when the command line names
+  none, so the binary can be double-clicked. A directory that is not a MOTION
+  game is reported in a message box — the same message the command line gets —
+  and the dialog asks again; Cancel quits. The dialog is the platform's own:
+  native on Windows and macOS, the XDG desktop portal on Linux.
+- **Alt+Enter toggles borderless fullscreen** (Option+Return on macOS): the
+  whole screen at the largest whole-number scale that fits, black around the
+  picture, no change of display mode. Alt+Enter again brings the window back at
+  its previous size.
+- **Binary releases.** A self-contained `motionvm.exe` for Windows and a
+  universal `motionvm.app` for macOS, built from the tag by a GitHub Actions
+  workflow and published from a draft release; Linux builds from source. NOTICE
+  and the README say how the source archive beside them meets the LGPL's relink
+  condition.
+
+### Changed
+
+- **The window opens at twice the game's size**, not three times: 1280×960 fits
+  under the title bar of a 1080p screen and 1920×1440 does not, and the window
+  can always be dragged bigger — or sent fullscreen.
+- **There is no `../gamedata` default any more.** No directory on the command
+  line means the dialog; a script that relied on the relative default has to
+  name the path.
+- **No console window on Windows.** The release build is a windowed program;
+  what goes to stderr — `savegames in …`, `sound is off`, `--help` — is not
+  shown there. Debug builds keep the console.
+
+### Removed
+
+- **`--saves DIR` and `--shot PATH`.** Savegames and the F12 screenshot always
+  go under the platform data directory — `saves/` and `shot.png` in
+  `~/Library/Application Support/motionvm`, `%APPDATA%\motionvm` or
+  `$XDG_DATA_HOME/motionvm` — and both paths are printed as they are used. A
+  flag that moves them is mostly a way to point a save directory at something
+  that is not one, and the default was already the documented place.
+
 ## [0.1.1] - 2026-08-22
 
 ### Changed
@@ -139,6 +179,7 @@ behaves as the engine did. See "What is and is not verified" in the README.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wdominik/motionvm/releases/tag/v0.2.0
 [0.1.1]: https://github.com/wdominik/motionvm/releases/tag/v0.1.1
 [0.1.0]: https://github.com/wdominik/motionvm/releases/tag/v0.1.0

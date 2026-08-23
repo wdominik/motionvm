@@ -334,6 +334,35 @@ LGPL-2.1-or-later does — the corresponding entry in `NOTICE`.
   hypothesis being made, and update `docs/`, `docs/open-questions.md` and
   `docs/departures.md` accordingly.
 
+## Releasing
+
+A release is a tag `vX.Y.Z` on `main` plus the two zips
+`.github/workflows/release.yml` builds from it — a self-contained
+`motionvm.exe` and a universal `motionvm.app`. The workflow runs on the tag
+and ends in a **draft** release; a person reads the draft and publishes it.
+Nothing is released by a push alone.
+
+1. **Bump the version.** `version` in `[workspace.package]` in `Cargo.toml`,
+   following semver — while the major is 0, a change to the command line is a
+   minor bump. `cargo build` once, so `Cargo.lock` carries the new number.
+   Rename `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`,
+   put an empty `## [Unreleased]` above it, and move the link references at
+   the foot of the file along: `[Unreleased]` compares against the new tag,
+   and the new version gets a line of its own.
+2. **Gate.** `just check`; commit, push, and wait for CI on all three
+   platforms.
+3. **Tag.** `git tag -a vX.Y.Z -m "motionvm X.Y.Z"`, then `git push origin
+   vX.Y.Z`. The workflow refuses a tag that does not match the Cargo version,
+   so a tag cannot lie about its contents, and it takes the release notes from
+   the CHANGELOG section of that version, so a missing section fails it too.
+4. **Publish.** Open the draft on GitHub: two zips and the source archive, the
+   notes as in the CHANGELOG. Fix what reads wrong, then publish.
+
+**Dry run.** "Run workflow" on the Release workflow in the Actions tab — or
+`gh workflow run release.yml` — builds the same two zips as workflow artifacts
+and creates no release. That is how to try a change to the packaging without
+a tag.
+
 ## License
 
 motionvm is MIT-licensed; contributions are accepted under the same license.

@@ -24,10 +24,14 @@ source; anyone with it can change the `nuked-opl3` dependency, rebuild, and get
 a binary with their own version of the library in it. Nothing further is
 required for that form of distribution.
 
-Anyone shipping a **pre-built binary** of motionvm takes on the obligation
-themselves: alongside the binary they must offer either its object files or the
-complete corresponding source, so the recipient can relink. That is the LGPL's
-requirement and not motionvm's.
+A **pre-built binary** carries the obligation with it: alongside the binary
+there has to be either its object files or the complete corresponding source,
+so the recipient can relink. The project's own binary releases discharge it
+that way: every release on GitHub carries, beside the Windows and macOS zips,
+the source archive of the tagged commit they were built from, and
+`cargo build --release` on that archive with a changed `nuked-opl3` is the
+relink. Anyone else shipping a binary of motionvm takes the obligation on
+themselves; it is the LGPL's requirement and not motionvm's.
 
 The game data
 -------------

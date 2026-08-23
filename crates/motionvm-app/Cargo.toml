@@ -20,6 +20,17 @@ motionvm-render.workspace = true
 cpal.workspace = true
 winit = "0.30"
 softbuffer = "0.4"
+# The folder dialog that asks for the game directory when the command line
+# names none, and the message box that says why a chosen directory is not one.
+# MIT. Native on Windows and macOS, on the `windows-sys` and `objc2` crates
+# winit and cpal already bring (it adds `pollster` and a second `objc2-app-kit`
+# and little else); on Linux the XDG desktop portal, spoken over a `libdbus`
+# that is loaded at run time rather than linked, so nothing new is needed to
+# build — at run time it wants the `xdg-desktop-portal` service, which GNOME
+# and KDE ship, and falls back to `zenity`. Not the `gtk3` feature: that links
+# GTK at build time and would put a development package between a Linux
+# checkout and a window.
+rfd = "0.17"
 
 [lints]
 workspace = true
