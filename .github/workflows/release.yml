@@ -95,7 +95,7 @@ jobs:
           cp target/release/motionvm.exe LICENSE NOTICE README.md "dist/$dir/"
           (cd dist && 7z a "$dir.zip" "$dir")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*.zip
@@ -147,7 +147,7 @@ jobs:
       - name: Zip
         run: (cd dist && ditto -c -k --keepParent "$(basename "$DIR")" "$(basename "$DIR").zip")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: dist/*.zip
@@ -166,7 +166,7 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
