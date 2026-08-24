@@ -1,15 +1,31 @@
 # motionvm
 
-A from-scratch reimplementation of **MOTION**, the DOS adventure engine
-DigiTales (Stefan Hoffmann) shipped in 1996, so that the games built with it run
-natively on current systems.
+Play **Im Netzwerk gefangen – Dunkle Schatten 2** and **Die Enviro-Kids
+greifen ein** — two German point-and-click adventure games from 1996, made
+for MS-DOS — natively on today's Windows, macOS and Linux. No DOSBox, no
+emulator: motionvm is a from-scratch Rust reimplementation of **MOTION**,
+the adventure engine both games were built with. You bring the files of
+your own copy of a game; motionvm finds them and plays it — picture,
+music, savegames and all.
 
-MOTION is not a game. It is an authoring system: a Forth compiler and a
-runtime — in its later form also an IDE and a debugger — in one binary. A
-game made with it is *data* — compiled Forth script modules plus sprites,
-palettes, fonts, texts and music inside resource containers. motionvm reads
-that data and runs it: the same bytecode, the same frame cycle, the same
-picture, the same music, on a modern machine with no emulator underneath.
+> *motionvm spielt die beiden 1996er DOS-Adventures „Im Netzwerk gefangen –
+> Dunkle Schatten 2“ und „Die Enviro-Kids greifen ein“ nativ auf heutigen
+> Rechnern — ohne DOSBox, ohne Emulator. Benötigt werden nur die Dateien
+> einer eigenen Spielkopie.*
+
+MOTION was written by DigiTales (Stefan Hoffmann); both games were
+productions of the **Art Department Werbeagentur GmbH**, each
+commissioned by a German public authority — Dunkle Schatten 2 by the
+Bundesministerium des Innern (the Federal Ministry of the Interior),
+Die Enviro-Kids greifen ein by the Ministerium für Umwelt, Raumordnung
+und Landwirtschaft des Landes Nordrhein-Westfalen (North
+Rhine-Westphalia's environment ministry). The engine is not a game: it is an
+authoring system — a Forth compiler and a runtime, in its later form
+also an IDE and a debugger, in one binary. A game made with it is
+*data*: compiled Forth script modules plus sprites, palettes, fonts,
+texts and music inside resource containers. motionvm reads that data
+and runs it — the same bytecode, the same frame cycle, the same
+picture, the same music, with no emulator underneath.
 
 ## Two generations, two games
 
@@ -93,24 +109,11 @@ silence.
 
 #### Everything else is ignored
 
-The other 22 files of the installation are never opened. Copying them costs
-nothing and leaving them out costs nothing:
-
-| File(s) | Why it is not needed |
-|---|---|
-| `DOS4GW.EXE`, `_RUNVM.VMC`, `DS2.BAT`, `DS2.ICO` | The DOS extender, its memory configuration, the launcher and the icon. There is no DOS here |
-| `SYSTEM.RSC` | The two-line Forth bootstrap (`4 =>GET` / `START`); motionvm carries the same sequence in code |
-| `002.SCR`, `011.SCR` | Loose copies of modules 2 and 11, which also live inside `001.RSC` — that is where they are loaded from |
-| `000.PAL` | A loose copy of a palette; palettes come out of the containers |
-| `000.FNT` | The system font. It *is* read when present, but only as the fallback for text naming no font of its own — and every string this game draws names one, so the rendered picture is identical without it |
-| `HMIDRV.386`, `HMIDET.386` | The digital-audio drivers and the card-detection stubs. The game's digital sound layer is never called |
-| `SNDSETUP.EXE`, `SNDSETUP.INI`, `LOADPATS.EXE`, `PATCHES.INI` | The DOS sound-card setup program and its data |
-| `TEST.HMI`, `TEST.MID`, `TEST.RAW`, `TEST.WAV` | Sound-card test samples that shipped with the driver kit |
-| `RSC.INF` | Resource metadata, not analyzed — and not consulted |
-| `LIESMICH.DOK`, `LIESMICH.TXT` | The German readme files. Worth reading, not by a program |
-
-What those files actually *are* is documented in
-[Other shipped files](docs/games/ds2/other-files.md).
+The other 22 files of the installation — the DOS extender, the launcher,
+the sound-setup kit, the loose copies of things the containers already
+hold, the German readmes — are never opened: copying them costs nothing
+and leaving them out costs nothing. What each of them is, file by file,
+is documented in [Other shipped files](docs/games/ds2/other-files.md).
 
 So a minimal copy is five files, or eight with sound:
 
@@ -122,19 +125,30 @@ cp 001.RSC 002.RSC 003.RSC ENGINE.EXE 000.FRT \
 
 ### Die Enviro-Kids greifen ein
 
-Two files, and motionvm stops at startup and says which is missing:
+#### Required
+
+Two files. Without either one motionvm stops at startup and says which.
 
 | File | Size | What it holds |
 |---|---|---|
 | `DATA.-1-` | 7.6 MB | The whole game: 65 script modules, 1586 sprites, 96 text tables, 130 blocks, 23 palettes, 3 fonts, the font reference table |
 | `ENVIRO.EXE` | 167 KB | Not run, read: the 233-word kernel table is lifted out of the MZ image; its handlers are what the engine words follow |
 
-`MUSADL.DRV` (5 KB) is the music: the PSM 2 Ad Lib driver, whose tables the
-player reads out of the shipped file — without it the game runs silent.
+#### Required for sound
+
+| File | Size | What it holds |
+|---|---|---|
+| `MUSADL.DRV` | 5 KB | The PSM 2 Ad Lib driver, whose tables the rebuilt player reads |
+
+Missing, it is not fatal: motionvm prints `sound is off: …` and plays on
+in silence.
+
+#### Everything else is ignored
+
 The other eleven files of the installation — `KIDS.BAT` and `SOUND.EXE`,
 the five other `.DRV` files, `README.TXT`, and three files nothing
-references — are never opened; what they are is in
-[Other shipped files](docs/games/enviro/other-files.md).
+references — are never opened. What each of them is, file by file, is
+documented in [Other shipped files](docs/games/enviro/other-files.md).
 
 So a minimal copy is two files, or three with music:
 
@@ -294,7 +308,7 @@ where the key has one and a scan code where it has none, which is what lets
 Dunkle Schatten 2's mailbox be worked with the cursor keys the way its manual
 describes.
 
-| | |
+| Input | What it does |
 |---|---|
 | Left click | Walk, use, or pick the thing under the pointer |
 | Right click | Open the verb menu on it |
@@ -416,6 +430,28 @@ Interaction, dialogue, walking, savegames, the verb menu and most locations
 of either game have never been differentially compared. That is not a gap being
 hidden; it is the honest edge of what a reimplementation without the original
 running beside it can claim.
+
+## Questions that come up
+
+**Is this an emulator?** No. Nothing emulates a CPU or DOS here: motionvm
+is a native program that reads the game's own data files — bytecode,
+sprites, music — and runs them itself, the way the original engine did.
+DOSBox is not involved and not needed.
+
+**Where do I get the games?** From your own copy — an original CD-ROM or
+installation. Both games were given away free of charge at the time, as
+commissioned promotional games, and copies circulate on the internet —
+but free distribution then is not a license now: the copyright stands
+with its holders, and this repository neither hosts nor links to any
+game files. Without them, motionvm starts, says exactly what is missing,
+and stops.
+
+**Does it run on current Windows and macOS?** Yes — the
+[release archives](#downloads) carry a Windows and a macOS build; on
+Linux it builds from source with one `cargo build --release`.
+
+**Are the games in English?** No. Both games are German-language, and
+motionvm plays them as they are: it changes nothing about the content.
 
 ## Documentation
 

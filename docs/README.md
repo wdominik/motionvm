@@ -6,8 +6,8 @@ that motionvm runs:
 
 | Game | Short name | Engine generation |
 |---|---|---|
-| *Im Netzwerk gefangen – Dunkle Schatten 2* (1996, Art Department Werbeagentur GmbH) | **DS2** | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22 |
-| *Die Enviro-Kids greifen ein* (1996; a promotional game of the Art Department for the Umweltministerium NRW according to public catalogs — the shipped files name no client) | **ENVIRO** | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27 |
+| *Im Netzwerk gefangen – Dunkle Schatten 2* (1996, Art Department Werbeagentur GmbH, commissioned by the Bundesministerium des Innern) | **DS2** | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22 |
+| *Die Enviro-Kids greifen ein* (1996, Art Department Werbeagentur GmbH, commissioned by the Ministerium für Umwelt, Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen — the shipped files name no client) | **ENVIRO** | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27 |
 
 ## The engine and its two generations
 

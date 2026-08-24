@@ -426,7 +426,7 @@ Nothing is released by a push alone.
    and the new version gets a line of its own.
 2. **Gate.** `just check`; commit, push, and wait for CI on all three
    platforms.
-3. **Tag.** `git tag -a vX.Y.Z -m "motionvm X.Y.Z"`, then `git push origin
+3. **Tag.** `git tag -a vX.Y.Z -m "vX.Y.Z"`, then `git push origin
    vX.Y.Z`. The workflow refuses a tag that does not match the Cargo version,
    so a tag cannot lie about its contents, and it takes the release notes from
    the CHANGELOG section of that version, so a missing section fails it too.
