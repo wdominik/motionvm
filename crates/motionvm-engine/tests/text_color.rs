@@ -22,9 +22,11 @@
 //! (`and $0xFF` at 0x6a21c) and writes the byte straight into the picture. So
 //! an untouched text draws in index 0 — black in 54 of the 60 shipped
 //! palettes.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// A game standing in the title with the intro's fades run out.
 fn settled(dir: &std::path::Path) -> Game {
@@ -60,7 +62,7 @@ fn shown(game: &mut Game) -> motionvm_render::Framebuffer {
 /// magenta help text and nowhere else.
 #[test]
 fn a_text_with_no_color_is_drawn_in_index_zero() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -120,7 +122,7 @@ fn a_text_with_no_color_is_drawn_in_index_zero() {
 /// rule under the heading, not a background.
 #[test]
 fn a_help_page_is_black_text_on_the_pages_own_paper() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -174,7 +176,7 @@ fn a_help_page_is_black_text_on_the_pages_own_paper() {
 /// break this and nothing else would notice.
 #[test]
 fn a_color_that_was_set_survives_whole() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

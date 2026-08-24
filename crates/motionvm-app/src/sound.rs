@@ -18,19 +18,70 @@
 //!
 //! **Nothing here is allowed to stop the game.** No device, no supported
 //! format, no driver: a line on stderr and play on in silence.
+//!
+//! Both games come through here with the same shape and their own player:
+//! Dunkle Schatten 2's HMI songs through the rebuilt MIDI driver
+//! ([`open`]), Die Enviro-Kids greifen ein's PSM 2 tunes through the
+//! rebuilt `MUSADL.DRV` sequencer ([`open_enviro`]).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use motionvm_audio::Player;
+use motionvm_audio::{Player, psm};
 use motionvm_engine::MusicSink;
-use motionvm_formats::DriverArchive;
-use motionvm_formats::bnk::Bank as InstrumentBank;
-use motionvm_formats::hmi::Song;
+use motionvm_formats::m16::psm::Plx;
+use motionvm_formats::m32::DriverArchive;
+use motionvm_formats::m32::bnk::Bank as InstrumentBank;
+use motionvm_formats::m32::hmi::Song;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 enum Command {
     Start(Box<Song>),
     Stop,
+}
+
+enum PsmCommand {
+    Start(Box<Plx>, i16),
+    Stop,
+}
+
+/// One side of the audio callback: drain the command channel, then render.
+/// The two games differ only in what stands behind this.
+trait Backend: Send + 'static {
+    fn pump(&mut self, out: &mut [i16]);
+}
+
+struct HmiBackend {
+    player: Player,
+    rx: Receiver<Command>,
+}
+
+impl Backend for HmiBackend {
+    fn pump(&mut self, out: &mut [i16]) {
+        while let Ok(command) = self.rx.try_recv() {
+            match command {
+                Command::Start(song) => self.player.start(*song),
+                Command::Stop => self.player.stop(),
+            }
+        }
+        self.player.fill(out);
+    }
+}
+
+struct PsmBackend {
+    player: psm::Player,
+    rx: Receiver<PsmCommand>,
+}
+
+impl Backend for PsmBackend {
+    fn pump(&mut self, out: &mut [i16]) {
+        while let Ok(command) = self.rx.try_recv() {
+            match command {
+                PsmCommand::Start(song, loops) => self.player.start(*song, loops),
+                PsmCommand::Stop => self.player.stop(),
+            }
+        }
+        self.player.fill(out);
+    }
 }
 
 /// Holds the stream open. Dropping it stops the music, so it has to live as
@@ -62,6 +113,29 @@ impl MusicSink for Music {
     }
 }
 
+/// The 16-bit game's sink. `STARTTUNE`'s loop count is `-1` at every call
+/// site in the game — endless — and the driver reads it unsigned, so the
+/// bool comes back out as the count it stands for.
+pub struct PsmMusic {
+    tx: Sender<PsmCommand>,
+}
+
+impl MusicSink for PsmMusic {
+    fn start(&mut self, _handle: i32, tune: i32, looping: bool, song: &[u8]) {
+        match Plx::parse(song) {
+            Ok(song) => {
+                let loops = if looping { -1 } else { 0 };
+                let _ = self.tx.send(PsmCommand::Start(Box::new(song), loops));
+            }
+            Err(e) => eprintln!("tune {tune} did not parse: {e}"),
+        }
+    }
+
+    fn stop(&mut self, _handle: i32) {
+        let _ = self.tx.send(PsmCommand::Stop);
+    }
+}
+
 /// Opens the default output and starts the audio thread.
 ///
 /// `dir` is the game directory: the driver archive and the two instrument banks
@@ -84,6 +158,53 @@ pub fn open(dir: &Path) -> Result<(Sound, Music), String> {
     let melodic = InstrumentBank::parse(&melodic).map_err(|e| format!("MELODIC.BNK: {e}"))?;
     let drums = InstrumentBank::parse(&drums).map_err(|e| format!("DRUM.BNK: {e}"))?;
 
+    let (device, config, format, channels, rate) = output()?;
+    let player = Player::new(rate, driver, &melodic, &drums)
+        .map_err(|e| format!("the FM driver did not come up: {e}"))?;
+    let (tx, rx) = channel();
+    let stream = spawn(&device, config, format, channels, HmiBackend { player, rx })?;
+    tell_output(rate, channels, format);
+    Ok((Sound { _stream: stream }, Music { tx }))
+}
+
+/// Opens the default output and starts the audio thread for the 16-bit
+/// game.
+///
+/// `dir` is the game directory: `MUSADL.DRV` comes from there, the same
+/// file `ENVIRO.EXE` loads whole and installs — motionvm reads its tables
+/// and rebuilds the code around them.
+pub fn open_enviro(dir: &Path) -> Result<(Sound, PsmMusic), String> {
+    let path = motionvm_formats::find_ci(dir, "MUSADL.DRV").ok_or("MUSADL.DRV: not found")?;
+    let driver = std::fs::read(path).map_err(|e| format!("MUSADL.DRV: {e}"))?;
+
+    let (device, config, format, channels, rate) = output()?;
+    let player = psm::Player::new(rate, &driver)
+        .map_err(|e| format!("the Ad Lib driver did not come up: {e}"))?;
+    let (tx, rx) = channel();
+    let stream = spawn(&device, config, format, channels, PsmBackend { player, rx })?;
+    tell_output(rate, channels, format);
+    Ok((Sound { _stream: stream }, PsmMusic { tx }))
+}
+
+/// What the output device settled on — a diagnostic, so it speaks only
+/// under `MOTIONVM_PERF`, the same switch the frame timing answers to.
+fn tell_output(rate: u32, channels: usize, format: cpal::SampleFormat) {
+    if std::env::var_os("MOTIONVM_PERF").is_some() {
+        eprintln!("sound: {rate} Hz, {channels} channel(s), {format:?}");
+    }
+}
+
+/// The default output device and what it wants to be fed.
+fn output() -> Result<
+    (
+        cpal::Device,
+        cpal::StreamConfig,
+        cpal::SampleFormat,
+        usize,
+        u32,
+    ),
+    String,
+> {
     let device = cpal::default_host()
         .default_output_device()
         .ok_or("no output device")?;
@@ -94,37 +215,41 @@ pub fn open(dir: &Path) -> Result<(Sound, Music), String> {
     let config: cpal::StreamConfig = supported.into();
     let channels = config.channels as usize;
     let rate = config.sample_rate;
+    Ok((device, config, format, channels, rate))
+}
 
-    let player = Player::new(rate, driver, &melodic, &drums)
-        .map_err(|e| format!("the FM driver did not come up: {e}"))?;
-    let (tx, rx) = channel();
-
+/// Builds and starts the stream for whichever sample format the device
+/// settled on.
+fn spawn<B: Backend>(
+    device: &cpal::Device,
+    config: cpal::StreamConfig,
+    format: cpal::SampleFormat,
+    channels: usize,
+    backend: B,
+) -> Result<cpal::Stream, String> {
     let stream = match format {
-        cpal::SampleFormat::F32 => build(&device, config, player, rx, channels, |s| {
-            s as f32 / 32768.0
-        }),
-        cpal::SampleFormat::I16 => build(&device, config, player, rx, channels, |s| s),
+        cpal::SampleFormat::F32 => build(device, config, backend, channels, |s| s as f32 / 32768.0),
+        cpal::SampleFormat::I16 => build(device, config, backend, channels, |s| s),
         other => return Err(format!("unsupported sample format {other:?}")),
     }?;
     stream
         .play()
         .map_err(|e| format!("the stream would not start: {e}"))?;
-    eprintln!("sound: {rate} Hz, {channels} channel(s), {format:?}");
-    Ok((Sound { _stream: stream }, Music { tx }))
+    Ok(stream)
 }
 
 /// One builder for both sample formats: the synthesis is identical, only the
 /// last step out of `i16` differs.
-fn build<T>(
+fn build<T, B>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
-    mut player: Player,
-    rx: Receiver<Command>,
+    mut backend: B,
     channels: usize,
     convert: fn(i16) -> T,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample + Send + 'static,
+    B: Backend,
 {
     // Generous enough that the callback never reaches the allocator after the
     // first block, whatever buffer size the device settles on.
@@ -133,17 +258,11 @@ where
         .build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                while let Ok(command) = rx.try_recv() {
-                    match command {
-                        Command::Start(song) => player.start(*song),
-                        Command::Stop => player.stop(),
-                    }
-                }
                 let frames = data.len() / channels.max(1);
                 if stereo.len() < frames * 2 {
                     stereo.resize(frames * 2, 0);
                 }
-                player.fill(&mut stereo[..frames * 2]);
+                backend.pump(&mut stereo[..frames * 2]);
                 for (frame, out) in stereo
                     .as_chunks::<2>()
                     .0

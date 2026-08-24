@@ -1,4 +1,5 @@
-//! 768-byte VGA palettes (`Kind::Palette`, and the standalone `000.PAL`).
+//! 768-byte VGA palettes — the 32-bit engine's `Kind::Palette` items and its
+//! loose `000.PAL`, and the 16-bit engine's PAL segment, byte for byte the same.
 //!
 //! 256 entries of RGB, six bits per channel, exactly as they were written to the
 //! VGA DAC. Widening to 8 bits replicates the top bits rather than shifting, so

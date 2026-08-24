@@ -25,9 +25,11 @@
 //! 2 is the terminal already logged in — and `SETLOCTASK` is the word the
 //! script itself uses to move between the terminal's screens. Everything after
 //! that is the shipped bytecode reacting to keys.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// The codes module 216 dispatches on.
 const UP: i32 = 328;
@@ -129,7 +131,7 @@ fn main_menu(dir: &std::path::Path) -> Game {
 
 #[test]
 fn left_and_right_walk_the_menu_bar() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -154,7 +156,7 @@ fn left_and_right_walk_the_menu_bar() {
 
 #[test]
 fn up_and_down_walk_the_selection_list() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -201,7 +203,7 @@ fn up_and_down_walk_the_selection_list() {
 /// is the `_SELFLAG @` in front of both `SELUP` and `SELDOWN` (`0x0c45c`).
 #[test]
 fn the_list_keys_are_ignored_while_no_list_is_open() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

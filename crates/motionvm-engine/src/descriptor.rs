@@ -29,9 +29,13 @@ impl Engine {
         let selected = self
             .selected
             .and_then(|i| self.descriptors.get(i))
-            .map(|d| d.handle);
+            .map(|d| (d.screen, d.handle));
         self.descriptors.retain(|d| !doomed(d));
-        self.selected = selected.and_then(|h| self.descriptors.iter().position(|d| d.handle == h));
+        self.selected = selected.and_then(|(screen, h)| {
+            self.descriptors
+                .iter()
+                .position(|d| d.handle == h && (!self.per_screen_descriptors || d.screen == screen))
+        });
     }
 
     /// Makes a descriptor the current one, the way `ACTDESC` does.
@@ -43,9 +47,40 @@ impl Engine {
     /// disarm every `SD…` that follows, which is a worse failure than acting on
     /// the wrong descriptor: nothing reports it.
     pub(crate) fn select_descriptor(&mut self, handle: u32) {
+        self.selected_handle = Some(handle);
+        if self.per_screen_descriptors {
+            // The 16-bit `ACTDESC` stores the number alone; the screen it
+            // counts on is whichever is active when the descriptor is next
+            // touched, so `ACTSCR` re-resolves it ([`Engine::select_screen`]).
+            // A number no descriptor of the screen has yet leaves nothing
+            // selected — a slot past the count, which the original would write
+            // into without complaint — so that the next `SD…` says so.
+            let screen = self.display.current.unwrap_or(0);
+            self.selected = self
+                .descriptors
+                .iter()
+                .position(|d| d.screen == screen && d.handle == handle);
+            return;
+        }
         if let Some(i) = self.descriptors.iter().position(|d| d.handle == handle) {
             self.selected = Some(i);
         }
+    }
+
+    /// The handle a descriptor made now gets: the next free number, or — in
+    /// the per-screen scheme — the active screen's count.
+    pub(crate) fn next_handle(&mut self) -> u32 {
+        if self.per_screen_descriptors {
+            let screen = self.display.current.unwrap_or(0);
+            return self
+                .descriptors
+                .iter()
+                .filter(|d| d.screen == screen)
+                .count() as u32;
+        }
+        let handle = self.next_descriptor;
+        self.next_descriptor += 1;
+        handle
     }
 
     /// The descriptors in the order the original's per-frame walk visits them.
@@ -60,14 +95,14 @@ impl Engine {
     /// Descriptors belonging to a frozen screen are left out, as the walk
     /// returns on `screen.flags & 4` before touching them. `FREEZESCR` sets
     /// that bit; the two were read apart and belong together.
-    pub(crate) fn frame_order(&self) -> Vec<u32> {
+    pub(crate) fn frame_order(&self) -> Vec<(u32, u32)> {
         let mut live: Vec<&Descriptor> = self
             .descriptors
             .iter()
             .filter(|d| !self.display.frozen(d.screen))
             .collect();
         live.sort_by_key(|d| d.level);
-        live.iter().map(|d| d.handle).collect()
+        live.iter().map(|d| (d.screen, d.handle)).collect()
     }
 
     /// What the walk does to one descriptor: count its wait down, and when it
@@ -78,8 +113,30 @@ impl Engine {
     /// (`+0x14` clear, which is what `SDWORD 0` and `SDWORD -1` leave) is
     /// skipped entirely, wait and all.
     pub fn tick_descriptor(&mut self, handle: u32) -> Option<i32> {
-        let d = self.descriptors.iter_mut().find(|d| d.handle == handle)?;
+        let i = self.descriptors.iter().position(|d| d.handle == handle)?;
+        self.tick_at(i)
+    }
+
+    /// The same for the descriptor `handle` of `screen` — the pair that names
+    /// one descriptor on either machine.
+    pub(crate) fn tick_descriptor_on(&mut self, screen: u32, handle: u32) -> Option<i32> {
+        let i = self
+            .descriptors
+            .iter()
+            .position(|d| d.screen == screen && d.handle == handle)?;
+        self.tick_at(i)
+    }
+
+    fn tick_at(&mut self, i: usize) -> Option<i32> {
+        let need_active = self.callbacks_need_active;
+        let d = self.descriptors.get_mut(i)?;
         if d.callback <= 0 {
+            return None;
+        }
+        // The 16-bit walk (`016a:05d6`) skips a descriptor whose active
+        // bit is off — and with it the select that would displace the
+        // controller's own `SMDESC` choice.
+        if need_active && !d.active {
             return None;
         }
         if d.wait == 0 {
@@ -115,7 +172,14 @@ impl Engine {
         // 0x6ac33: a descriptor that carries a buffer also owes the picture
         // that was under it. The next pass over this screen rebuilds the place
         // it is leaving — see `Engine::draw_screens`.
-        if d.auto_buffer {
+        //
+        // On the 16-bit machine a descriptor with an `SDBUF` buffer owes the
+        // same: the intro's motifs slide across the screen with buffers 2–6
+        // and its text stands on buffer 1, and without this they leave their
+        // trail standing — which is what settles `SDBUF` as the save-under
+        // the 32-bit `SDAUTOBUF` is, and not a compositing layer. A reading
+        // of the picture, not of the handler.
+        if d.auto_buffer || d.buffer.is_some() {
             self.rebuild.push((d.screen, (x, y, w, h)));
         }
         let d = &mut self.descriptors[index];
@@ -170,6 +234,24 @@ impl Engine {
             d.dirty = true;
             d.changed = true;
         }
+    }
+
+    /// The walk's scale, put down the way the `SD%SHR` word puts it: the
+    /// one value into the horizontal and the vertical factor both — the
+    /// 32-bit handler writes the pair (`0x721b8`), the 16-bit one calls
+    /// `SDH%SHR` and `SDV%SHR` with it (`0xb38b`). All three fields,
+    /// because a per-axis value a script has set would otherwise stand,
+    /// and the figure would walk the city at the living room's size.
+    pub(crate) fn set_shrink(&mut self, v: i32) {
+        self.set_field("SD%SHR", v);
+        self.set_field("SDH%SHR", v);
+        self.set_field("SDV%SHR", v);
+    }
+
+    /// The next chain stamp — see [`Descriptor::stamp`].
+    pub(crate) fn next_stamp(&mut self) -> u64 {
+        self.level_stamp += 1;
+        self.level_stamp
     }
 
     /// A screen's surface has been wiped, so nothing owes it a rebuild.
@@ -258,8 +340,13 @@ impl Engine {
     /// `SDX` runs 0x6ab6e twice, before the store and after it (0x7112f,
     /// 0x7114e), because a descriptor that moves damages both places. Every
     /// setter here does the same, and every one of them leaves early when the
-    /// value is the one already there — as `SDX` (0x7111a) and `SDSPR`
-    /// (0x71715) do.
+    /// value is the one already there — as the 32-bit `SDX` (0x7111a) and
+    /// `SDSPR` (0x71715) do. The 16-bit setters skip nothing: each writes
+    /// and sets the dirty bit whatever the value — read on `SDX`
+    /// (`05f1:0df2`), `SDFNT` (`05f1:1038`), `SDLEV`, `SDNORM` — which is
+    /// what makes the intro's `.DRAWNEW` (`SMDESC GDX SDX`, a value written
+    /// over itself) force a redraw. [`Engine::sd_marks_always`] carries the
+    /// difference.
     fn changing(&mut self, word: &'static str, change: impl FnOnce(&mut Descriptor)) -> Result<()> {
         self.require_descriptor(word)?;
         let i = self.selected.expect("require_descriptor found one");
@@ -274,8 +361,9 @@ impl Engine {
     /// The three words differ only in the [`Placement`] they store beside the
     /// number, which is exactly how the original encodes them.
     pub(crate) fn place_x(&mut self, v: i32, mode: Placement) -> Result<()> {
+        let always = self.sd_marks_always;
         let d = self.require_descriptor("SDX")?;
-        if (d.x, d.x_mode) == (v, mode) {
+        if !always && (d.x, d.x_mode) == (v, mode) {
             return Ok(());
         }
         self.changing("SDX", |d| (d.x, d.x_mode) = (v, mode))
@@ -289,8 +377,9 @@ impl Engine {
     /// *placement*, not a field to store under its own name. Recording it
     /// without acting on it leaves the dialogue's right margin unplaced.
     pub(crate) fn place_y(&mut self, v: i32, mode: Placement) -> Result<()> {
+        let always = self.sd_marks_always;
         let d = self.require_descriptor("SDY")?;
-        if (d.y, d.y_mode) == (v, mode) {
+        if !always && (d.y, d.y_mode) == (v, mode) {
             return Ok(());
         }
         self.changing("SDY", |d| (d.y, d.y_mode) = (v, mode))
@@ -298,18 +387,26 @@ impl Engine {
 
     /// `SDLEV`, `SDLV`, `SDZ`: the level the per-frame walk sorts by.
     pub(crate) fn set_level(&mut self, v: i32) -> Result<()> {
-        if self.require_descriptor("SDLEV")?.level == v {
+        if !self.level_chain && self.require_descriptor("SDLEV")?.level == v {
             return Ok(());
         }
+        // The 16-bit handler re-inserts into the level chain and sets the
+        // dirty bit whatever the value (`05f1:1018`), so an unchanged level
+        // still moves the descriptor after its equals — see
+        // [`Descriptor::stamp`].
+        let stamp = self.next_stamp();
         // Marked twice over for a second reason here: the two marks go down at
         // the old level and the new one, so both depths are repainted.
-        self.changing("SDLEV", |d| d.level = v)
+        self.changing("SDLEV", |d| {
+            d.level = v;
+            d.stamp = stamp;
+        })
     }
 
     /// `SDSPR`: the sprite to draw. Negative clears it.
     pub(crate) fn set_sprite(&mut self, v: i32) -> Result<()> {
         let want = (v >= 0).then_some(v as u32);
-        if self.require_descriptor("SDSPR")?.sprite == want {
+        if !self.sd_marks_always && self.require_descriptor("SDSPR")?.sprite == want {
             return Ok(());
         }
         self.changing("SDSPR", |d| d.sprite = want)
@@ -321,7 +418,7 @@ impl Engine {
     /// descriptor *type*, not in where the picture comes from.
     pub(crate) fn set_block(&mut self, v: i32) -> Result<()> {
         let want = (v >= 0).then_some(v as u32);
-        if self.require_descriptor("SDBL")?.block == want {
+        if !self.sd_marks_always && self.require_descriptor("SDBL")?.block == want {
             return Ok(());
         }
         self.changing("SDBL", |d| d.block = want)
@@ -329,8 +426,9 @@ impl Engine {
 
     /// `SDTXT`: the text entry to show, which makes this a text descriptor.
     pub(crate) fn set_text(&mut self, v: i32) -> Result<()> {
+        let always = self.sd_marks_always;
         let d = self.require_descriptor("SDTXT")?;
-        if d.text == Some(v) && d.kind == DescriptorKind::Text {
+        if !always && d.text == Some(v) && d.kind == DescriptorKind::Text {
             return Ok(());
         }
         self.changing("SDTXT", |d| {
@@ -341,8 +439,9 @@ impl Engine {
 
     /// `SDTB`: the text table to read from, which makes this a text descriptor.
     pub(crate) fn set_text_table(&mut self, v: i32) -> Result<()> {
+        let always = self.sd_marks_always;
         let d = self.require_descriptor("SDTB")?;
-        if d.table == Some(v) && d.kind == DescriptorKind::Text {
+        if !always && d.table == Some(v) && d.kind == DescriptorKind::Text {
             return Ok(());
         }
         self.changing("SDTB", |d| {
@@ -357,7 +456,7 @@ impl Engine {
     /// runs a backing pass for anything from 256 up; the low byte is the
     /// palette index. Clamping it here threw both halves away.
     pub(crate) fn set_color(&mut self, v: i32) -> Result<()> {
-        if self.require_descriptor("SDCOL")?.color == v {
+        if !self.sd_marks_always && self.require_descriptor("SDCOL")?.color == v {
             return Ok(());
         }
         self.changing("SDCOL", |d| d.color = v)
@@ -365,7 +464,7 @@ impl Engine {
 
     /// `SDFNT`: which registered font the text draws in.
     pub(crate) fn set_font(&mut self, v: i32) -> Result<()> {
-        if self.require_descriptor("SDFNT")?.font == Some(v) {
+        if !self.sd_marks_always && self.require_descriptor("SDFNT")?.font == Some(v) {
             return Ok(());
         }
         self.changing("SDFNT", |d| d.font = Some(v))
@@ -373,7 +472,7 @@ impl Engine {
 
     /// `SDTDT`: the text template, which names the outline font and the gaps.
     pub(crate) fn set_template(&mut self, v: i32) -> Result<()> {
-        if self.require_descriptor("SDTDT")?.template == Some(v) {
+        if !self.sd_marks_always && self.require_descriptor("SDTDT")?.template == Some(v) {
             return Ok(());
         }
         self.changing("SDTDT", |d| d.template = Some(v))
@@ -390,8 +489,9 @@ impl Engine {
     /// `SDWORD` screens its argument exactly as `NEWSETDESC` does — 0 and -1
     /// clear the field (0x72bf4-0x72c03), and the same three checks stand
     /// between anything else and the store at 0x72c3a. The screening is
-    /// [`crate::stack::callable`] and stays at the call site, because it needs
-    /// module memory to decide and this does not.
+    /// the machine's, [`motionvm_forth::AddressSpace::callable`], and stays
+    /// at the call site, because it needs the machine's memory to decide and
+    /// this does not.
     pub(crate) fn set_callback(&mut self, v: i32) -> Result<()> {
         self.require_descriptor("SDWORD")?.callback = v;
         Ok(())
@@ -405,7 +505,7 @@ impl Engine {
         let Some(i) = self.selected else {
             return;
         };
-        if self.descriptors[i].fields.get(key) == Some(&v) {
+        if !self.sd_marks_always && self.descriptors[i].fields.get(key) == Some(&v) {
             return;
         }
         // Through the same marking as the modelled setters, because two of
@@ -591,7 +691,7 @@ pub enum Placement {
 /// given a text and later a sprite would otherwise draw both.
 ///
 /// It was called `Kind2` for a while, after a collision with
-/// [`motionvm_formats::Kind`] — a name that recorded the accident rather than
+/// [`motionvm_formats::m32::Kind`] — a name that recorded the accident rather than
 /// the thing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DescriptorKind {
@@ -674,6 +774,20 @@ pub struct Descriptor {
     /// `_IINFO @ ACTDESC … SDACTIVE  0x53370 SDWORD  0 SDWAIT` in module 5 —
     /// and `?TEXTREADY` waits for exactly that to have happened.
     pub callback: i32,
+    /// Where the level chain last put it among its equals.
+    ///
+    /// The 16-bit engine keeps its descriptors on a doubly linked chain
+    /// sorted by level, and `SDLEV` (`05f1:1018`) always unlinks and
+    /// re-inserts — `0362:2007` walks to the first node whose level is
+    /// *greater* and splices in before it, so the freshest set lands
+    /// **after** every equal and draws on top of them (the drawer walks the
+    /// chain head first, `016a:0a4f`). This stamp is that position: paint
+    /// order is `(level, stamp)`. On the 32-bit machine nothing bumps it
+    /// after creation, so the order stays what it always was — creation
+    /// order among equals; its chain handler is unread. Not saved: a loaded
+    /// game restamps in list order, and the next `SDLEV` puts a moving
+    /// figure back where the chain would have it.
+    pub stamp: u64,
     /// How `x` and `y` are to be read, one mode per axis.
     ///
     /// The original keeps both in the low nibble of the word at +0x12 — bits
@@ -722,6 +836,11 @@ pub struct Descriptor {
     /// checked pixel for pixel against the original; the bit is carried so the
     /// distinction is not lost, and what it is for is an open question.
     pub changed: bool,
+    /// `SDBUF`, on the 16-bit machine: the off-screen buffer this descriptor
+    /// draws through, by the number `SETBUF` allocated it under. What the
+    /// 16-bit kernel does with it is unread — see [`crate::Buffers`]; the
+    /// 32-bit game keeps `SDBUF` as a by-name field and never reads it.
+    pub buffer: Option<i32>,
     /// `SDAUTOBUF`: whether taking this descriptor away puts the picture back.
     ///
     /// `SDAUTOBUF` (0x72104) hands the descriptor a buffer number at +0x1C and

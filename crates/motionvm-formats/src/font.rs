@@ -1,20 +1,7 @@
-//! Bitmap fonts (`Kind::Font`, and the standalone `000.FNT`) and the character
-//! reference table `000.FRT`.
+//! Bitmap fonts as both engine generations decode them, and the character
+//! reference table `000.FRT` / FRT slot 0.
 //!
-//! A font is LZW-compressed with the very same codec as the sprites — see
-//! [`crate::lzw`] — and its header states the codec parameters outright rather
-//! than leaving them implicit:
-//!
-//! ```text
-//! +0   u16  unpacked size
-//! +2   u16  the same size again
-//! +4   u16  packed size (file length minus this 10-byte header)
-//! +6   u16  dictionary limit, 2048, i.e. codes grow to 11 bits
-//! +8   u16  initial code width, 9
-//! +10  ...  LZW stream
-//! ```
-//!
-//! What comes out is a glyph table followed by the bitmaps:
+//! A font is a glyph table followed by the bitmaps:
 //!
 //! ```text
 //! +0   u16  glyph count
@@ -23,16 +10,24 @@
 //! ...  bitmaps: ceil(width / 8) bytes per row, `height` rows, 1 bit per pixel
 //! ```
 //!
+//! That table is what this module reads, with [`Font::from_glyph_table`]. How
+//! it is stored differs by generation: the 32-bit engine packs it with its
+//! LZW codec behind a 10-byte header ([`crate::m32::font`]), the 16-bit
+//! engine stores it bare ([`crate::m16::font`]).
+//!
 //! Pixels within a byte are **least significant bit first**, which is the one
 //! part that cannot be read off the structure: taking them the other way round
 //! produces shapes that look vaguely glyph-like but are not letters. Rendering
-//! the first glyphs of `008.FNT` settles it — they spell out A B C D E F G H,
-//! matching `000.FRT`, where `'A'` maps to glyph 0.
+//! settles it in both generations — the first glyphs of Dunkle Schatten 2's
+//! `008.FNT` spell out A B C D E F G H, matching `000.FRT`, where `'A'` maps
+//! to glyph 0; and glyph 0, 26 and 52 of Die Enviro-Kids greifen ein's font 0
+//! are `A`, `Ä` and `x`.
 
 use crate::error::{Error, Result};
-use crate::{lzw, u16le};
+use crate::u16le;
 
-/// `000.FRT` — maps a CP437 character code to a glyph index.
+/// `000.FRT` (32-bit) / FRT slot 0 (16-bit) — maps a CP437 character code
+/// to a glyph index. The two are laid out identically, 516 bytes each.
 ///
 /// ```text
 /// u16       number of character slots (256)
@@ -48,7 +43,7 @@ pub struct FontRefTable {
 }
 
 impl FontRefTable {
-    /// Reads `000.FRT`.
+    /// Reads a font reference table.
     pub fn parse(data: &[u8]) -> Result<Self> {
         let slots = u16le(data, 0)? as usize;
         let glyph_count = u16le(data, 2)? as usize;
@@ -95,11 +90,8 @@ impl Glyph {
     }
 }
 
-/// Bytes of font header before the first glyph.
-pub const HEADER_LEN: usize = 10;
-
 #[derive(Debug, Clone)]
-/// One `.FNT` resource: a common line height and the glyphs themselves.
+/// One decoded font: a common line height and the glyphs themselves.
 pub struct Font {
     /// The height every glyph is laid out on.
     pub height: u16,
@@ -108,34 +100,11 @@ pub struct Font {
 }
 
 impl Font {
-    /// Reads a font resource.
-    pub fn parse(item: &[u8]) -> Result<Self> {
-        if item.len() < HEADER_LEN {
-            return Err(Error::Truncated {
-                off: 0,
-                need: HEADER_LEN,
-                have: item.len(),
-            });
-        }
-        let unpacked = u16le(item, 0)? as usize;
-        let dictionary_limit = u16le(item, 6)? as u32;
-        let initial_width = u16le(item, 8)? as u32;
-        // The header carries the codec parameters, so derive the code width from
-        // the dictionary limit rather than assuming the sprites' 11 bits.
-        let max_bits = dictionary_limit.max(2).ilog2();
-        if initial_width != 9 {
-            return Err(Error::Corrupt {
-                what: "font",
-                detail: format!(
-                    "font declares an initial code width of {initial_width}, expected 9"
-                ),
-            });
-        }
-
-        let raw = lzw::decode(&item[HEADER_LEN..], max_bits, unpacked)?;
-
-        let count = u16le(&raw, 0)? as usize;
-        let height = u16le(&raw, 2)?;
+    /// Reads the decoded glyph table — the layout both generations share
+    /// once any compression is undone.
+    pub fn from_glyph_table(raw: &[u8]) -> Result<Self> {
+        let count = u16le(raw, 0)? as usize;
+        let height = u16le(raw, 2)?;
         let table_end = 4 + count * 4;
         if table_end > raw.len() {
             return Err(Error::Truncated {
@@ -147,8 +116,8 @@ impl Font {
 
         let mut glyphs = Vec::with_capacity(count);
         for i in 0..count {
-            let offset = u16le(&raw, 4 + i * 4)? as usize;
-            let width = u16le(&raw, 6 + i * 4)?;
+            let offset = u16le(raw, 4 + i * 4)? as usize;
+            let width = u16le(raw, 6 + i * 4)?;
             let stride = (width as usize).div_ceil(8);
             let len = stride * height as usize;
             let bits = raw

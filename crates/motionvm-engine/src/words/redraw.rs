@@ -6,14 +6,14 @@
 
 use crate::Engine;
 use crate::Result;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 impl Engine {
     pub(crate) fn words_redraw(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        _mem: &mut Memory,
+        _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
             // --- screen redraw ----------------------------------------------

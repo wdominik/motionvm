@@ -8,9 +8,11 @@
 //! calls and every figure reported itself arrived without having moved. In the
 //! park that leaves Karsten on his spawn corner at x = −80, off the left edge,
 //! which is why the protagonist appeared to be missing altogether.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// Karsten walks into the park and stops exactly where he was sent.
 ///
@@ -25,7 +27,7 @@ use motionvm_testutil::gamedata;
 /// (mode 1, because `person[0x1d0]` bit 0 is set), and the arrival.
 #[test]
 fn the_protagonist_walks_into_the_park() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

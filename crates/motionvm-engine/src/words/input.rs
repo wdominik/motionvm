@@ -7,23 +7,16 @@
 use crate::Engine;
 use crate::Result;
 use crate::stack::pop1;
-use crate::walk;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 impl Engine {
     pub(crate) fn words_input(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        mem: &mut Memory,
+        _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
-            // A figure's walk is a command queue plus a gate, and both live in
-            // [`walk`] — see there for the whole of it.
-            "DOWALK" => {
-                let person = pop1(stack, "DOWALK")? as u32;
-                walk::do_walk(self, mem, person)?;
-            }
             // The key that is waiting, or zero for none.
             //
             // **An ASCII code, not a flag.** `ICTRL` opens with
@@ -37,7 +30,10 @@ impl Engine {
             // The `0 >` form the game also uses is the "any key" test, and it
             // reads correctly either way — which is how a boolean can sit here
             // looking as if it works.
-            "?KEY" => stack.push(self.key),
+            "?KEY" => {
+                self.polled();
+                stack.push(self.key);
+            }
             // How far the walker moves in one step. Zero means one — the
             // handler substitutes it — and the walk is the only thing that
             // reads it back, in both halves: see [`walk`].

@@ -10,12 +10,16 @@
 /// [`Framebuffer::draw_text`] for how it was measured.
 pub const SPACING: i32 = 1;
 
+use motionvm_formats::Palette;
 use motionvm_formats::font::{Font, FontRefTable};
-use motionvm_formats::{Palette, Sprite};
+use motionvm_formats::m32::Sprite;
 
-/// Width of the display the game asks for with `640x480x256 SETRES`.
+/// Width of the display the 32-bit engine's game asks for with
+/// `640x480x256 SETRES`, and the width a [`Display`] has unless it is made
+/// with [`Display::with_size`].
 pub const DISPLAY_W: u16 = 640;
-/// Height of the same. Screens are composited onto a surface of this size.
+/// Height of the same. Screens are composited onto a surface of the
+/// display's size.
 pub const DISPLAY_H: u16 = 480;
 
 /// Palette index the engine treats as see-through.
@@ -252,6 +256,59 @@ impl Framebuffer {
             pen += glyph.width as i32 + spacing;
         }
         // The last glyph's spacing is never drawn, so it is not counted either.
+        (pen - x - spacing).max(0)
+    }
+
+    /// One line the way the 16-bit engine's run drawer puts it down
+    /// (`ENVIRO.EXE` `14ee:11cf`): like [`Framebuffer::draw_text_spaced`],
+    /// except that `#` is eaten — no glyph, no advance (`14ee:135e`), the
+    /// measure keeps counting it — and each space after the line's first
+    /// drawn glyph is widened by the next entry of `pads`, the pixels the
+    /// justification spread over the line (`14ee:1391`; empty when nothing
+    /// justifies).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text_line16(
+        &mut self,
+        font: &Font,
+        refs: &FontRefTable,
+        text: &str,
+        x: i32,
+        y: i32,
+        color: u8,
+        spacing: i32,
+        pads: &[i32],
+    ) -> i32 {
+        let mut pen = x;
+        let mut drawn = false;
+        let mut pad = 0usize;
+        for ch in text.chars() {
+            if ch == '#' {
+                continue;
+            }
+            let Some(byte) = cp437_byte(ch) else { continue };
+            let Some(index) = refs.glyph_for(byte) else {
+                continue;
+            };
+            let Some(glyph) = font.glyphs.get(index as usize) else {
+                continue;
+            };
+            for gy in 0..glyph.height {
+                for gx in 0..glyph.width {
+                    if glyph.pixel(gx, gy) {
+                        self.set(pen + gx as i32, y + gy as i32, color);
+                    }
+                }
+            }
+            pen += glyph.width as i32 + spacing;
+            if ch == ' ' {
+                if drawn {
+                    pen += pads.get(pad).copied().unwrap_or(0);
+                    pad += 1;
+                }
+            } else {
+                drawn = true;
+            }
+        }
         (pen - x - spacing).max(0)
     }
 
@@ -564,9 +621,19 @@ impl Screen {
     }
 
     /// Every tile a surface rectangle touches, clipped to the view.
+    ///
+    /// The view's base in surface coordinates is whichever scroll register
+    /// the machine moves: the 32-bit `SCRX` writes `origin`, the 16-bit
+    /// scroll (`SCRX`/`SCRPOS`) moves `pos`, the window the 16-bit engine's
+    /// own dirty-rect clip reads (`016a:19d8`, against screen `+0`/`+2`).
+    /// Each generation leaves the other's register at zero, so the sum is
+    /// the right base for both.
     fn span(&self, x: i32, y: i32, w: i32, h: i32) -> impl Iterator<Item = (usize, usize)> + use<> {
         let (tw, th) = self.tiles();
-        let (ox, oy) = (self.origin.0 as i32, self.origin.1 as i32);
+        let (ox, oy) = (
+            self.origin.0 as i32 + self.pos.0 as i32,
+            self.origin.1 as i32 + self.pos.1 as i32,
+        );
         let x0 = ((x - ox) >> 3).clamp(0, tw as i32);
         let y0 = ((y - oy) >> 3).clamp(0, th as i32);
         let x1 = ((x - ox + w + 7) >> 3).clamp(x0, tw as i32);
@@ -582,6 +649,9 @@ impl Screen {
 
 /// The set of screens plus the palette in force.
 pub struct Display {
+    /// The size of the picture the screens are composited onto: 640×480 for
+    /// the 32-bit engine's game, 320×200 for the 16-bit engine's.
+    pub size: (u16, u16),
     /// Every screen the game has made, in the order it made them — which is
     /// also the order they are composited in, before `level` is considered.
     pub screens: Vec<Screen>,
@@ -607,9 +677,15 @@ impl Display {
         self.screens.iter().any(|s| s.handle == handle && s.frozen)
     }
 
-    /// A display with no screens and an all-black palette.
+    /// A 640×480 display with no screens and an all-black palette.
     pub fn new() -> Self {
+        Self::with_size(DISPLAY_W, DISPLAY_H)
+    }
+
+    /// A display of the given size, with no screens and an all-black palette.
+    pub fn with_size(width: u16, height: u16) -> Self {
         Self {
+            size: (width, height),
             screens: Vec::new(),
             palette: Palette::from_6bit(&[0; Palette::BYTES]),
             current: None,
@@ -647,7 +723,7 @@ impl Display {
         }
     }
 
-    /// Flattens the screens into one 640x480 image.
+    /// Flattens the screens into one image of the display's size.
     ///
     /// **Hypothesis, to be checked against the reference screenshots.** The
     /// game lays out three screens: the main picture 640x400 with `SCRVPOS`
@@ -666,7 +742,7 @@ impl Display {
     /// (`Engine::advance_curtain`) — which is what the original does too — and
     /// nothing composes while one runs.
     pub fn compose(&self) -> Framebuffer {
-        let mut out = Framebuffer::new(DISPLAY_W, DISPLAY_H);
+        let mut out = Framebuffer::new(self.size.0, self.size.1);
         for s in self.screens.iter().filter(|s| s.active) {
             out.copy_from(
                 &s.buffer,
@@ -696,6 +772,34 @@ impl Display {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The damage span follows the scrolled window.
+    ///
+    /// A 16-bit screen scrolls `pos` over a surface wider than its view
+    /// (`016a:19d8` clips marks against that window); a mark under the
+    /// scrolled window must land in the map, and one left behind the
+    /// window must not.
+    #[test]
+    fn a_mark_under_the_scrolled_window_lands_in_the_map() {
+        let mut s = Screen::new(1);
+        s.size = (960, 200);
+        s.set_view(320, 200);
+        s.pos = (640, 0);
+        s.mark(700, 50, 16, 16, 3);
+        assert!(s.damaged(700, 50, 16, 16, 3), "the mark under the window");
+        assert!(
+            !s.damaged(100, 50, 16, 16, 3),
+            "nothing was marked behind the window"
+        );
+        let mut unscrolled = Screen::new(2);
+        unscrolled.size = (960, 200);
+        unscrolled.set_view(320, 200);
+        unscrolled.mark(700, 50, 16, 16, 3);
+        assert!(
+            !unscrolled.damaged(100, 50, 16, 16, 3),
+            "a mark beyond an unscrolled window is dropped"
+        );
+    }
 
     fn sprite(w: u16, h: u16, fill: u8) -> Sprite {
         Sprite {

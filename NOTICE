@@ -33,6 +33,17 @@ the source archive of the tagged commit they were built from, and
 relink. Anyone else shipping a binary of motionvm takes the obligation on
 themselves; it is the LGPL's requirement and not motionvm's.
 
+Other third-party libraries
+---------------------------
+
+The binaries statically link further open-source libraries, among them
+`winit` and `cpal` (Apache-2.0), and `softbuffer`, `png` and `rfd`
+(MIT OR Apache-2.0), together with their dependencies as recorded in
+`Cargo.lock`. Their license texts and attribution notices are part of
+each crate's source package on crates.io; the exact set and versions a
+binary is built from are those of the tagged commit's `Cargo.lock`,
+which travels with every release as the source archive.
+
 The game data
 -------------
 

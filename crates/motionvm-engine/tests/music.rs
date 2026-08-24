@@ -4,9 +4,11 @@
 //! only stop in the whole game is in `INCLLOC`:
 //! `_ACTMUSIC @ IF _ACTMUSIC @ ENDTUNE 0 _ACTMUSIC ! THEN`. So the two words
 //! are exercised by simply entering locations.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::{Game, MusicSink};
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,7 +58,7 @@ fn game_with_music(dir: &std::path::Path) -> (Game, Log) {
 /// arguments the other way round would ask for tune −1 and still look busy.
 #[test]
 fn a_location_starts_its_own_tune_and_the_next_one_stops_it() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -132,7 +134,7 @@ fn a_location_starts_its_own_tune_and_the_next_one_stops_it() {
 /// wrong.
 #[test]
 fn a_location_without_music_starts_nothing() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -168,7 +170,7 @@ fn a_location_without_music_starts_nothing() {
 /// the stack at every location change, growing it for the whole session.
 #[test]
 fn the_tune_words_leave_the_stack_as_they_found_it() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

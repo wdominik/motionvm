@@ -1,15 +1,18 @@
-//! End-to-end checks against the shipped game data.
+//! End-to-end checks against the files Dunkle Schatten 2 ships.
 //!
-//! These need the original files. Point `MOTIONVM_GAMEDATA` at the directory holding
+//! These need the original files. Point `MOTIONVM_GAMEDATA_DS2` at the directory holding
 //! `001.RSC` etc.; the tests skip themselves if it is missing, so the crate
 //! still builds and tests cleanly without the game.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
-use motionvm_formats::{Kind, Palette, ScrModule, Sprite, TextTable, font, rsc::Bank};
-use motionvm_testutil::{game_file, gamedata};
+use motionvm_formats::m32::{Kind, ScrModule, Sprite, rsc::Bank};
+use motionvm_formats::{Palette, font};
+use motionvm_testutil::{game_file, gamedata_ds2};
 
 macro_rules! bank_or_skip {
     () => {
-        match gamedata() {
+        match gamedata_ds2() {
             Some(dir) => Bank::open_dir(&dir).expect("open RSC banks"),
             None => {
                 eprintln!("skipping: no gamedata directory");
@@ -91,7 +94,8 @@ fn text_tables_parse_and_contain_german() {
     let mut umlauts = 0usize;
     for (_, id) in bank.present(Kind::Text) {
         let item = bank.item(Kind::Text, id).unwrap().unwrap();
-        let t = TextTable::parse(item).unwrap_or_else(|e| panic!("text {id}: {e}"));
+        let t =
+            motionvm_formats::m32::text::parse(item).unwrap_or_else(|e| panic!("text {id}: {e}"));
         total += t.strings.len();
         umlauts += t
             .strings
@@ -185,7 +189,7 @@ fn script_modules_parse_and_sizes_add_up() {
 
 #[test]
 fn standalone_files_match_their_in_container_twins() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -220,7 +224,7 @@ fn standalone_files_match_their_in_container_twins() {
 #[test]
 fn fonts_decode_and_spell_the_alphabet() {
     let bank = bank_or_skip!();
-    let dir = gamedata().expect("checked by bank_or_skip");
+    let dir = gamedata_ds2().expect("checked by bank_or_skip");
     let refs =
         font::FontRefTable::parse(&std::fs::read(game_file(&dir, "000.FRT")).unwrap()).unwrap();
 
@@ -229,7 +233,8 @@ fn fonts_decode_and_spell_the_alphabet() {
     let mut total_glyphs = 0;
     for (_, id) in ids {
         let item = bank.item(Kind::Font, id).unwrap().unwrap();
-        let f = font::Font::parse(item).unwrap_or_else(|e| panic!("font {id}: {e}"));
+        let f =
+            motionvm_formats::m32::font::parse(item).unwrap_or_else(|e| panic!("font {id}: {e}"));
         assert!(
             f.height > 0 && f.height <= 64,
             "font {id} height {}",
@@ -255,7 +260,7 @@ fn fonts_decode_and_spell_the_alphabet() {
     // and two feet on the bottom, and 'I' is a bar, and those do not survive a
     // flip.
     let big = bank.item(Kind::Font, 8).unwrap().unwrap();
-    let f = font::Font::parse(big).unwrap();
+    let f = motionvm_formats::m32::font::parse(big).unwrap();
     let glyph = |c: u8| -> &font::Glyph { &f.glyphs[refs.glyph_for(c).expect("mapped") as usize] };
 
     let a = glyph(b'A');
@@ -291,11 +296,12 @@ fn fonts_decode_and_spell_the_alphabet() {
 
 #[test]
 fn engine_executable_relocates_and_yields_the_kernel_word_table() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
-    let img = motionvm_formats::le::Image::open(game_file(&dir, "ENGINE.EXE")).expect("parse LE");
+    let img =
+        motionvm_formats::m32::le::Image::open(game_file(&dir, "ENGINE.EXE")).expect("parse LE");
 
     // A clean parse of every page's fixup records is the strongest signal that
     // the walk stayed in sync; a desync would overshoot a page boundary and the
@@ -308,7 +314,7 @@ fn engine_executable_relocates_and_yields_the_kernel_word_table() {
         "object 1 should be the code segment"
     );
 
-    let words = motionvm_formats::le::kernel_words(&img);
+    let words = motionvm_formats::m32::le::kernel_words(&img);
     assert_eq!(words.len(), 356, "kernel words");
 
     let by_name = |n: &str| words.iter().find(|w| w.name == n);
@@ -367,7 +373,7 @@ fn engine_executable_relocates_and_yields_the_kernel_word_table() {
 /// `DRUM.BNK` it carries MIDI note numbers — index 36 is note 35, `Kick`.
 #[test]
 fn the_adlib_banks_parse_and_name_their_instruments() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -380,7 +386,7 @@ fn the_adlib_banks_parse_and_name_their_instruments() {
     );
     assert_eq!(drum.len(), 5404);
 
-    let m = motionvm_formats::bnk::Bank::parse(&melodic).expect("melodic bank parses");
+    let m = motionvm_formats::m32::bnk::Bank::parse(&melodic).expect("melodic bank parses");
     assert_eq!(
         m.names.len(),
         128,
@@ -396,7 +402,7 @@ fn the_adlib_banks_parse_and_name_their_instruments() {
         assert_eq!(m.names[slot].key, 1, "every melodic entry carries key 1");
     }
 
-    let d = motionvm_formats::bnk::Bank::parse(&drum).expect("drum bank parses");
+    let d = motionvm_formats::m32::bnk::Bank::parse(&drum).expect("drum bank parses");
     assert_eq!(d.names.len(), 128);
     let kick = d
         .names
@@ -442,21 +448,21 @@ fn every_song_decodes_to_its_end_of_track() {
             .item(Kind::Block, id)
             .expect("read block")
             .expect("song present");
-        let song =
-            motionvm_formats::hmi::Song::parse(item).unwrap_or_else(|e| panic!("song {id}: {e}"));
+        let song = motionvm_formats::m32::hmi::Song::parse(item)
+            .unwrap_or_else(|e| panic!("song {id}: {e}"));
         assert_eq!(song.tick_hz, 120, "song {id} asks for 120 ticks a second");
         songs += 1;
         for (t, track) in song.tracks.iter().enumerate() {
             let last = track.events.last().expect("a track has events");
             assert_eq!(
                 last.event,
-                motionvm_formats::hmi::Event::EndOfTrack,
+                motionvm_formats::m32::hmi::Event::EndOfTrack,
                 "song {id} track {t} does not end on FF 2F"
             );
             for e in &track.events {
                 match e.event {
-                    motionvm_formats::hmi::Event::NoteOn { .. } => notes += 1,
-                    motionvm_formats::hmi::Event::NoteOff { .. } => note_offs += 1,
+                    motionvm_formats::m32::hmi::Event::NoteOn { .. } => notes += 1,
+                    motionvm_formats::m32::hmi::Event::NoteOff { .. } => note_offs += 1,
                     _ => {}
                 }
             }
@@ -554,11 +560,11 @@ fn smf_notes(d: &[u8]) -> std::collections::BTreeMap<u16, Vec<(u32, u8, u8)>> {
 /// `.MID`'s nibbles is an independent check of that reading.
 #[test]
 fn the_hmi_test_song_matches_its_midi_source() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
-    let song = motionvm_formats::hmi::Song::parse(
+    let song = motionvm_formats::m32::hmi::Song::parse(
         &std::fs::read(game_file(&dir, "TEST.HMI")).expect("TEST.HMI"),
     )
     .expect("TEST.HMI parses");
@@ -567,7 +573,7 @@ fn the_hmi_test_song_matches_its_midi_source() {
     let mut ours: std::collections::BTreeMap<u16, Vec<(u32, u8, u8)>> = Default::default();
     for track in &song.tracks {
         for e in &track.events {
-            if let motionvm_formats::hmi::Event::NoteOn { note, velocity, .. } = e.event {
+            if let motionvm_formats::m32::hmi::Event::NoteOn { note, velocity, .. } = e.event {
                 ours.entry(track.channel)
                     .or_default()
                     .push((e.tick, note, velocity));
@@ -615,13 +621,13 @@ fn the_hmi_test_song_matches_its_midi_source() {
 /// covers the ids the game actually asks for.
 #[test]
 fn the_driver_archives_walk_to_their_last_byte() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
     for (name, count) in [("HMIMDRV.386", 8), ("HMIDET.386", 80), ("HMIDRV.386", 100)] {
         let bytes = std::fs::read(game_file(&dir, name)).unwrap_or_else(|_| panic!("{name}"));
-        let arc = motionvm_formats::DriverArchive::parse(&bytes)
+        let arc = motionvm_formats::m32::DriverArchive::parse(&bytes)
             .unwrap_or_else(|e| panic!("{name} does not walk: {e}"));
         assert_eq!(arc.drivers.len(), count, "{name} driver count");
         assert_eq!(arc.name, "3", "{name} archive name");
@@ -638,7 +644,7 @@ fn the_driver_archives_walk_to_their_last_byte() {
 
     // The two ids the engine loads instrument banks for, and nothing else.
     let bytes = std::fs::read(game_file(&dir, "HMIMDRV.386")).expect("HMIMDRV.386");
-    let arc = motionvm_formats::DriverArchive::parse(&bytes).expect("walks");
+    let arc = motionvm_formats::m32::DriverArchive::parse(&bytes).expect("walks");
     assert_eq!(
         arc.device(0xA002).map(|d| d.name.as_str()),
         Some("fmmidi.com"),

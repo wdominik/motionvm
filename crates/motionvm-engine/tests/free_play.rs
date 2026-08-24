@@ -16,17 +16,19 @@
 //! conversation on screen and waiting for an answer — mode 14, eight of them —
 //! so the second condition stays shut until somebody picks one. That is the game
 //! working as written, and it is why this file plays rather than waits.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::{DescriptorKind, Game};
 use motionvm_forth::Address;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// The key code `ICTRL` compares against, from the game's own bytecode.
 const ESCAPE: i32 = 27;
 
 /// The mode cell of `_ORDER`, at +0x0c.
 fn order_mode(game: &Game) -> i32 {
-    let base = motionvm_forth::word_address(&game.vm, 2, "_ORDER")
+    let base = motionvm_forth::m32::word_address(&game.vm, 2, "_ORDER")
         .expect("_ORDER")
         .next();
     game.vm
@@ -117,7 +119,7 @@ fn play_into_free_play(dir: &std::path::Path) -> (Game, usize) {
 /// are testing nothing.
 #[test]
 fn the_opening_scene_hands_over_to_the_player() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -141,7 +143,7 @@ fn the_opening_scene_hands_over_to_the_player() {
 /// confirmation sprites and ends with `6 _INVMODE !` at `0x02d80`.
 #[test]
 fn escape_opens_the_quit_page() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -184,12 +186,12 @@ fn escape_opens_the_quit_page() {
 /// cell by eight — back below x 32 (`0x02b20`), forward above it (`0x02b58`) —
 /// then repaints with `CALCINV`.
 ///
-/// `inventory.rs` has a test for this that has been ignored since it was
-/// written, on the reading that the branch never runs. That reading was wrong
-/// about the cause; this settles what actually happens.
+/// `inventory.rs` has a test for this that is ignored, with this test named
+/// as the one that covers the behaviour: the branch does run, and this is
+/// where what happens is settled.
 #[test]
 fn the_inventory_arrows_scroll_the_window() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

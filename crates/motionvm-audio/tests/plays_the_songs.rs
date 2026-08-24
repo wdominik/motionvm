@@ -1,15 +1,17 @@
 //! The sequencer against the songs it has to play.
 //!
-//! These need the original files; point `MOTIONVM_GAMEDATA` at the directory with
+//! These need the original files; point `MOTIONVM_GAMEDATA_DS2` at the directory with
 //! `001.RSC`, or they skip themselves.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_audio::{Kind, Message, Sequencer};
-use motionvm_formats::{
+use motionvm_formats::m32::{
     Kind as Res,
     hmi::{Event, Song},
     rsc::Bank,
 };
-use motionvm_testutil::{game_file, gamedata};
+use motionvm_testutil::{game_file, gamedata_ds2};
 
 /// Runs `ticks` ticks and returns every message with the tick it fell on.
 fn play(song: Song, ticks: u32) -> Vec<(u32, Message)> {
@@ -38,7 +40,7 @@ fn play(song: Song, ticks: u32) -> Vec<(u32, Message)> {
 /// event's time.)
 #[test]
 fn the_notes_come_out_as_the_decoder_read_them() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -56,13 +58,13 @@ fn the_notes_come_out_as_the_decoder_read_them() {
         let mut volume = 0x7fu32;
         for e in &track.events {
             match e.event {
-                motionvm_formats::hmi::Event::Control {
+                motionvm_formats::m32::hmi::Event::Control {
                     controller: 7,
                     value,
                 } => {
                     volume = value as u32;
                 }
-                motionvm_formats::hmi::Event::NoteOn { note, velocity, .. } => {
+                motionvm_formats::m32::hmi::Event::NoteOn { note, velocity, .. } => {
                     let velocity = if track.channel == 9 {
                         scaled += 1;
                         (velocity as u32 * volume / 127) as u8
@@ -106,7 +108,7 @@ fn the_notes_come_out_as_the_decoder_read_them() {
 /// choice — measured, and it is what a naive `off = on + duration` would miss.
 #[test]
 fn a_note_ends_where_its_length_says() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -121,7 +123,7 @@ fn a_note_ends_where_its_length_says() {
     for track in &song.tracks {
         let channel = track.channel as u8;
         for e in &track.events {
-            if let motionvm_formats::hmi::Event::NoteOn { note, duration, .. } = e.event
+            if let motionvm_formats::m32::hmi::Event::NoteOn { note, duration, .. } = e.event
                 && e.tick + duration + 1 < WINDOW
             {
                 want.entry((channel, note))
@@ -175,7 +177,7 @@ fn a_note_ends_where_its_length_says() {
 /// after the jump.
 #[test]
 fn the_loop_takes_every_track_back() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -228,7 +230,7 @@ fn the_loop_takes_every_track_back() {
 /// them occur, and how often. This counts them rather than assuming.
 #[test]
 fn the_shipped_songs_hold_no_event_that_allocates_per_note() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

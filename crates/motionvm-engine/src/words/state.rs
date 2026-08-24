@@ -12,16 +12,15 @@ use crate::MODE_640X480X256;
 use crate::Result;
 use crate::stack::pop_n;
 use crate::stack::pop1;
-use motionvm_formats::Kind;
 use motionvm_forth::Address;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 impl Engine {
     pub(crate) fn words_state(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        mem: &mut Memory,
+        mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
             // --- video mode and subsystem state -----------------------------
@@ -58,7 +57,7 @@ impl Engine {
             // asks for.
             "GET" => {
                 let a = pop_n(stack, 3, "GET")?;
-                let (size, addr, id) = (a[0].max(0) as usize, a[1] as u32, a[2]);
+                let (size, addr, id) = (a[0].max(0) as usize, a[1], a[2]);
                 // A loose file in the save directory answers before the banks
                 // do. That is how the original finds what `PUT` just wrote:
                 // 0x668aa registers the id in the block catalog as present on
@@ -71,14 +70,11 @@ impl Engine {
                 let loose = self
                     .save_path(id, "blk")
                     .and_then(|p| std::fs::read(p).ok());
-                let block = match loose.as_deref() {
+                let block = match loose {
                     Some(data) => Some(data),
-                    None => self
-                        .bank
-                        .as_ref()
-                        .and_then(|b| b.item(Kind::Block, id.max(0) as usize).ok().flatten()),
+                    None => self.resources.as_ref().and_then(|r| r.block(id)),
                 };
-                match block {
+                match block.as_deref() {
                     Some(data) => {
                         // A size of zero means the whole resource, not nothing:
                         // 0x66a8a tests the argument and, when it is zero, asks
@@ -92,7 +88,7 @@ impl Engine {
                         } else {
                             size.min(data.len())
                         };
-                        mem.write_bytes(Address(addr), &data[..n])?;
+                        mem.write_bytes(addr, &data[..n])?;
                     }
                     // A missing resource is not a no-op: something downstream
                     // will read the memory that should have been filled.
@@ -100,7 +96,7 @@ impl Engine {
                         return Err(Error::Unimplemented {
                             ordinal: 0,
                             name: format!("GET: block {id} is not in the resource banks"),
-                            at: Address(addr),
+                            at: Address(addr as u32),
                         });
                     }
                 }
@@ -118,14 +114,11 @@ impl Engine {
             // cache and has no counterpart here.
             "PUT" => {
                 let a = pop_n(stack, 3, "PUT")?;
-                let (size, addr, id) = (a[0].max(0) as usize, a[1] as u32, a[2]);
+                let (size, addr, id) = (a[0].max(0) as usize, a[1], a[2]);
                 let Some(path) = self.save_path(id, "blk") else {
                     return Err(Error::NoSaveDir { word: "PUT", id });
                 };
-                let at = Address(addr);
-                let bytes = (0..size as u32)
-                    .map(|i| mem.fetch_byte(Address::new(at.module(), at.offset() + i)))
-                    .collect::<Result<Vec<u8>>>()?;
+                let bytes = mem.read_bytes(addr, size)?;
                 std::fs::write(&path, &bytes).map_err(|e| Error::Io {
                     word: "PUT",
                     path: path.clone(),
@@ -134,7 +127,9 @@ impl Engine {
             }
             // Hands the frame loop the word to run. It does not loop here: the
             // caller owns the clock, and the original's loop is this word being
-            // called again and again.
+            // called again and again. The 32-bit kernel's word, taking a
+            // packed address; the 16-bit kernel installs its controller with
+            // `SCRCTRL` and a word id instead.
             "CTRL" => {
                 let raw = pop1(stack, "CTRL")? as u32;
                 self.controller = Some(Address::new(raw >> 16, raw & 0xffff));

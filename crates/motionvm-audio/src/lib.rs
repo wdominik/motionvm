@@ -1,6 +1,6 @@
 //! The music.
 //!
-//! The game's songs are [HMI](motionvm_formats::hmi) sequences; this crate turns one
+//! The game's songs are [HMI](motionvm_formats::m32::hmi) sequences; this crate turns one
 //! into a stream of MIDI messages at the song's own tick rate. The synthesis
 //! that turns those messages into sound follows in its own module.
 //!
@@ -12,6 +12,7 @@ pub mod chip;
 pub mod error;
 pub mod opl;
 pub mod player;
+pub mod psm;
 pub mod sequencer;
 
 pub use chip::Chip;

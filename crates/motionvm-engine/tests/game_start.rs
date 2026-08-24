@@ -19,9 +19,11 @@
 //! definition is `SDINACTIVE EXIT`.
 //!
 //! Drop that argument and the game gets no further than its own first sentence.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// The title card times out on its own and the scene moves on.
 ///
@@ -31,7 +33,7 @@ use motionvm_testutil::gamedata;
 /// timed text runs down, fires its callback and reports itself finished.
 #[test]
 fn the_opening_scene_gets_past_its_title_card() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -100,7 +102,7 @@ fn the_opening_scene_gets_past_its_title_card() {
 /// player a choice, 0x7b9fd.
 #[test]
 fn the_opening_conversation_speaks_its_lines() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -232,7 +234,7 @@ fn a_wait_counts_down_only_behind_a_callback() {
 /// than pretending the list should come out empty.
 #[test]
 fn a_location_takes_its_scenery_with_it() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -314,7 +316,7 @@ fn a_location_takes_its_scenery_with_it() {
 /// is ever found to be off.
 #[test]
 fn picking_an_answer_moves_the_conversation_on() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -427,7 +429,7 @@ fn picking_an_answer_moves_the_conversation_on() {
 /// very same picture back in.
 #[test]
 fn a_fade_out_hides_the_frame_that_was_showing() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -486,7 +488,7 @@ fn a_fade_out_hides_the_frame_that_was_showing() {
 /// scene.
 #[test]
 fn the_pointer_draws_itself_over_the_frame() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -524,12 +526,12 @@ fn the_pointer_draws_itself_over_the_frame() {
     );
 
     // The very shape the engine resolved, straight out of the bank.
-    let bank = motionvm_formats::rsc::Bank::open_dir(&dir).expect("banks open");
+    let bank = motionvm_formats::m32::rsc::Bank::open_dir(&dir).expect("banks open");
     let item = bank
-        .item(motionvm_formats::Kind::Gfx8, id as usize)
+        .item(motionvm_formats::m32::Kind::Gfx8, id as usize)
         .expect("the cursor sprite")
         .expect("present");
-    let sprite = motionvm_formats::Sprite::parse(item).expect("parses");
+    let sprite = motionvm_formats::m32::Sprite::parse(item).expect("parses");
 
     let frame = game.engine.render();
     let mut opaque = 0;

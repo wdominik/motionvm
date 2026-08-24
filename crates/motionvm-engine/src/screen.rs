@@ -20,17 +20,34 @@ impl Engine {
     /// words later.
     pub(crate) fn select_screen(&mut self, handle: u32) {
         self.display.set_current(handle);
+        // In the per-screen scheme the number `ACTDESC` stored now names a
+        // descriptor of this screen; see [`Engine::select_descriptor`].
+        if self.per_screen_descriptors
+            && let Some(h) = self.selected_handle
+        {
+            self.selected = self
+                .descriptors
+                .iter()
+                .position(|d| d.screen == handle && d.handle == h);
+        }
     }
 
-    /// `GSCRX`: the horizontal origin, +0x24 of the record hanging off the
-    /// active screen.
+    /// `GSCRX`: the horizontal origin of the active screen.
     ///
-    /// `SCRX` writes the same field and this reads it straight back — a getter
-    /// and a setter on one pair of coordinates, which is why the pair is kept
-    /// rather than refused. What it shifts is a separate question: the game only
-    /// ever passes zero, so the renderer does not composite with it yet.
+    /// Two registers answer here, one per generation: the 32-bit `SCRX`
+    /// writes `origin` (+0x24; that game only ever passes zero), the
+    /// 16-bit `SCRX` writes `pos` (the scroll at scr+0, which the town
+    /// views move). Each generation leaves the other's register at zero,
+    /// so the sum is the right answer for both — the same base
+    /// `Screen::span` uses for the damage map. Reading only `origin`
+    /// made every native `GSCRX`-relative placement (the verb strip's
+    /// clamp, `MOUSEINFO`, the 16-bit conversation) drop the scroll
+    /// term.
     pub(crate) fn screen_origin_x(&mut self) -> i32 {
-        self.display.current_mut().map(|s| s.origin.0).unwrap_or(0) as i32
+        self.display
+            .current_mut()
+            .map(|s| i32::from(s.origin.0) + i32::from(s.pos.0))
+            .unwrap_or(0)
     }
 
     /// `SCRX`: writes the horizontal origin that [`Engine::screen_origin_x`]
@@ -48,9 +65,12 @@ impl Engine {
         }
     }
 
-    /// `GSCRY`: the vertical origin, +0x26. See [`Engine::screen_origin_x`].
+    /// `GSCRY`: the vertical origin. See [`Engine::screen_origin_x`].
     pub(crate) fn screen_origin_y(&mut self) -> i32 {
-        self.display.current_mut().map(|s| s.origin.1).unwrap_or(0) as i32
+        self.display
+            .current_mut()
+            .map(|s| i32::from(s.origin.1) + i32::from(s.pos.1))
+            .unwrap_or(0)
     }
 
     /// `GSCRVSIZE`: the visible window onto the surface, as `(width, height)`.

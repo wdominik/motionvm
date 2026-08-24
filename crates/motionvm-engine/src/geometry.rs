@@ -127,9 +127,15 @@ impl Engine {
     /// with `GDX`, so the error moved the sentence as well as its backing.
     pub(crate) fn stored_extent(&mut self, d: &Descriptor) -> (i32, i32) {
         let (w, h) = self.extent(d);
-        if d.kind == DescriptorKind::Text {
+        if d.kind == DescriptorKind::Text && !self.text16 {
             (w + 4, h + 4)
         } else {
+            // The 16-bit `GDWIDTH`/`GDHEIGHT` (`05f1:1705`, `05f1:177b`)
+            // measure the text live — the block measure at `14ee:16fd` with
+            // the descriptor's font and the resting gaps of 1 — and answer
+            // the bare size: no 4, no template margins. (The drawer stores
+            // a padded box at +8/+0xA for its own restore rectangle, but no
+            // getter reads it.)
             (w, h)
         }
     }

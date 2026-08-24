@@ -28,6 +28,9 @@ pub enum Error {
         /// How large the image is.
         have: usize,
     },
+    /// A PSM 2 file — the music driver or a module — is not what it was
+    /// taken to be. The message says which check refused it.
+    Psm(&'static str),
     /// A sample rate of zero was asked for.
     ///
     /// Its own variant because it is not a damaged file but a caller mistake,
@@ -50,6 +53,7 @@ impl fmt::Display for Error {
                 "the driver's {name} table needs {need} bytes at {at:#x}, \
                  but the image is only {have:#x} bytes"
             ),
+            Self::Psm(what) => write!(f, "{what}"),
             Self::ZeroRate => write!(f, "a sample rate of zero"),
         }
     }

@@ -11,15 +11,17 @@
 //! `#[ignore]`d, so `just check` skips it. Run it by hand:
 //!
 //! ```text
-//! MOTIONVM_GAMEDATA=… cargo test --release -p motionvm-engine \
+//! MOTIONVM_GAMEDATA_DS2=… cargo test --release -p motionvm-engine \
 //!     --test timing -- --nocapture --ignored
 //! ```
 //!
 //! Release only. A debug build measures the optimizer, not the code.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::{DescriptorKind, Game};
 use motionvm_render::Framebuffer;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 use std::time::Instant;
 
 /// Frames of nothing in particular, to get past startup into a real scene.
@@ -33,7 +35,7 @@ fn play(game: &mut Game, frames: usize) {
 #[test]
 #[ignore]
 fn where_the_frame_time_goes() {
-    let Some(dir) = gamedata() else { return };
+    let Some(dir) = gamedata_ds2() else { return };
     let mut game = Game::open(&dir).unwrap();
     game.start().unwrap();
     while game.pump().unwrap() {}

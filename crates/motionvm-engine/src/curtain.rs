@@ -15,7 +15,7 @@ use crate::Engine;
 impl Engine {
     /// Whether a transition is running, and so whether the interpreter is held.
     pub fn in_transition(&self) -> bool {
-        !self.curtains.is_empty()
+        !self.curtains.is_empty() || !self.wipes.is_empty() || self.scroll.is_some()
     }
 
     /// Moves the running transition on, dropping it when finished.
@@ -43,7 +43,45 @@ impl Engine {
     /// The whole covered range is rewritten each time, not just the newest
     /// band: a frame buys several bands when `ticks_per_band` is small, and
     /// the ranges only ever grow.
+    /// One step of a running `->SCRX`/`->SCRY` scroll: the window moves
+    /// `step` pixels toward the target and the frame is presented — the
+    /// 16-bit handler (`ENVIRO.EXE` file `0xc149`) blits exactly one such
+    /// step per `DELAY` tick out of its own loop, the surface untouched.
+    fn advance_scroll(&mut self) {
+        let Some(sc) = self.scroll else {
+            return;
+        };
+        let mut done = true;
+        if let Some(s) = self.display.screen_mut(sc.screen) {
+            let pos = if sc.vertical {
+                &mut s.pos.1
+            } else {
+                &mut s.pos.0
+            };
+            let step = sc.step.max(1) as i16;
+            let target = sc.target as i16;
+            if *pos < target {
+                *pos = (*pos + step).min(target);
+            } else if *pos > target {
+                *pos = (*pos - step).max(target);
+            }
+            done = *pos == target;
+        }
+        self.present();
+        if done {
+            self.scroll = None;
+        }
+    }
+
     pub(crate) fn advance_curtain(&mut self) {
+        if self.scroll.is_some() {
+            self.advance_scroll();
+            return;
+        }
+        if !self.wipes.is_empty() {
+            self.advance_wipe();
+            return;
+        }
         // A step, not a frame — see [`Self::step_ticks`]. During a curtain this
         // is exactly one band's worth, so one call moves one band and paints
         // it, the way the handler's loop does.
@@ -90,6 +128,166 @@ impl Engine {
             h: (bottom - top) as u16,
         };
         self.video.copy_from(&s.buffer, band, x, top);
+    }
+}
+
+impl Engine {
+    /// One ring of a running 16-bit box wipe, painted the way the handlers
+    /// paint theirs — see [`Wipe`].
+    fn advance_wipe(&mut self) {
+        let ticks = self.step_ticks().max(1);
+        let Some(w) = self.wipes.front_mut() else {
+            return;
+        };
+        w.advance(ticks);
+        let w = w.clone();
+        self.paint_wipe(&w);
+        if w.done() {
+            self.wipes.pop_front();
+        }
+    }
+
+    /// Paints a wipe's current state at once — mode 0's instant form.
+    pub(crate) fn paint_wipe_now(&mut self, wp: &Wipe) {
+        self.paint_wipe(wp);
+    }
+
+    fn paint_wipe(&mut self, wp: &Wipe) {
+        let (x, y, w, h) = wp.area;
+        let (bx, by, bw, bh) = wp.inner();
+        if !wp.opening {
+            // `FADEOUT` fills the frame between the view and the shrinking
+            // inner box with black, ring by ring; the tail fill at
+            // `05f1:29b8` takes the remaining middle when the rings are out.
+            for row in y..(y + h) {
+                for col in x..(x + w) {
+                    let inside = col >= bx && col < bx + bw && row >= by && row < by + bh;
+                    if !inside {
+                        self.video.set(col, row, 0);
+                    }
+                }
+            }
+            return;
+        }
+        // `FADEIN` copies the grown box out of the composed surface onto
+        // whatever the display holds — it blanks nothing, exactly like the
+        // 32-bit band (`05f1:2b1f`–`05f1:2c28`; full view at `05f1:2c5f`).
+        if bw <= 0 || bh <= 0 {
+            return;
+        }
+        let Some(s) = self.display.screens.iter().find(|s| s.handle == wp.screen) else {
+            return;
+        };
+        let window = self.display.window(s);
+        let rect = motionvm_render::Rect {
+            x: window.x + (bx - x),
+            y: window.y + (by - y),
+            w: (bw as u16).min(window.w),
+            h: (bh as u16).min(window.h),
+        };
+        self.video.copy_from(&s.buffer, rect, bx, by);
+    }
+}
+
+/// One box transition, as the 16-bit engine's `FADEIN` and `FADEOUT` in
+/// mode 1 draw it (`ENVIRO.EXE` `05f1:29e4`, `05f1:2827`).
+///
+/// Both take `( mode duration step -- )` like their 32-bit namesakes, but
+/// the picture moves as a rectangle, not a band: `FADEOUT` fills four
+/// strips a ring, the black frame growing in from the view's edges;
+/// `FADEIN` composes the screen once, then blits the same strips out of
+/// the surface, the box growing from the center until a final whole-view
+/// copy squares the rounding. A ring is `(width / (2·step) + 7) & !7`
+/// wide and `height / (2·step)` tall, one fewer ring where that width
+/// times the rings would overrun the view, and each ring waits
+/// `200 / duration` ticks of the 200 Hz clock (`05f1:2998`) — `1 50 8`,
+/// the game's one shape, is seven rings of 24×12 at 4 ticks each.
+#[derive(Debug, Clone)]
+pub struct Wipe {
+    /// `FADEIN` opens, `FADEOUT` closes.
+    pub opening: bool,
+    /// The screen the effect belongs to.
+    pub screen: u32,
+    /// That screen's view rectangle on the display (`+0x10`, `+0x12`,
+    /// `+8`, `+0xA` of the screen block).
+    pub area: (i32, i32, i32, i32),
+    /// One ring's width, rounded up to a multiple of eight (`05f1:28db`).
+    pub xstep: i32,
+    /// One ring's height, truncated (`05f1:28eb`).
+    pub ystep: i32,
+    /// How many rings there are to walk (`05f1:2905` may take one off the
+    /// argument).
+    pub rings: i32,
+    /// How many have been walked.
+    pub walked: i32,
+    /// Ticks one ring waits, and how many are banked toward the next.
+    pub ticks_per_ring: i32,
+    /// Banked ticks.
+    pub banked: i32,
+}
+
+impl Wipe {
+    /// Builds the wipe the way the handler sets one up.
+    pub(crate) fn new(
+        opening: bool,
+        screen: u32,
+        area: (i32, i32, i32, i32),
+        duration: i32,
+        step: i32,
+    ) -> Self {
+        let (_, _, w, h) = area;
+        let step = step.max(1);
+        let xstep = ((w / (2 * step) + 7) & !7).max(8);
+        let ystep = (h / (2 * step)).max(1);
+        let rings = if xstep * step * 2 > w { step - 1 } else { step };
+        Wipe {
+            opening,
+            screen,
+            area,
+            xstep,
+            ystep,
+            rings: rings.max(0),
+            walked: 0,
+            // `200 / duration` (`05f1:299e`); the clamp is ours — the game
+            // passes 50 everywhere, and a zero would spin the ring counter
+            // forever where the original would simply not wait.
+            ticks_per_ring: (200 / duration.max(1)).max(1),
+            banked: 0,
+        }
+    }
+
+    /// The box the picture still fills (closing) or already fills
+    /// (opening), as the walked rings leave it.
+    pub(crate) fn inner(&self) -> (i32, i32, i32, i32) {
+        let (x, y, w, h) = self.area;
+        if self.opening {
+            let (cx, cy) = (x + w / 2, y + h / 2);
+            if self.walked >= self.rings {
+                return (x, y, w, h);
+            }
+            let (hw, hh) = (self.walked * self.xstep, self.walked * self.ystep);
+            (cx - hw, cy - hh, hw * 2, hh * 2)
+        } else {
+            if self.walked >= self.rings {
+                return (x, y, 0, 0);
+            }
+            let (dx, dy) = (self.walked * self.xstep, self.walked * self.ystep);
+            (x + dx, y + dy, w - 2 * dx, h - 2 * dy)
+        }
+    }
+
+    /// Banks a frame's worth of ticks and walks as many rings as they buy.
+    pub(crate) fn advance(&mut self, ticks: i32) {
+        self.banked += ticks.max(0);
+        let per = self.ticks_per_ring.max(1);
+        while self.banked >= per && !self.done() {
+            self.banked -= per;
+            self.walked += 1;
+        }
+    }
+
+    pub(crate) fn done(&self) -> bool {
+        self.walked >= self.rings
     }
 }
 

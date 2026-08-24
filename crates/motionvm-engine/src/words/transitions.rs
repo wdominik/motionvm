@@ -9,14 +9,14 @@ use crate::Engine;
 use crate::Fade;
 use crate::Result;
 use crate::stack::pop_n;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 impl Engine {
     pub(crate) fn words_transitions(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        _mem: &mut Memory,
+        _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
             // --- palette ----------------------------------------------------
@@ -57,7 +57,7 @@ impl Engine {
                             s.view.1 as i32,
                         )
                     })
-                    .unwrap_or((0, 0, 640, 480));
+                    .unwrap_or((0, 0, self.display.size.0 as i32, self.display.size.1 as i32));
                 // The flag `GSCRACT` reads is the same one the handlers touch:
                 // `FADEOUT` clears bit 0x80 of byte 0x13, `FADEIN` sets it. That
                 // coupling is what makes a location fade in at all — `INCLLOC`

@@ -10,17 +10,16 @@ use crate::Engine;
 use crate::Placement;
 use crate::Result;
 use crate::descriptor::DESCRIPTOR_SETTERS;
-use crate::stack::callable;
 use crate::stack::pop_n;
 use crate::stack::pop1;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 impl Engine {
     pub(crate) fn words_descriptors(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        mem: &mut Memory,
+        mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
             // --- descriptors ------------------------------------------------
@@ -35,7 +34,8 @@ impl Engine {
             //
             // The callback is the same field `SDWORD` writes: 0 and -1 mean
             // none and clear it (0x70c83-0x70c8f), anything else is checked as
-            // an address and stored at +0x14 (0x70cc9). Dropping *that* one cost
+            // an address and stored at +0x14 (0x70cc9) — the screening is the
+            // machine's, [`AddressSpace::callable`]. Dropping *that* one cost
             // the start of the game. `_TI1`, the descriptor every line of narration
             // goes through, is made with `160 100 100 1 0 0x51780 NEWSETDESC`,
             // and 0x51780 is module 5 at 0x1780 — listing 0x17b0, which is the
@@ -49,10 +49,11 @@ impl Engine {
             // together.
             "NEWSETDESC" => {
                 let a = pop_n(stack, 6, "NEWSETDESC")?;
-                let handle = self.next_descriptor;
-                self.next_descriptor += 1;
+                let handle = self.next_handle();
+                let stamp = self.next_stamp();
                 self.descriptors.push(Descriptor {
                     handle,
+                    stamp,
                     screen: self.display.current.unwrap_or(0),
                     x: a[0],
                     y: a[1],
@@ -69,11 +70,28 @@ impl Engine {
                     // drawn by the very next pass without anything marking it.
                     dirty: true,
                     changed: true,
-                    callback: callable(a[5], mem),
+                    callback: mem.callable(a[5]),
                     wait: -1,
                     ..Default::default()
                 });
                 self.selected = Some(self.descriptors.len() - 1);
+                stack.push(handle as i32);
+            }
+            // `( -- handle )`: a bare descriptor, as the 16-bit `NEWDESC` (file
+            // `0x9bb8`) makes one — the screen's next number, selected, with
+            // nothing set. No script of Dunkle Schatten 2 calls it.
+            "NEWDESC" => {
+                let handle = self.next_handle();
+                let stamp = self.next_stamp();
+                self.descriptors.push(Descriptor {
+                    handle,
+                    stamp,
+                    screen: self.display.current.unwrap_or(0),
+                    wait: -1,
+                    ..Default::default()
+                });
+                self.selected = Some(self.descriptors.len() - 1);
+                self.selected_handle = Some(handle);
                 stack.push(handle as i32);
             }
             "ACTDESC" => {
@@ -92,10 +110,23 @@ impl Engine {
                     d.auto_buffer = true;
                 }
             }
+            // Both shrink factors at once. Read from both binaries: the 32-bit
+            // handler (`ENGINE.EXE` `0x721b8`) writes the descriptor's
+            // horizontal and vertical factor from the one argument, the
+            // 16-bit one (`ENVIRO.EXE` file `0xb38b`) calls `SDH%SHR` and
+            // `SDV%SHR` with it. Setting the two named fields as well keeps a
+            // later `SDH%SHR` from being undone by an earlier `SD%SHR`'s
+            // fallback, and an earlier one from surviving it.
+            "SD%SHR" => {
+                let v = pop1(stack, "SD%SHR")?;
+                self.set_field("SD%SHR", v);
+                self.set_field("SDH%SHR", v);
+                self.set_field("SDV%SHR", v);
+            }
             // The rest of the one-argument setters. Their names are kept as
             // given; what each controls is measurable with the `GD*` getters
-            // when it matters, and guessing early is how `KILLNDESC` went
-            // wrong.
+            // when it matters, and a meaning guessed ahead of a measurement
+            // is a `KILLNDESC`-shaped trap: plausible, silent, and wrong.
             _ if DESCRIPTOR_SETTERS.contains(&name) => {
                 let v = pop1(stack, "descriptor setter")?;
                 // The `&'static str` from the table rather than the borrowed
@@ -128,8 +159,27 @@ impl Engine {
                     .map_or(0, |s| s.chars().count() as i32);
                 stack.push(n);
             }
-            // Toggles with no argument.
-            "SDBLK" | "SDNORM" | "SDPOS" => self.note_no_effect(name),
+            // `SDBLK` (16-bit file `0xa625`) sets bit 0x2000 of the text
+            // word and `SDNORM` (file `0xa726`) takes the layout bits away
+            // again — `and $0x80FF` clears the center modes with it. The
+            // drawer reads the bit as justification: every line starts at
+            // the block's left edge and its inner spaces stretch to the
+            // widest line (`14ee:11cf`, `14ee:111c`) — the newspaper's
+            // module 615 is the caller.
+            "SDBLK" => {
+                if let Some(d) = self.descriptor_mut() {
+                    d.fields.insert("SDBLK", 1);
+                }
+            }
+            "SDNORM" => {
+                if let Some(d) = self.descriptor_mut() {
+                    d.fields.remove("SDBLK");
+                    d.x_mode = Placement::Edge;
+                    d.y_mode = Placement::Edge;
+                }
+            }
+            // A toggle with no argument.
+            "SDPOS" => self.note_no_effect(name),
             "SDINSERT" => {
                 let a = pop_n(stack, 3, "SDINSERT")?;
                 if let Some(d) = self.descriptor_mut() {
@@ -182,8 +232,8 @@ impl Engine {
                     "SDFNT" => self.set_font(v)?,
                     "SDTDT" => self.set_template(v)?,
                     "SDWAIT" => self.set_wait(v)?,
-                    // The screening needs module memory, so it happens here.
-                    _ => self.set_callback(callable(v, mem))?,
+                    // The screening is the machine's, so it happens here.
+                    _ => self.set_callback(mem.callable(v))?,
                 }
             }
             // Getters, for completeness and for the oracle round-trips. Each
@@ -249,6 +299,14 @@ impl Engine {
             // never starts (0x710ac).
             "KILLNDESC" => {
                 let handle = pop1(stack, "KILLNDESC")? as u32;
+                // The 16-bit handler (file `0x9d3a`) frees the active screen's
+                // descriptors from the number up and sets the count back, so
+                // the next `NEWSETDESC` takes that number again.
+                if self.per_screen_descriptors {
+                    let screen = self.display.current.unwrap_or(0);
+                    self.forget_descriptors(|d| d.screen == screen && d.handle >= handle);
+                    return Ok(Some(()));
+                }
                 let Some(from) = self.descriptors.iter().position(|d| d.handle == handle) else {
                     return Ok(Some(()));
                 };

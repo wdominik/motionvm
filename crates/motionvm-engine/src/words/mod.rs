@@ -12,17 +12,24 @@
 //! inventory bar, the dialogue queue — because the original's own section
 //! order is not one: it visits screens twice and palette twice.
 
+mod buffers;
 mod descriptors;
 mod dialogue;
+mod dowalk;
 mod input;
 mod inventory;
+mod m16;
 // The two inventory operations are the game's own list surgery and the verb
 // menu does it directly, without going round through the words.
-pub(crate) use inventory::{add_to_inventory, remove_from_inventory};
+pub(crate) use inventory::{
+    M16_RULES, M32_RULES, Rules as InventoryRules, add_to_inventory, remove_from_inventory,
+    slot_address,
+};
 mod palette;
-mod pointer;
+pub(crate) mod pointer;
 mod redraw;
 mod resources;
+mod saves;
 mod screens;
 mod sound;
 mod state;

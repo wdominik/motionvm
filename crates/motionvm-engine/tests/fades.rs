@@ -6,9 +6,11 @@
 //! `FADEOUT` at all** (module 4, 0x03bc0/0x03be8 for the top row of tabs,
 //! 0x03cb4/0x03cdc for the bottom one). Nothing there ever blanks the screen,
 //! so a page has to appear over the one before it.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// A game standing in the title, settled, with the pointer able to reach the
 /// status bar.
@@ -55,7 +57,7 @@ fn row(frame: &motionvm_render::Framebuffer, y: i32) -> Vec<u8> {
 /// reveal it names.
 #[test]
 fn turning_a_help_page_reveals_it_over_the_page_before() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -119,7 +121,7 @@ fn turning_a_help_page_reveals_it_over_the_page_before() {
 /// above row 400 may move.
 #[test]
 fn the_menu_fades_the_bar_and_not_the_picture() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -166,7 +168,7 @@ fn the_menu_fades_the_bar_and_not_the_picture() {
 /// status bar, whose ten-ticks-a-band happens to match a frame, looked right.
 #[test]
 fn a_fade_puts_every_band_on_the_screen() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

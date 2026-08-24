@@ -28,11 +28,13 @@
 //!
 //! `SDTXT` then stores the measured width **plus four** into the descriptor,
 //! and that padded value is what `GDWIDTH` reports. Hence the four below.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_formats::{Kind, TextTable, rsc::Bank};
+use motionvm_formats::m32::{Kind, rsc::Bank};
 use motionvm_render::Framebuffer;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// What `GDWIDTH` came back with in the original, for entries of text table 6
 /// with no font chosen — so the system font — as `(SDTXT number, width)`.
@@ -47,14 +49,14 @@ const DESCRIPTOR_PADDING: i32 = 4;
 
 #[test]
 fn text_measures_the_same_as_in_the_original() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
     let game = Game::open(&dir).expect("game opens");
     let bank = Bank::open_dir(&dir).expect("resources");
     let item = bank.item(Kind::Text, 6).expect("read").expect("table 6");
-    let table = TextTable::parse(item).expect("table parses");
+    let table = motionvm_formats::m32::text::parse(item).expect("table parses");
     let refs = game.engine.font_refs().expect("000.FRT");
     let font = game.engine.system_font().expect("000.FNT");
 
@@ -76,7 +78,7 @@ fn text_measures_the_same_as_in_the_original() {
 /// invisible on a single line and off by one on every line of a paragraph.
 #[test]
 fn the_gap_falls_between_glyphs_and_not_after_the_last() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -114,7 +116,7 @@ fn the_gap_falls_between_glyphs_and_not_after_the_last() {
 /// assertion: if an empty text contributes nothing, the two frames are equal.
 #[test]
 fn an_empty_text_draws_nothing() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

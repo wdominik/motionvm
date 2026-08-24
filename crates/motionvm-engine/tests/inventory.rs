@@ -10,9 +10,11 @@
 //! below x 32, forward above — and `CALCINV` repaints. `_IMX` is −1 while the
 //! pointer is over the scene and the mouse x once it is at y ≥ 400
 //! (`0x028E0`), which is what keeps the arrows from firing on a scene click.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::{gamedata, savegame_slot};
+use motionvm_testutil::{gamedata_ds2, savegame_slot};
 
 /// A game standing in the classroom, past the startup transition.
 fn in_a_location(dir: &std::path::Path) -> Game {
@@ -153,7 +155,7 @@ fn click_bar(game: &mut Game, x: i32) {
 /// The baseline: if this fails, nothing about scrolling means anything.
 #[test]
 fn the_bar_shows_the_first_eight() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -193,7 +195,7 @@ fn the_bar_shows_the_first_eight() {
 #[ignore = "its own setup reaches the arrows before the scene ends; the arrows themselves are covered by free_play.rs"]
 #[test]
 fn the_bar_shows_what_the_list_says_after_scrolling() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -249,7 +251,7 @@ fn the_bar_shows_what_the_list_says_after_scrolling() {
 /// blink** — which is what a word that runs once and never again looks like.
 #[test]
 fn the_carried_items_slot_keeps_blinking() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -312,7 +314,7 @@ fn the_carried_items_slot_keeps_blinking() {
 /// directory holding one and it runs, otherwise it skips itself.
 #[test]
 fn a_savegame_says_what_the_bar_is_showing() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

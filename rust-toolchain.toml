@@ -14,8 +14,7 @@
 # since 1.88) stop it going much further down. It is a ceiling instead:
 # **`rust-version` must stay at or below the stable the CI runner images
 # carry.** Raise it to a freshly released stable and CI goes red on all three
-# of them until the images catch up, which is exactly what happened when it
-# said 1.98.0 four days after 1.98.0 came out.
+# of them until the images catch up — they trail a new release by days.
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy"]

@@ -9,20 +9,75 @@ use crate::Placement;
 use crate::Result;
 use crate::stack::pop_n;
 use crate::stack::pop1;
-use motionvm_forth::Address;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
+
+/// What differs between the two engines' `MOUSEINFO`: the inventory bar's
+/// geometry, read from each handler.
+#[derive(Clone, Copy)]
+pub(crate) struct Rules {
+    /// Where the bar's first slot starts, and how wide a slot is; the bar
+    /// holds eight.
+    pub bar_x0: i32,
+    pub slot_w: i32,
+    /// Where an item's name stands over the bar: this far below the screen's
+    /// origin, placed this way.
+    pub label_y: i32,
+    pub label_placement: Placement,
+}
+
+/// MOTION 32-bit, from `ENGINE.EXE`: slots of 64 from x 0x40, the name's
+/// far edge 0x18c below the origin.
+pub(crate) const M32_RULES: Rules = Rules {
+    bar_x0: 0x40,
+    slot_w: 64,
+    label_y: 0x18c,
+    label_placement: Placement::FarEdge,
+};
+
+/// MOTION 16-bit, from `ENVIRO.EXE` (`MOUSEINFO` at file `0x10015`): slots
+/// of 32 from x 0x20 (`0a40:2d54`), the name centered 158 below the origin
+/// (`0a40:2dda`–`0a40:2e1b`, `SDCEN`/`SDVCEN`).
+pub(crate) const M16_RULES: Rules = Rules {
+    bar_x0: 0x20,
+    slot_w: 32,
+    label_y: 158,
+    label_placement: Placement::Center,
+};
 
 impl Engine {
     pub(crate) fn words_pointer(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        mem: &mut Memory,
+        mem: &mut dyn AddressSpace,
+        rules: Rules,
     ) -> Result<Option<()>> {
         match name {
             // --- mouse pointer ----------------------------------------------
-            "HIDEMOUSE" => self.hide_pointer(),
-            "SHOWMOUSE" | "NORMMOUSE" => self.pointer_visible = true,
+            // The 16-bit pair keeps a show counter and is inert until a
+            // shape armed the pointer (`14ee:0874`, `14ee:094b`); see
+            // [`Engine::pointer_shows`]. The 32-bit pair is unread and
+            // stays the plain switch.
+            "HIDEMOUSE" => {
+                if self.pointer_counted {
+                    if self.cursor.is_some() {
+                        self.pointer_shows -= 1;
+                        self.pointer_visible = self.pointer_shows >= 1;
+                    }
+                } else {
+                    self.hide_pointer();
+                }
+            }
+            "SHOWMOUSE" | "NORMMOUSE" => {
+                if self.pointer_counted {
+                    if self.cursor.is_some() {
+                        self.pointer_shows += 1;
+                        self.pointer_visible = self.pointer_shows >= 1;
+                    }
+                } else {
+                    self.pointer_visible = true;
+                }
+            }
             "SETMOUSEX" => self.mouse.x = pop1(stack, "SETMOUSEX")?,
             "SETMOUSEY" => self.mouse.y = pop1(stack, "SETMOUSEY")?,
             "SETMOUSELB" => self.mouse.left = pop1(stack, "SETMOUSELB")?,
@@ -36,7 +91,7 @@ impl Engine {
             // "matches" it.
             "?XINSIDE" => {
                 let a = pop_n(stack, 5, "?XINSIDE")?;
-                let hit = area_containing(mem, a[0], a[1], a[2] as u32, a[3], a[4]);
+                let hit = area_containing(mem, a[0], a[1], a[2], a[3], a[4]);
                 stack.push(hit);
             }
             // The status line under the pointer, and the pointer's own shape.
@@ -54,12 +109,13 @@ impl Engine {
                 let a = pop_n(stack, 24, "MOUSEINFO")?;
                 let (imx, mmx, mmy) = (a[0], a[2], a[3]);
                 let (lditem, a_lditem, s_lditem, one) = (a[4], a[5], a[6], a[7]);
-                let (fitem, actinv) = (a[8] as u32, a[9] as u32);
-                let (is, screen, minfo, fitem2) = (a[11], a[13], a[14], a[15] as u32);
-                let (flag, bmnr, fxatmouse) = (a[16], a[17], a[18] as u32);
+                let (fitem, actinv) = (a[8], a[9]);
+                let (is, screen, minfo, fitem2) = (a[11], a[13], a[14], a[15]);
+                let (flag, bmnr, fxatmouse) = (a[16], a[17], a[18]);
                 let (t390, t391, t392) = (a[19], a[20], a[21]);
                 let mode = a[23];
                 let _ = is;
+                let cell = mem.cell_size();
 
                 // The handler keeps the last mode in a global and forces the
                 // "something changed" flag when it differs, so a mode switch
@@ -70,15 +126,16 @@ impl Engine {
                     changed = 1;
                 }
 
-                let cell = |base: u32, off: u32| {
-                    Address::new(base >> 16, (base & 0xffff).wrapping_add(off))
-                };
+                // Records are addressed by cell: the area's caption is its
+                // fifth cell, its exit the tenth and its item the eleventh;
+                // an item record is five cells with the flags second.
+                let field = |base: i32, cells: i32| mem.offset(base, cells * cell);
                 let mut result = -1;
                 // Modes 2, 4 and 5 are the menus: the info line belongs to them
                 // and this word keeps its hands off.
                 if mode == 2 || mode == 4 || mode == 5 {
-                    self.select_screen((screen) as u32);
-                    self.select_descriptor((minfo) as u32);
+                    self.select_screen(screen as u32);
+                    self.select_descriptor(minfo as u32);
                     stack.push(result);
                     return Ok(Some(()));
                 }
@@ -88,16 +145,15 @@ impl Engine {
                 let mut cursor = None;
 
                 if over_scene {
-                    self.select_screen((screen) as u32);
-                    self.select_descriptor((minfo) as u32);
-                    result = area_containing(mem, mmx, mmy, lditem as u32, s_lditem, a_lditem);
+                    self.select_screen(screen as u32);
+                    self.select_descriptor(minfo as u32);
+                    result = area_containing(mem, mmx, mmy, lditem, s_lditem, a_lditem);
                     let tb = self.descriptor_table();
                     let txt = self.descriptor_text_entry();
 
                     if result != -1 {
-                        let areas = lditem as u32;
                         let label =
-                            mem.fetch(cell(areas, (s_lditem * result) as u32 + 0x10))? as i32;
+                            mem.fetch_cell(mem.offset(lditem, s_lditem * result + 4 * cell))?;
                         if !(tb == one && txt == label && changed == 0) {
                             self.set_text_table(one)?;
                             self.set_text(label)?;
@@ -105,11 +161,11 @@ impl Engine {
                             self.place_y(mmy, Placement::Center)?;
                         }
                         if flag != 0 {
-                            let area = |off: u32| cell(areas, (result as u32) * 64 + off);
-                            let exit = mem.fetch(area(0x24))?;
-                            let item = mem.fetch(area(0x28))?;
+                            let area = |cells: i32| field(lditem, result * 16 + cells);
+                            let exit = mem.fetch_cell(area(9))?;
+                            let item = mem.fetch_cell(area(10))?;
                             let usable =
-                                item != 0 && mem.fetch(cell(fitem2, item * 20 + 4))? & 1 != 0;
+                                item != 0 && mem.fetch_cell(field(fitem2, item * 5 + 1))? & 1 != 0;
                             // Nothing to do when the pointer is already plain
                             // and nothing has changed.
                             cursor = if exit != 0 {
@@ -132,27 +188,29 @@ impl Engine {
                         }
                     }
                 } else if over_bar {
-                    self.select_screen((screen) as u32);
-                    self.select_descriptor((minfo) as u32);
-                    // The bar starts at x = 64 and gives each of its eight
-                    // slots 64 pixels, which is exactly where `CCALCINV` puts
-                    // them.
-                    let slot = (imx - 0x40) / 64;
-                    let offset = mem.fetch(cell(actinv, 0))? as i32;
+                    self.select_screen(screen as u32);
+                    self.select_descriptor(minfo as u32);
+                    // The bar's slots are where `CCALCINV` puts them; where
+                    // the bar starts and how wide a slot is differs between
+                    // the two engines, see [`Rules`].
+                    let slot = (imx - rules.bar_x0) / rules.slot_w;
+                    let offset = mem.fetch_cell(actinv)?;
                     let index = slot + offset;
-                    let item = if (0..=7).contains(&slot) && imx >= 0x40 {
-                        mem.fetch(cell(actinv, 4 + index as u32 * 4))? as i32
+                    let item = if (0..=7).contains(&slot) && imx >= rules.bar_x0 {
+                        mem.fetch_cell(mem.offset(actinv, 4 + index * cell))?
                     } else {
                         0
                     };
                     if item != 0 {
                         self.set_text_table(one)?;
-                        let label = mem.fetch(cell(fitem, item as u32 * 20))? as i32;
+                        let label = mem.fetch_cell(field(fitem, item * 5))?;
                         self.set_text(label)?;
-                        let x = self.screen_origin_x() + ((index - offset) << 6) + 0x60;
+                        let x = self.screen_origin_x()
+                            + (index - offset) * rules.slot_w
+                            + rules.slot_w * 3 / 2;
                         self.place_x(x, Placement::Center)?;
-                        let y = self.screen_origin_y() + 0x18c;
-                        self.place_y(y, Placement::FarEdge)?;
+                        let y = self.screen_origin_y() + rules.label_y;
+                        self.place_y(y, rules.label_placement)?;
                         if flag != 0 && bmnr != t391 {
                             cursor = Some(t391);
                         }
@@ -168,8 +226,8 @@ impl Engine {
                         }
                     }
                 } else {
-                    self.select_screen((screen) as u32);
-                    self.select_descriptor((minfo) as u32);
+                    self.select_screen(screen as u32);
+                    self.select_descriptor(minfo as u32);
                     let tb = self.descriptor_table();
                     let txt = self.descriptor_text_entry();
                     if !(tb == one && txt == 1) {
@@ -184,19 +242,33 @@ impl Engine {
                 }
 
                 if let Some(nr) = cursor {
-                    let target = Address::new(fxatmouse >> 16, fxatmouse & 0xffff);
-                    self.pending_call = Some((target, vec![nr, 0, 0]));
+                    self.pending_call = Some((fxatmouse, vec![nr, 0, 0]));
                 }
                 stack.push(result);
             }
-            "MOUSEX" => stack.push(self.mouse.x),
-            "MOUSEY" => stack.push(self.mouse.y),
-            "MOUSELK" => stack.push(self.mouse.left),
-            "MOUSERK" => stack.push(self.mouse.right),
+            "MOUSEX" => {
+                self.polled();
+                stack.push(self.mouse.x);
+            }
+            "MOUSEY" => {
+                self.polled();
+                stack.push(self.mouse.y);
+            }
+            "MOUSELK" => {
+                self.polled();
+                stack.push(self.mouse.left);
+            }
+            "MOUSERK" => {
+                self.polled();
+                stack.push(self.mouse.right);
+            }
             // y first, then x, so x is what ends up on top — that is the order
             // the handler pushes the two record fields in, and it was the other
             // way round here until the handler was read.
-            "MOUSEXY" => stack.extend([self.mouse.y, self.mouse.x]),
+            "MOUSEXY" => {
+                self.polled();
+                stack.extend([self.mouse.y, self.mouse.x]);
+            }
 
             // --- input, timers, sound ---------------------------------------
             // Gives the pointer a shape. The handler looks the sprite up, hides
@@ -248,26 +320,23 @@ impl Engine {
 /// zeroes is a hole, not a rectangle at the origin, and is skipped even when the
 /// point "matches" it.
 ///
-/// Takes module memory rather than the engine because the table is the game's,
-/// not ours. A read that runs off the end answers zero rather than failing,
-/// which is what the handler's own bounds-free walk does.
+/// Takes the machine's memory rather than the engine because the table is
+/// the game's, not ours; the corners are one cell each, whatever the machine's
+/// cell is. A read that runs off the end answers zero rather than failing,
+/// which is what the 32-bit handler's own bounds-free walk does.
 pub(crate) fn area_containing(
-    mem: &Memory,
+    mem: &dyn AddressSpace,
     x: i32,
     y: i32,
-    table: u32,
+    table: i32,
     stride: i32,
     count: i32,
 ) -> i32 {
-    let at = |i: i32, c: u32| {
-        Address::new(
-            table >> 16,
-            (table & 0xffff).wrapping_add((i * stride) as u32 + c * 4),
-        )
-    };
+    let cell = mem.cell_size();
+    let at = |i: i32, c: i32| mem.offset(table, i * stride + c * cell);
     for i in 0..count.max(0) {
         let c: Vec<i32> = (0..4)
-            .map(|k| mem.fetch(at(i, k)).unwrap_or(0) as i32)
+            .map(|k| mem.fetch_cell(at(i, k)).unwrap_or(0))
             .collect();
         if x >= c[0] && x <= c[2] && y >= c[1] && y <= c[3] && c != [0, 0, 0, 0] {
             return i;

@@ -1,6 +1,6 @@
 //! The FM driver, rebuilt from `fmmidi3.com`.
 //!
-//! `HMIMDRV.386` holds eight MIDI drivers (see [`motionvm_formats::drv`]); the one
+//! `HMIMDRV.386` holds eight MIDI drivers (see [`motionvm_formats::m32::drv`]); the one
 //! the game asks for as "Sound Blaster 16" is device `0xA009`, `fmmidi3.com`, a
 //! 32-bit flat image of 14 416 bytes. This module is that driver: it takes the
 //! MIDI messages the [sequencer](crate::sequencer) produces and answers with
@@ -58,8 +58,8 @@
 
 use crate::error::{Error, Result};
 use crate::sequencer::{Kind, Message};
-use motionvm_formats::bnk::Bank;
-use motionvm_formats::drv::Driver;
+use motionvm_formats::m32::bnk::Bank;
+use motionvm_formats::m32::drv::Driver;
 
 /// One write to the chip.
 ///

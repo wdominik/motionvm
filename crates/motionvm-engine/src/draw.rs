@@ -96,9 +96,11 @@ impl Engine {
         // (0x74ae2) before the band loop and `SHOWMOUSE` (0x74b64) after it.
         // Only the drawing is held back — `pointer_visible` is the script's
         // own `SHOWMOUSE`/`HIDEMOUSE` state and nothing is claimed here about
-        // how the two nest.
+        // how the two nest. The 16-bit wipes bracket their ring loops the
+        // same way (`05f1:28f5`/`05f1:29d7`, `05f1:2aff`/`05f1:2c8b`).
         if self.pointer_visible
             && self.curtains.is_empty()
+            && self.wipes.is_empty()
             && let Some((id, hx, hy)) = self.cursor
         {
             let (mx, my) = (self.mouse.x, self.mouse.y);
@@ -254,7 +256,11 @@ impl Engine {
         let mut order: Vec<usize> = (0..self.descriptors.len())
             .filter(|&i| self.descriptors[i].active && self.descriptors[i].screen == screen)
             .collect();
-        order.sort_by_key(|&i| self.descriptors[i].level);
+        // `(level, stamp)`: the 16-bit level chain's order — among equals
+        // the freshest `SDLEV` draws on top. On the 32-bit machine the
+        // stamps never move after creation, so this is the plain stable
+        // sort it always was; see [`crate::Descriptor::stamp`].
+        order.sort_by_key(|&i| (self.descriptors[i].level, self.descriptors[i].stamp));
         for i in order {
             let d = self.descriptors[i].clone();
             self.paint_descriptor(&d);
@@ -303,8 +309,13 @@ impl Engine {
             Placement::Center => d.y - sh / 2,
             Placement::FarEdge => d.y - sh,
         };
+        let opaque = self.opaque_blocks && d.sprite.is_none() && d.block.is_some();
         if let Some(screen) = self.display.screen_mut(d.screen) {
-            screen.buffer.blit_scaled(&sprite, x, y, h, v);
+            if opaque && h == 1000 && v == 1000 {
+                screen.buffer.blit_masked(&sprite, x, y, None);
+            } else {
+                screen.buffer.blit_scaled(&sprite, x, y, h, v);
+            }
         }
     }
 
@@ -386,6 +397,10 @@ impl Engine {
         // what made the outline invisible: it was there, in the color of the
         // letters it was supposed to sit behind.
         let outline_color = template.and_then(|t| t.args.first().copied()).unwrap_or(0) as u8;
+        let shadow_dx = template.and_then(|t| t.args.get(4).copied()).unwrap_or(0);
+        let shadow_dy = template.and_then(|t| t.args.get(3).copied()).unwrap_or(0);
+        let justify = self.text16 && d.fields.get("SDBLK").copied().unwrap_or(0) != 0;
+        let text16 = self.text16;
 
         let lines: Vec<&str> = text.split('\n').collect();
         // The backing goes down first, under the whole block, on the rectangle
@@ -408,11 +423,28 @@ impl Engine {
         // outline is a second typeface drawn underneath, not an offset copy and
         // not a second color; the negative gap keeps the wider outline glyphs
         // lined up with the ones on top.
+        //
+        // The 16-bit drawer differs on an axis that is **not** centered:
+        // there it starts the shadow pass at the anchor **plus the
+        // template's x/y offsets** — `016a:0e04` and `016a:0e2b` add the
+        // bytes at template +2/+3, `-1 -1` in every shipped template of both
+        // games — where a centered axis re-centers with the pass's own
+        // metrics and gets the same one-pixel shift out of the wider glyphs.
+        // (The 32-bit drawer adds no such offset: 0x6a136 and 0x6a228
+        // compute the same position for both passes.) Without it, an
+        // edge-placed text wore its silhouette a pixel low and right —
+        // doubled there, bare at the top left.
+        // `SDBLK` justifies (16-bit, `14ee:11cf` with mode bit 2): every
+        // line starts at the block's left edge — the widest line's — and
+        // the deficit is spread one pixel at a time over the line's inner
+        // spaces (`14ee:111c`), round robin from the left. A line that
+        // opens with `#` stays ragged: the newspaper marks its headings
+        // and paragraph ends with it.
         let passes = outline
             .iter()
-            .map(|f| (f, outline_gap, outline_color))
-            .chain([(&font, motionvm_render::SPACING, color)]);
-        for (pass_font, gap, pass_color) in passes {
+            .map(|f| (f, outline_gap, outline_color, true))
+            .chain([(&font, motionvm_render::SPACING, color, false)]);
+        for (pass_font, gap, pass_color, is_shadow) in passes {
             // Each pass is placed with *its own* font, not with the text's.
             // The output routine at 0x257cf centers what it draws — it measures
             // and subtracts half, at 0x25845 and again at 0x25878 — so two
@@ -420,7 +452,9 @@ impl Engine {
             // Font 5 carries the letters at 18 tall and font 6 the outline at
             // 20, which is exactly one pixel over and one under. Placing both
             // from a top computed once, out of the text font, dropped the
-            // outline a pixel: doubled below, missing above.
+            // outline a pixel: doubled below, missing above. (The 16-bit run
+            // drawer does the same per-pass centring, per line, with the
+            // gaps the drawer set for the pass — `14ee:1231`, `14ee:1262`.)
             let height = line_height(pass_font, gap);
             // The gap belongs in the centring height, and this is why.
             //
@@ -433,25 +467,98 @@ impl Engine {
             // So either that branch is not the one this path takes, or the
             // height there serves something other than the centring. Measured
             // beats read — the same way the oracle test threw out a -1 truth
-            // flag that had looked just as convincing.
+            // flag that had looked just as convincing. (The 16-bit measure is
+            // the same sum, read this time: `lines × height + (lines − 1) ×
+            // gap` at `14ee:1711`–`14ee:172b`.)
             let block = (lines.len() as i32 * height - gap).max(0);
+            let off = |v: i32| if text16 && is_shadow { v } else { 0 };
             let top = match d.y_mode {
-                Placement::Edge => d.y,
+                Placement::Edge => d.y + off(shadow_dy),
                 Placement::Center => d.y - block / 2,
-                Placement::FarEdge => d.y - block,
+                Placement::FarEdge => d.y - block + off(shadow_dy),
             };
+            let block_width = justify.then(|| {
+                lines
+                    .iter()
+                    .map(|l| Framebuffer::text_width_spaced(pass_font, &refs, l, gap))
+                    .max()
+                    .unwrap_or(0)
+            });
             for (i, line) in lines.iter().enumerate() {
                 let y = top + i as i32 * height;
                 let width = Framebuffer::text_width_spaced(pass_font, &refs, line, gap);
                 let x = match d.x_mode {
-                    Placement::Edge => d.x,
-                    Placement::Center => d.x - width / 2,
-                    Placement::FarEdge => d.x - width,
+                    Placement::Edge => d.x + off(shadow_dx),
+                    Placement::Center => match block_width {
+                        Some(bw) => d.x - bw / 2,
+                        None => d.x - width / 2,
+                    },
+                    Placement::FarEdge => d.x - width + off(shadow_dx),
                 };
-                screen
-                    .buffer
-                    .draw_text_spaced(pass_font, &refs, line, x, y, pass_color, gap);
+                if text16 {
+                    let pads = match block_width {
+                        Some(bw) => justify_pads(line, bw - width),
+                        None => Vec::new(),
+                    };
+                    screen
+                        .buffer
+                        .draw_text_line16(pass_font, &refs, line, x, y, pass_color, gap, &pads);
+                } else {
+                    screen
+                        .buffer
+                        .draw_text_spaced(pass_font, &refs, line, x, y, pass_color, gap);
+                }
             }
         }
+    }
+}
+
+/// The justification's per-space widenings for one line (`14ee:111c`): the
+/// deficit against the block width, spread one pixel at a time over the
+/// line's inner spaces, round robin from the left. Leading spaces and a
+/// space at the line's end carry nothing, and a line that opens with `#`
+/// stays ragged. Empty when there is nothing to spread.
+fn justify_pads(line: &str, deficit: i32) -> Vec<i32> {
+    if deficit <= 0 || line.starts_with('#') {
+        return Vec::new();
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let lead = chars.iter().take_while(|&&c| c == ' ').count();
+    let count = chars
+        .iter()
+        .enumerate()
+        .skip(lead)
+        .filter(|&(i, &c)| c == ' ' && i + 1 < chars.len())
+        .count();
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut pads = vec![0i32; count];
+    for n in 0..deficit as usize {
+        pads[n % count] += 1;
+    }
+    pads
+}
+#[cfg(test)]
+mod tests {
+    use super::justify_pads;
+
+    /// The distribution the calculator at `14ee:111c` makes: one pixel at a
+    /// time over the inner spaces, round robin from the left.
+    #[test]
+    fn the_deficit_lands_round_robin_on_the_inner_spaces() {
+        assert_eq!(justify_pads("ein zwei drei", 5), vec![3, 2]);
+        assert_eq!(justify_pads("ein zwei drei", 2), vec![1, 1]);
+        assert_eq!(justify_pads("ein zwei", 3), vec![3]);
+    }
+
+    /// Leading spaces and a space at the line's end carry nothing; a line
+    /// that opens with `#` stays ragged; nothing to spread means no pads.
+    #[test]
+    fn what_stays_ragged_stays_ragged() {
+        assert_eq!(justify_pads("  ein zwei ", 4), vec![4]);
+        assert_eq!(justify_pads("# ein zwei", 7), Vec::<i32>::new());
+        assert_eq!(justify_pads("einzeln", 7), Vec::<i32>::new());
+        assert_eq!(justify_pads("ein zwei", 0), Vec::<i32>::new());
     }
 }

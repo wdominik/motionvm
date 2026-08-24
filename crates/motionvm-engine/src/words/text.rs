@@ -9,14 +9,14 @@ use crate::Result;
 use crate::TextTemplate;
 use crate::stack::pop_n;
 use crate::stack::pop1;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 impl Engine {
     pub(crate) fn words_text(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        _mem: &mut Memory,
+        _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
             // --- fonts and text ---------------------------------------------

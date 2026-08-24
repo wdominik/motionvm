@@ -13,14 +13,16 @@
 //! 2 give them the sprites 288 and 292. The anchor is the rectangle's center,
 //! (201, 210), and the strip is centered on it: `201 − 0x18·2 + 2 = 155`, then
 //! one step of 0x30 — so 155 and 203.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::Address;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// The `_ORDER` block, and a field of it.
 fn order(game: &Game) -> Address {
-    motionvm_forth::word_address(&game.vm, 2, "_ORDER")
+    motionvm_forth::m32::word_address(&game.vm, 2, "_ORDER")
         .expect("_ORDER")
         .next()
 }
@@ -64,7 +66,7 @@ fn until_idle(game: &mut Game, order: Address) {
 /// area, and the classroom's conversation starts first.
 #[test]
 fn a_right_click_opens_the_verb_menu() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -148,7 +150,7 @@ fn a_right_click_opens_the_verb_menu() {
 /// shown in block 2 through the `_IINFO` descriptor the block names at +0x140.
 #[test]
 fn looking_at_something_shows_its_description() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -219,7 +221,7 @@ fn looking_at_something_shows_its_description() {
 /// moves the node — to answer 0, which the third pass settles for.
 #[test]
 fn asking_about_something_enters_the_conversation_at_its_info_answer() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

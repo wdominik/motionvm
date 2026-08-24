@@ -19,7 +19,7 @@
 //!
 //! That claim rests on which events the songs contain, because the sequencer
 //! copies the event it is about to dispatch and three of
-//! [`Event`](motionvm_formats::hmi::Event)'s variants own a `Vec`. Counted
+//! [`Event`](motionvm_formats::m32::hmi::Event)'s variants own a `Vec`. Counted
 //! rather than assumed: across the shipped songs there are 58 468 events, of
 //! which **no `SysEx` and no `Branch`** — the two that would allocate per note —
 //! and 134 loop markers, which are the per-loop allocation named above.
@@ -36,9 +36,9 @@ use crate::chip::Chip;
 use crate::error::{Error, Result};
 use crate::opl::{Fm, Write};
 use crate::sequencer::{Message, Sequencer};
-use motionvm_formats::bnk::Bank;
-use motionvm_formats::drv::Driver;
-use motionvm_formats::hmi::Song;
+use motionvm_formats::m32::bnk::Bank;
+use motionvm_formats::m32::drv::Driver;
+use motionvm_formats::m32::hmi::Song;
 
 /// A song, the driver above it and the chip below, filling a sample buffer.
 ///

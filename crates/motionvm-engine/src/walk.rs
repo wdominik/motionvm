@@ -1,9 +1,9 @@
 //! Walking: `DOWALK` (0x787ec) and the route planner `CROUTE` (0x7780c).
 //!
 //! A figure is an ordinary sprite descriptor. What moves it is a **command
-//! queue** the scripts write and `DOWALK` consumes — but not one command per
-//! call, which is how this was first read and why the figures stood still.
-//! The handler opens with
+//! queue** the scripts write and `DOWALK` consumes — and not one command per
+//! call, however natural that reading looks; taken that way, the figures
+//! stand still. The handler opens with
 //!
 //! ```text
 //! 0x78881  cmpl $0,0x1C8(%eax)
@@ -27,9 +27,21 @@
 //! `(−80,311)-(198,323)` — Karsten's spawn corner — with neighbors 1 and 2;
 //! `_XROUTE` gives every route `z 48, step size 12` and the uphill one the
 //! scale ramp 900→800. His queue reads `1002 288 −1 3 | 1003 2 | 1006 2 | 999`.
+//!
+//! **Both engines.** The addresses above are `ENGINE.EXE`'s, and so are the
+//! record layouts: every offset in this file is a byte offset of the 32-bit
+//! layout, as `DEF_KARSTEN` writes it. The 16-bit handlers — `DOWALK` at
+//! file `0xf25f` of `ENVIRO.EXE`, `CROUTE` at `0xe6d0`, the step, turn and
+//! route helpers around them — are the same code compiled for 2-byte cells:
+//! the same records with every field at half the offset, the same command
+//! numbers, the same turn table, the same route search. So the offsets are
+//! scaled by the machine's cell in one place ([`at`]) and the rest reads
+//! once for both. Where the 16-bit code does its arithmetic in 16 bits and
+//! the 32-bit code in 32 — a product before a division in [`on_line`] and
+//! [`shrink_along`] — [`narrow`] says so.
 
 use crate::{Engine, Placement};
-use motionvm_forth::{Error, Memory, Result};
+use motionvm_forth::{AddressSpace, Error, Result};
 
 // The person record, in module memory. Offsets from `DEF_KARSTEN`, which
 // writes every one of them in decimal.
@@ -152,22 +164,38 @@ fn ring(way: i32, heading: i32) -> (u32, u32, i32) {
     (at, at + 4, next)
 }
 
-fn get(mem: &Memory, base: u32, off: u32) -> Result<i32> {
-    Ok(mem.fetch(Engine::field(base, off))? as i32)
+/// A field's address on this machine: `off` is the 32-bit layout's byte
+/// offset, and the field sits `off / 4` cells into the record on either.
+fn at(mem: &dyn AddressSpace, base: u32, off: u32) -> i32 {
+    mem.offset(base as i32, (off / 4) as i32 * mem.cell_size())
 }
 
-fn put(mem: &mut Memory, base: u32, off: u32, v: i32) -> Result<()> {
-    mem.store(Engine::field(base, off), v as u32)
+/// A product the 16-bit engine forms in 16 bits — `mul` then `cwtd` — where
+/// the 32-bit engine has 32; on a 2-byte-cell machine it wraps the same way.
+fn narrow(mem: &dyn AddressSpace, v: i32) -> i32 {
+    if mem.cell_size() == 2 {
+        v as i16 as i32
+    } else {
+        v
+    }
+}
+
+fn get(mem: &dyn AddressSpace, base: u32, off: u32) -> Result<i32> {
+    mem.fetch_cell(at(mem, base, off))
+}
+
+fn put(mem: &mut dyn AddressSpace, base: u32, off: u32, v: i32) -> Result<()> {
+    mem.store_cell(at(mem, base, off), v)
 }
 
 /// A cell of the command queue, which is addressed in cells throughout.
-fn queued(mem: &Memory, queue: u32, cursor: i32) -> Result<i32> {
+fn queued(mem: &dyn AddressSpace, queue: u32, cursor: i32) -> Result<i32> {
     get(mem, queue, cursor as u32 * 4)
 }
 
 /// A field of route `n`. The 4-byte prefix — the record count — is never read
 /// by the original; every access is `base + 4 + 36*n`.
-fn route(mem: &Memory, table: u32, n: i32, f: u32) -> Result<i32> {
+fn route(mem: &dyn AddressSpace, table: u32, n: i32, f: u32) -> Result<i32> {
     if n < 0 {
         return Err(Error::Unread {
             what: format!(
@@ -180,7 +208,7 @@ fn route(mem: &Memory, table: u32, n: i32, f: u32) -> Result<i32> {
     get(mem, table, 4 + n as u32 * ROUTE + f)
 }
 
-fn aux(mem: &Memory, table: u32, n: i32, f: u32) -> Result<i32> {
+fn aux(mem: &dyn AddressSpace, table: u32, n: i32, f: u32) -> Result<i32> {
     if n < 0 {
         return Err(Error::Unread {
             what: format!("CROUTE: auxiliary record {n} — as for the route record"),
@@ -190,11 +218,11 @@ fn aux(mem: &Memory, table: u32, n: i32, f: u32) -> Result<i32> {
     get(mem, table, n as u32 * AUX + f)
 }
 
-fn step_at(mem: &Memory, steps: u32, i: i32, f: u32) -> Result<i32> {
+fn step_at(mem: &dyn AddressSpace, steps: u32, i: i32, f: u32) -> Result<i32> {
     get(mem, steps, i as u32 * STEP + f)
 }
 
-fn set_step(mem: &mut Memory, steps: u32, i: i32, f: u32, v: i32) -> Result<()> {
+fn set_step(mem: &mut dyn AddressSpace, steps: u32, i: i32, f: u32, v: i32) -> Result<()> {
     put(mem, steps, i as u32 * STEP + f, v)
 }
 
@@ -211,7 +239,7 @@ fn div(a: i32, b: i32, at: &str) -> Result<i32> {
 }
 
 /// `DOWALK ( person -- )`, the handler at 0x787ec.
-pub(crate) fn do_walk(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
+pub(crate) fn do_walk(eng: &mut Engine, mem: &mut dyn AddressSpace, person: u32) -> Result<()> {
     let desc = get(mem, person, P_DESC)?;
     let screen = get(mem, person, P_SCREEN)?;
     eng.select_descriptor(desc as u32);
@@ -225,7 +253,7 @@ pub(crate) fn do_walk(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result
 }
 
 /// Takes the next command off the queue, 0x78891 to 0x78e14.
-fn dispatch(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
+fn dispatch(eng: &mut Engine, mem: &mut dyn AddressSpace, person: u32) -> Result<()> {
     let queue = get(mem, person, P_QUEUE)? as u32;
     let shadow = get(mem, person, P_SHADOW)? as u32;
 
@@ -244,7 +272,7 @@ fn dispatch(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
     if command == 1001 {
         let shrink = queued(mem, queue, cursor + 3)?;
         put(mem, shadow, S_SHRINK, shrink)?;
-        eng.set_field("SD%SHR", shrink);
+        eng.set_shrink(shrink);
         let x = queued(mem, queue, cursor)?;
         put(mem, shadow, S_X, x)?;
         eng.place_x(x, Placement::Center)?;
@@ -253,7 +281,8 @@ fn dispatch(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
         eng.place_y(y, Placement::FarEdge)?;
         let z = queued(mem, queue, cursor + 2)?;
         eng.set_level(z)?;
-        put(mem, shadow, S_Z, z + get(mem, person, P_ZBIAS)?)?;
+        let zbias = get(mem, person, P_ZBIAS)?;
+        put(mem, shadow, S_Z, z + zbias)?;
         let at = queued(mem, queue, cursor + 4)?;
         put(mem, shadow, S_ROUTE, at)?;
         cursor += 5;
@@ -289,7 +318,8 @@ fn dispatch(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
         // 1003, turn on the spot: a heading to reach, and the gate open so the
         // stepper does the turning (0x78b46).
         1003 => {
-            put(mem, person, P_TURN, queued(mem, queue, cursor)?)?;
+            let turn = queued(mem, queue, cursor)?;
+            put(mem, person, P_TURN, turn)?;
             put(mem, person, P_CURSOR, cursor + 1)?;
             put(mem, person, P_GATE, 1)?;
         }
@@ -312,8 +342,11 @@ fn dispatch(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
                     eng.set_sprite(sprite)?;
                 }
             }
-            let shrink = shrink_of(mem, person, get(mem, shadow, S_SHRINK)?)?;
-            eng.set_field("SD%SHR", shrink);
+            // No 0 → 1000 here, unlike the turn and the step: both binaries
+            // multiply the shadow's size as it stands (`ENGINE.EXE` 0x78d7f,
+            // `ENVIRO.EXE` file `0xf6ec`).
+            let shrink = get(mem, shadow, S_SHRINK)? * get(mem, person, P_SCALE)? / 10;
+            eng.set_shrink(shrink);
             eng.place_x(x, Placement::Center)?;
             eng.place_y(y, Placement::FarEdge)?;
         }
@@ -339,13 +372,13 @@ fn dispatch(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
 }
 
 /// `wert * person[0xa8] / 10` — the figure's own scale, ten meaning full size.
-fn shrink_of(mem: &Memory, person: u32, raw: i32) -> Result<i32> {
+fn shrink_of(mem: &dyn AddressSpace, person: u32, raw: i32) -> Result<i32> {
     let raw = if raw == 0 { 1000 } else { raw };
     Ok(raw * get(mem, person, P_SCALE)? / 10)
 }
 
 /// The stepper, 0x78e14 to 0x798d3: one tick of a walk or a turn.
-fn stepper(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
+fn stepper(eng: &mut Engine, mem: &mut dyn AddressSpace, person: u32) -> Result<()> {
     if get(mem, person, P_GATE)? == 0 {
         return Ok(());
     }
@@ -361,11 +394,11 @@ fn stepper(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
 }
 
 /// The turn machinery, 0x78e52 to 0x792c4.
-fn turn(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
+fn turn(eng: &mut Engine, mem: &mut dyn AddressSpace, person: u32) -> Result<()> {
     let shadow = get(mem, person, P_SHADOW)? as u32;
     let want = get(mem, person, P_TURN)?;
     let heading = get(mem, person, P_HEADING)?;
-    let done = |mem: &mut Memory| -> Result<()> {
+    let done = |mem: &mut dyn AddressSpace| -> Result<()> {
         put(mem, person, P_TURN, -1)?;
         if get(mem, person, P_COMMAND)? == 1003 {
             put(mem, person, P_GATE, 0)?;
@@ -416,7 +449,7 @@ fn turn(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
 /// the tick that shows the last frame.
 fn turn_frame(
     eng: &mut Engine,
-    mem: &mut Memory,
+    mem: &mut dyn AddressSpace,
     person: u32,
     shadow: u32,
     first: i32,
@@ -439,7 +472,7 @@ fn turn_frame(
     }
     eng.set_sprite(frame)?;
     let shrink = shrink_of(mem, person, get(mem, shadow, S_SHRINK)?)?;
-    eng.set_field("SD%SHR", shrink);
+    eng.set_shrink(shrink);
     let (x, y, z) = (
         get(mem, shadow, S_X)?,
         get(mem, shadow, S_Y)?,
@@ -451,7 +484,7 @@ fn turn_frame(
 }
 
 /// One walk step, 0x792c9 to 0x798d3.
-fn advance(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
+fn advance(eng: &mut Engine, mem: &mut dyn AddressSpace, person: u32) -> Result<()> {
     let shadow = get(mem, person, P_SHADOW)? as u32;
     let steps = get(mem, person, P_STEPS)? as u32;
     let mut at = get(mem, person, P_AT)?;
@@ -479,7 +512,8 @@ fn advance(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
         if wants == 0 {
             set_step(mem, steps, at, T_HEADING, 3)?;
         }
-        put(mem, person, P_TURN, step_at(mem, steps, at, T_HEADING)?)?;
+        let heading = step_at(mem, steps, at, T_HEADING)?;
+        put(mem, person, P_TURN, heading)?;
         return put(mem, person, P_WALKING, 1);
     }
 
@@ -519,7 +553,7 @@ fn advance(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
     eng.set_sprite(frame)?;
 
     let shrink = shrink_of(mem, person, step_at(mem, steps, at, T_SHRINK)?)?;
-    eng.set_field("SD%SHR", shrink);
+    eng.set_shrink(shrink);
     let kept = match step_at(mem, steps, at, T_SHRINK)? {
         v if v <= 0 => 1000,
         v => v,
@@ -535,7 +569,8 @@ fn advance(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
     let z = step_at(mem, steps, at, T_Z)? + get(mem, person, P_ZBIAS)?;
     eng.set_level(z)?;
     put(mem, shadow, S_Z, z)?;
-    put(mem, shadow, S_ROUTE, step_at(mem, steps, at, T_ROUTE)?)?;
+    let route_of_step = step_at(mem, steps, at, T_ROUTE)?;
+    put(mem, shadow, S_ROUTE, route_of_step)?;
 
     at += 1;
     put(mem, person, P_AT, at)?;
@@ -569,7 +604,7 @@ struct Plan {
 }
 
 /// `CROUTE` (0x7780c): fills the step buffer between here and the destination.
-pub(crate) fn croute(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<()> {
+pub(crate) fn croute(eng: &mut Engine, mem: &mut dyn AddressSpace, person: u32) -> Result<()> {
     let shadow = get(mem, person, P_SHADOW)? as u32;
     let steps = get(mem, person, P_STEPS)? as u32;
     let routes = get(mem, person, P_ROUTES)? as u32;
@@ -580,7 +615,8 @@ pub(crate) fn croute(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<
     let (x, y) = (get(mem, shadow, S_X)?, get(mem, shadow, S_Y)?);
     set_step(mem, steps, 0, T_X, x)?;
     set_step(mem, steps, 0, T_Y, y)?;
-    set_step(mem, steps, 0, T_Z, aux(mem, extra, at, A_Z)?)?;
+    let z = aux(mem, extra, at, A_Z)?;
+    set_step(mem, steps, 0, T_Z, z)?;
     let shrink = match get(mem, shadow, S_SHRINK)? {
         0 => 1000,
         v => v,
@@ -693,7 +729,8 @@ pub(crate) fn croute(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<
         p.y = step_at(mem, steps, i, T_Y)?;
         let shrink = shrink_along(mem, &p, routes, extra)?;
         set_step(mem, steps, i, T_SHRINK, shrink)?;
-        set_step(mem, steps, i, T_Z, aux(mem, extra, p.at, A_Z)?)?;
+        let z = aux(mem, extra, p.at, A_Z)?;
+        set_step(mem, steps, i, T_Z, z)?;
 
         // Only the first step of a leg carries a heading; the rest keep it.
         let fresh = i == 1 || step_at(mem, steps, i - 1, T_ROUTE)? != p.at + 1;
@@ -714,7 +751,7 @@ pub(crate) fn croute(eng: &mut Engine, mem: &mut Memory, person: u32) -> Result<
 }
 
 /// `CALCROUTE` (0x7829c): the first route to enter on the cheapest way there.
-fn calc_route(mem: &Memory, routes: u32, goal: i32, at: i32) -> Result<i32> {
+fn calc_route(mem: &dyn AddressSpace, routes: u32, goal: i32, at: i32) -> Result<i32> {
     if at == goal {
         return Ok(at);
     }
@@ -728,7 +765,7 @@ fn calc_route(mem: &Memory, routes: u32, goal: i32, at: i32) -> Result<i32> {
 /// first −1; a room already on the path is not entered again; the cost of a
 /// path is the width plus the height of the rooms crossed on the way.
 fn search(
-    mem: &Memory,
+    mem: &dyn AddressSpace,
     routes: u32,
     goal: i32,
     path: &mut Vec<i32>,
@@ -768,7 +805,13 @@ fn search(
 /// y worked out from the route's own line. Otherwise it is the point the two
 /// routes share — found by comparing coordinates for equality, so neighboring
 /// routes have to meet exactly.
-fn waypoint(mem: &Memory, p: &mut Plan, routes: u32, extra: u32, shadow: u32) -> Result<()> {
+fn waypoint(
+    mem: &dyn AddressSpace,
+    p: &mut Plan,
+    routes: u32,
+    extra: u32,
+    shadow: u32,
+) -> Result<()> {
     let kind = aux(mem, extra, p.at, A_KIND)?;
     if get(mem, shadow, S_DEST_ROUTE)? - 1 == p.at {
         p.to_x = get(mem, shadow, S_DEST_X)?;
@@ -891,19 +934,19 @@ fn waypoint(mem: &Memory, p: &mut Plan, routes: u32, extra: u32, shadow: u32) ->
 
 /// The y on a route's line at a given x, 0x76448. Asking a rectangle for one
 /// is the original's own complaint — it prints and answers zero.
-fn on_line_y(mem: &Memory, routes: u32, extra: u32, at: i32, x: i32) -> Result<i32> {
+fn on_line_y(mem: &dyn AddressSpace, routes: u32, extra: u32, at: i32, x: i32) -> Result<i32> {
     let (x0, y0, x1, y1) = corners(mem, routes, at)?;
     on_line(mem, extra, at, x, (x0, y0, x1, y1), "0x76448")
 }
 
 /// The x on a route's line at a given y, 0x76537.
-fn on_line_x(mem: &Memory, routes: u32, extra: u32, at: i32, y: i32) -> Result<i32> {
+fn on_line_x(mem: &dyn AddressSpace, routes: u32, extra: u32, at: i32, y: i32) -> Result<i32> {
     let (x0, y0, x1, y1) = corners(mem, routes, at)?;
     on_line(mem, extra, at, y, (y0, x0, y1, x1), "0x76537")
 }
 
 /// A route's two corners, `(x0, y0, x1, y1)`.
-fn corners(mem: &Memory, routes: u32, at: i32) -> Result<(i32, i32, i32, i32)> {
+fn corners(mem: &dyn AddressSpace, routes: u32, at: i32) -> Result<(i32, i32, i32, i32)> {
     Ok((
         route(mem, routes, at, 0)?,
         route(mem, routes, at, 4)?,
@@ -924,7 +967,7 @@ fn corners(mem: &Memory, routes: u32, at: i32) -> Result<(i32, i32, i32, i32)> {
 /// `at` is passed through for the kind lookup, and the address for the error, so
 /// a division by zero still names the handler it came from.
 fn on_line(
-    mem: &Memory,
+    mem: &dyn AddressSpace,
     extra: u32,
     at: i32,
     a: i32,
@@ -932,7 +975,7 @@ fn on_line(
     address: &str,
 ) -> Result<i32> {
     match aux(mem, extra, at, A_KIND)? {
-        1 | 2 => Ok(b0 + div((a - a0) * (b1 - b0), a1 - a0, address)?),
+        1 | 2 => Ok(b0 + div(narrow(mem, (a - a0) * (b1 - b0)), a1 - a0, address)?),
         _ => Ok(0),
     }
 }
@@ -952,7 +995,7 @@ fn on_line(
 #[allow(clippy::too_many_arguments)]
 fn step_x(
     eng: &Engine,
-    mem: &Memory,
+    mem: &dyn AddressSpace,
     p: &Plan,
     routes: u32,
     extra: u32,
@@ -1003,7 +1046,7 @@ fn step_x(
 #[allow(clippy::too_many_arguments)]
 fn step_y(
     eng: &Engine,
-    mem: &Memory,
+    mem: &dyn AddressSpace,
     p: &Plan,
     routes: u32,
     extra: u32,
@@ -1059,7 +1102,7 @@ fn scaled(speed: i32, scale: i32, floor: bool) -> i32 {
 
 /// How big the figure is at this point, 0x77480: the two ends of the route
 /// carry a size each and the way between them is interpolated.
-fn shrink_along(mem: &Memory, p: &Plan, routes: u32, extra: u32) -> Result<i32> {
+fn shrink_along(mem: &dyn AddressSpace, p: &Plan, routes: u32, extra: u32) -> Result<i32> {
     let (near, far) = (
         aux(mem, extra, p.at, A_SHRINK0)?,
         aux(mem, extra, p.at, A_SHRINK1)?,
@@ -1080,11 +1123,11 @@ fn shrink_along(mem: &Memory, p: &Plan, routes: u32, extra: u32) -> Result<i32> 
         return Ok(near);
     }
     let t = if aux(mem, extra, p.at, A_FLAGS)? & 4 != 0 {
-        div((p.x - x0) * 100, x1 - x0, "0x77480")?
+        div(narrow(mem, (p.x - x0) * 100), x1 - x0, "0x77480")?
     } else if aux(mem, extra, p.at, A_KIND)? != 2 {
-        div((p.y - y0) * 100, y1 - y0, "0x77480")?
+        div(narrow(mem, (p.y - y0) * 100), y1 - y0, "0x77480")?
     } else {
-        div((p.y - y1) * 100, y0 - y1, "0x77480")?
+        div(narrow(mem, (p.y - y1) * 100), y0 - y1, "0x77480")?
     };
     Ok(if near < far {
         near + (far - near) * t / 100
@@ -1097,7 +1140,7 @@ fn shrink_along(mem: &Memory, p: &Plan, routes: u32, extra: u32) -> Result<i32> 
 ///
 /// The slope is in hundredths, and the thresholds 20, 130 and 500 split it
 /// into the drawn directions. A four-way figure only ever gets 1 to 4.
-fn facing(mem: &Memory, p: &Plan, extra: u32, shadow: u32) -> Result<i32> {
+fn facing(mem: &dyn AddressSpace, p: &Plan, extra: u32, shadow: u32) -> Result<i32> {
     let (wx, wy) = (p.keep_x, p.keep_y);
     let down = wy > p.leg_y;
     let slope = || -> i32 {

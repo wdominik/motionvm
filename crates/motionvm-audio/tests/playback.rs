@@ -1,14 +1,16 @@
 //! The chain from a song to samples.
 //!
-//! These need the original files; point `MOTIONVM_GAMEDATA` at the directory with
+//! These need the original files; point `MOTIONVM_GAMEDATA_DS2` at the directory with
 //! `001.RSC`, or they skip themselves.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_audio::opl::{Fm, Tables, Write};
 use motionvm_audio::{Kind, Message, Player};
-use motionvm_formats::{
+use motionvm_formats::m32::{
     DriverArchive, Kind as Res, bnk::Bank as InstrumentBank, hmi::Song, rsc::Bank,
 };
-use motionvm_testutil::{game_file, gamedata};
+use motionvm_testutil::{game_file, gamedata_ds2};
 
 fn parts(dir: &std::path::Path) -> (DriverArchive, InstrumentBank, InstrumentBank) {
     let bytes = std::fs::read(game_file(dir, "HMIMDRV.386")).expect("HMIMDRV.386");
@@ -117,7 +119,7 @@ fn a_write_addresses_the_bank_it_belongs_to() {
 /// where it shows. *Does not see*: a chip that is never driven at all — T3.
 #[test]
 fn silence_is_silent() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -140,7 +142,7 @@ fn silence_is_silent() {
 /// octave out, well past the tolerance here.
 #[test]
 fn a_note_sounds_at_its_own_pitch() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -196,7 +198,7 @@ fn a_note_sounds_at_its_own_pitch() {
 /// this test asserts the separation and not the orientation.
 #[test]
 fn panning_lands_on_one_side() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -268,7 +270,7 @@ fn panning_lands_on_one_side() {
 /// running away from itself.
 #[test]
 fn the_clock_runs_at_the_rate_the_original_did() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

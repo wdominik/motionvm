@@ -1,34 +1,31 @@
-//! Readers for the resource formats of the MOTION engine (DigiTales, 1996), as
-//! shipped with "Im Netzwerk gefangen - Dunkle Schatten 2".
+//! Readers for the resource formats of the MOTION engine (DigiTales, 1996) in
+//! both of its generations: the 32-bit engine of "Im Netzwerk gefangen -
+//! Dunkle Schatten 2" under [`m32`], the 16-bit engine of "Die Enviro-Kids
+//! greifen ein" under [`m16`].
+//!
+//! The crate root holds only what the two generations share byte for byte or
+//! decode to the same structure: palettes, the font reference table, the
+//! decoded font and text table, the error type and the byte helpers. A
+//! reader under `m32` or `m16` reads one generation's layout and nothing
+//! else; a caller picks the generation.
 //!
 //! Everything here was derived from the shipped data files and the strings in
-//! `ENGINE.EXE`. Each reader carries the evidence for its format: the offsets
-//! it reads, the address in the relocated image the layout was read at, and
-//! the corpus the reading was checked against.
+//! the engine binaries. Each reader carries the evidence for its format: the
+//! offsets it reads, the address in the binary the layout was read at where
+//! there is one, and the corpus the reading was checked against — which is
+//! always one game's, and named.
 
-pub mod bnk;
-pub mod disasm;
-pub mod drv;
 pub mod error;
 pub mod font;
-pub mod gfx;
-pub mod hmi;
-pub mod le;
-pub mod lzw;
+pub mod kernel;
+pub mod m16;
+pub mod m32;
 pub mod pal;
-pub mod rsc;
-pub mod scr;
 pub mod text;
 
-pub use bnk::Bank as InstrumentBank;
-pub use drv::{Driver, DriverArchive};
 pub use error::{Error, Result};
-pub use gfx::Sprite;
-pub use hmi::Song;
-pub use le::{Image, KernelWord};
+pub use kernel::{Binding, Inline, KernelWord};
 pub use pal::Palette;
-pub use rsc::{Bank, Kind, Rsc};
-pub use scr::{Entry, ScrModule};
 pub use text::TextTable;
 
 /// Finds `name` in `dir` whatever case it is stored in.
@@ -42,7 +39,7 @@ pub use text::TextTable;
 /// directory".
 ///
 /// So every shipped file is looked up through here. The `NNN.RSC` containers
-/// were already found this way — [`rsc::Bank::open_dir`] scans and compares
+/// were already found this way — [`m32::rsc::Bank::open_dir`] scans and compares
 /// with `eq_ignore_ascii_case` — and this is the same rule for the files that
 /// are opened by name.
 ///
@@ -200,9 +197,9 @@ mod find_ci_tests {
         assert!(find_ci(&dir, "000.FRT").is_some());
     }
 
-    /// The case a copied install very often has. This is the one that used to
-    /// fail, and only on a case-sensitive filesystem — which is why it is
-    /// asserted rather than trusted.
+    /// The case a copied install very often has — and the one that only a
+    /// case-sensitive filesystem can catch, which is why it is asserted
+    /// rather than trusted.
     #[test]
     fn a_lowercased_install_is_found_too() {
         let dir = dir_with("lower", &["engine.exe", "000.frt", "melodic.bnk"]);

@@ -7,7 +7,7 @@
 use crate::Engine;
 use crate::Result;
 use crate::stack::pop1;
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 use crate::stack::pop_n;
 
@@ -16,7 +16,7 @@ impl Engine {
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        _mem: &mut Memory,
+        _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
             // --- palette ----------------------------------------------------

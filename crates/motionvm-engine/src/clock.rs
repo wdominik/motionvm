@@ -53,9 +53,10 @@ impl Engine {
     /// one band, so its six steps arrived as six pictures — which is why the
     /// menu's fades looked right while the intro's did not.
     pub fn step_ticks(&self) -> i32 {
-        match self.curtains.front() {
-            Some(c) => c.ticks_per_band.max(1),
-            None => self.frame_ticks,
+        match (self.curtains.front(), self.wipes.front()) {
+            (Some(c), _) => c.ticks_per_band.max(1),
+            (None, Some(w)) => w.ticks_per_ring.max(1),
+            (None, None) => self.frame_ticks,
         }
     }
 

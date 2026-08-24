@@ -1,7 +1,7 @@
 //! A window for the engine.
 //!
 //! The frontend is deliberately thin. The engine renders into an indexed
-//! 640x480 framebuffer and this does two things with it: expand it through the
+//! framebuffer and this does two things with it: expand it through the
 //! current palette, and put it on screen at an integer scale.
 //!
 //! That framebuffer has been checked pixel for pixel against the original
@@ -11,10 +11,16 @@
 //! one scene, drawn through scaling, layering, the palette and the composition
 //! rule, agreeing completely.
 //!
-//! Integer scaling is not a preference. The game is 640x480 of hand-drawn
-//! pixel art; any other factor resamples it and invents colors that were never
-//! in the palette. So the picture is scaled by whole numbers and centered in
-//! whatever space is left, with black around it.
+//! Integer scaling is not a preference. The games are hand-drawn pixel art;
+//! any other factor resamples it and invents colors that were never in the
+//! palette. So the picture is scaled by whole numbers and centered in
+//! whatever space is left, with black around it. The two axes carry their own
+//! whole number, because the pixels themselves were not square everywhere:
+//! Die Enviro-Kids greifen ein's 320×200 filled a 4:3 monitor, each pixel 6/5
+//! as tall as wide ([`Playable::pixel_aspect`]), so its picture is drawn in
+//! sx×sy blocks with sy/sx as close to 6/5 as whole numbers allow — exact at
+//! ×5/×6 and its multiples. Dunkle Schatten 2's 640×480 is square-pixel 4:3
+//! and keeps sx = sy.
 
 // On Windows the release build is a windowed program, not a console one, so a
 // double-clicked `motionvm.exe` opens the game and not a black console behind
@@ -31,7 +37,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use motionvm_engine::Game;
+use motionvm_engine::{Playable, Title, titles};
 use motionvm_render::Framebuffer;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -39,23 +45,32 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
-const WIDTH: u32 = 640;
-const HEIGHT: u32 = 480;
-/// How much bigger than the game the window is asked to be, to begin with.
+/// How much bigger than the game the window is asked to be, to begin with —
+/// per axis, as everywhere here.
 ///
-/// Only whole numbers: the art is 640x480 hand-drawn pixels and a fractional
-/// factor smears them. Nothing else needs telling — [`blit`] works the factor
-/// out from the window it is given, and the pointer mapping divides by the
-/// same one, so both follow this on their own. Which is also why this is only
-/// the opening size: dragging the window edge moves the factor, and Alt+Enter
-/// takes the whole screen at the largest one that fits.
+/// Only whole numbers: the art is hand-drawn pixels and a fractional factor
+/// smears them. Nothing else needs telling — [`blit`] works the factors out
+/// from the window it is given, and the pointer mapping divides by the same
+/// ones, so both follow this on their own. Which is also why this is only
+/// the opening size: dragging the window edge moves the factors, and
+/// Alt+Enter takes the whole screen at the largest pair that fits.
 ///
-/// Two, because 1280x960 logical points fit under the title bar of a 1080p
-/// screen and three — 1920x1440 — do not: `resumed` cuts three back to two
-/// there anyway, so on most desktops asking for three is asking for two with
-/// a detour. A bigger screen is one drag or one keystroke away from using its
-/// space, and a smaller one is cut back to one the same way.
-const SCALE: u32 = 2;
+/// The pair is the smallest at or above twice the game whose height does not
+/// round the pixel aspect down — the window may open a touch narrow, never
+/// squashed. Square pixels get (2, 2): 1280x960 logical points fit under the
+/// title bar of a 1080p screen and three times — 1920x1440 — does not.
+/// Die Enviro-Kids greifen ein's 6:5 pixels get (3, 4) — 960×800 — because
+/// (2, 2) would show the squash this pair exists to correct.
+fn base_pair(aspect: (u32, u32)) -> (u32, u32) {
+    let mut sx = 2;
+    loop {
+        let sy = tall(sx, aspect);
+        if sy * aspect.1 >= sx * aspect.0 {
+            return (sx, sy);
+        }
+        sx += 1;
+    }
+}
 
 /// How many keystrokes wait for the game.
 ///
@@ -84,9 +99,9 @@ fn main() {
 
 /// Where the program keeps the files it writes: savegames and screenshots.
 ///
-/// **Not the working directory.** Both of these used to default to a relative
-/// path, which meant they landed wherever the program happened to be started —
-/// for anyone building from a checkout, in the source tree. Runtime output does
+/// **Not the working directory.** A relative default would land these
+/// wherever the program happens to be started — for anyone building from a
+/// checkout, in the source tree. Runtime output does
 /// not belong beside the sources, and no amount of ignoring it there makes it
 /// belong.
 ///
@@ -132,11 +147,14 @@ motionvm — the MOTION engine, for the games built with it
 
 usage: motionvm [GAMEDIR] [options]
 
-  GAMEDIR         the directory holding 001.RSC and ENGINE.EXE.
-                  Without one, a folder dialog asks for it.
+  GAMEDIR         the directory a game is installed in: 001.RSC and
+                  ENGINE.EXE (Dunkle Schatten 2), or DATA.-1- and
+                  ENVIRO.EXE (Die Enviro-Kids greifen ein). Without
+                  one, a folder dialog asks for it.
 
 options:
-  --loc N         start in location N instead of playing the intro.
+  --loc N         start in location N: instead of the intro (Dunkle
+                  Schatten 2), or right after it (Die Enviro-Kids greifen ein).
   --no-sound      do not open an audio device.
   -h, --help      this text.
 ";
@@ -213,7 +231,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
 /// `None` when the dialog is dismissed — that is the player deciding not to
 /// play, not an error — or when a wrong directory's complaint is answered with
 /// Cancel. A wrong directory is reported where the player is looking: the
-/// message [`Game::open`] writes for exactly this case, in a message box, with
+/// message [`titles::open`] writes for exactly this case, in a message box, with
 /// OK opening the dialog again. `Game::open` checks for the required files
 /// before it reads anything, so a wrong answer costs nothing and the loop is
 /// cheap to go round.
@@ -224,12 +242,12 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
 /// time — and a desktop with neither the portal service nor `zenity` answers
 /// `None` here, the same as a dismissal, which is why the caller's message
 /// says how to name the directory without the dialog.
-fn choose_game() -> Option<(PathBuf, Game)> {
+fn choose_game() -> Option<(PathBuf, Box<dyn Playable>)> {
     loop {
         let dir = rfd::FileDialog::new()
-            .set_title("Choose the game directory (it holds 001.RSC and ENGINE.EXE)")
+            .set_title("Choose the game directory (it holds 001.RSC and ENGINE.EXE, or DATA.-1- and ENVIRO.EXE)")
             .pick_folder()?;
-        match Game::open(&dir) {
+        match titles::open(&dir) {
             Ok(game) => return Some((dir, game)),
             Err(e) => {
                 let again = rfd::MessageDialog::new()
@@ -268,7 +286,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // stderr to read.
     let (dir, mut game) = match dir {
         Some(dir) => {
-            let game = Game::open(&dir)?;
+            let game = titles::open(&dir)?;
             (dir, game)
         }
         None => match choose_game() {
@@ -284,15 +302,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     // Before `start()`: the very first location is entered during startup and
-    // its `STARTTUNE` has to find a sink already in place.
+    // its `STARTTUNE` has to find a sink already in place. Each game brings
+    // its own stack — Dunkle Schatten 2's HMI songs through the rebuilt MIDI
+    // driver, Die Enviro-Kids greifen ein's PSM 2 tunes through the rebuilt
+    // `MUSADL.DRV` sequencer.
     let audio = if quiet {
         None
     } else {
-        match sound::open(&dir) {
-            Ok((stream, music)) => {
+        let opened = match game.title() {
+            Title::DunkleSchatten2 => sound::open(&dir).map(|(stream, music)| {
                 game.set_music(Box::new(music));
-                Some(stream)
-            }
+                stream
+            }),
+            Title::EnviroKids => sound::open_enviro(&dir).map(|(stream, music)| {
+                game.set_music(Box::new(music));
+                stream
+            }),
+        };
+        match opened {
+            Ok(stream) => Some(stream),
             // Silence is not a reason to stop: the game is playable without it.
             Err(e) => {
                 eprintln!("sound is off: {e}");
@@ -308,7 +336,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the engine refuses a save directory inside it. And a flag that points the
     // slots elsewhere is mostly a way to point them at something that is not a
     // save directory; the one place they belong is the one `data_dir` names.
-    let saves = data_path("saves");
+    // The two games name their slots alike — `701.blk`, `701.anm`, `701.FRZ`
+    // and so on up to 705 — and each asks at start-up whether a slot exists,
+    // so they cannot share a directory: Die Enviro-Kids greifen ein would
+    // find Dunkle Schatten 2's saves and open its load page on them. Dunkle
+    // Schatten 2 keeps `saves/`, where its saves have always been; the
+    // 16-bit game gets `saves/enviro/`.
+    let saves = match game.title() {
+        Title::DunkleSchatten2 => data_path("saves"),
+        Title::EnviroKids => data_path("saves").join("enviro"),
+    };
     let shot = data_path("shot.png");
     if let Err(e) = game.set_saves(&saves) {
         // Not fatal: the game runs, the slot row simply stays empty and a click
@@ -336,15 +373,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // and it goes through that variable rather than around it: `ICTRL` enters
     // whatever stands there once no location is active.
     if let Some(loc) = wanted {
-        game.set_var(2, "_STARTLOC", loc)?;
+        game.request_location(loc)?;
+        // Said only when asked for: a plain start is not a diagnostic.
+        eprintln!(
+            "starting at location {}",
+            game.start_location().unwrap_or(0)
+        );
     }
-    eprintln!(
-        "starting at location {}",
-        game.start_location().unwrap_or(0)
-    );
 
     let event_loop = EventLoop::new()?;
+    let size = game.display_size();
     let mut app = App {
+        size: (size.0 as u32, size.1 as u32),
+        aspect: game.pixel_aspect(),
         game,
         window: None,
         surface: None,
@@ -355,6 +396,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         mods: ModifiersState::empty(),
         cursor: (0, 0),
         paused: false,
+        told_input_error: false,
         frames: 0,
         shot,
         colors: [0; 256],
@@ -393,7 +435,16 @@ const FRAME: Duration = Duration::from_nanos(1_000_000_000 / 25);
 const MIN_PRESENT: Duration = Duration::from_nanos(1_000_000_000 / 120);
 
 struct App {
-    game: Game,
+    game: Box<dyn Playable>,
+    /// The game's picture size — 640×480 for Dunkle Schatten 2, 320×200 for
+    /// Die Enviro-Kids greifen ein — which the window is a whole multiple of,
+    /// axis by axis.
+    size: (u32, u32),
+    /// The shape of one game pixel on the original's monitor, height:width —
+    /// [`Playable::pixel_aspect`]. Everything that maps between window and
+    /// game — [`blit`], the pointer, the opening size — scales its two axes
+    /// through this.
+    aspect: (u32, u32),
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     next_frame: Instant,
@@ -414,6 +465,10 @@ struct App {
     cursor: (i32, i32),
     /// Whether the frame clock is held, so a shot can be compared at leisure.
     paused: bool,
+    /// Whether an input error has been reported. `set_input` runs every
+    /// frame; a persisting failure said once is a report, said 25 times a
+    /// second it is a torrent that buries the report.
+    told_input_error: bool,
     /// How many frames have been stepped, printed with a shot so two captures
     /// can be shown to be the same moment.
     frames: u64,
@@ -460,21 +515,29 @@ impl Perf {
 
     /// One presented picture: `render` is the engine's share, `blit` the
     /// window's. Prints and starts over once a second has been gathered.
-    fn note(&mut self, render: Duration, blit: Duration, width: u32, height: u32, scale: u32) {
+    fn note(
+        &mut self,
+        render: Duration,
+        blit: Duration,
+        width: u32,
+        height: u32,
+        scale: (u32, u32),
+    ) {
         self.presents += 1;
         self.render += render;
         self.blit += blit;
         self.blit_max = self.blit_max.max(blit);
         if self.since.elapsed() >= Duration::from_secs(1) {
             eprintln!(
-                "perf: {}/s, render {:.1?} avg, blit+present {:.1?} avg, {:.1?} worst, {}x{} at x{}",
+                "perf: {}/s, render {:.1?} avg, blit+present {:.1?} avg, {:.1?} worst, {}x{} at {}x{}",
                 self.presents,
                 self.render / self.presents,
                 self.blit / self.presents,
                 self.blit_max,
                 width,
                 height,
-                scale,
+                scale.0,
+                scale.1,
             );
             *self = Perf::new();
         }
@@ -486,9 +549,11 @@ impl ApplicationHandler for App {
         if self.window.is_some() {
             return;
         }
+        let (width, height) = self.size;
+        let (bx, by) = base_pair(self.aspect);
         let attrs = Window::default_attributes()
-            .with_title("Dunkle Schatten 2")
-            .with_inner_size(winit::dpi::LogicalSize::new(WIDTH * SCALE, HEIGHT * SCALE));
+            .with_title(self.game.title().name())
+            .with_inner_size(winit::dpi::LogicalSize::new(width * bx, height * by));
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Rc::new(w),
             Err(e) => {
@@ -511,20 +576,25 @@ impl ApplicationHandler for App {
         // fullscreen VGA surface; two arrows would fight.
         window.set_cursor_visible(false);
 
-        // The picture only ever scales by a whole number, so a window that is
+        // The picture only ever scales by whole numbers, so a window that is
         // not an exact multiple of it is necessarily bigger than its contents
-        // and shows a black margin. Asking for three times the game can come
-        // back smaller — a screen 1440 points tall has no room for a 1440
-        // point window plus its title bar — and then the picture drops a whole
-        // step and floats in the middle. So the window is put back to the
-        // largest multiple that fits what we were actually given.
+        // and shows a black margin. The logical size asked for can come back
+        // as anything — a screen 1440 points tall has no room for a 1440
+        // point window plus its title bar, and a HiDPI screen doubles it —
+        // and then the picture drops a step and floats in the middle. So the
+        // window is put back to a pair that fits what we were actually given:
+        // the largest pair with the pixel aspect met *exactly* where one
+        // fits (on a 2× screen the 960×800 request comes back 1920×1600
+        // physical and lands on 1600×1200, five by six), the largest whole
+        // pair otherwise. Only the opening snap prefers exactness — a hand
+        // dragging the edge afterwards gets every whole step, and Alt+Enter
+        // the largest that fits the screen.
         //
         // Once, here: doing it on every resize would snap the window back
         // while it was still being dragged.
         let got = window.inner_size();
-        let scale = whole_scale(got.width, got.height);
-        let _ =
-            window.request_inner_size(winit::dpi::PhysicalSize::new(WIDTH * scale, HEIGHT * scale));
+        let (sx, sy) = opening_pair(self.size, self.aspect, got.width, got.height);
+        let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(width * sx, height * sy));
 
         self.window = Some(window);
     }
@@ -633,14 +703,19 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(w) = &self.window {
                     let size = w.inner_size();
-                    let scale = whole_scale(size.width, size.height);
+                    let (sx, sy) = scale_pair(self.size, self.aspect, size.width, size.height);
                     let (ox, oy) = (
-                        (size.width.saturating_sub(WIDTH * scale)) / 2,
-                        (size.height.saturating_sub(HEIGHT * scale)) / 2,
+                        (size.width.saturating_sub(self.size.0 * sx)) / 2,
+                        (size.height.saturating_sub(self.size.1 * sy)) / 2,
                     );
+                    // Clamped to the picture: the pointer the engine draws
+                    // cannot leave it, and a hand in the black margin means
+                    // the edge, not a place outside the screen.
                     self.cursor = (
-                        (position.x as i32 - ox as i32) / scale as i32,
-                        (position.y as i32 - oy as i32) / scale as i32,
+                        ((position.x as i32 - ox as i32) / sx as i32)
+                            .clamp(0, self.size.0 as i32 - 1),
+                        ((position.y as i32 - oy as i32) / sy as i32)
+                            .clamp(0, self.size.1 as i32 - 1),
                     );
                     // The arrow is the engine's, so it only moves when a new
                     // picture is drawn — and waiting for the next frame put up
@@ -661,7 +736,11 @@ impl ApplicationHandler for App {
                         self.game
                             .set_input(mx, my, self.click, self.right_click, waiting)
                     {
-                        eprintln!("input: {e}");
+                        // Field-wise: `w` above still borrows the window.
+                        if !self.told_input_error {
+                            self.told_input_error = true;
+                            eprintln!("input: {e}");
+                        }
                     }
                     w.request_redraw();
                 }
@@ -693,6 +772,14 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// Says what `set_input` refused — once. See [`App::told_input_error`].
+    fn tell_input_error(&mut self, e: &dyn std::fmt::Display) {
+        if !self.told_input_error {
+            self.told_input_error = true;
+            eprintln!("input: {e}");
+        }
+    }
+
     /// One picture: hand the game its input, let it step — sometimes more than
     /// once — ask for a repaint, and say how long what was stepped should last
     /// on screen.
@@ -722,7 +809,7 @@ impl App {
             .game
             .set_input(mx, my, self.click, self.right_click, key)
         {
-            eprintln!("input: {e}");
+            self.tell_input_error(&e);
         }
         self.click = false;
         self.right_click = false;
@@ -768,7 +855,7 @@ impl App {
             // round of `ICTRL` like any other, so it drains one.
             let key = self.pending.pop_front().unwrap_or(0);
             if let Err(e) = self.game.set_input(mx, my, false, false, key) {
-                eprintln!("input: {e}");
+                self.tell_input_error(&e);
             }
         }
         if let Some(window) = &self.window {
@@ -811,27 +898,72 @@ impl App {
         }
         let rendered = started.map(|_| Instant::now());
 
-        blit(&frame, &self.colors, &mut out, size.width, size.height);
+        blit(
+            &frame,
+            &self.colors,
+            &mut out,
+            size.width,
+            size.height,
+            self.aspect,
+        );
         let _ = out.present();
 
         if let (Some(perf), Some(t0), Some(t1)) = (self.perf.as_mut(), started, rendered) {
-            let scale = whole_scale(size.width, size.height);
+            let scale = scale_pair(self.size, self.aspect, size.width, size.height);
             perf.note(t1 - t0, t1.elapsed(), size.width, size.height, scale);
         }
     }
 }
 
-/// How many window pixels one game pixel gets: a whole number, never zero.
+/// How many window rows a game pixel `sx` columns wide gets under the pixel
+/// aspect: `sx · aspect` to the nearest whole number, never zero.
+///
+/// Exact where the aspect divides — for 6:5 pixels at sx of 5, 10, 15 — and
+/// at most half a row off between, which at those sizes is under five percent
+/// of the picture's shape. For square pixels it is `sx` itself.
+fn tall(sx: u32, aspect: (u32, u32)) -> u32 {
+    ((sx * aspect.0 + aspect.1 / 2) / aspect.1).max(1)
+}
+
+/// How many window pixels one game pixel gets, axis by axis: whole numbers,
+/// never zero, the pair as close to the pixel aspect as the window allows.
 ///
 /// The one definition, because the picture and the pointer have to agree. Two
 /// copies of this arithmetic is two places to drift apart in, and a pointer
 /// that disagrees with the picture by one scale step lands every click in the
 /// wrong place.
-fn whole_scale(width: u32, height: u32) -> u32 {
-    (width / WIDTH).min(height / HEIGHT).max(1)
+fn scale_pair(game: (u32, u32), aspect: (u32, u32), width: u32, height: u32) -> (u32, u32) {
+    for sx in (1..=(width / game.0).max(1)).rev() {
+        let sy = tall(sx, aspect);
+        if game.0 * sx <= width && game.1 * sy <= height {
+            return (sx, sy);
+        }
+    }
+    // A window too small for the picture even at one: clipped, as before.
+    (1, 1)
 }
 
-/// Draws the frame into the window buffer, scaled by a whole number and centered.
+/// The pair the window opens on: like [`scale_pair`], but preferring the
+/// largest pair that meets the pixel aspect *exactly*, where one fits.
+///
+/// Only `resumed` asks — the opening picture should be the true shape when
+/// the screen has room for it, and dragging afterwards walks every whole
+/// step. For square pixels every pair is exact and this *is* `scale_pair`.
+fn opening_pair(game: (u32, u32), aspect: (u32, u32), width: u32, height: u32) -> (u32, u32) {
+    for sx in (1..=(width / game.0).max(1)).rev() {
+        if !(sx * aspect.0).is_multiple_of(aspect.1) {
+            continue;
+        }
+        let sy = sx * aspect.0 / aspect.1;
+        if game.0 * sx <= width && game.1 * sy <= height {
+            return (sx, sy);
+        }
+    }
+    scale_pair(game, aspect, width, height)
+}
+
+/// Draws the frame into the window buffer, scaled by whole numbers — one per
+/// axis, meeting the game's pixel aspect — and centered.
 ///
 /// This walks every physical window pixel — on a Retina display five million
 /// of them, sixteen times the game's own 307 200 — so it is the one loop in
@@ -846,9 +978,21 @@ fn whole_scale(width: u32, height: u32) -> u32 {
 /// leftover: softbuffer only hands out a freshly zeroed buffer on some
 /// platforms; on others it persists with whatever it held, and a pixel left
 /// unwritten shows it.
-fn blit(frame: &Framebuffer, colors: &[u32; 256], out: &mut [u32], width: u32, height: u32) {
-    let scale = whole_scale(width, height);
-    let (dw, dh) = (frame.width as u32 * scale, frame.height as u32 * scale);
+fn blit(
+    frame: &Framebuffer,
+    colors: &[u32; 256],
+    out: &mut [u32],
+    width: u32,
+    height: u32,
+    aspect: (u32, u32),
+) {
+    let (sx, sy) = scale_pair(
+        (frame.width as u32, frame.height as u32),
+        aspect,
+        width,
+        height,
+    );
+    let (dw, dh) = (frame.width as u32 * sx, frame.height as u32 * sy);
     // Left-over space is split evenly; an odd remainder leaves the extra pixel
     // on the right and bottom, which is invisible and keeps the arithmetic in
     // integers.
@@ -857,11 +1001,12 @@ fn blit(frame: &Framebuffer, colors: &[u32; 256], out: &mut [u32], width: u32, h
         (height.saturating_sub(dh)) / 2,
     );
     // How much of the picture the window has room for: all of it, unless the
-    // window is smaller than 640x480 — then the scale is already pinned at 1
-    // and the picture is cut off at the right and bottom.
+    // window is smaller than the game — then the pair is already pinned at
+    // one and the picture is cut off at the right and bottom.
     let rows = dh.min(height.saturating_sub(oy)) as usize;
     let cols = dw.min(width.saturating_sub(ox)) as usize;
-    let (width, ox, oy, scale) = (width as usize, ox as usize, oy as usize, scale as usize);
+    let (width, ox, oy) = (width as usize, ox as usize, oy as usize);
+    let (sx, sy) = (sx as usize, sy as usize);
 
     // The margins. Top and bottom are contiguous runs; the side strips only
     // exist when the width is not an exact multiple, and the loop is skipped
@@ -875,27 +1020,27 @@ fn blit(frame: &Framebuffer, colors: &[u32; 256], out: &mut [u32], width: u32, h
         }
     }
 
-    for sy in 0..rows.div_ceil(scale) {
-        let y0 = sy * scale;
+    for row in 0..rows.div_ceil(sy) {
+        let y0 = row * sy;
         let base = (oy + y0) * width + ox;
-        let src = &frame.pixels[sy * frame.width as usize..];
-        // The row, expanded once: each source pixel becomes `scale` copies of
+        let src = &frame.pixels[row * frame.width as usize..];
+        // The row, expanded once: each source pixel becomes `sx` copies of
         // its color.
         let dst = &mut out[base..base + cols];
-        for (chunk, &index) in dst.chunks_exact_mut(scale).zip(src) {
+        for (chunk, &index) in dst.chunks_exact_mut(sx).zip(src) {
             chunk.fill(colors[index as usize]);
         }
-        // A row cut off mid-pixel. `whole_scale` cannot actually produce one —
-        // a scale above 1 means the window fits the whole width, and at 1 every
+        // A row cut off mid-pixel. `scale_pair` cannot actually produce one —
+        // sx above 1 means the window fits the whole width, and at 1 every
         // chunk is a pixel — but the promise above is that every pixel of
         // `out` gets written, and that must not hang on that arithmetic.
-        let rem = cols % scale;
+        let rem = cols % sx;
         if rem > 0 {
-            dst[cols - rem..].fill(colors[src[cols / scale] as usize]);
+            dst[cols - rem..].fill(colors[src[cols / sx] as usize]);
         }
         // And repeated: the other window rows this source row covers are
         // copies of the one just written.
-        for r in 1..scale.min(rows - y0) {
+        for r in 1..sy.min(rows - y0) {
             out.copy_within(base..base + cols, base + r * width);
         }
     }
@@ -1000,29 +1145,34 @@ mod tests {
         out: &mut [u32],
         width: u32,
         height: u32,
+        aspect: (u32, u32),
     ) {
         out.fill(0);
-        let scale = whole_scale(width, height);
-        let (dw, dh) = (frame.width as u32 * scale, frame.height as u32 * scale);
+        let (sx, sy) = scale_pair(
+            (frame.width as u32, frame.height as u32),
+            aspect,
+            width,
+            height,
+        );
+        let (dw, dh) = (frame.width as u32 * sx, frame.height as u32 * sy);
         let (ox, oy) = (
             (width.saturating_sub(dw)) / 2,
             (height.saturating_sub(dh)) / 2,
         );
         for y in 0..dh.min(height.saturating_sub(oy)) {
-            let src_row = (y / scale) as usize * frame.width as usize;
+            let src_row = (y / sy) as usize * frame.width as usize;
             let dst_row = (oy + y) as usize * width as usize + ox as usize;
             for x in 0..dw.min(width.saturating_sub(ox)) {
-                let index = frame.pixels[src_row + (x / scale) as usize];
+                let index = frame.pixels[src_row + (x / sx) as usize];
                 out[dst_row + x as usize] = colors[index as usize];
             }
         }
     }
 
-    #[test]
-    fn the_fast_blit_agrees_with_the_slow_one() {
-        // A frame with structure in it: every pixel its own mix of position,
-        // so a swapped row or a column off by one cannot cancel out.
-        let mut frame = Framebuffer::new(WIDTH as u16, HEIGHT as u16);
+    /// A frame with structure in it: every pixel its own mix of position,
+    /// so a swapped row or a column off by one cannot cancel out.
+    fn patterned(width: u16, height: u16) -> (Framebuffer, [u32; 256]) {
+        let mut frame = Framebuffer::new(width, height);
         for (i, p) in frame.pixels.iter_mut().enumerate() {
             *p = (i * 7 % 251) as u8;
         }
@@ -1030,24 +1180,97 @@ mod tests {
         for (i, c) in colors.iter_mut().enumerate() {
             *c = (i as u32) * 0x0101 + 3;
         }
-        for (w, h) in [
-            (WIDTH * 3, HEIGHT * 3),         // an exact multiple, no margins
-            (WIDTH * 3 + 9, HEIGHT * 3 + 5), // odd margins on every side
-            (2560, 1920),                    // a Retina window, scale 4
-            (WIDTH, HEIGHT),                 // scale 1, exact
-            (700, 500),                      // scale 1 with margins
-            (500, 400),                      // smaller than the picture: clipped
-            (700, 300),                      // clipped in one direction only
-            (639, 481),                      // one pixel short, one over
-            (1, 1),                          // degenerate
-        ] {
+        (frame, colors)
+    }
+
+    fn agree(frame: &Framebuffer, colors: &[u32; 256], cases: &[(u32, u32)], aspect: (u32, u32)) {
+        for &(w, h) in cases {
             // Prefilled with a color neither blit writes, so a pixel either
             // of them missed cannot pass as agreement.
             let mut fast = vec![0xdead_beefu32; (w * h) as usize];
             let mut slow = vec![0xdead_beefu32; (w * h) as usize];
-            blit(&frame, &colors, &mut fast, w, h);
-            blit_reference(&frame, &colors, &mut slow, w, h);
+            blit(frame, colors, &mut fast, w, h, aspect);
+            blit_reference(frame, colors, &mut slow, w, h, aspect);
             assert_eq!(fast, slow, "{w}x{h}");
         }
+    }
+
+    #[test]
+    fn the_fast_blit_agrees_with_the_slow_one() {
+        const WIDTH: u32 = 640;
+        const HEIGHT: u32 = 480;
+        let (frame, colors) = patterned(WIDTH as u16, HEIGHT as u16);
+        agree(
+            &frame,
+            &colors,
+            &[
+                (WIDTH * 3, HEIGHT * 3),         // an exact multiple, no margins
+                (WIDTH * 3 + 9, HEIGHT * 3 + 5), // odd margins on every side
+                (2560, 1920),                    // a Retina window, scale 4
+                (WIDTH, HEIGHT),                 // scale 1, exact
+                (700, 500),                      // scale 1 with margins
+                (500, 400),                      // smaller than the picture: clipped
+                (700, 300),                      // clipped in one direction only
+                (639, 481),                      // one pixel short, one over
+                (1, 1),                          // degenerate
+            ],
+            (1, 1),
+        );
+    }
+
+    #[test]
+    fn the_fast_blit_agrees_on_tall_pixels_too() {
+        let (frame, colors) = patterned(320, 200);
+        agree(
+            &frame,
+            &colors,
+            &[
+                (960, 800),   // (3, 4) with no margin
+                (1600, 1200), // (5, 6), the aspect met exactly
+                (1920, 1600), // (6, 7), margin below
+                (2007, 1413), // odd margins on every side
+                (320, 200),   // (1, 1): shown square, all there is room for
+                (300, 180),   // smaller than the picture: clipped
+                (1, 1),       // degenerate
+            ],
+            (6, 5),
+        );
+    }
+
+    /// The pairs the table in the docs promises, and that the old single
+    /// scalar comes back out for square pixels.
+    #[test]
+    fn the_scale_pairs_are_the_documented_ones() {
+        let game = (320, 200);
+        let par = (6, 5);
+        for (w, h, want) in [
+            (960, 800, (3, 4)),
+            (1280, 1000, (4, 5)),
+            (1600, 1200, (5, 6)),
+            (1920, 1400, (6, 7)),
+            (1920, 1600, (6, 7)),
+            (3840, 2160, (8, 10)),
+            (640, 400, (2, 2)),
+            (100, 80, (1, 1)),
+        ] {
+            assert_eq!(scale_pair(game, par, w, h), want, "{w}x{h}");
+        }
+        // Square pixels: the pair is the old `min(w/gw, h/gh).max(1)` twice.
+        for (w, h, want) in [(2560, 1920, 4), (700, 500, 1), (1, 1, 1)] {
+            assert_eq!(
+                scale_pair((640, 480), (1, 1), w, h),
+                (want, want),
+                "{w}x{h}"
+            );
+        }
+        // The opening snap prefers the exact pair where one fits.
+        assert_eq!(opening_pair(game, par, 1920, 1600), (5, 6));
+        assert_eq!(opening_pair(game, par, 3840, 2880), (10, 12));
+        assert_eq!(opening_pair(game, par, 960, 800), (3, 4)); // none fits
+        assert_eq!(opening_pair((640, 480), (1, 1), 2560, 1920), (4, 4));
+        // And the window opens unsquashed: (2,2) for square pixels, (3,4)
+        // for the 16-bit game's tall ones.
+        assert_eq!(base_pair((1, 1)), (2, 2));
+        assert_eq!(base_pair((6, 5)), (3, 4));
     }
 }

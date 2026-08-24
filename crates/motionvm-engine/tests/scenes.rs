@@ -7,10 +7,10 @@
 //! conversation apparatus to all behave, and the help viewer has to be opened
 //! the way the shell opens it. A panic anywhere on those paths fails here.
 //!
-//! **These used to be golden-frame tests, and are not any more.** They held the
-//! composed picture against a checked-in PNG of itself, which is the only kind
-//! of check that notices a change nobody thought to write an assertion for.
-//! That baseline cannot be distributed: it is a rendering of the game's own
+//! **These are deliberately not golden-frame tests.** Holding the composed
+//! picture against a checked-in PNG of itself is the only kind of check that
+//! notices a change nobody thought to write an assertion for — and exactly
+//! that baseline cannot be distributed: it is a rendering of the game's own
 //! artwork — one of the four was the publisher's logo, another a hand-drawn
 //! room with its characters and dialogue in it — and the game's data may not
 //! enter this repository in any form, including a fixture derived from it. The
@@ -30,10 +30,12 @@
 //! `RANDOM` calls made before the frame: the generator is shared and consumed in
 //! call order, so a change elsewhere that draws one more random number moves
 //! every later one.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::{DescriptorKind, Game};
 use motionvm_render::Framebuffer;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 use std::path::Path;
 
 // ------------------------------------------------------------------ the check
@@ -137,7 +139,7 @@ fn menu_lines(game: &Game) -> usize {
 /// The title: the first picture the game draws.
 #[test]
 fn the_title_screen() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -151,7 +153,7 @@ fn the_title_screen() {
 /// text page is what is left standing.
 #[test]
 fn the_intro_text_page() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -173,7 +175,7 @@ fn the_intro_text_page() {
 /// dialogue apparatus in one run.
 #[test]
 fn the_dialogue_answer_menu() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -206,7 +208,7 @@ fn the_dialogue_answer_menu() {
 /// bar to answer at all, and `render` draws the cursor there.
 #[test]
 fn the_help_viewer() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

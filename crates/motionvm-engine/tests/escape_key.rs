@@ -20,9 +20,11 @@
 //! `free_play.rs` — it needs a location played through its opening scene first,
 //! which is that file\'s business. This one holds down the narrower fact that
 //! everything else rests on: the code arrives.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// The key code `ICTRL` compares against, read out of the game's own bytecode.
 const ESCAPE: i32 = 27;
@@ -56,7 +58,7 @@ fn settled_in_the_title(dir: &std::path::Path) -> Game {
 
 #[test]
 fn the_key_code_reaches_aktkey_rather_than_a_flag() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

@@ -26,7 +26,7 @@
 //!   seek: the engine kills the track's sounding notes, replays the marker's
 //!   controller snapshot, and resets the track's tick from the marker.
 
-use motionvm_formats::hmi::{Event, Song};
+use motionvm_formats::m32::hmi::{Event, Song};
 
 /// What the sequencer emits. One MIDI message, on the channel the track owns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

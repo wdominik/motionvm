@@ -11,10 +11,12 @@
 //! interpreter standing on the string itself, which it would then run as
 //! threaded code. So the test asserts both — the address, and that the word
 //! afterwards returns instead of wandering off.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::Address;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// Reads a NUL-terminated name out of module memory, the way every consumer of
 /// one of these addresses does.
@@ -36,7 +38,7 @@ fn name_at(game: &Game, packed: u32) -> String {
 /// arm. The word returning at all is the second half of the assertion.
 #[test]
 fn a_word_can_answer_with_a_string_built_into_it() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -84,7 +86,7 @@ fn a_word_can_answer_with_a_string_built_into_it() {
 /// anything observable.
 #[test]
 fn a_string_whose_length_divides_by_four_still_lands_on_a_return() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

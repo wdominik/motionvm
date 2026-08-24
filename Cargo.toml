@@ -12,13 +12,13 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.97.0"
 license = "MIT"
 authors = ["wdominik"]
 repository = "https://github.com/wdominik/motionvm"
-description = "A reimplementation of the MOTION engine that runs Dunkle Schatten 2 natively"
+description = "A reimplementation of the MOTION engine, for the games built with it"
 
 [workspace.dependencies]
 motionvm-formats = { path = "crates/motionvm-formats" }

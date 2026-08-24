@@ -17,9 +17,11 @@
 //! (`0x01020`) — and bar sprite 4148 is drawn in index 9, which is the exact
 //! index the monitor's screen area carries in background sprite 4009. A bar
 //! over the background is invisible; a bar over a row is an eraser.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// The terminal's first text row and how tall one is — `INITFADE` places row
 /// *n* at `n * 8 + 59` (module 216, `0x05db0`).
@@ -100,7 +102,7 @@ fn written_rows(game: &mut Game, rows: i32) -> i32 {
 
 #[test]
 fn clscr_takes_the_screen_away_one_row_at_a_time() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

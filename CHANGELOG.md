@@ -6,6 +6,86 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-24
+
+### Added
+
+- **Die Enviro-Kids greifen ein plays, start to finish.** The second MOTION
+  game — the 16-bit generation, `DATA.-1-` beside `ENVIRO.EXE` — is told
+  apart by its files and played natively: `RUN` boots through the DigiTales
+  logo and the briefing into the scrapyard, and every location, the walk,
+  the inventory bar, the verb menu, the hover captions, the conversations
+  and the day tasks run as read from `ENVIRO.EXE`'s handlers at the
+  instruction level — the same machine as the 32-bit engine's at half the
+  offsets, with every difference named per generation in the docs. That
+  reading goes deep where the two engines part: descriptors are numbered
+  per screen and drawn in the 16-bit level chain's order, background
+  blocks are copied whole where sprites leave index 0 unpainted, the
+  walking figure wears each route's per-mille size and level, scene
+  changes erase through `FADEIN`'s full compose, the fades are the 16-bit
+  engine's box wipes rather than the 32-bit band curtain, the pointer
+  stays off the intro as its show counter asks, script loops that poll
+  for input turn once a frame, and the text drawer follows its own read
+  rules — the outline's silhouette pass, justified blocks for the
+  newspaper, `#` eaten as the paragraph mark, bare `GDWIDTH` sizes.
+  Saving and loading go through the game's own page and slot row into
+  three files of motionvm's own layout (`ENVFRZ`/`ENVANM`), kept in
+  `saves/enviro/` so the two games' identically named slots stay apart.
+  The window shows the game as its monitor did: 320×200 filled a 4:3
+  screen, so each pixel is drawn 6/5 as tall as wide, in whole-number
+  factor pairs — exact at 5×6 and its multiples, the opening size the
+  largest exact step the screen has room for. Where recordings of the
+  original exist, the rebuild is held against them: the intro's title
+  scene and the help viewer's pages to the pixel, the fade to the ring,
+  the text to a played capture.
+
+- **Die Enviro-Kids greifen ein plays its music.** The PSM 2 tunes go
+  through a rebuild of the game's own Ad Lib driver: the data tables are
+  read out of the shipped `MUSADL.DRV` at start-up and the sequencer
+  around them follows that driver's code exactly, down to the register
+  shadow that makes the chip see changes only. `STARTTUNE` plays endless,
+  as every call site asks; `ENDTUNE` is the original's fade-and-stop
+  pair. The register stream is identical, write for write, to an OPL
+  capture of the original across two tunes and the stop between them.
+  Without `MUSADL.DRV` the game runs silent. (The original can also play
+  the same tunes sampled, through its digital drivers; motionvm plays
+  the Ad Lib rendition.)
+
+- **`motionvm-tools` reads Die Enviro-Kids greifen ein.** `info`,
+  `extract`, `sprite` and `script` read the `DATA.-1-` container: sprites
+  as indexed PNGs through a palette of the caller's choice (`--pal N`,
+  palette 0 by default — a 16-bit sprite carries none of its own),
+  palettes, fonts, text tables, blocks with an index that marks the PSM 2
+  songs, and script modules with symbol tables and `.f` disassemblies
+  read through `ENVIRO.EXE`'s kernel table, plus `kernel-usage.txt`. The
+  32-bit commands are unchanged.
+
+### Changed
+
+- **motionvm describes itself as the reimplementation of the MOTION
+  engine for the games built with it** — *Im Netzwerk gefangen – Dunkle
+  Schatten 2* (MOTION 32-bit, `ENGINE.EXE`) and *Die Enviro-Kids greifen
+  ein* (MOTION 16-bit, `ENVIRO.EXE`). README, CONTRIBUTING and the
+  documentation say which generation and which game every statement is
+  about, and the documentation tree is laid out by generation
+  (`docs/motion32/`, `docs/motion16/`) and by game (`docs/games/ds2/`,
+  `docs/games/enviro/`).
+
+- **The test suite reads two game directories.** `MOTIONVM_GAMEDATA_DS2`
+  points at Dunkle Schatten 2's and `MOTIONVM_GAMEDATA_ENVIRO` at Die
+  Enviro-Kids greifen ein's; `MOTIONVM_GAMEDATA` is no longer read. The
+  fallbacks are `../games/DS2` and `../games/ENVIRO` beside the checkout,
+  so a plain `just check` runs everything with nothing passed. As before,
+  a missing directory skips that game's tests and a wrong path panics.
+
+### Fixed
+
+- **`SD%SHR` sets both shrink fields and the walk's `1006` command takes
+  the shadow's size as it stands** — both as `ENGINE.EXE` has them
+  (0x721b8, 0x78d7f), confirmed against `ENVIRO.EXE`. The figure wears
+  the route's scale on both axes wherever a scene's script has set one
+  of them alone.
+
 ## [0.2.0] - 2026-08-23
 
 ### Added
@@ -179,7 +259,8 @@ behaves as the engine did. See "What is and is not verified" in the README.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/wdominik/motionvm/releases/tag/v0.3.0
 [0.2.0]: https://github.com/wdominik/motionvm/releases/tag/v0.2.0
 [0.1.1]: https://github.com/wdominik/motionvm/releases/tag/v0.1.1
 [0.1.0]: https://github.com/wdominik/motionvm/releases/tag/v0.1.0

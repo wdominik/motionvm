@@ -28,8 +28,9 @@
 //! bit 7 clear.
 
 use crate::order::block::*;
+use crate::order::{Conversation, Rules, get, put};
 use crate::{Engine, Placement};
-use motionvm_forth::{Error, Result, Vm};
+use motionvm_forth::{Error, Host, Machine, Result};
 
 const AREA: u32 = 64;
 const ITEM: u32 = 20;
@@ -60,20 +61,20 @@ const A_FLAGS: u32 = 0x38;
 /// of an area field in the original carries a displacement near −0xFA00.
 const BIAS: i32 = 1000;
 
-fn get(vm: &Vm, base: u32, off: u32) -> Result<i32> {
-    Ok(vm.mem.fetch(Engine::field(base, off))? as i32)
-}
-
-fn put(vm: &mut Vm, base: u32, off: u32, v: i32) -> Result<()> {
-    vm.mem.store(Engine::field(base, off), v as u32)
-}
-
-fn area(vm: &Vm, order: u32, n: i32, f: u32) -> Result<i32> {
+fn area<M>(vm: &M, order: u32, n: i32, f: u32) -> Result<i32>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let areas = get(vm, order, AREAS)? as u32;
     get(vm, areas, (n - BIAS) as u32 * AREA + f)
 }
 
-fn item(vm: &Vm, order: u32, n: i32, f: u32) -> Result<i32> {
+fn item<M>(vm: &M, order: u32, n: i32, f: u32) -> Result<i32>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let items = get(vm, order, ITEMS)? as u32;
     get(vm, items, n as u32 * ITEM + f)
 }
@@ -82,7 +83,11 @@ fn item(vm: &Vm, order: u32, n: i32, f: u32) -> Result<i32> {
 ///
 /// The bar and the scene are two screens with two pointers, and the box test
 /// takes whichever belongs to the screen the menu is on.
-fn on_slot(eng: &mut Engine, vm: &mut Vm, order: u32, screen: i32) -> Result<bool> {
+fn on_slot<M>(eng: &mut Engine, vm: &mut M, order: u32, screen: i32) -> Result<bool>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let (x1, x2) = (eng.descriptor_x(), eng.descriptor_far_x());
     let (y1, y2) = (eng.descriptor_y(), eng.descriptor_far_y());
     let (bar, scene) = (get(vm, order, BAR_SCREEN)?, get(vm, order, SCREEN)?);
@@ -119,7 +124,11 @@ fn verb_of_slot(flags: i32, k: i32) -> i32 {
 ///
 /// A verb outside 1..=8 leaves the caller's pair untouched — unsigned compare
 /// against 7 on `verb - 1` — so there is nothing to answer with.
-fn sprite_range(vm: &Vm, order: u32, verb: i32) -> Result<Option<(i32, i32)>> {
+fn sprite_range<M>(vm: &M, order: u32, verb: i32) -> Result<Option<(i32, i32)>>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let Ok(k) = u32::try_from(verb - 1) else {
         return Ok(None);
     };
@@ -134,23 +143,29 @@ fn sprite_range(vm: &Vm, order: u32, verb: i32) -> Result<Option<(i32, i32)>> {
 
 /// `GMSHOWMENU` (0x7a2e2): lay the strip out around a point.
 ///
-/// One icon per set bit, 0x30 apart, the whole run centered on the anchor by
-/// shifting it half a step left per icon. At most five slots are ever cleared
+/// One icon per set bit, a step apart (0x30 on the 32-bit engine, 0x14 on
+/// the 16-bit), the whole run centered on the anchor by shifting it half a
+/// step left per icon. At most five slots are ever cleared
 /// again afterwards, so five is what the menu really holds.
 // Eight, because `GMSHOWMENU` takes eight. Bundling them into a struct would
 // put a shape between this function and the handler it mirrors, and the point
 // of the mirror is that the two can be read side by side.
 #[allow(clippy::too_many_arguments)]
-fn show_menu(
+pub(crate) fn show_menu<M>(
     eng: &mut Engine,
-    vm: &mut Vm,
+    vm: &mut M,
     order: u32,
     screen: i32,
     base: i32,
     x: i32,
     y: i32,
     flags: i32,
-) -> Result<()> {
+    rules: Rules,
+) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let mode = get(vm, order, MODE)?;
     let flags = if mode != 0x11 && mode != 0x0e {
         flags | 2
@@ -168,7 +183,7 @@ fn show_menu(
         });
     }
     let n = flags.count_ones() as i32;
-    let mut x = x - 0x18 * n + 2;
+    let mut x = x - rules.icon_step / 2 * n + 2;
     eng.select_screen(screen as u32);
     let mut rest = flags;
     for j in 0..n {
@@ -183,7 +198,7 @@ fn show_menu(
         };
         eng.set_sprite(sprite)?;
         rest &= !(1 << bit);
-        x += 0x30;
+        x += rules.icon_step;
     }
     // Only five, however many were just switched on — the handler's own
     // asymmetry, and the reason the menu is capped at five in practice.
@@ -192,11 +207,16 @@ fn show_menu(
         eng.set_active(false);
     }
     let pointer = get(vm, order, POINTER)?;
-    eng.order_callback(vm, order, SET_CURSOR, &[pointer, 0x10, 0x10])
+    let (hx, hy) = rules.pointer_hot;
+    eng.order_callback(vm, order, SET_CURSOR, &[pointer, hx, hy])
 }
 
 /// `GMREMOVEMENU` (0x7a552): both strips off, the plain arrow back, mode 0.
-fn remove_menu(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
+pub(crate) fn remove_menu<M>(eng: &mut Engine, vm: &mut M, order: u32) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     for (screen, base) in [(BAR_SCREEN, BAR_MENU), (SCREEN, SCENE_MENU)] {
         let (screen, base) = (get(vm, order, screen)?, get(vm, order, base)?);
         eng.select_screen(screen as u32);
@@ -216,7 +236,23 @@ fn remove_menu(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
 ///
 /// It only ever *starts* a pulse — a slot already pulsing is left alone, so
 /// the animation keeps its phase while the pointer rests on it.
-fn highlight(eng: &mut Engine, vm: &mut Vm, order: u32, screen: i32, base: i32) -> Result<()> {
+///
+/// The original (`menu_pulse`, 16-bit `0d34:0492`) opens with
+/// `ACTSCR(screen)` before its `ACTDESC` loop; descriptor numbers are
+/// screen-relative, and `CTRL` leaves the bar screen current whenever
+/// the pointer sits below the view, so selecting first is load-bearing.
+pub(crate) fn highlight<M>(
+    eng: &mut Engine,
+    vm: &mut M,
+    order: u32,
+    screen: i32,
+    base: i32,
+) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
+    eng.select_screen(screen as u32);
     for i in 0..5u32 {
         eng.select_descriptor((base + i as i32) as u32);
         if eng.descriptor_active() == 0 {
@@ -235,7 +271,11 @@ fn highlight(eng: &mut Engine, vm: &mut Vm, order: u32, screen: i32, base: i32) 
 }
 
 /// Which verb the slot at `i` shows, for the two routines that need to know.
-fn verb_at(vm: &Vm, order: u32, i: i32) -> Result<i32> {
+fn verb_at<M>(vm: &M, order: u32, i: i32) -> Result<i32>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     if get(vm, order, MODE)? == 0x11 {
         return match i {
             0 => Ok(6),
@@ -268,13 +308,17 @@ fn verb_at(vm: &Vm, order: u32, i: i32) -> Result<i32> {
 /// One sprite a frame between the entry's rest and end pictures, turning round
 /// at each end; every other icon is pushed back to its rest picture. Nothing
 /// else in the block changes.
-pub(crate) fn animate(
+pub(crate) fn animate<M>(
     eng: &mut Engine,
-    vm: &mut Vm,
+    vm: &mut M,
     order: u32,
     screen: i32,
     base: i32,
-) -> Result<()> {
+) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     eng.select_screen(screen as u32);
     for i in 0..5u32 {
         eng.select_descriptor((base + i as i32) as u32);
@@ -322,14 +366,19 @@ pub(crate) fn animate(
 /// not 9. Two verbs go elsewhere: 4 takes the thing onto the cursor (mode 3),
 /// and 8 on an area is a walk, so the target becomes the area's exit and the
 /// mode becomes 9.
-fn choose(
+pub(crate) fn choose<M>(
     eng: &mut Engine,
-    vm: &mut Vm,
+    vm: &mut M,
     order: u32,
     screen: i32,
     base: i32,
     flags: i32,
-) -> Result<()> {
+    rules: Rules,
+) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     for i in 0..5 {
         eng.select_screen(screen as u32);
         eng.select_descriptor((base + i) as u32);
@@ -374,7 +423,7 @@ fn choose(
             eng.order_callback(vm, order, SET_CURSOR, &[sprite + 1, 0, 0])?;
             put(vm, order, MODE, 3)?;
             if screen == scene {
-                eng.set_flash_entry(vm, order)?;
+                eng.set_flash_entry(vm, order, rules)?;
                 put(vm, order, TAKEN, 1)?;
             } else {
                 put(vm, order, TAKEN, -1)?;
@@ -389,29 +438,43 @@ fn choose(
 }
 
 /// The right click, 0x7d0b3: open the menu on whatever is under the pointer.
-pub(crate) fn right_click(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
+pub(crate) fn right_click<M>(eng: &mut Engine, vm: &mut M, order: u32, rules: Rules) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     // A walk that was armed and not yet run is called off by a right click.
     if get(vm, order, MODE)? == 9 {
         put(vm, order, MODE, 0)?;
     }
 
-    // The bar runs from x 0x40 to 0x240 — eight slots of 64, and the interval
-    // is half-open here where mode 3 has it closed.
+    // The bar — eight slots, as wide as the engine's rules say, and the
+    // interval is half-open here where mode 3 has it closed.
     let imx = get(vm, order, IMX)?;
-    if (0x40..0x240).contains(&imx) {
-        let list = get(vm, order, INVENTORY)? as u32;
-        let scroll = get(vm, list, 0)?;
-        let index = scroll + (imx - 0x40) / 64;
-        let held = get(vm, list, 4 + index as u32 * 4)?;
+    if (rules.bar_x0..rules.bar_x0 + 8 * rules.slot_w).contains(&imx) {
+        let list = get(vm, order, INVENTORY)?;
+        let scroll = get(vm, list as u32, 0)?;
+        let index = scroll + (imx - rules.bar_x0) / rules.slot_w;
+        let held = list_slot(vm, list, index)?;
         if held == 0 {
             return Ok(());
         }
         let flags = item(vm, order, held, I_FLAGS)? | 2;
         put(vm, order, TARGET, held)?;
         put(vm, order, SLOT, index)?;
-        let x = (index - scroll) * 64 + 0x60;
+        let x = (index - scroll) * rules.slot_w + rules.slot_w * 3 / 2;
         let (screen, base) = (get(vm, order, BAR_SCREEN)?, get(vm, order, BAR_MENU)?);
-        show_menu(eng, vm, order, screen, base, x, 0x30, flags)?;
+        show_menu(
+            eng,
+            vm,
+            order,
+            screen,
+            base,
+            x,
+            rules.bar_menu_y,
+            flags,
+            rules,
+        )?;
         put(vm, order, MODE, 2)?;
         put(vm, order, VERB, 0)?;
         return eng.order_callback(vm, order, OPENED, &[3]);
@@ -462,7 +525,7 @@ pub(crate) fn right_click(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<(
     }
 
     let base = get(vm, order, SCENE_MENU)?;
-    show_menu(eng, vm, order, screen, base, mx, my, flags)?;
+    show_menu(eng, vm, order, screen, base, mx, my, flags, rules)?;
     put(vm, order, MODE, 4)?;
     put(vm, order, VERB, 0)?;
 
@@ -480,12 +543,26 @@ pub(crate) fn right_click(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<(
 }
 
 /// Is this a fresh press of that button? A held one never fires twice.
-fn fresh(vm: &Vm, order: u32, button: u32) -> Result<bool> {
+fn fresh<M>(vm: &M, order: u32, button: u32) -> Result<bool>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     Ok(get(vm, order, button)? != 0 && get(vm, order, PRESSED)? == 0)
 }
 
 /// The mode chain at 0x7d4a8: modes 2 to 8, one arm each.
-pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -> Result<bool> {
+pub(crate) fn mode_chain<M>(
+    eng: &mut Engine,
+    vm: &mut M,
+    order: u32,
+    mode: i32,
+    rules: Rules,
+) -> Result<bool>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     match mode {
         // The menu stands open over the bar or over the scene. Same shape
         // either way, on its own screen and its own descriptors.
@@ -497,9 +574,9 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
 
             if fresh(vm, order, MLK)? && get(vm, order, GATE2)? == 0 {
                 let flags = if bar {
-                    let list = get(vm, order, INVENTORY)? as u32;
+                    let list = get(vm, order, INVENTORY)?;
                     let index = get(vm, order, SLOT)?;
-                    let held = get(vm, list, 4 + index as u32 * 4)?;
+                    let held = list_slot(vm, list, index)?;
                     item(vm, order, held, I_FLAGS)? | 2
                 } else {
                     // The scene reads the target afresh: an area may stand for
@@ -514,7 +591,7 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
                         item(vm, order, target, I_FLAGS)?
                     }
                 };
-                choose(eng, vm, order, screen, base, flags)?;
+                choose(eng, vm, order, screen, base, flags, rules)?;
             }
 
             let cancel = (fresh(vm, order, MRK)? && get(vm, order, GATE1)? == 0)
@@ -523,7 +600,7 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
                 remove_menu(eng, vm, order)?;
                 if !bar {
                     let (held, list) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                    crate::words::remove_from_inventory(&mut vm.mem, held, list as u32)?;
+                    crate::words::remove_from_inventory(vm.space_mut(), held, list)?;
                     eng.order_callback(vm, order, CALCINV, &[])?;
                 }
             }
@@ -535,10 +612,10 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
         3 => {
             if fresh(vm, order, MLK)? && get(vm, order, GATE2)? == 0 {
                 let imx = get(vm, order, IMX)?;
-                if (0x40..=0x240).contains(&imx) {
-                    let list = get(vm, order, INVENTORY)? as u32;
-                    let index = get(vm, list, 0)? + (imx - 0x40) / 64;
-                    let second = get(vm, list, 4 + index as u32 * 4)?;
+                if (rules.bar_x0..=rules.bar_x0 + 8 * rules.slot_w).contains(&imx) {
+                    let list = get(vm, order, INVENTORY)?;
+                    let index = get(vm, list as u32, 0)? + (imx - rules.bar_x0) / rules.slot_w;
+                    let second = list_slot(vm, list, index)?;
                     if second != 0 {
                         put(vm, order, OBJECT, second)?;
                         let arrow = get(vm, order, ARROW)?;
@@ -547,7 +624,7 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
                         put(vm, order, MODE, 6)?;
                         put(vm, order, 0x104, -1)?;
                         let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                        crate::words::remove_from_inventory(&mut vm.mem, held, inv as u32)?;
+                        crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
                         eng.order_callback(vm, order, CALCINV, &[])?;
                         if get(vm, order, TAKEN)? == 1 {
                             put(vm, order, TAKEN, 2)?;
@@ -558,7 +635,7 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
                         eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
                         eng.order_callback(vm, order, CANCELED, &[])?;
                         let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                        crate::words::remove_from_inventory(&mut vm.mem, held, inv as u32)?;
+                        crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
                         eng.order_callback(vm, order, CALCINV, &[])?;
                     }
                 } else {
@@ -598,17 +675,17 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
                 eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
                 eng.order_callback(vm, order, CANCELED, &[])?;
                 let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                crate::words::remove_from_inventory(&mut vm.mem, held, inv as u32)?;
+                crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
                 eng.order_callback(vm, order, CALCINV, &[])?;
             }
             Ok(true)
         }
         // Run it now, if no script of the location is in the way.
         5 => {
-            if task_idle(vm, order, 0x1a8)? {
+            if figure_free(vm, order, rules)? {
                 put(vm, order, MODE, 0x63)?;
                 let (v, t, o) = triple(vm, order)?;
-                eng.exec_order(vm, order, v, t, o)?;
+                eng.exec_order(vm, order, v, t, o, rules)?;
             }
             Ok(true)
         }
@@ -617,10 +694,10 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
             if walk_done(vm, order)? {
                 if get(vm, order, TAKEN)? == 2 {
                     let target = get(vm, order, TARGET)?;
-                    eng.exec_order(vm, order, 1, target, 0)?;
+                    eng.exec_order(vm, order, 1, target, 0, rules)?;
                     if get(vm, order, STARTED)? == 0 {
                         let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                        crate::words::remove_from_inventory(&mut vm.mem, held, inv as u32)?;
+                        crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
                         eng.order_callback(vm, order, CALCINV, &[])?;
                         put(vm, order, MODE, 0x63)?;
                     } else {
@@ -657,7 +734,7 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
                 }
             } else {
                 let target = get(vm, order, TARGET)?;
-                eng.exec_order(vm, order, 1, target, 0)?;
+                eng.exec_order(vm, order, 1, target, 0, rules)?;
                 if get(vm, order, STARTED)? == 0 {
                     put(vm, order, MODE, 0x63)?;
                 }
@@ -671,7 +748,7 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
             } else if walk_done(vm, order)? {
                 put(vm, order, MODE, 0x63)?;
                 let (v, t, o) = triple(vm, order)?;
-                eng.exec_order(vm, order, v, t, o)?;
+                eng.exec_order(vm, order, v, t, o, rules)?;
                 eng.order_callback(vm, order, PICKED, &[])?;
             }
             Ok(true)
@@ -680,7 +757,11 @@ pub(crate) fn mode_chain(eng: &mut Engine, vm: &mut Vm, order: u32, mode: i32) -
     }
 }
 
-fn triple(vm: &Vm, order: u32) -> Result<(i32, i32, i32)> {
+fn triple<M>(vm: &M, order: u32) -> Result<(i32, i32, i32)>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     Ok((
         get(vm, order, VERB)?,
         get(vm, order, TARGET)?,
@@ -688,15 +769,21 @@ fn triple(vm: &Vm, order: u32) -> Result<(i32, i32, i32)> {
     ))
 }
 
-/// Whether the location's own task is between jobs.
-fn task_idle(vm: &Vm, order: u32, field: u32) -> Result<bool> {
+/// Whether the figure is free for a verb that starts at once — mode 5 and
+/// the armed walk. The 32-bit engine asks the task's walking flag
+/// (`person[0x1a8]`, 0x7dab3 and 0x7d459), the 16-bit one its command cell
+/// like every other wait (`0d34:2ade`, `0d34:2621`).
+pub(crate) fn figure_free<M: Machine>(vm: &M, order: u32, rules: Rules) -> Result<bool> {
+    if rules.idle_by_command {
+        return walk_done(vm, order);
+    }
     let task = get(vm, order, TASK)? as u32;
-    Ok(get(vm, task, field)? == 0)
+    Ok(get(vm, task, 0x1a8)? == 0)
 }
 
 /// The walk is over when the task's command word is empty or the "arrived"
 /// marker 999.
-fn walk_done(vm: &Vm, order: u32) -> Result<bool> {
+fn walk_done<M: Machine>(vm: &M, order: u32) -> Result<bool> {
     let task = get(vm, order, TASK)? as u32;
     let at = get(vm, task, 0x1cc)?;
     Ok(at == 0 || at == 0x3e7)
@@ -747,25 +834,33 @@ fn said(code: i32) -> Said {
 /// Bit 0 of +0x11C says "an order is unfinished". Setting it is a byte
 /// operation in the original and clearing it a 32-bit one, which also wipes
 /// whatever the upper bits held — mirrored, because it is what the game runs.
-fn keep_going(vm: &mut Vm, order: u32, unfinished: bool) -> Result<()> {
+fn keep_going<M>(vm: &mut M, order: u32, unfinished: bool) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let v = get(vm, order, AFTER)?;
     put(vm, order, AFTER, if unfinished { v | 1 } else { v & 0xfe })
 }
 
 /// Runs the verb's script word with the arguments the case pushes, and takes
 /// the one value it answers with.
-fn ask_script(
+fn ask_script<M>(
     eng: &mut Engine,
-    vm: &mut Vm,
+    vm: &mut M,
     order: u32,
     slot: u32,
     args: &[i32],
-) -> Result<Option<i32>> {
+) -> Result<Option<i32>>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     if get(vm, order, slot)? == 0 {
         return Ok(None);
     }
     eng.order_callback(vm, order, slot, args)?;
-    Ok(Some(vm.data.pop().unwrap_or(0)))
+    Ok(Some(vm.data().pop().unwrap_or(0)))
 }
 
 /// `TEXTTOPERSON` (0x7b053): hang a text over the figure's head.
@@ -773,7 +868,11 @@ fn ask_script(
 /// Center and foot come from the actor's own descriptor — `person[0x190]`,
 /// the same one the walk drives — and the text sits 0x14 above it. The hook
 /// at +0x168 runs afterwards with nothing passed and nothing taken.
-fn text_to_person(eng: &mut Engine, vm: &mut Vm, order: u32, desc: i32) -> Result<()> {
+fn text_to_person<M>(eng: &mut Engine, vm: &mut M, order: u32, desc: i32) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let person = get(vm, order, TASK)? as u32;
     let screen = get(vm, order, SCREEN)?;
     eng.select_screen(screen as u32);
@@ -792,7 +891,11 @@ fn text_to_person(eng: &mut Engine, vm: &mut Vm, order: u32, desc: i32) -> Resul
 
 /// The description a thing carries: an item keeps it at +0x0C, an area at
 /// +0x14, and a thing with none falls back on the block's spare text.
-fn description(vm: &Vm, order: u32, target: i32) -> Result<i32> {
+fn description<M>(vm: &M, order: u32, target: i32) -> Result<i32>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let text = if target < BIAS {
         item(vm, order, target, I_INFO)?
     } else {
@@ -805,7 +908,11 @@ fn description(vm: &Vm, order: u32, target: i32) -> Result<i32> {
 }
 
 /// Puts the description descriptor back the way the block describes it.
-fn info_descriptor(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
+fn info_descriptor<M>(eng: &mut Engine, vm: &mut M, order: u32) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let screen = get(vm, order, SCREEN)?;
     eng.select_screen(screen as u32);
     let desc = get(vm, order, INFO_DESC)?;
@@ -818,14 +925,18 @@ fn info_descriptor(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
 
 /// Verb 2 (0x7c111), "look at" — and, with another handler slot and another
 /// refusal text, verbs 3 and 4 as well. The three cases are the same shape.
-fn examine(
+fn examine<M>(
     eng: &mut Engine,
-    vm: &mut Vm,
+    vm: &mut M,
     order: u32,
     slot: u32,
     refusal: u32,
     two: bool,
-) -> Result<()> {
+) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let target = get(vm, order, TARGET)?;
     // Verb 2 dresses the descriptor before asking; 3 and 4 only afterwards.
     let up_front = slot == 0x2c;
@@ -903,7 +1014,11 @@ fn examine(
 /// Verb 1 (0x7c00c), "take": the thing in hand goes back and the new one
 /// comes in. This is the only case that publishes its state, at +0x1DC, and
 /// the menu's modes 6 and 7 read it back.
-fn take(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
+fn take<M>(eng: &mut Engine, vm: &mut M, order: u32, rules: Rules) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let target = get(vm, order, TARGET)?;
     let answer = ask_script(eng, vm, order, VERBS + HANDLER, &[target])?;
     let state = match answer.map(said) {
@@ -913,8 +1028,8 @@ fn take(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
     };
     if state == 1 {
         let (held, list) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-        crate::words::remove_from_inventory(&mut vm.mem, held, list as u32)?;
-        crate::words::add_to_inventory(&mut vm.mem, target, list as u32)?;
+        crate::words::remove_from_inventory(vm.space_mut(), held, list)?;
+        crate::words::add_to_inventory(vm.space_mut(), target, list, rules.inventory)?;
         // The handler bumps the bar's scroll cell itself, on top of whatever
         // `ADDTOINV` may already have set it to.
         let inv = list as u32;
@@ -928,20 +1043,45 @@ fn take(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
 
 /// Verb 8 (0x7cd43), "leave": run the word and clear the unfinished bit. Two
 /// lines in the original, and the whole of the player-driven scene change.
-fn leave(eng: &mut Engine, vm: &mut Vm, order: u32) -> Result<()> {
+fn leave<M>(eng: &mut Engine, vm: &mut M, order: u32) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     if get(vm, order, VERBS + 7 * ENTRY + HANDLER)? != 0 {
         eng.order_callback(vm, order, VERBS + 7 * ENTRY + HANDLER, &[])?;
     }
     keep_going(vm, order, false)
 }
 
+/// A 32-bit field of a record wherever it happens to start — what
+/// `Engine::cell` reads on the 32-bit machine, for the packed conversation
+/// records that begin mid-cell.
+fn packed_cell<M: Machine>(vm: &M, base: u32, off: u32) -> Result<i32> {
+    let mem = vm.space();
+    let bytes = mem.read_bytes(mem.offset(base as i32, off as i32), 4)?;
+    Ok(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+/// Slot `i` of an inventory list: four bytes past the head on either
+/// machine, see [`crate::words::slot_address`].
+fn list_slot<M: Machine>(vm: &M, list: i32, i: i32) -> Result<i32> {
+    vm.space()
+        .fetch_cell(crate::words::slot_address(vm.space(), list, i))
+}
+
 /// A name in module memory, as `CompareString` (0x11950) reads one: the bytes
 /// up to the first NUL. Only an exact match counts — that routine also answers
 /// −2 and −3 for a prefix or a suffix, and both verbs test for −1 alone.
-fn name_of(vm: &Vm, at: u32) -> Result<String> {
+fn name_of<M>(vm: &M, at: u32) -> Result<String>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let mut name = String::new();
-    for i in 0..64u32 {
-        match vm.mem.fetch_byte(Engine::field(at, i))? {
+    let mem = vm.space();
+    for i in 0..64i32 {
+        match mem.fetch_byte(mem.offset(at as i32, i))? {
             0 => break,
             b => name.push(b as char),
         }
@@ -969,14 +1109,18 @@ fn name_of(vm: &Vm, at: u32) -> Result<String> {
 ///    and looks once more with the *field's* keyword — throwing away whatever
 ///    the word had said. So the node is never less than 1000, and the check
 ///    the handler makes for that is dead code.
-fn by_keyword(
+fn by_keyword<M>(
     eng: &mut Engine,
-    vm: &mut Vm,
+    vm: &mut M,
     order: u32,
     slot: u32,
     keyword: u32,
     literal: &str,
-) -> Result<()> {
+) -> Result<()>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let record = get(vm, order, RECORD)? as u32;
     let fields = get(vm, order, FIELDS)? as u32;
     let mut key = get(vm, order, keyword)? as u32;
@@ -989,11 +1133,17 @@ fn by_keyword(
     }
 
     // The record's own fields are read byte-exact like everything else in a
-    // conversation; the packed strides make cell reads a trap here.
-    let count = Engine::cell(&vm.mem, record, 8)? as i32;
-    let look = |vm: &Vm, want: &str| -> Result<Option<i32>> {
+    // conversation; the packed strides make cell reads a trap here. The
+    // answer stride and the name's place in it are the 32-bit record's, the
+    // only one read — the 16-bit answer table is the conversation machine's,
+    // which stops before this on that machine.
+    let count = packed_cell(vm, record, 8)?;
+    let look = |vm: &M, want: &str| -> Result<Option<i32>> {
         for i in 0..count {
-            let at = Engine::field(fields, i as u32 * ANSWER + A_NAME).0;
+            let at = vm
+                .space()
+                .offset(fields as i32, (i as u32 * ANSWER + A_NAME) as i32)
+                as u32;
             if name_of(vm, at)? == want {
                 return Ok(Some(1000 + i));
             }
@@ -1024,14 +1174,24 @@ fn by_keyword(
         eng.set_active(false);
     }
     eng.hide_pointer();
-    eng.calc_dialog(vm, order, 1)
+    eng.conversation_enter(vm, order, 1)
 }
 
 /// One verb on one target — the body of `EXECORDER` past its jump table.
-pub(crate) fn exec_verb(eng: &mut Engine, vm: &mut Vm, order: u32, verb: i32) -> Result<bool> {
+pub(crate) fn exec_verb<M>(
+    eng: &mut Engine,
+    vm: &mut M,
+    order: u32,
+    verb: i32,
+    rules: Rules,
+) -> Result<bool>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
     let slot = |n: i32| VERBS + (n - 1) as u32 * ENTRY + HANDLER;
     match verb {
-        1 => take(eng, vm, order)?,
+        1 => take(eng, vm, order, rules)?,
         2 => examine(eng, vm, order, slot(2), INFO_SPARE, false)?,
         3 => examine(eng, vm, order, slot(3), NO_HANDLE, false)?,
         4 => examine(eng, vm, order, slot(4), NO_USE, true)?,

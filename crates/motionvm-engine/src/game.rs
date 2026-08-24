@@ -1,8 +1,11 @@
 //! Setting the game up and stepping it, without a screen attached.
 //!
 //! [`Game`] is the whole machine assembled and ready to step: the containers
-//! opened, the kernel table lifted out of `ENGINE.EXE`, the modules loaded, the
-//! VM wired to the engine as its host. What it does not own is the clock or
+//! opened, the kernel table lifted out of the engine binary, the modules
+//! loaded, the VM wired to the engine as its host. It is generic over the
+//! machine — the 32-bit one by default, which is what every caller that just
+//! says `Game` gets — and what one game does that another does not lives in
+//! `titles/`, behind [`Hooks`]. What it does not own is the clock or
 //! the window — a caller decides when a frame happens and what becomes of the
 //! picture. That split is what lets the same setup drive a window, a test and a
 //! headless run without any of the three knowing about the others.
@@ -14,79 +17,12 @@
 
 use std::path::Path;
 
-use motionvm_formats::{Kind, ScrModule, rsc::Bank};
-use motionvm_forth::{Address, Context, Run, Vm};
+use motionvm_forth::{Address, Host, Machine, Run, m32};
 use motionvm_render::Framebuffer;
 
 use crate::Engine;
 
-type Res<T> = Result<T, Box<dyn std::error::Error>>;
-
-/// What a directory must hold before [`Game::open`] can do anything with it.
-///
-/// Only three entries, and each was established by taking it away and watching
-/// what broke, not by reading the loader:
-///
-/// - **A resource container.** Everything the game *is* lives in the `NNN.RSC`
-///   files — the script modules, the artwork, the texts, the music, the fonts,
-///   the palettes. Named by pattern rather than by number because how many a
-///   game ships is the game's business: this one has three, and the loader
-///   merges however many it finds.
-/// - **`ENGINE.EXE`.** The 356-word kernel table is read out of the LE image.
-///   Without it the VM has no primitives to bind the bytecode's ordinals to.
-/// - **`000.FRT`.** Character to glyph. Text rendering leaves early without it,
-///   so a game that has everything else draws its pictures and not one word.
-///
-/// `000.FNT` is deliberately *not* here. It is read when present, but only as
-/// the fallback for text that names no font of its own — and every string this
-/// game draws names one, so removing it changes nothing on screen. The three
-/// sound files are not here either: the frontend reports their absence and
-/// plays on in silence.
-const REQUIRED: &[(&str, &str)] = &[
-    (
-        "a resource container (NNN.RSC)",
-        "scripts, artwork, texts, music, fonts",
-    ),
-    ("ENGINE.EXE", "the kernel word table"),
-    (
-        "000.FRT",
-        "the font reference table, without which no text is drawn",
-    ),
-];
-
-/// Which of the required files `dir` does not hold, as `(what, what for)`.
-///
-/// Empty means [`Game::open`] will get as far as parsing. It is a existence
-/// check, not a validity one — a truncated `ENGINE.EXE` still fails later, and
-/// says so itself.
-pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
-    let has_container = std::fs::read_dir(dir)
-        .map(|entries| {
-            entries.flatten().any(|e| {
-                let p = e.path();
-                p.extension()
-                    .and_then(|x| x.to_str())
-                    .is_some_and(|x| x.eq_ignore_ascii_case("rsc"))
-                    && p.file_stem()
-                        .and_then(|s| s.to_str())
-                        .is_some_and(|s| s.len() == 3 && s.bytes().all(|b| b.is_ascii_digit()))
-            })
-        })
-        .unwrap_or(false);
-
-    REQUIRED
-        .iter()
-        .filter(|(name, _)| match *name {
-            n if n.starts_with("a resource container") => !has_container,
-            // Case-insensitively, like the container scan just above: a copied
-            // install often arrives lower-cased, and reporting a file as
-            // missing while it sits in the directory is worse than not finding
-            // it at all.
-            n => motionvm_formats::find_ci(dir, n).is_none(),
-        })
-        .copied()
-        .collect()
-}
+pub(crate) type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 /// The loaded game: the virtual machine and the runtime behind it.
 ///
@@ -95,18 +31,18 @@ pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
 /// and the test suite drives them. A **frontend** needs neither — see
 /// [`Game::palette`], [`Game::frame_duration`] and [`Game::set_music`], which
 /// are the three things a window turns out to want.
-pub struct Game {
+pub struct Game<M: Machine = m32::Vm> {
     /// The interpreter, with the game's modules loaded.
-    pub vm: Vm,
+    pub vm: M,
     /// The runtime the interpreter's words act on.
     pub engine: Engine,
     /// Whether a word is part-way through and waiting to be resumed.
-    running: bool,
+    pub(crate) running: bool,
     /// Whether the execution now on the machine is the one put back after
     /// `QUITANIM`, i.e. `START` running on into `ENDGAME`.
-    ending: bool,
+    pub(crate) ending: bool,
     /// Whether that has finished. See [`Game::finished`].
-    over: bool,
+    pub(crate) over: bool,
     /// `START`, set aside inside `ANIMPLAY` while the controller has the frame.
     ///
     /// Put back by [`Game::step`] once `QUITANIM` has cleared
@@ -118,72 +54,25 @@ pub struct Game {
     /// loop keeps its own C stack frame and runs the bytecode machine again for
     /// the controller. Here the outer execution is parked instead, and put back
     /// when the loop ends — which is how `START` gets to reach `ENDGAME`.
-    parked: Option<Context>,
+    pub(crate) parked: Option<M::Context>,
 }
 
-impl Game {
-    /// Loads the kernel word table and every script module in the resources.
-    ///
-    /// Checks the required files first. Not for safety — the opens below would fail
-    /// anyway — but because of *what* they fail with: a bare
-    /// `Os { code: 2, kind: NotFound }` names neither the file nor the fact
-    /// that a game directory was expected at all, and the person reading it has
-    /// just copied a 1996 CD and has no way to guess which of its thirty files
-    /// mattered.
-    pub fn open(dir: &Path) -> Res<Self> {
-        // A path that is not there at all gets its own answer. Listing three
-        // missing files for a directory that does not exist describes the
-        // symptom and hides the cause, which is usually a typo.
-        if !dir.is_dir() {
-            return Err(format!("{}: no such directory", dir.display()).into());
-        }
-        let missing = missing_data(dir);
-        if !missing.is_empty() {
-            let names: Vec<&str> = missing.iter().map(|(n, _)| *n).collect();
-            return Err(format!(
-                "{} is not a MOTION game directory\n  missing: {}\n  \
-                 This needs the files of an original installation; \
-                 see \"Game data\" in the README.",
-                dir.display(),
-                names.join(", "),
-            )
-            .into());
-        }
-        let bank = Bank::open_dir(dir)?;
-        let engine_exe = motionvm_formats::find_ci(dir, "ENGINE.EXE")
-            .ok_or_else(|| format!("{}: no ENGINE.EXE", dir.display()))?;
-        let img = motionvm_formats::le::Image::open(engine_exe)?;
-        let kernel = motionvm_formats::le::kernel_words(&img);
-        let mut vm = Vm::new(&kernel);
+/// What one game does that the driver cannot know: the frame to run while no
+/// controller is installed. Implemented once per game in `titles/`, and
+/// public only because the generic driver is bounded on it — nothing outside
+/// this crate implements it.
+pub trait Hooks {
+    /// The word to run this frame when `CTRL`/`SCRCTRL` has not installed a
+    /// controller yet — or `None` when the frame is spent or there is nothing
+    /// to run.
+    fn fallback_controller(&mut self) -> Res<Option<Address>>;
+}
 
-        for (_, id) in bank.present(Kind::Script) {
-            // `present` reads the index, `item` reads the data behind it, and a
-            // truncated container can index an item it does not hold. Skipping
-            // for the same reason a module that will not parse is skipped: one
-            // bad entry should not stop the game from starting.
-            let Some(item) = bank.item(Kind::Script, id)? else {
-                continue;
-            };
-            // A module that will not parse is skipped rather than fatal: the
-            // set of modules is large and one bad entry should not stop the
-            // game from starting. A missing module announces itself loudly
-            // later, when something calls into it.
-            if let Ok(parsed) = ScrModule::parse(item) {
-                vm.load(item, &parsed);
-            }
-        }
-
-        let engine = Engine::new().with_resources(dir);
-        Ok(Self {
-            vm,
-            engine,
-            running: false,
-            ending: false,
-            over: false,
-            parked: None,
-        })
-    }
-
+impl<M: Machine> Game<M>
+where
+    Engine: Host<M>,
+    Self: Hooks,
+{
     /// Points saving and loading at a directory.
     ///
     /// Refused if it lies inside the game data: the original has no notion of
@@ -200,7 +89,7 @@ impl Game {
 
     /// Looks a word up by module and name.
     pub fn address(&self, module: u32, word: &str) -> Option<Address> {
-        motionvm_forth::word_address(&self.vm, module, word)
+        self.vm.word_address(module, word)
     }
 
     /// Calls a word with the given arguments already on the stack, letting any
@@ -213,13 +102,13 @@ impl Game {
         let addr = self
             .address(module, word)
             .ok_or_else(|| format!("module {module} has no word {word}"))?;
-        self.vm.data.extend_from_slice(args);
+        self.vm.data().extend_from_slice(args);
         self.call_at(addr)
     }
 
     /// Runs the word at `addr`, letting any transition it starts play out.
     pub fn call_at(&mut self, addr: Address) -> Res<()> {
-        self.vm.start(addr);
+        self.vm.start(addr)?;
         self.running = true;
         let mut frames = 0u32;
         while self.pump()? {
@@ -266,10 +155,17 @@ impl Game {
                 // execution is parked here, which also leaves it in the one
                 // place it belongs: immediately after `ANIMPLAY`, where
                 // `START` continues into `ENDGAME` once the loop is over.
+                //
+                // A game may have more than one such loop: ENVIRO's `RUN`
+                // enters `ANIMPLAY` for the intro, comes back when the intro
+                // quits, and enters it again for the game. So parking also
+                // forgets that the resumed word was on its way out — it has
+                // found another loop to stand in.
                 if self.engine.entering_loop {
                     self.engine.entering_loop = false;
                     self.parked = Some(self.vm.park());
                     self.running = false;
+                    self.ending = false;
                     return Ok(false);
                 }
                 Ok(true)
@@ -301,8 +197,8 @@ impl Game {
     /// A variable's body opens with the `_PutAdr` that pushes its own address,
     /// so the value sits in the cell right after it.
     pub fn get_var(&self, module: u32, name: &str) -> Option<i32> {
-        let addr = self.address(module, name)?.next();
-        self.vm.fetch(addr).ok().map(|v| v as i32)
+        let addr = self.address(module, name)?;
+        self.vm.variable(addr)
     }
 
     /// Writes a module variable. This is how input reaches the game: the
@@ -311,69 +207,9 @@ impl Game {
     pub fn set_var(&mut self, module: u32, name: &str, value: i32) -> Res<()> {
         let addr = self
             .address(module, name)
-            .ok_or_else(|| format!("module {module} has no variable {name}"))?
-            .next();
-        self.vm.store(addr, value as u32)?;
+            .ok_or_else(|| format!("module {module} has no variable {name}"))?;
+        self.vm.set_variable(addr, value)?;
         Ok(())
-    }
-
-    /// Begins the game the way it begins itself.
-    ///
-    /// `SYSTEM.RSC` holds two lines — `4 =>GET` and `START` — and `4:START`
-    /// loads the modules it needs, runs `STARTUP`, initializes through
-    /// `DS_INIT`, and then hands over with `0x42150 CTRL`. That address is
-    /// `ICTRL`, the game's own per-frame controller.
-    ///
-    /// Entered as the bootstrap enters it, rather than by calling `STARTUP` and
-    /// `INCLLOC` by hand. `START` is the word that decides what a run consists
-    /// of, and it sits past the boundary a module parser stops at if it takes
-    /// module memory to end at `0x50 + 16004` — so it is easy to conclude the
-    /// word does not exist.
-    pub fn start(&mut self) -> Res<()> {
-        // The first of those two lines is the one no bytecode contains, so the
-        // slot it takes has to be granted from here. Module 4 lands in slot 1,
-        // and everything `START` loads follows behind it.
-        self.engine.mark_resident(4);
-        let addr = self
-            .address(4, "START")
-            .ok_or("module 4 has no word START")?;
-        self.vm.start(addr);
-        self.running = true;
-        Ok(())
-    }
-
-    /// Runs `STARTUP` alone, for tests that want the state without the game.
-    pub fn startup_only(&mut self) -> Res<()> {
-        self.call(3, "STARTUP", &[])
-    }
-
-    /// Enters a location and lets the entry play out at once.
-    ///
-    /// Convenient where only the settled picture matters. Anything with a frame
-    /// clock wants [`Self::begin_location`] instead, or the entry's own fade is
-    /// consumed before a single frame reaches the screen.
-    pub fn enter_location(&mut self, location: i32) -> Res<()> {
-        self.call(5, "INCLLOC", &[location])
-    }
-
-    /// Starts entering a location without running it to the end.
-    ///
-    /// `INCLLOC` fades out, runs the location's macro, and fades back in — the
-    /// second of those is how a location appears at all. Driving it frame by
-    /// frame is what makes that visible.
-    pub fn begin_location(&mut self, location: i32) -> Res<()> {
-        let addr = self
-            .address(5, "INCLLOC")
-            .ok_or("module 5 has no word INCLLOC")?;
-        self.vm.data.push(location);
-        self.vm.start(addr);
-        self.running = true;
-        Ok(())
-    }
-
-    /// The location the game itself wants to begin at.
-    pub fn start_location(&self) -> Option<i32> {
-        self.get_var(2, "_STARTLOC")
     }
 
     /// One step of the game — what the original engine's native loop does once
@@ -388,6 +224,12 @@ impl Game {
     /// `_LOCTASKWAI --`, one subtraction per call, so a task that asks to wait
     /// fifty waits for fifty of these steps.
     pub fn step(&mut self) -> Res<()> {
+        // A new frame, new input: the poll budget starts over, and a word
+        // that had spent it and is now finished is no longer waiting.
+        self.engine.polls = 0;
+        if !self.running {
+            self.engine.polling = false;
+        }
         // Something already part-way through gets this frame instead. That is
         // the whole of the blocking behavior: the task manager is not called
         // again until the word it is stuck in has finished.
@@ -423,20 +265,12 @@ impl Game {
         // take those entry points with it.
         let addr = match self.engine.controller {
             Some(addr) => addr,
-            None => {
-                if let Some(next) = self.get_var(2, "_NEXTLOC").filter(|&n| n != 0) {
-                    self.set_var(2, "_NEXTLOC", 0)?;
-                    self.begin_location(next)?;
-                    self.pump()?;
-                    return Ok(());
-                }
-                match self.get_var(2, "_LTHANDLER").filter(|&h| h != 0) {
-                    Some(h) => Address::new(h as u32 >> 16, h as u32 & 0xffff),
-                    None => return Ok(()),
-                }
-            }
+            None => match self.fallback_controller()? {
+                Some(addr) => addr,
+                None => return Ok(()),
+            },
         };
-        self.vm.start(addr);
+        self.vm.start(addr)?;
         self.running = true;
         self.pump()?;
         // The walk and the drawer belong *after* the controller, and only if it
@@ -480,45 +314,23 @@ impl Game {
     /// `call_nested` is for. It must not block: there is no parking place
     /// inside a walk, and nothing reached this way does.
     fn descriptor_frame(&mut self) -> Res<()> {
-        for handle in self.engine.frame_order() {
-            if let Some(word) = self.engine.tick_descriptor(handle) {
-                let addr = Address::new(word as u32 >> 16, word as u32 & 0xffff);
+        for (screen, handle) in self.engine.frame_order() {
+            if let Some(word) = self.engine.tick_descriptor_on(screen, handle) {
+                let Some(addr) = self.vm.callback_target(word) else {
+                    continue;
+                };
+                // The 16-bit loop makes the descriptor's screen active along
+                // with it (`016a:05d6`: the screen into `DS:0x5de2`, the
+                // number into `DS:0x3058`) — on that machine a number names a
+                // descriptor only together with its screen.
+                if self.engine.per_screen_descriptors {
+                    self.engine.select_screen(screen);
+                }
                 self.engine.select_descriptor(handle);
                 self.vm.call_nested(addr, &mut self.engine)?;
             }
         }
         Ok(())
-    }
-
-    /// Hands the game this frame's input.
-    ///
-    /// The buttons are edge-triggered on purpose. The task manager advances a
-    /// phase whenever it sees a button down, so reporting a held button on
-    /// every frame would race through the whole intro in a fraction of a
-    /// second. One frame per press is what the game means by a click.
-    ///
-    /// Both routes are fed, because the game uses both: `ICTRL` reads the
-    /// pointer through the kernel words `MOUSEX`, `MOUSEY`, `MOUSELK` and
-    /// `MOUSERK` and stores the result in these variables itself, while the
-    /// location handlers read the variables.
-    pub fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Res<()> {
-        self.set_var(2, "_MLK", left as i32)?;
-        self.set_var(2, "_MRK", right as i32)?;
-        self.set_var(2, "_AKTKEY", key)?;
-        self.engine.key = key;
-        self.engine.mouse.x = x;
-        self.engine.mouse.y = y;
-        self.engine.mouse.left = left as i32;
-        self.engine.mouse.right = right as i32;
-        Ok(())
-    }
-
-    /// The task and phase the location is currently in — the intro's progress.
-    pub fn task_phase(&self) -> (i32, i32) {
-        (
-            self.get_var(2, "_LOCTASK").unwrap_or(0),
-            self.get_var(2, "_LOCTASKPHA").unwrap_or(0),
-        )
     }
 
     /// The frame to show, pointer and all.

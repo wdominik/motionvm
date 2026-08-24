@@ -5,14 +5,14 @@
 
 use crate::stack::{pop_n, pop1};
 use crate::{Engine, Result};
-use motionvm_forth::Memory;
+use motionvm_forth::AddressSpace;
 
 impl Engine {
     pub(crate) fn words_sound(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        _mem: &mut Memory,
+        _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match name {
             // The music. `0x7F98D` takes the loop flag, `0x7F99A` the tune

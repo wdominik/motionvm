@@ -119,7 +119,14 @@ impl Engine {
                         .iter()
                         .map(|(k, v)| ((*k).to_string(), *v))
                         .collect(),
+                    buffer: d.buffer,
                 })
+                .collect(),
+            buffers_on: self.buffers.on,
+            buffers: self
+                .buffers
+                .iter()
+                .map(|(id, b)| (id, b.width, b.height))
                 .collect(),
         }
     }
@@ -144,6 +151,7 @@ impl Engine {
             }
             descriptors.push(Descriptor {
                 handle: d.handle,
+                stamp: 0,
                 screen: d.screen,
                 x: d.x,
                 y: d.y,
@@ -157,6 +165,8 @@ impl Engine {
                 template: d.template,
                 wait: d.wait,
                 callback: d.callback,
+                // Kept by a 16-bit savegame; the 32-bit game never sets it.
+                buffer: d.buffer,
                 x_mode: placement_of(d.x_mode)?,
                 y_mode: placement_of(d.y_mode)?,
                 fields,
@@ -192,10 +202,29 @@ impl Engine {
         self.pointer_visible = anim.pointer_visible;
         self.dialog_offset = anim.dialog_offset;
         self.dialog_return = anim.dialog_return;
-        self.selected = anim
-            .current
-            .and_then(|h| descriptors.iter().position(|d| d.handle == h));
+        // In the per-screen scheme the number names a descriptor of the
+        // active screen, as `ACTDESC` would resolve it.
+        self.selected_handle = anim.current;
+        self.selected = anim.current.and_then(|h| {
+            descriptors.iter().position(|d| {
+                d.handle == h && (!self.per_screen_descriptors || Some(d.screen) == anim.screen)
+            })
+        });
+        // The stamps are not in the file: list order stands in for the
+        // chain until the next `SDLEV` moves things — see
+        // [`Descriptor::stamp`].
         self.descriptors = descriptors;
+        let mut stamp = self.level_stamp;
+        for d in &mut self.descriptors {
+            stamp += 1;
+            d.stamp = stamp;
+        }
+        self.level_stamp = stamp;
+        self.buffers.on = anim.buffers_on;
+        self.buffers.reset();
+        for &(id, width, height) in &anim.buffers {
+            self.buffers.set(id, width as i32, height as i32);
+        }
 
         // The mirrored sprites are made again rather than carried: their ids
         // are not in any resource file, so nothing else could bring them back.

@@ -11,14 +11,17 @@
 //! no palette drift, no lost transparency.
 //!
 //! They need the original files and skip themselves without them.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
-use motionvm_formats::{Kind, Palette, Sprite, rsc::Bank};
+use motionvm_formats::Palette;
+use motionvm_formats::m32::{Kind, Sprite, rsc::Bank};
 use motionvm_render::{Display, Framebuffer, TRANSPARENT};
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// A big sprite from the game, plus a small one with transparency.
 fn art() -> Option<(Sprite, Sprite)> {
-    let bank = Bank::open_dir(gamedata()?).ok()?;
+    let bank = Bank::open_dir(gamedata_ds2()?).ok()?;
     let mut big: Option<Sprite> = None;
     let mut masked: Option<Sprite> = None;
     for (_, id) in bank.present(Kind::Gfx8) {

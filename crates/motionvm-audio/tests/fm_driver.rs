@@ -2,12 +2,14 @@
 //!
 //! Every check here reads the original driver's own bytes out of `HMIMDRV.386`
 //! and holds the rebuild against them. They need the game's files; point
-//! `MOTIONVM_GAMEDATA` at the directory with `001.RSC`, or they skip themselves.
+//! `MOTIONVM_GAMEDATA_DS2` at the directory with `001.RSC`, or they skip themselves.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_audio::opl::{Fm, Patch, Tables, VOICES, Write};
 use motionvm_audio::{Kind, Message};
-use motionvm_formats::{DriverArchive, bnk::Bank as InstrumentBank};
-use motionvm_testutil::{game_file, gamedata};
+use motionvm_formats::m32::{DriverArchive, bnk::Bank as InstrumentBank};
+use motionvm_testutil::{game_file, gamedata_ds2};
 
 fn archive(dir: &std::path::Path) -> DriverArchive {
     let bytes = std::fs::read(game_file(dir, "HMIMDRV.386")).expect("HMIMDRV.386");
@@ -39,7 +41,7 @@ fn driver(dir: &std::path::Path) -> Fm {
 /// It does **not** see a wrong *use* of a table — that is T2 and T3.
 #[test]
 fn the_tables_come_out_of_the_driver_image() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -86,7 +88,7 @@ fn the_tables_come_out_of_the_driver_image() {
 /// `0x35E4` alias invites — shifts everything an octave and would still play.
 #[test]
 fn a_note_lands_on_its_own_f_number() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -157,7 +159,7 @@ fn a_note_lands_on_its_own_f_number() {
 /// the curve itself has to fall.
 #[test]
 fn velocity_becomes_a_total_level() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -198,7 +200,7 @@ fn velocity_becomes_a_total_level() {
 /// differ catches the mistake `PIANO1` cannot: modulator and carrier swapped.
 #[test]
 fn an_instrument_folds_into_register_bytes() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -257,7 +259,7 @@ fn an_instrument_folds_into_register_bytes() {
 /// `0xBD` its rhythm bits, would still make a noise.
 #[test]
 fn the_driver_switches_the_chip_on_in_one_fixed_order() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -296,7 +298,7 @@ fn the_driver_switches_the_chip_on_in_one_fixed_order() {
 /// the one left alone.
 #[test]
 fn voices_are_taken_free_first_then_stolen_from_the_unbent() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -352,7 +354,7 @@ fn voices_are_taken_free_first_then_stolen_from_the_unbent() {
 /// that voice reuse them.
 #[test]
 fn a_note_off_only_clears_the_key_bit() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

@@ -43,11 +43,36 @@
 use std::collections::BTreeMap;
 
 /// What `=>PUTAS` and `=>GETAS` put at the head of a `.FRZ`.
-const FRZ_MAGIC: &[u8; 8] = b"DS2FRZ\0\0";
-/// What `PUTANIM` and `GETANIM` put at the head of an `.anm`.
-pub(crate) const ANM_MAGIC: &[u8; 8] = b"DS2ANM\0\0";
-/// Bumped whenever a layout below changes. Old files are refused, not guessed
-/// at: a savegame that loads wrongly is worse than one that will not load.
+/// Which game's files these are: the two engines keep the same three
+/// artifacts, but a 16-bit module image is bytes of a flat arena where a
+/// 32-bit one is cells, and a 16-bit descriptor carries a buffer — so each
+/// generation has a layout and a magic of its own, and neither reads the
+/// other's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Layout {
+    /// Dunkle Schatten 2's, `DS2FRZ`/`DS2ANM` — the layout the released
+    /// binaries have written since 0.1.
+    Motion32,
+    /// Die Enviro-Kids greifen ein's, `ENVFRZ`/`ENVANM`.
+    Motion16,
+}
+
+impl Layout {
+    fn frz_magic(self) -> &'static [u8; 8] {
+        match self {
+            Layout::Motion32 => b"DS2FRZ\0\0",
+            Layout::Motion16 => b"ENVFRZ\0\0",
+        }
+    }
+
+    pub(crate) fn anm_magic(self) -> &'static [u8; 8] {
+        match self {
+            Layout::Motion32 => b"DS2ANM\0\0",
+            Layout::Motion16 => b"ENVANM\0\0",
+        }
+    }
+}
+
 pub(crate) const VERSION: u32 = 1;
 
 pub(crate) type Result<T> = std::result::Result<T, String>;
@@ -188,10 +213,11 @@ impl Reader<'_> {
     }
 }
 
-/// One module's memory, as a `.FRZ` carries it.
+/// One module's memory, as a `.FRZ` carries it: the bytes of the module's
+/// image, cells of four on the 32-bit machine, of two on the 16-bit.
 pub(crate) struct ModuleImage {
     pub(crate) module: u32,
-    pub(crate) cells: Vec<u32>,
+    pub(crate) bytes: Vec<u8>,
 }
 
 /// Lays out `.FRZ`: the resident modules, in the order the original has them.
@@ -199,21 +225,38 @@ pub(crate) struct ModuleImage {
 /// ```text
 /// "DS2FRZ\0\0"  u32 version  u32 count
 /// per module:   u32 number   u32 cells   u32[cells]
+///
+/// "ENVFRZ\0\0"  u32 version  u32 count
+/// per module:   u32 number   u32 bytes   u8[bytes]
 /// ```
 ///
-/// The original's record carries a copy of the module descriptor between the
-/// number and the memory — forty-eight bytes holding, among other things, two
-/// live DOS4GW heap addresses that its own reader skips over without looking.
-/// There is nothing here for those to describe, so they are left out rather
-/// than invented.
-pub(crate) fn write_frz(images: &[ModuleImage]) -> Vec<u8> {
-    let mut w = Writer::new(FRZ_MAGIC);
+/// The 32-bit original's record carries a copy of the module descriptor
+/// between the number and the memory — forty-eight bytes holding, among other
+/// things, two live DOS4GW heap addresses that its own reader skips over
+/// without looking. There is nothing here for those to describe, so they are
+/// left out rather than invented. The 16-bit original (`=>PUTAS` at
+/// `ENVIRO.EXE` `12c8:1169`, file `0x16fe9`) writes one run of its arena,
+/// from the first resident module's header to the last module's final
+/// `##`, as it stands — addresses and all — which a rebuild that places
+/// modules elsewhere cannot take back; see the savegame departure.
+pub(crate) fn write_frz(images: &[ModuleImage], layout: Layout) -> Vec<u8> {
+    let mut w = Writer::new(layout.frz_magic());
     w.u32(images.len() as u32);
     for image in images {
         w.u32(image.module);
-        w.u32(image.cells.len() as u32);
-        for cell in &image.cells {
-            w.u32(*cell);
+        match layout {
+            Layout::Motion32 => {
+                w.u32((image.bytes.len() / 4) as u32);
+                for cell in image.bytes.as_chunks::<4>().0 {
+                    w.u32(u32::from_le_bytes(*cell));
+                }
+            }
+            Layout::Motion16 => {
+                w.u32(image.bytes.len() as u32);
+                for &b in &image.bytes {
+                    w.u8(b);
+                }
+            }
         }
     }
     w.bytes().to_vec()
@@ -225,19 +268,25 @@ pub(crate) fn write_frz(images: &[ModuleImage]) -> Vec<u8> {
 /// machine is what keeps a damaged savegame from landing half-applied — and a
 /// half-applied one is the kind of fault whose symptoms nobody ever traces back
 /// to its cause.
-pub(crate) fn read_frz(bytes: &[u8], what: &str) -> Result<Vec<ModuleImage>> {
+pub(crate) fn read_frz(bytes: &[u8], what: &str, layout: Layout) -> Result<Vec<ModuleImage>> {
     let mut r = Reader::new(bytes, what);
-    r.magic(FRZ_MAGIC)?;
+    r.magic(layout.frz_magic())?;
     let count = r.u32()? as usize;
     let mut images = Vec::with_capacity(count.min(64));
     let mut seen = BTreeMap::new();
     for i in 0..count {
         let module = r.u32()?;
-        let cells = r.u32()? as usize;
-        let mut image = Vec::with_capacity(cells.min(1 << 20));
-        for _ in 0..cells {
-            image.push(r.u32()?);
-        }
+        let n = r.u32()? as usize;
+        let image = match layout {
+            Layout::Motion32 => {
+                let mut image = Vec::with_capacity((n * 4).min(1 << 22));
+                for _ in 0..n {
+                    image.extend_from_slice(&r.u32()?.to_le_bytes());
+                }
+                image
+            }
+            Layout::Motion16 => r.take(n)?.to_vec(),
+        };
         if let Some(first) = seen.insert(module, i) {
             return Err(format!(
                 "{what}: module {module} appears twice, as record {first} and {i}"
@@ -245,7 +294,7 @@ pub(crate) fn read_frz(bytes: &[u8], what: &str) -> Result<Vec<ModuleImage>> {
         }
         images.push(ModuleImage {
             module,
-            cells: image,
+            bytes: image,
         });
     }
     r.finish()?;
@@ -298,6 +347,11 @@ pub(crate) struct Anim {
     /// `(from, to)` pairs, in the order `GFXVFLIP` was asked for them.
     pub(crate) flips: Vec<(u32, u32)>,
     pub(crate) descriptors: Vec<DescriptorState>,
+    /// The 16-bit engine's off-screen buffers — the switch, and each
+    /// allocated buffer's number and size. Only the 16-bit layout carries
+    /// them; the 32-bit game has none.
+    pub(crate) buffers_on: bool,
+    pub(crate) buffers: Vec<(i32, u16, u16)>,
 }
 
 /// Everything a screen keeps that no script re-establishes on its own.
@@ -335,10 +389,12 @@ pub(crate) struct DescriptorState {
     pub(crate) active: bool,
     pub(crate) auto_buffer: bool,
     pub(crate) fields: Vec<(String, i32)>,
+    /// The buffer `SDBUF` attached, 16-bit layout only.
+    pub(crate) buffer: Option<i32>,
 }
 
-pub(crate) fn write_anm(a: &Anim) -> Vec<u8> {
-    let mut w = Writer::new(ANM_MAGIC);
+pub(crate) fn write_anm(a: &Anim, layout: Layout) -> Vec<u8> {
+    let mut w = Writer::new(layout.anm_magic());
     w.u32(a.next_descriptor);
     w.option_i32(a.current.map(|h| h as i32));
     w.option_i32(a.screen.map(|h| h as i32));
@@ -389,13 +445,25 @@ pub(crate) fn write_anm(a: &Anim) -> Vec<u8> {
             w.string(name);
             w.i32(*value);
         }
+        if layout == Layout::Motion16 {
+            w.option_i32(d.buffer);
+        }
+    }
+    if layout == Layout::Motion16 {
+        w.u8(u8::from(a.buffers_on));
+        w.u32(a.buffers.len() as u32);
+        for &(id, width, height) in &a.buffers {
+            w.i32(id);
+            w.i32(width as i32);
+            w.i32(height as i32);
+        }
     }
     w.bytes().to_vec()
 }
 
-pub(crate) fn read_anm(bytes: &[u8], what: &str) -> Result<Anim> {
+pub(crate) fn read_anm(bytes: &[u8], what: &str, layout: Layout) -> Result<Anim> {
     let mut r = Reader::new(bytes, what);
-    r.magic(ANM_MAGIC)?;
+    r.magic(layout.anm_magic())?;
     let next_descriptor = r.u32()?;
     let current = r.option_i32()?.map(|h| h as u32);
     let screen = r.option_i32()?.map(|h| h as u32);
@@ -449,6 +517,10 @@ pub(crate) fn read_anm(bytes: &[u8], what: &str) -> Result<Anim> {
             let name = r.string()?;
             fields.push((name, r.i32()?));
         }
+        let buffer = match layout {
+            Layout::Motion32 => None,
+            Layout::Motion16 => r.option_i32()?,
+        };
         descriptors.push(DescriptorState {
             handle,
             screen,
@@ -470,7 +542,17 @@ pub(crate) fn read_anm(bytes: &[u8], what: &str) -> Result<Anim> {
             active,
             auto_buffer,
             fields,
+            buffer,
         });
+    }
+    let (mut buffers_on, mut buffers) = (false, Vec::new());
+    if layout == Layout::Motion16 {
+        buffers_on = r.u8()? != 0;
+        for _ in 0..r.u32()? {
+            let id = r.i32()?;
+            let (width, height) = (r_u16(&mut r)?, r_u16(&mut r)?);
+            buffers.push((id, width, height));
+        }
     }
     r.finish()?;
     Ok(Anim {
@@ -484,6 +566,8 @@ pub(crate) fn read_anm(bytes: &[u8], what: &str) -> Result<Anim> {
         screens,
         flips,
         descriptors,
+        buffers_on,
+        buffers,
     })
 }
 

@@ -15,9 +15,10 @@
 //! does on division by zero. Where a test touches those it says it is pinning
 //! *our* choice, not the original's.
 
-use motionvm_formats::le::{KernelWord, TAG_KERNEL, inline};
-use motionvm_formats::scr::ScrModule;
-use motionvm_forth::{Address, CELL, Error, NullHost, Vm, branch};
+use motionvm_formats::m32::le::{KernelWord, TAG_KERNEL, inline};
+use motionvm_formats::m32::scr::ScrModule;
+use motionvm_forth::m32::{CELL, Vm, branch};
+use motionvm_forth::{Address, Error, NullHost};
 
 // ---------------------------------------------------------------- the machine
 
@@ -51,7 +52,7 @@ const FIXED: &[(&str, u32)] = &[
 /// knows or cares — so they are handed out in order, stepping over the indices
 /// [`FIXED`] has claimed. What *is* real is the formula: a table-0 word's
 /// ordinal is `5 * index + 104`, measured from the shipped kernel — see
-/// [`motionvm_formats::le`], which recovers the real table.
+/// [`motionvm_formats::m32::le`], which recovers the real table.
 const NAMES: &[&str] = &[
     "DUP",
     "DROP",

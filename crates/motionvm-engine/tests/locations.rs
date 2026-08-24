@@ -20,14 +20,16 @@
 //! Location 12 is left out on purpose: its entry in the location table is
 //! uninitialized in the shipped data, so entering it is a jump into nowhere in
 //! the original too, and nothing in the game ever asks for it.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 /// All five load and keep running, stray reads and all.
 #[test]
 fn the_locations_that_read_through_stray_pointers_still_load() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

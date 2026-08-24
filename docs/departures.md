@@ -11,6 +11,10 @@ Everything here is a deliberate choice. Faithfulness is the default and the
 subsystem pages are written as if it were absolute; each entry below is a
 signed exception to that.
 
+The sections down to *The FM driver* concern the **32-bit engine** as it
+runs Dunkle Schatten 2; [The 16-bit machine](#the-16-bit-machine) holds the
+entries about the 16-bit engine as it runs Die Enviro-Kids greifen ein.
+
 ## The virtual machine
 
 **A read through a stray pointer answers 0.** `@` validates nothing
@@ -26,7 +30,7 @@ filled by the kernel, so what it really holds is not knowable from outside.
 The **instruction fetch** and the inline-operand read stay strict. Jumping into
 a module that is not loaded is a different matter from reading through a stray
 pointer — the game does the second, only a mistake produces the first.
-([Execution model](vm/execution-model.md))
+([Execution model](motion32/vm/execution-model.md))
 
 **`_PutStringAdr` is followed twice, differently.** The handler advances by
 `(strlen + 3) >> 2` cells, one less than the compiler laid down whenever the
@@ -34,24 +38,24 @@ length divides by four. The runtime follows the engine; the disassembler, which
 has to walk a body rather than run it, keeps the compiler's
 `(len + 1 + 3) & ~3`. In the whole game exactly one string is affected,
 `"GANRUFBA"`, at four sites, where both routes reach the same return with the
-same stack. ([Word semantics](vm/word-semantics.md))
+same stack. ([Word semantics](motion32/vm/word-semantics.md))
 
 **Script words are looked up in module-number order.** The original walks the
 module table at `0xEE6D0` in entry order. The rebuild walks it by module number
 instead. All known duplicate names live in location modules that are never
 loaded together, so no lookup in the shipped game can tell the two apart.
-([Dialogue machine](engine/dialogue-machine.md))
+([Dialogue machine](motion32/engine/dialogue-machine.md))
 
 ## Display and timing
 
 **The fade clamps its two divisions; the original does not.** `bands` and
-`delay` are each taken to be at least 1. With the three screens this game has —
+`delay` are each taken to be at least 1. With the three screens Dunkle Schatten 2 has —
 480, 400 and 80 rows, giving 30, 25 and 5 bands — and a duration of 50 at every
 one of the 28 fade sites in modules 2, 4 and 5, the clamps never engage. They
 exist so that a screen the original would have divided by zero on stops the fade
 instead of the program. If a MOTION game ever turns up with a view under 16
 rows, this is the line that makes it differ.
-([Transitions](engine/transitions.md#timing))
+([Transitions](motion32/engine/transitions.md#timing))
 
 **The timing follows the engine's arithmetic, not an emulator's.** `GIVETIMER`'s
 unit-3 conversion is exact only at a 1020 Hz master, where unit 3 comes out at
@@ -60,7 +64,7 @@ wall-clock time. Under DOSBox-X the same fades run about 2.4× slower, because
 its ticks arrive in bursts aligned to the emulated 70 Hz refresh and a 1-tick
 band waits a whole burst. That is the emulator's interrupt batching, not the
 game's design, and it is not reproduced.
-([Game loop](engine/game-loop.md), [Transitions](engine/transitions.md#timing))
+([Game loop](motion32/engine/game-loop.md), [Transitions](motion32/engine/transitions.md#timing))
 
 **Nested callbacks do not pause.** A descriptor callback runs re-entrantly, and
 the game menu depends on it: `DO_INVSEL`'s documents case starts three fades in
@@ -68,7 +72,7 @@ one call. The original simply blocks three times in a row inside the word; the
 rebuild runs the nested call to completion without suspending the interpreter.
 The observable order is the same, because what makes it come out right is
 keeping the finished picture on screen rather than recomposing it from the
-buffers. ([Transitions](engine/transitions.md))
+buffers. ([Transitions](motion32/engine/transitions.md))
 
 **Text centers on the gap-inclusive height.** The disassembly says the centering
 height is `font height × lines`, with no line-gap term. A running original says
@@ -77,7 +81,7 @@ motionvm centers on `(font height + gap) × lines − gap`, and its text lands
 where the original's does. This is the one place in the project where the code
 follows a measurement against the original rather than the instructions; what
 the instruction reading is missing is an
-[open question](open-questions.md). ([Text rendering](engine/text-rendering.md))
+[open question](open-questions.md). ([Text rendering](motion32/engine/text-rendering.md))
 
 **`SDAUTOBUF` rebuilds where the original remembers.** A descriptor carrying
 the flag is the only thing in this engine that disappears cleanly, and the
@@ -94,16 +98,16 @@ pixels no *active* descriptor owns. The mailbox has them on purpose: a terminal
 row it has switched off keeps standing until a bar covers it, and when that bar
 goes the original's copy would put the old row back where a rebuild leaves the
 place empty.
-([Descriptors](engine/descriptors.md#sdautobuf--the-only-thing-that-erases),
-[Screens](engine/screens.md#the-drawn-buffer))
+([Descriptors](motion32/engine/descriptors.md#sdautobuf--the-only-thing-that-erases),
+[Screens](motion32/engine/screens.md#the-drawn-buffer))
 
 **`SDBLK` is read but not built.** The word sets bit 7 of descriptor byte
 +0x17, which centers a text block as a whole on its widest line instead of
-centering each line. Nothing in the shipped game calls it — every text this game
+centering each line. Nothing in Dunkle Schatten 2 calls it — every text that game
 draws centers line by line — so motionvm treats it as inert and counts it. The
 entry sits on the inert list with that reason beside it, so the day a path does
 call it, the run says so instead of drawing the wrong thing quietly.
-([Text rendering](engine/text-rendering.md), [Descriptors](engine/descriptors.md))
+([Text rendering](motion32/engine/text-rendering.md), [Descriptors](motion32/engine/descriptors.md))
 
 ## Savegames
 
@@ -117,7 +121,15 @@ would mean nothing there. No amount of matching the file layout changes that, so
 the layout of `.FRZ` and `.anm` is motionvm's own; only `.blk`, which is four
 raw bytes, happens to coincide. What *is* reproduced is the mechanism: the same
 three artifacts, the same ids, the same order, the same semantics, driven by the
-game's own menu rather than by a second path beside it.
+game's own menu rather than by a second path beside it. The 16-bit game is the
+same case with a different cause: its `=>PUTAS` (`ENVIRO.EXE` file `0x16fe9`)
+writes one run of its arena, addresses and all, and the rebuild's arena is
+laid out differently ([the 16-bit machine](#the-16-bit-machine)) — so its
+`.FRZ` and `.anm` are motionvm's own as well, under magics of their own
+(`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. The two games name
+their slots alike and each asks at start-up whether a slot exists, so the
+16-bit game keeps its saves in a directory of its own
+([boot and frame loop](motion16/engine/boot-and-loop.md#saves)).
 
 Handing one of motionvm's to the original is not merely useless, it is loud:
 `GETANIM` reads the first two bytes of the `DS2ANM` magic as an item number and
@@ -170,12 +182,12 @@ choice and would load a game that stands still. The load path's own
 The palette is the opposite case, and the reason it is kept: `SETPAL` appears in
 every location macro **except 312 and 330**, so a savegame made in location 12
 or 30 would otherwise come back wearing the menu's colors.
-([Savegames](engine/savegames.md))
+([Savegames](motion32/engine/savegames.md))
 
 ## Audio
 
 **The OPL3 itself comes from outside.** The chain is
-[sequencer](formats/hmi.md) → [FM driver](engine/fm-driver.md) → OPL3 →
+[sequencer](motion32/formats/hmi.md) → [FM driver](motion32/engine/fm-driver.md) → OPL3 →
 samples, and three of those four are read out of the original. The fourth is not
 and cannot be: the OPL3 is hardware, and there is no code in the game that says
 what a YMF262 does with a register — only code that writes to one. The chip is
@@ -188,7 +200,7 @@ obligation it carries, are recorded in `NOTICE`.
 the first few notes nothing on that path reaches the allocator; songs are parsed
 on the game thread and sent across. With no output device, no supported format
 or no driver, the game says so once and plays on in silence.
-([Audio](engine/audio.md))
+([Audio](motion32/engine/audio.md))
 
 ## The FM driver
 
@@ -212,7 +224,121 @@ search, or in the order the sequencer delivers a tickful of events, is still not
 right. Everything before that point — nine and a half seconds — is identical.
 This one is a known defect rather than a choice; it is listed here because it is
 a measured difference from the original.
-([The FM driver](engine/fm-driver.md))
+([The FM driver](motion32/engine/fm-driver.md))
+
+## The 16-bit machine
+
+**Modules are placed first-fit from address `0x100` upward; the original
+stacks them.** `=>GET` (`ENVIRO.EXE` file `0x176ac`) appends a module at the
+top of one arena and binds its ids to absolute cells there; `=>ERASE` (file
+`0x1690a`) takes it out and moves everything above it down, fixing the word
+table and the interpreter's pointer and nothing else
+([execution model](motion16/vm/execution-model.md)). The rebuild keeps one
+64 KiB space, hands out the lowest free range that fits, and frees it on
+`=>ERASE` without moving anything. Every address a variable pushes is
+therefore the rebuild's, not the original's — which changes nothing a module
+can observe as long as modules go in the order they came, and that is what
+the game does: the library stays resident, a location's modules are erased
+before the next location's are loaded, and the transient modules 610–612,
+650 and 651 are erased at once. A module erased from under a resident one
+would shift that one's addresses in the original; the game never does it. A
+savegame that kept raw addresses would differ; that is the
+[savegame departure](#savegames) over again, on this machine.
+
+**An id held by two resident modules belongs to the one loaded last, and
+erasing that one leaves the id unbound.** The original's `=>GET` writes
+every id it binds without looking, so the module loaded last owns an id
+there too; its `=>ERASE` clears every id of the range it erases, so erasing
+the one loaded *first* unbinds the id as well, where the rebuild keeps it
+bound to the other. Die Enviro-Kids greifen ein never has two — its sixteen
+modules that define id 549 are loaded one at a time and erased before the
+next — so the rule is never exercised by the game.
+([Script modules](motion16/formats/script-modules.md))
+
+**The data stack holds 16-bit cells sign-extended in 32 bits.** The
+original's stack is 16 bits wide. The rebuild pushes every result wrapped
+to 16 bits and sign-extended, so that the engine's words see one stack type
+on both machines; a module sees the same values either way.
+
+**An `SDBUF` buffer is a save-under; the rebuild recomposes instead of
+restoring.** Read from the frame loop (`ENVIRO.EXE` `016a:179e`,
+`0362:0e5d`, `016a:0a2d`): each frame the kernel pastes back what a dirty
+buffered descriptor had saved under itself, redraws the dirty descriptors in
+draw-list order and saves under them again; an unbuffered descriptor is
+simply drawn where it now is, and the place it left keeps its old picture.
+The rebuild treats a descriptor with a buffer the way the 32-bit engine
+treats one with `SDAUTOBUF`: the place it leaves is rebuilt from the scene
+graph — and it rebuilds the place an *unbuffered* descriptor leaves as well.
+The picture is the same wherever the game buffers what moves, which is what
+it does (the intro's motifs, every person); a location that relied on the
+smear an unbuffered descriptor leaves behind in the original would differ.
+`KILLNBUF ( from to -- )` frees from `from` to `to`, -1 meaning the last
+buffer, 79 (file `0xafab`); `SETBUF` allocates an empty image and copies
+nothing (file `0xac33`). ([Off-screen buffers](motion16/engine/buffers.md))
+
+**`->SCRX` and `->SCRY` scroll as a transition.** The handlers (file
+`0xc149`, `0xc7ed`) take `( screen x step -- )`, move the screen's window
+`step` pixels a tick and blit each step themselves, one per `DELAY` tick,
+inside the word — the interpreter does not run while they slide. The
+rebuild queues the slide and holds the interpreter the way a fade holds
+it: one step a frame, presented each time, the word's successor running
+once the window has arrived. Same pace, same pictures; the one difference
+is that the frame clock is the engine's rather than the word's own loop.
+([Descriptors and screens](motion16/engine/descriptors.md))
+
+**A script loop that polls for input turns once a frame.** The original's
+`MOUSEX`, `MOUSELK`, `?KEY` and their kin read live hardware, so a script
+may wait in a loop of its own — Die Enviro-Kids greifen ein's `RUN` does on
+its start-up page, its location 5 does in the newspaper — and the loop
+turns as the player moves. Here a frame's input is fixed for the frame.
+So after 256 polls in one frame the word is taken to be waiting, and from
+then on every poll yields the frame to the window: the loop turns once a
+frame, with that frame's input, and the screen is presented in between,
+which the original's loop does not do either way. A frame of `CTRL` polls
+a handful of times and never comes near the budget. The rule is the
+engine's and holds for both games; only the 16-bit one has a loop that
+exercises it. ([Boot and frame loop](motion16/engine/boot-and-loop.md))
+
+**Four kernel words of the 16-bit engine answer by reading, not by
+measurement.** `SFT` with 0 resets a font stack that starts out reset and is
+the only argument the game passes; `NEWANIM` resets an animation system that
+starts out reset; `.` and `EMIT` take their argument and print nothing,
+because there is no text console behind a 320×200 game; `KEY` answers the
+key that is waiting, or 0, rather than blocking. Each is the reading the
+call sites admit; none is the handler's.
+([Descriptors and screens](motion16/engine/descriptors.md))
+
+**`ENDTUNE` does not halt the game.** The original's stop site
+(`ENVIRO.EXE` `1696:02fd`) starts the driver's 2000 ms fade-out, waits
+500 ms in a loop, and only then stops the driver and returns to the
+script — every room change with music holds the original for half a
+second. The rebuilt word returns at once, and the audio side keeps the
+pair's own timing: the fade begins immediately and the hard stop lands
+500 ms in, so the music does exactly what the original's does while the
+room change does not wait for it. A transition out of a location with
+music therefore begins about half a second earlier than the original's.
+([PSM 2 music](motion16/formats/psm-music.md))
+
+**The 16-bit scale fields hold pixels; this engine keeps per-mille.**
+`SDH%SHR` (`05f1:23f2`) and `SDV%SHR` (`05f1:246f`) store `1000` and
+`−1` as −1 (natural) and any other value as `v · natural / 1000` **in
+pixels**, resolved against the sprite current at the call — `SDSPR`
+(`05f1:129a`) refreshes only the natural pair `+8`/`+0xA`, and the
+drawer (`016a:100d`) takes `+0xC`/`+0xE` where they are not −1. This
+engine keeps the per-mille value and multiplies at paint time. The two
+models agree wherever a script writes scale and sprite in the same
+breath — the walk does, and the intro's card flip swaps between
+equal-width mirror images — and they part on `0 SDH%SHR`: the original
+draws zero width, this engine treats 0 as unset and draws full size.
+To be remodelled when a scene shows the difference.
+([Descriptors and screens](motion16/engine/descriptors.md))
+
+**The callback walk runs after the controller.** The 16-bit frame loop
+(`016a:0516`–`06da`) runs descriptor callbacks first and the screen
+controller second; this engine keeps the 32-bit order (`0x68c64`,
+controller first). With the active gate modelled, nothing read so far
+tells the two apart — a callback that fires sees one frame's controller
+state either way. ([Descriptors and screens](motion16/engine/descriptors.md))
 
 ## See also
 

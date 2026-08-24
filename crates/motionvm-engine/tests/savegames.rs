@@ -15,10 +15,12 @@
 //! files go: it has no path component at all, so a save lands beside
 //! `ENGINE.EXE` among the shipped data. Here that directory is read-only, and
 //! [`Game::set_saves`] refuses to point anywhere inside it.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::Host;
-use motionvm_testutil::{gamedata, saves_dir};
+use motionvm_testutil::{gamedata_ds2, saves_dir};
 use std::path::{Path, PathBuf};
 
 /// Opens the game with a save directory attached.
@@ -52,7 +54,7 @@ fn kernel(game: &mut Game, word: &str, args: &[i32]) {
 /// through `ICTRL` covers that.
 #[test]
 fn put_writes_a_block_and_get_reads_it_back() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -103,7 +105,7 @@ fn put_writes_a_block_and_get_reads_it_back() {
 /// the reading would stay wrong in the code with nothing to catch it.
 #[test]
 fn exist_answers_minus_one_for_a_taken_slot() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -127,7 +129,7 @@ fn exist_answers_minus_one_for_a_taken_slot() {
 /// nothing here opens the file. That is what the round trip above is for.
 #[test]
 fn show_files_fills_the_slot_table() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -168,7 +170,7 @@ fn show_files_fills_the_slot_table() {
 /// modules into slots 10, 11 and 12 and fails here.
 #[test]
 fn the_resident_modules_are_the_ones_the_original_would_have() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -269,7 +271,7 @@ fn started_in(dir: &Path, name: &str, location: i32) -> (Game, PathBuf) {
 /// what the file contains.
 #[test]
 fn putas_writes_the_resident_modules_and_getas_puts_them_back() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -352,7 +354,7 @@ fn frz_modules(bytes: &[u8]) -> Vec<u32> {
 /// hold the wrong contents; nothing could.
 #[test]
 fn a_savegame_that_does_not_fit_is_refused_before_anything_changes() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -447,7 +449,7 @@ fn click_slot(game: &mut Game, slot: i32) {
 /// descriptors below are what cover that half.
 #[test]
 fn a_game_saves_and_loads_through_its_own_menu() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -519,7 +521,7 @@ fn a_game_saves_and_loads_through_its_own_menu() {
 /// on the reading of the load path, not on this.
 #[test]
 fn a_load_leaves_the_picture_running() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -568,7 +570,7 @@ fn a_load_leaves_the_picture_running() {
 /// the fields carry sprites and texts, not handles.
 #[test]
 fn a_savegame_loaded_into_a_fresh_game_hands_out_no_handle_twice() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -655,7 +657,7 @@ fn a_savegame_loaded_into_a_fresh_game_hands_out_no_handle_twice() {
 /// show up in the search.
 #[test]
 fn only_the_boot_modules_create_fonts_templates_and_screens() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -663,20 +665,20 @@ fn only_the_boot_modules_create_fonts_templates_and_screens() {
     // listings: a kernel cell is `0x4000_0000 | ordinal`, and the ordinal is not
     // the word's index in the kernel tables — it is `5 * index + 104`.
     let game = Game::open(&dir).expect("game opens");
-    let bank = motionvm_formats::rsc::Bank::open_dir(&dir).expect("resources");
+    let bank = motionvm_formats::m32::rsc::Bank::open_dir(&dir).expect("resources");
     for word in ["+FONT", "DEFTDT", "NEWSCREEN", "DELAY", "CTRL", "STEPMULTI"] {
         let mut found = Vec::new();
-        for (_, id) in bank.present(motionvm_formats::Kind::Script) {
+        for (_, id) in bank.present(motionvm_formats::m32::Kind::Script) {
             let item = bank
-                .item(motionvm_formats::Kind::Script, id)
+                .item(motionvm_formats::m32::Kind::Script, id)
                 .unwrap()
                 .expect("present");
-            let Ok(parsed) = motionvm_formats::ScrModule::parse(item) else {
+            let Ok(parsed) = motionvm_formats::m32::ScrModule::parse(item) else {
                 continue;
             };
             let uses = parsed.entries.iter().any(|e| {
                 e.body.iter().any(|c| {
-                    c >> 16 == motionvm_formats::le::TAG_KERNEL >> 16
+                    c >> 16 == motionvm_formats::m32::le::TAG_KERNEL >> 16
                         && game.vm.ordinal_name(c & 0xffff) == Some(word)
                 })
             });
@@ -709,7 +711,7 @@ fn only_the_boot_modules_create_fonts_templates_and_screens() {
 /// checksum run: this proves the engine refuses, not that nothing else wrote.
 #[test]
 fn the_save_directory_may_not_be_inside_the_game_data() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };

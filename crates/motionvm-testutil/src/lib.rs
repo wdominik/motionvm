@@ -1,4 +1,4 @@
-//! Where the test suites find the game's files.
+//! Where the test suites find the games' files.
 //!
 //! No game data ships with this repository and none can, so every test that
 //! needs a sprite or a song has to be told where a copy of the original
@@ -6,40 +6,63 @@
 //! drift, and a copy that reaches one directory too few answers "no data" on a
 //! machine that has it — which reads exactly like a clean skip.
 //!
-//! Two environment variables are read:
+//! Three environment variables are read:
 //!
-//! - `MOTIONVM_GAMEDATA` — the directory holding `001.RSC`. Falls back to
-//!   `../gamedata` beside the workspace, which is where a checkout next to an
-//!   installed copy of the game finds it.
+//! - `MOTIONVM_GAMEDATA_DS2` — the directory holding Dunkle Schatten 2:
+//!   `001.RSC` and friends. Falls back to `../games/DS2` beside the
+//!   workspace, which is where a checkout next to an installed copy of the
+//!   game finds it.
+//! - `MOTIONVM_GAMEDATA_ENVIRO` — the directory holding Die Enviro-Kids
+//!   greifen ein: `DATA.-1-` and `ENVIRO.EXE`. Falls back to
+//!   `../games/ENVIRO` beside the workspace.
 //! - `MOTIONVM_SAVES` — a directory holding a savegame. There is no fallback;
 //!   savegames cannot be reconstructed, only played to. It has to be one of
 //!   *this* engine's: the layouts are not interchangeable with the original's,
 //!   which stores raw heap pointers where this stores handles.
+//!
+//! Two games, two variables, two functions — rather than one variable and a
+//! guess from the files it points at — because a test is written against one
+//! game's modules and ids, and says which by the function it calls.
 
 use std::path::PathBuf;
 
-/// The game data directory, or `None` when there is nothing to test against.
+/// Dunkle Schatten 2's game directory, or `None` when there is nothing to
+/// test against.
 ///
-/// **Panics when `MOTIONVM_GAMEDATA` names a directory without `001.RSC`.**
-/// Answering `None` there would let a mistyped path read as "this machine has
-/// no game data", which is the failure this module exists to prevent: a run
-/// that skips everything is indistinguishable from a run that passes
-/// everything. No variable and no data beside the workspace is the one case
-/// that is genuinely a skip.
+/// **Panics when `MOTIONVM_GAMEDATA_DS2` names a directory without
+/// `001.RSC`.** Answering `None` there would let a mistyped path read as "this
+/// machine has no game data", which is the failure this module exists to
+/// prevent: a run that skips everything is indistinguishable from a run that
+/// passes everything. No variable and no data beside the workspace is the one
+/// case that is genuinely a skip.
 ///
 /// An **empty** value counts as no variable rather than as a wrong path. A
 /// recipe that forwards the setting cannot know whether the caller gave one,
 /// and forwarding an empty string is how it says "nothing to pass on".
-pub fn gamedata() -> Option<PathBuf> {
-    match std::env::var("MOTIONVM_GAMEDATA")
-        .ok()
-        .filter(|s| !s.is_empty())
-    {
+pub fn gamedata_ds2() -> Option<PathBuf> {
+    game("MOTIONVM_GAMEDATA_DS2", "../../../games/DS2", "001.RSC")
+}
+
+/// Die Enviro-Kids greifen ein's game directory, or `None` when there is
+/// nothing to test against. The same rules as [`gamedata_ds2`], probing for
+/// `DATA.-1-` and falling back to `../games/ENVIRO`.
+pub fn gamedata_enviro() -> Option<PathBuf> {
+    game(
+        "MOTIONVM_GAMEDATA_ENVIRO",
+        "../../../games/ENVIRO",
+        "DATA.-1-",
+    )
+}
+
+/// The lookup both games share: the variable, or the fallback beside the
+/// workspace; a set-but-wrong path panics, a missing fallback skips.
+fn game(var: &str, fallback: &str, probe: &str) -> Option<PathBuf> {
+    match std::env::var(var).ok().filter(|s| !s.is_empty()) {
         Some(set) => {
             let dir = PathBuf::from(set);
             assert!(
-                has_container(&dir),
-                "MOTIONVM_GAMEDATA is set to {} but there is no 001.RSC in it. \
+                find_ci(&dir, probe).is_some(),
+                "{var} is set to {} but there is no {probe} in it. \
                  Point it at a directory holding the game's files, or unset it \
                  to let the tests skip themselves.",
                 dir.display()
@@ -47,8 +70,8 @@ pub fn gamedata() -> Option<PathBuf> {
             Some(dir)
         }
         None => {
-            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../gamedata");
-            has_container(&dir).then_some(dir)
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(fallback);
+            find_ci(&dir, probe).is_some().then_some(dir)
         }
     }
 }
@@ -59,7 +82,7 @@ pub fn gamedata() -> Option<PathBuf> {
 /// driver, an archiver or a file manager often arrives lower-cased. On a
 /// case-sensitive filesystem an exact-case `join` finds nothing, so every test
 /// that opens a shipped file by name goes through here — otherwise the suite
-/// would accept such an install (see [`gamedata`]) and then fail reading the
+/// would accept such an install (see [`gamedata_ds2`]) and then fail reading the
 /// very files it just found.
 ///
 /// Written out rather than calling `motionvm_formats::find_ci`, which is the
@@ -88,15 +111,10 @@ pub fn game_file(dir: &std::path::Path, name: &str) -> PathBuf {
     find_ci(dir, name).unwrap_or_else(|| panic!("{} holds no {name} in any case", dir.display()))
 }
 
-/// Whether `dir` holds `001.RSC`, in whatever case it is spelled.
-fn has_container(dir: &std::path::Path) -> bool {
-    find_ci(dir, "001.RSC").is_some()
-}
-
 /// A directory holding one of this engine's savegames, if one was named,
 /// together with the first slot number found in it.
 ///
-/// Unlike [`gamedata`] this has no fallback and does not panic on a wrong
+/// Unlike [`gamedata_ds2`] this has no fallback and does not panic on a wrong
 /// path: a savegame is made by playing the game to a particular place, so
 /// there is no directory a checkout could be expected to have.
 /// Slots are `i32` because that is what they are on the stack the moment they

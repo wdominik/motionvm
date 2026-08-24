@@ -8,13 +8,15 @@
 //! Testing that through the window would mean testing the window. All this
 //! needs is the game and a clock, so it runs headless — the same reason the
 //! renderer could be verified against the original before any window existed.
+//!
+//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
-use motionvm_testutil::gamedata;
+use motionvm_testutil::gamedata_ds2;
 
 #[test]
 fn the_title_macro_arms_the_task_manager() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -39,7 +41,7 @@ fn the_title_macro_arms_the_task_manager() {
 
 #[test]
 fn a_click_advances_the_intro() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -91,7 +93,7 @@ fn a_click_advances_the_intro() {
 /// while a bare `SDINACTIVE` leaves all of it.
 #[test]
 fn hiding_a_descriptor_leaves_its_picture_standing() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -115,7 +117,7 @@ fn hiding_a_descriptor_leaves_its_picture_standing() {
 
     // Through the words, not by hand: `SDINACTIVE` is where the marking lives,
     // and a test that reached past it would be testing nothing.
-    let mut mem = motionvm_forth::Memory::default();
+    let mut mem = motionvm_forth::m32::Memory::default();
     for handle in game
         .engine
         .descriptors()
@@ -180,7 +182,7 @@ fn hiding_a_descriptor_leaves_its_picture_standing() {
 /// phase cannot have moved.
 #[test]
 fn the_fade_out_finishes_before_the_picture_changes() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -242,17 +244,17 @@ fn the_fade_out_finishes_before_the_picture_changes() {
 
 #[test]
 fn the_old_picture_fades_out_in_its_own_colors() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
     // Palette 96 belongs to the logo, 91 to the title art the intro switches
     // to. Loaded straight from the resources so the test names the two by what
     // they are, not by whatever the engine happens to hold.
-    let bank = motionvm_formats::rsc::Bank::open_dir(&dir).expect("resources");
+    let bank = motionvm_formats::m32::rsc::Bank::open_dir(&dir).expect("resources");
     let load = |id: usize| {
         let item = bank
-            .item(motionvm_formats::Kind::Palette, id)
+            .item(motionvm_formats::m32::Kind::Palette, id)
             .expect("read")
             .expect("present");
         motionvm_formats::Palette::from_6bit(item)
@@ -373,7 +375,7 @@ fn text_lines(frame: &motionvm_render::Framebuffer) -> Vec<(u32, u32, u32)> {
 /// the next scene into the intro, which is how it was noticed.
 #[test]
 fn the_intro_shows_its_two_texts_in_order() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -419,7 +421,7 @@ fn the_intro_shows_its_two_texts_in_order() {
 /// revealed *because* fading out left its screen inactive.
 #[test]
 fn a_fade_takes_its_screen_out_of_the_picture() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -459,7 +461,7 @@ fn a_fade_takes_its_screen_out_of_the_picture() {
 /// simply stops when the title sequence is over.
 #[test]
 fn the_intro_hands_over_to_the_next_location() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -504,7 +506,7 @@ fn the_intro_hands_over_to_the_next_location() {
 /// interpreter of a command queue held in the person record.
 #[test]
 fn the_game_reaches_the_park() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -562,7 +564,7 @@ fn a_fade_in_draws_only_its_own_screen() {
     for (id, color) in [(10u32, 1u8), (11, 2)] {
         e.cache_sprite(
             id,
-            motionvm_formats::Sprite {
+            motionvm_formats::m32::Sprite {
                 width: 1,
                 height: 1,
                 palette: motionvm_formats::Palette::from_6bit(&[]),
@@ -608,7 +610,7 @@ fn a_fade_in_draws_only_its_own_screen() {
     // Moved through `SDX`, because that is where the marking is: the handler
     // runs 0x6ab6e either side of the store (0x7112f, 0x7114e), and the
     // save-under restore that clears the old spot hangs off it.
-    let mut mem = motionvm_forth::Memory::default();
+    let mut mem = motionvm_forth::m32::Memory::default();
     e.plain_word("ACTDESC", &mut vec![2], &mut mem)
         .expect("ACTDESC");
     e.plain_word("SDX", &mut vec![2], &mut mem).expect("SDX");
@@ -705,7 +707,7 @@ fn play_the_title(dir: &std::path::Path, twice: bool) -> (Game, i32) {
 /// of it — and the sequence gives it back at the end.
 #[test]
 fn the_title_sequence_hands_its_busy_lock_back() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
@@ -740,7 +742,7 @@ fn the_title_sequence_hands_its_busy_lock_back() {
 /// that way, never in the game.
 #[test]
 fn entering_the_title_twice_orphans_a_busy_raise() {
-    let Some(dir) = gamedata() else {
+    let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no gamedata directory");
         return;
     };
