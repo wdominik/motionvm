@@ -198,11 +198,12 @@ cargo build --release
 `motionvm` takes the game directory as its first argument and tells the game
 by the files in it. Without one it asks: the platform's own folder dialog
 opens, and a directory that is not a MOTION game is reported in a message box
-and asked for again — so the binary can be double-clicked. Savegames go into `saves/` under the platform data directory
-(above) for Dunkle Schatten 2 and `saves/enviro/` for Die Enviro-Kids greifen
-ein — the two games name their slots alike and each looks for them at
-start-up; the directory is created on startup if it is not there and its path
-is printed, so a fresh clone needs no setup. `--loc N` starts in a given
+and asked for again — so the binary can be double-clicked. Savegames go under
+the platform data directory (above), one directory per game: `saves/ds2/` for
+Dunkle Schatten 2 and `saves/enviro/` for Die Enviro-Kids greifen ein — the
+two games name their slots alike and each looks for them at start-up; the
+directory is created on startup if it is not there and its path is printed,
+so a fresh clone needs no setup. `--loc N` starts in a given
 location — instead of the intro for Dunkle Schatten 2, right after it for
 Die Enviro-Kids greifen ein, whose `RUN` enters location 1 itself — and
 `--no-sound` runs silent.

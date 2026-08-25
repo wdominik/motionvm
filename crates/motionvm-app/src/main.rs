@@ -339,13 +339,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The two games name their slots alike — `701.blk`, `701.anm`, `701.FRZ`
     // and so on up to 705 — and each asks at start-up whether a slot exists,
     // so they cannot share a directory: Die Enviro-Kids greifen ein would
-    // find Dunkle Schatten 2's saves and open its load page on them. Dunkle
-    // Schatten 2 keeps `saves/`, where its saves have always been; the
-    // 16-bit game gets `saves/enviro/`.
-    let saves = match game.title() {
-        Title::DunkleSchatten2 => data_path("saves"),
-        Title::EnviroKids => data_path("saves").join("enviro"),
-    };
+    // find Dunkle Schatten 2's saves and open its load page on them. Each
+    // therefore gets a subdirectory of `saves/` named for it, and neither is
+    // the special case: `saves/ds2/` and `saves/enviro/`.
+    let saves = data_path("saves").join(match game.title() {
+        Title::DunkleSchatten2 => "ds2",
+        Title::EnviroKids => "enviro",
+    });
     let shot = data_path("shot.png");
     if let Err(e) = game.set_saves(&saves) {
         // Not fatal: the game runs, the slot row simply stays empty and a click

@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Dunkle Schatten 2 keeps its savegames in `saves/ds2/`.** Each game
+  has a directory of its own under the platform data directory, named for
+  the game, rather than Die Enviro-Kids greifen ein sitting in a
+  subdirectory of Dunkle Schatten 2's. The two still cannot share one —
+  they name their slots alike, `701` through `705`, and each asks at
+  start-up whether a slot exists — and neither is now the special case.
+  The path in use is printed at start-up, as ever.
+
 ## [0.3.1] - 2026-08-25
 
 ### Fixed
