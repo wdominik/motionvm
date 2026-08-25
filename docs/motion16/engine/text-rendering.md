@@ -53,6 +53,21 @@ all bytes, signed. The game's `XDEFTDT` gives every template
 font is [font 2](../formats/fonts.md), the silhouette face whose glyphs
 measure exactly two wider and two taller than the text face's.
 
+Two gates on that table:
+
+- `DEFTDT` **overwrites** its entry — the table is a fixed array indexed
+  by the id. The game leans on it: the intro loads its own shadow font
+  and defines templates 6 and 2 over it (module 610), frees that font on
+  its way out (`_SHFONT @ -FONT`), and `RUN` defines all nine templates
+  afresh over a new handle right after (module 100). The later
+  definition replaces the intro's, so no template ever names the freed
+  font.
+- `SDTDT` (`05f1:0c78`) takes only 1..=20: `cmp $1` / `jl` and
+  `cmp $0x14` / `jg` skip the store, so an id outside the table —
+  `0 SDTDT` included — leaves the descriptor's template standing.
+  `SAYDAVID` runs on that: it hands `_SxTDT @` to `SDTDT`, and `_SxTDT`
+  is 0 until the first `SETSAY`.
+
 Where a pass starts depends on the axis (`016a:0dc4`–`016a:0e60`):
 
 - **Centered** (`SDCEN`/`SDVCEN`): the run drawer re-centers per pass —

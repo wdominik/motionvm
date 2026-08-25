@@ -501,3 +501,69 @@ fn the_start_up_page_waits_for_a_click_when_a_save_exists() {
     );
     assert!(lit_icon > 50, "the menu icon is back on the bar");
 }
+
+/// Walking out through a door changes the palette only behind the wipe.
+///
+/// The LEAVE verb's `CALCLEAVE` (module 606) runs `INCLLOC` right inside
+/// the order machine's callback — `_ORDER 2 +@ INCLLOC` — where this
+/// engine cannot park the interpreter, so `INCLLOC`'s `FADEOUT` is only
+/// queued and the next room macro's `XSETPAL` runs with the old picture
+/// still standing. The original cannot be caught out this way: its fade
+/// spins inside the word (`FADEOUT` `05f1:2827`), so `SETPAL`
+/// (`05f1:01ff`, the DAC programmed on the spot) always lands on a
+/// blacked view. Applied immediately here, the supermarket stood
+/// recolored in the shopping centre's palette for the whole closing
+/// wipe; queued with the wipe (`Wipe::palette_after`), the switch waits
+/// its turn — which is what this pins, on the played route it was seen
+/// on: the supermarket's exit is item 0 of its table (block 215,
+/// `LD_0ZUMEINK`, rect 0..7 × 0..85, `EXIT` 7), on the room's left edge.
+#[test]
+fn a_door_changes_the_palette_only_behind_the_wipe() {
+    let Some(dir) = gamedata_enviro() else {
+        eprintln!("skipping: no ENVIRO gamedata directory");
+        return;
+    };
+    let mut game = settled_in_the_game(&dir);
+    game.request_location(15).expect("NEXTLOC");
+    for frame in 1..=200 {
+        game.set_input(2, 2, false, false, 0).expect("input");
+        game.step()
+            .unwrap_or_else(|e| panic!("supermarket frame {frame} stopped: {e}"));
+    }
+    assert_eq!(game.get_var(601, "ACTLOC"), Some(15));
+
+    // Click the exit and walk out, watching every frame on the way: when
+    // the palette moves, the view must already be black — the closing
+    // wipe runs first, in the room's own colors.
+    let mut last_pal = game.palette().raw.to_vec();
+    let mut switches = 0;
+    for frame in 0..=900 {
+        let click = frame == 0;
+        game.set_input(3, 42, click, false, 0).expect("input");
+        game.step()
+            .unwrap_or_else(|e| panic!("walk-out frame {frame} stopped: {e}"));
+        let pal = game.palette().raw.to_vec();
+        if pal != last_pal {
+            switches += 1;
+            let fb = game.render();
+            let w = fb.width as usize;
+            let lit = fb.pixels[..160 * w].iter().filter(|&&p| p != 0).count();
+            assert!(
+                lit * 10 < 160 * w,
+                "walk-out frame {frame}: the palette moved over a standing \
+                 picture ({} of {} view pixels lit)",
+                lit,
+                160 * w
+            );
+        }
+        last_pal = pal;
+        if game.get_var(601, "ACTLOC") == Some(7)
+            && game.get_var(601, "NEXTLOC") == Some(-1)
+            && frame > 200
+        {
+            break;
+        }
+    }
+    assert_eq!(game.get_var(601, "ACTLOC"), Some(7), "the door was taken");
+    assert!(switches >= 1, "the transition switched the palette");
+}

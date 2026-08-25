@@ -74,6 +74,20 @@ The observable order is the same, because what makes it come out right is
 keeping the finished picture on screen rather than recomposing it from the
 buffers. ([Transitions](motion32/engine/transitions.md))
 
+**A `SETPAL` behind a queued fade queues with it.** The completion of the
+departure above. In the original, `SETPAL` programs the DAC on the spot
+(`05f1:01ff` → `116a:00ef`; the 32-bit handler alike) and the fades spin
+inside their words, so a script's palette switch always lands on the view its
+`FADEOUT` has already blacked. Here a fade started from a nested call only
+queues — and Die Enviro-Kids greifen ein walks that path through every door:
+the LEAVE verb's `CALCLEAVE` (module 606) runs `INCLLOC` inside the order
+machine's callback, so the next room's `XSETPAL` would recolor the old room's
+still-standing picture for the whole closing wipe. The palette therefore
+attaches to the most recently queued fade and the display takes it when that
+fade finishes; the script's own view of the palette — `RGB->COL`, a save's
+record, the drawer's backing table — moves immediately, as the original's
+tables do inside `SETPAL` itself.
+
 **Text centers on the gap-inclusive height.** The disassembly says the centering
 height is `font height × lines`, with no line-gap term. A running original says
 otherwise: a caption the gapless arithmetic puts at y 167 stands at 166.

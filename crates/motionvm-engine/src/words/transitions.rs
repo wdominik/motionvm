@@ -149,6 +149,7 @@ impl Engine {
                         (duration / bands).max(1)
                     },
                     banked: 0,
+                    palette_after: None,
                 });
             }
 

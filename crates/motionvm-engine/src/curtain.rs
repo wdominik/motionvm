@@ -94,6 +94,9 @@ impl Engine {
         self.paint_curtain(&c);
         if c.done() {
             self.curtains.pop_front();
+            if let Some(p) = c.palette_after {
+                self.display.palette = p;
+            }
         }
     }
 
@@ -144,6 +147,9 @@ impl Engine {
         self.paint_wipe(&w);
         if w.done() {
             self.wipes.pop_front();
+            if let Some(p) = w.palette_after {
+                self.display.palette = p;
+            }
         }
     }
 
@@ -224,6 +230,10 @@ pub struct Wipe {
     pub ticks_per_ring: i32,
     /// Banked ticks.
     pub banked: i32,
+    /// A palette a later `SETPAL` asked for while this wipe still waited —
+    /// installed when the wipe finishes, so the script's order stays the
+    /// screen's order. See the `SETPAL` handler for the path that needs it.
+    pub palette_after: Option<motionvm_formats::Palette>,
 }
 
 impl Wipe {
@@ -253,6 +263,7 @@ impl Wipe {
             // forever where the original would simply not wait.
             ticks_per_ring: (200 / duration.max(1)).max(1),
             banked: 0,
+            palette_after: None,
         }
     }
 
@@ -346,6 +357,10 @@ pub struct Curtain {
     pub ticks_per_band: i32,
     /// The band the curtain has reached, in ticks banked toward the next.
     pub banked: i32,
+    /// A palette a later `SETPAL` asked for while this curtain still waited —
+    /// installed when the curtain finishes, so the script's order stays the
+    /// screen's order. See the `SETPAL` handler for the path that needs it.
+    pub palette_after: Option<motionvm_formats::Palette>,
 }
 
 /// One `FADEIN` or `FADEOUT`, as it was started.

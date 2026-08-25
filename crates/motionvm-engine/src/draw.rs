@@ -56,9 +56,27 @@ impl Default for BackingCache {
 
 impl Engine {
     /// The remap row for the palette in force, built if the palette has moved.
+    ///
+    /// The script's palette, not the display's: the original builds its
+    /// tables inside `SETPAL`, so anything composed after one — a `FADEIN`'s
+    /// full draw included — already works from the new entries, even while
+    /// a queued fade still shows the old ones. (Spelled out rather than
+    /// through [`Engine::script_palette`] so the cache can stay a disjoint
+    /// borrow.)
     pub(crate) fn backing_row(&mut self) -> [u8; 256] {
+        let palette = self
+            .wipes
+            .iter()
+            .rev()
+            .find_map(|w| w.palette_after.as_ref())
+            .or_else(|| {
+                self.curtains
+                    .iter()
+                    .rev()
+                    .find_map(|c| c.palette_after.as_ref())
+            })
+            .unwrap_or(&self.display.palette);
         let cache = &mut self.backing;
-        let palette = &self.display.palette;
         if cache.for_palette.as_ref() != Some(palette) {
             cache.row = motionvm_render::backing_map(palette);
             cache.for_palette = Some(palette.clone());

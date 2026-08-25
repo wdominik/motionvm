@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-25
+
+### Fixed
+
+- **Die Enviro-Kids greifen ein: walking through a door flashed the old
+  room in the new room's colors.** The LEAVE verb runs the location
+  change inside the order machine's callback (`CALCLEAVE`, module 606:
+  `_ORDER 2 +@ INCLLOC`), where the interpreter cannot pause — so the
+  queued `FADEOUT` had not run yet when the next room's `XSETPAL`
+  arrived, and the palette recolored the standing picture for the whole
+  closing wipe. A `SETPAL` behind a queued fade now queues with it and
+  takes effect when that fade finishes, the order the original gets by
+  running its fades inside the word (`05f1:2827`, `05f1:01ff`).
+- **Die Enviro-Kids greifen ein: some spoken lines lost their outline.**
+  Every text on templates 2 and 6 — Eva's dialogue lines among them —
+  drew without its silhouette ring. `DEFTDT` writes a fixed table
+  indexed by the template id (`ds:0x1A0C`), so `RUN`'s nine definitions
+  replace the two the intro made over its own, later freed, shadow font;
+  appending instead kept the intro's dead entries first in line. `SDTDT`
+  also now ignores an id outside 1..=20 on the 16-bit machine, as the
+  handler at `05f1:0c78` does — `0 SDTDT` leaves a template standing.
+
 ## [0.3.0] - 2026-08-24
 
 ### Added
@@ -259,7 +281,8 @@ behaves as the engine did. See "What is and is not verified" in the README.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/wdominik/motionvm/releases/tag/v0.3.1
 [0.3.0]: https://github.com/wdominik/motionvm/releases/tag/v0.3.0
 [0.2.0]: https://github.com/wdominik/motionvm/releases/tag/v0.2.0
 [0.1.1]: https://github.com/wdominik/motionvm/releases/tag/v0.1.1

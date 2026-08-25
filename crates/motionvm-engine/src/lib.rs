@@ -500,6 +500,28 @@ impl Engine {
         &self.display.palette
     }
 
+    /// The palette as the *script* last set it.
+    ///
+    /// Usually the same as [`Self::palette`]. They part while a fade is
+    /// queued: a `SETPAL` behind one waits for its turn on the display
+    /// (see the handler), but the script that issued it acts on the new
+    /// entries at once — `RGB->COL` searches them, a save records them,
+    /// and the drawer's palette-derived tables are built from them, the
+    /// way the original rebuilds its tables inside `SETPAL` itself.
+    pub(crate) fn script_palette(&self) -> &motionvm_formats::Palette {
+        self.wipes
+            .iter()
+            .rev()
+            .find_map(|w| w.palette_after.as_ref())
+            .or_else(|| {
+                self.curtains
+                    .iter()
+                    .rev()
+                    .find_map(|c| c.palette_after.as_ref())
+            })
+            .unwrap_or(&self.display.palette)
+    }
+
     /// The size of the composed picture.
     pub fn display_size(&self) -> (u16, u16) {
         self.display.size
@@ -1115,6 +1137,7 @@ mod tests {
             offset: 240,
             ticks_per_band: 1,
             banked: 0,
+            palette_after: None,
         };
         assert_eq!(
             open.visible(),
@@ -1136,6 +1159,7 @@ mod tests {
             offset: 0,
             ticks_per_band: 1,
             banked: 0,
+            palette_after: None,
         };
         assert_eq!(
             shut.visible(),
@@ -1168,6 +1192,7 @@ mod tests {
             offset: 240,
             ticks_per_band: 1,
             banked: 0,
+            palette_after: None,
         };
         while !c.done() {
             c.advance(1);
@@ -1313,6 +1338,36 @@ mod tests {
             e.descriptors[i].dirty,
             "the 16-bit setter marks whatever the value"
         );
+    }
+
+    /// The 16-bit `SDTDT` takes only 1..=20; anything else is a no-op.
+    ///
+    /// `05f1:0c78` checks the popped id with `cmp $1` / `jl` and
+    /// `cmp $0x14` / `jg` before the store, so `0 SDTDT` cannot clear a
+    /// template — the descriptor keeps the one it has. ENVIRO reaches
+    /// that: `SAYDAVID` hands `_SxTDT @` to `SDTDT`, and `_SxTDT` is 0
+    /// until the first `SETSAY` (location 17's macro never calls
+    /// `TOJEFF`, which is where `SETSAY` runs).
+    #[test]
+    fn a_sixteen_bit_template_outside_the_table_is_ignored() {
+        let mut e = two_screens(3, 7);
+        for s in &mut e.display.screens {
+            let (w, h) = s.view;
+            s.set_view(w, h);
+        }
+        e.text16 = true;
+        e.selected = e.descriptors.iter().position(|d| d.handle == 1);
+        e.set_template(2).expect("SDTDT");
+        for outside in [0, -1, 21] {
+            e.set_template(outside).expect("SDTDT");
+            assert_eq!(
+                e.descriptors[e.selected.unwrap()].template,
+                Some(2),
+                "{outside} SDTDT left the template standing"
+            );
+        }
+        e.set_template(9).expect("SDTDT");
+        assert_eq!(e.descriptors[e.selected.unwrap()].template, Some(9));
     }
 
     /// Repaints screen 1's descriptor in `color`, ready for a fade to reveal.

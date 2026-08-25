@@ -471,7 +471,18 @@ impl Engine {
     }
 
     /// `SDTDT`: the text template, which names the outline font and the gaps.
+    ///
+    /// The 16-bit handler takes only 1..=20 (`05f1:0c78`: `cmp $1` / `jl`,
+    /// `cmp $0x14` / `jg` skip the store and the dirty mark alike), so
+    /// `0 SDTDT` cannot clear a template — the descriptor keeps the one it
+    /// has. `SAYDAVID` runs on that before any `SETSAY` has filled
+    /// `_SxTDT`. The 32-bit handler has no such gate; there a stored 0
+    /// simply makes the drawer skip the outline pass (`cmpl $0,8(%eax)`,
+    /// `jle` at `0x6a0c6`), which storing an unmatched id reproduces.
     pub(crate) fn set_template(&mut self, v: i32) -> Result<()> {
+        if self.text16 && !(1..=20).contains(&v) {
+            return Ok(());
+        }
         if !self.sd_marks_always && self.require_descriptor("SDTDT")?.template == Some(v) {
             return Ok(());
         }

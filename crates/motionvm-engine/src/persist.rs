@@ -72,7 +72,7 @@ impl Engine {
             pointer_visible: self.pointer_visible,
             dialog_offset: self.dialog_offset,
             dialog_return: self.dialog_return,
-            palette: self.display.palette.raw,
+            palette: self.script_palette().raw,
             screens: self
                 .display
                 .screens

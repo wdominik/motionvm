@@ -28,10 +28,24 @@ impl Engine {
             // count over the handler says seventeen, but the id is popped
             // first, checked against 1..9, and then one of two eight-pop
             // branches runs — so nine is what any single call takes.
+            //
+            // The store is a fixed array indexed by the id — `ds:0x1A0C`,
+            // ten bytes an entry, on the 16-bit machine — so defining a
+            // template again *replaces* it. ENVIRO leans on that: the
+            // intro loads its own shadow font and defines templates 6 and
+            // 2 over it (module 610), frees that font on its way out
+            // (`_SHFONT @ -FONT`), and `RUN` then defines all nine
+            // templates afresh over a new handle (module 100, after
+            // `=>ERASE`). Appending instead left the intro's entry first
+            // in line with a font that no longer existed, and every text
+            // on templates 2 and 6 lost its outline for the whole game.
             "DEFTDT" => {
                 let args = pop_n(stack, 9, "DEFTDT")?;
                 let id = *args.last().unwrap_or(&0);
-                self.templates.push(TextTemplate { id, args });
+                match self.templates.iter_mut().find(|t| t.id == id) {
+                    Some(t) => t.args = args,
+                    None => self.templates.push(TextTemplate { id, args }),
+                }
             }
 
             _ => return Ok(None),
