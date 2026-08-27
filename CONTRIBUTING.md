@@ -1,18 +1,22 @@
 # Contributing to motionvm
 
 motionvm is a from-scratch Rust reimplementation of MOTION, the DOS adventure
-engine behind two games: *Im Netzwerk gefangen — Dunkle Schatten 2* (DS2, on
-the 32-bit engine `ENGINE.EXE` V0.06.06/R109, 1996-10-22) and *Die
-Enviro-Kids greifen ein* (ENVIRO, on the 16-bit engine `ENVIRO.EXE`,
-1996-08-27). It runs the originals' compiled Forth bytecode natively, and its
-single hard constraint shapes every convention in this document: **the
-original binary of each engine generation — `ENGINE.EXE` for the 32-bit
-engine, `ENVIRO.EXE` for the 16-bit one — is the authority on what that engine
-does.** Code here is not merely correct or incorrect; it is faithful or
-unfaithful, and fidelity is established by evidence, not by plausibility.
-Today the code runs both games: Dunkle Schatten 2 end to end on the
-32-bit engine, and Die Enviro-Kids greifen ein — intro, locations, walk,
-conversations, music, saves — on the 16-bit one.
+authoring system. MOTION made a series of German advergames; three of them are
+in this tree: *Im Netzwerk gefangen — Dunkle Schatten 2* (DS2, on the 32-bit
+engine `ENGINE.EXE` V0.06.06/R109, 1996-10-22),
+*Die Enviro-Kids greifen ein* (ENVIRO, on the 16-bit engine
+`ENVIRO.EXE`, 1996-08-27) and *Jeff Jet - Abenteuer InfoHighway* (JEFFJET, on
+`HPPLAY.EXE`, an older build of that same 16-bit engine). It runs the
+originals' compiled Forth bytecode natively, and its single hard constraint
+shapes every convention in this document: **the original binary a game ships
+with is the authority on what that engine does.** Code here is not merely
+correct or incorrect; it is faithful or unfaithful, and fidelity is
+established by evidence, not by plausibility. The code runs all three today:
+Dunkle Schatten 2 end to end on the 32-bit engine, and Die Enviro-Kids greifen
+ein — intro, locations, walk, conversations, music, saves — and Jeff Jet on
+the 16-bit one. It is written for the engine rather than for those three: what
+a further MOTION game would need is its own file under `titles/`, and the
+naming rules below are what keeps that cost down.
 
 This document describes how to set up a working tree, what "done" means, and
 the conventions the codebase holds itself to. The conventions are not
@@ -49,16 +53,19 @@ cargo doc --workspace --no-deps --document-private-items
 ```
 
 **Game data.** The games' files are not in the repository and cannot be; they
-are copyrighted. The `justfile` reads three locations:
+are copyrighted. The `justfile` reads four locations:
 
 - `GAMEDATA_DS2` — a copy of Dunkle Schatten 2's game directory (`001.RSC`
   and friends); `GAMEDATA_ENVIRO` — a copy of Die Enviro-Kids greifen ein's
-  (`DATA.-1-`, `ENVIRO.EXE`). Each defaults to a sibling directory of this
-  checkout (`../games/DS2`, `../games/ENVIRO`), and that default is only
-  passed on when the data is really there — so `just check` is green on a
-  machine with no copy of a game, with that game's data-dependent tests
-  skipping. A path you name yourself is always passed on, so a typo panics
-  instead of quietly skipping the suite.
+  (`DATA.-1-`, `ENVIRO.EXE`); `GAMEDATA_JEFFJET` — a copy of Jeff Jet -
+  Abenteuer InfoHighway's (`DATA.-1-`, `DATA.-2-`, `HPPLAY.EXE`). Each
+  defaults to a sibling directory of this checkout (`../games/DS2`,
+  `../games/ENVIRO`, `../games/JEFFJET`), and that default is only passed on
+  when the data is really there — so `just check` is green on a machine with
+  no copy of a game, with that game's data-dependent tests skipping. A path
+  you name yourself is always passed on, so a typo panics instead of quietly
+  skipping the suite. The two 16-bit games are recognised by their engine
+  binary, not by their container: both ship a `DATA.-1-`.
 - `SAVES` — a directory holding a savegame, for the savegame tests. Savegames
   cannot be reconstructed, only played to, so there is no default that could
   work; without one those tests skip.
@@ -68,7 +75,9 @@ wrong* path panics instead: a run that skips everything is indistinguishable
 from a run that passes everything, so a mistyped path would otherwise report
 green without executing a line.
 
-**Running.** `just run`. This builds in release mode, and that is not
+**Running.** `just run-ds2`, `just run-enviro`, `just run-jeffjet` — one per
+game, and no game is the one you get for saying `just run`. This builds in
+release mode, and that is not
 optional ceremony: the frontend is a software renderer that walks every
 physical window pixel on the CPU, and at opt-level 0 the result is a
 slideshow — which reads as broken hardware rather than as a missing flag.
@@ -185,7 +194,7 @@ Concretely:
   measured over a game's shipped files, or a hypothesis — and the reader
   must be able to tell which. A measurement taken on one game's files or
   one game's run names that game ("all 86 DS2 modules", "ENVIRO under
-  DOSBox-X"); a sentence that names neither game holds for both. Never let
+  DOSBox-X"); a sentence that names no game holds for all of them. Never let
   a guess wear the clothes of a fact.
 - **Quote measurements with their rig.** "~978 Hz, measured on the original
   running under DOSBox-X, timed by its own unit-3 timer" is evidence;
@@ -240,7 +249,7 @@ in the next section. Principles the layout encodes:
   load-bearing. The point is that any piece of this code can be held up
   against its counterpart in the binary.
 
-## Two generations, two games
+## Two generations, and what belongs to a game
 
 Three kinds of things live in this tree, and each is named by a different
 rule. What is **shared by the engine family** — the `Host` boundary, the
@@ -259,9 +268,11 @@ still lives under that generation's module, so that the unqualified level
 stays honest. What belongs to **one game** — its bootstrap words and
 module numbers, the names of its script variables, its module map and
 location scheme, its title strings, tests that drive its data — is tagged
-by **game**: code under `titles/ds2` and `titles/enviro`, documentation
-under `docs/games/ds2/` and `docs/games/enviro/`, and a sentence that says
-"Dunkle Schatten 2" or "ENVIRO".
+by **game**: code under `titles/ds2`, `titles/enviro` and `titles/jeffjet`,
+documentation under `docs/games/<game>/`, and a sentence that names the game.
+Where two games of one generation share something — the 16-bit opener, the
+frame handler, the location mechanism — it belongs to the generation and lives
+under its name (`titles/motion16.rs`), not copied into each game's file.
 
 Never mix the two generations' readers or machines in one function: a
 reader reads one layout, and the caller chooses the reader. Where the same
@@ -279,14 +290,15 @@ machines behind one `Game<M>` driver, keeps each game's bootstrap under
 `titles/`, and keeps the word groups that exist for one machine only —
 the 32-bit savegame words, `DOWALK`, the inventory, the dialogue queue;
 the 16-bit buffer words — in files of their own. The renderer, the
-window and the audio serve both: the HMI sequencer plays the 32-bit
-game's music, the PSM 2 sequencer the 16-bit game's, on the one OPL3.
+window and the audio serve all three: the HMI sequencer plays the 32-bit
+game's music, the PSM 2 sequencer the 16-bit games', on the one OPL3.
 
 ## Fidelity and accepted divergences
 
 Behavior is matched to the original binary of the generation in question —
-`ENGINE.EXE` V0.06.06/R109 for the 32-bit engine, `ENVIRO.EXE` for the
-16-bit one. When motionvm and the original disagree, motionvm is wrong —
+`ENGINE.EXE` V0.06.06/R109 for the 32-bit engine, `ENVIRO.EXE` and its older
+build `HPPLAY.EXE` for the 16-bit one. When motionvm and the original
+disagree, motionvm is wrong —
 unless the divergence is on the list below, which exists precisely so that
 nobody "fixes" a deliberate decision. Every entry below concerns the 32-bit
 engine as it runs Dunkle Schatten 2 unless it names the 16-bit engine:
@@ -308,6 +320,12 @@ engine as it runs Dunkle Schatten 2 unless it names the 16-bit engine:
    handlers do.
 8. **`rsc.inf` is never rewritten.** motionvm treats the game directory as
    read-only — a guarantee the original does not make.
+9. **The 16-bit engine's disk-change prompt is unreachable.** Every
+   `DATA.-n-` volume is opened when the game is opened, and a missing one
+   refuses the game rather than emptying the slots it holds.
+10. **A font reference table entry past the end of the font draws nothing.**
+    Jeff Jet's table was written for a larger font than it ships; no shipped
+    string reaches one of the two entries concerned.
 
 Adding to this list is a deliberate act: document the divergence where the
 code lives, state why matching the original is impossible or undesirable, and
@@ -325,15 +343,15 @@ record it here.
   `motionvm-testutil`, never checked in. Remember the rule from setup:
   missing data skips loudly, a wrong path panics.
 - **A test that needs a game's files says which game.** It asks
-  `motionvm-testutil` for that game — `gamedata_ds2()` or
-  `gamedata_enviro()` — and its `//!` names the game, because the module
+  `motionvm-testutil` for that game — `gamedata_ds2()`, `gamedata_enviro()`
+  or `gamedata_jeffjet()` — and its `//!` names the game, because the module
   numbers, word names and ids it asserts are that game's and would be
   nonsense against the other.
 - **There are no golden frames, and their absence is a real loss.** A
   pinned rendered scene is the one kind of check that catches a change
   nobody thought to assert — and a checked-in baseline is a rendering of
   the game's own artwork, which the rule above forbids. So there is none.
-  `tests/scenes.rs` drives the engine to four scenes and asserts it
+  `tests/ds2_scenes.rs` drives the engine to four scenes and asserts it
   arrives and draws something, which covers the navigation but not the
   picture. If you are changing the drawing path, render the scenes before
   and after on your own machine and compare them there — the determinism note

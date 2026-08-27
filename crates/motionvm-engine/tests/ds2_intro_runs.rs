@@ -12,6 +12,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 #[test]
@@ -326,7 +327,7 @@ const ORIGINAL_LINES: [(u32, u32, u32); 7] = [
 ];
 
 /// Runs frames until nothing is fading, so a still picture can be measured.
-fn settle(game: &mut Game) {
+fn settle(game: &mut Game<Vm>) {
     let mut guard = 0;
     while game.engine.in_transition() {
         game.set_input(0, 0, false, false, 0).expect("input");
@@ -336,7 +337,7 @@ fn settle(game: &mut Game) {
     }
 }
 
-fn click(game: &mut Game) {
+fn click(game: &mut Game<Vm>) {
     game.set_input(0, 0, true, false, 0).expect("click");
     game.step().expect("the frame with the click");
     game.set_input(0, 0, false, false, 0).expect("input");
@@ -636,7 +637,7 @@ fn a_fade_in_draws_only_its_own_screen() {
 /// released a whole sequence later by `LTMANAGER`.
 /// Returns the game once the title is over, and the highest `_BUSY` the title
 /// itself stood at.
-fn play_the_title(dir: &std::path::Path, twice: bool) -> (Game, i32) {
+fn play_the_title(dir: &std::path::Path, twice: bool) -> (Game<Vm>, i32) {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}

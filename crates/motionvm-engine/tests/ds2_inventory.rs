@@ -14,10 +14,11 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::{gamedata_ds2, savegame_slot};
 
 /// A game standing in the classroom, past the startup transition.
-fn in_a_location(dir: &std::path::Path) -> Game {
+fn in_a_location(dir: &std::path::Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
@@ -49,7 +50,7 @@ struct Bar {
     calcinv: motionvm_forth::Address,
 }
 
-fn bar(game: &mut Game) -> Bar {
+fn bar(game: &mut Game<Vm>) -> Bar {
     // `_ACTINV` and `_ITEM` are variables — a pointer and a handle live in
     // their cells. `_FITEM` is not: it is `_PutAdr 0`, so the word *is* the
     // table and what it pushes is its address. Running it is the only way to
@@ -76,22 +77,22 @@ fn cell(base: u32, off: u32) -> motionvm_forth::Address {
 }
 
 impl Bar {
-    fn offset(&self, game: &Game) -> i32 {
+    fn offset(&self, game: &Game<Vm>) -> i32 {
         game.vm.fetch(cell(self.list, 0)).expect("the head cell") as i32
     }
-    fn entry(&self, game: &Game, i: i32) -> i32 {
+    fn entry(&self, game: &Game<Vm>, i: i32) -> i32 {
         game.vm
             .fetch(cell(self.list, 4 + i as u32 * 4))
             .expect("an entry") as i32
     }
     /// The sprite the item table gives an item.
-    fn sprite_of(&self, game: &Game, item: i32) -> i32 {
+    fn sprite_of(&self, game: &Game<Vm>, item: i32) -> i32 {
         game.vm
             .fetch(cell(self.items, item as u32 * 20 + 8))
             .expect("a record") as i32
     }
     /// What the eight slot descriptors are actually showing.
-    fn shown(&self, game: &Game) -> Vec<Option<u32>> {
+    fn shown(&self, game: &Game<Vm>) -> Vec<Option<u32>> {
         (0..8)
             .map(|k| {
                 let handle = (self.first_slot + k) as u32;
@@ -105,7 +106,7 @@ impl Bar {
             .collect()
     }
     /// And what they ought to show, straight off the list.
-    fn wanted(&self, game: &Game) -> Vec<Option<u32>> {
+    fn wanted(&self, game: &Game<Vm>) -> Vec<Option<u32>> {
         let offset = self.offset(game);
         (0..8)
             .map(|k| match self.entry(game, offset + k) {
@@ -117,7 +118,7 @@ impl Bar {
 }
 
 /// Puts `n` items into the bar's list, whatever the game has been carrying.
-fn fill(game: &mut Game, bar: &Bar, n: usize) -> Vec<i32> {
+fn fill(game: &mut Game<Vm>, bar: &Bar, n: usize) -> Vec<i32> {
     // Any item whose record carries a sprite will do; the low numbers are the
     // ones the first locations hand out.
     let mut chosen = Vec::new();
@@ -142,7 +143,7 @@ fn fill(game: &mut Game, bar: &Bar, n: usize) -> Vec<i32> {
 }
 
 /// One click on the bar, at `x`, the way the controller sees one.
-fn click_bar(game: &mut Game, x: i32) {
+fn click_bar(game: &mut Game<Vm>, x: i32) {
     for step in 0..6 {
         let pressed = step == 1;
         game.set_input(x, 440, pressed, false, 0).expect("input");
@@ -267,7 +268,7 @@ fn the_carried_items_slot_keeps_blinking() {
         .expect("held");
     game.call_at(b.calcinv).expect("CALCINV");
 
-    fn slot<'a>(g: &'a Game, b: &Bar) -> &'a motionvm_engine::Descriptor {
+    fn slot<'a>(g: &'a Game<Vm>, b: &Bar) -> &'a motionvm_engine::Descriptor {
         g.engine
             .descriptors()
             .iter()
@@ -330,7 +331,7 @@ fn a_savegame_says_what_the_bar_is_showing() {
 
     let b = bar(&mut game);
     let aktlt = game.address(2, "_AKTLT").expect("_AKTLT").next();
-    let word = |g: &mut Game, name: &'static str, args: &[i32]| {
+    let word = |g: &mut Game<Vm>, name: &'static str, args: &[i32]| {
         let mut st = args.to_vec();
         g.engine
             .plain_word(name, &mut st, &mut g.vm.mem)

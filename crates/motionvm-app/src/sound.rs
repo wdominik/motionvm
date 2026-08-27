@@ -19,10 +19,10 @@
 //! **Nothing here is allowed to stop the game.** No device, no supported
 //! format, no driver: a line on stderr and play on in silence.
 //!
-//! Both games come through here with the same shape and their own player:
-//! Dunkle Schatten 2's HMI songs through the rebuilt MIDI driver
-//! ([`open`]), Die Enviro-Kids greifen ein's PSM 2 tunes through the
-//! rebuilt `MUSADL.DRV` sequencer ([`open_enviro`]).
+//! Every game comes through here with the same shape and its generation's
+//! player: Dunkle Schatten 2's HMI songs through the rebuilt MIDI driver
+//! ([`open_motion32`]), the two 16-bit games' PSM 2 tunes through the rebuilt
+//! `MUSADL.DRV` sequencer ([`open_motion16`]).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use motionvm_audio::{Player, psm};
@@ -140,7 +140,7 @@ impl MusicSink for PsmMusic {
 ///
 /// `dir` is the game directory: the driver archive and the two instrument banks
 /// come from there, the same three files `ENGINE.EXE` hands its MIDI layer.
-pub fn open(dir: &Path) -> Result<(Sound, Music), String> {
+pub fn open_motion32(dir: &Path) -> Result<(Sound, Music), String> {
     // `find_ci` throughout: these three are looked up by name, and a copied
     // install is as likely to spell them in lower case as on the disc.
     let read = |name: &str| -> Result<Vec<u8>, String> {
@@ -167,13 +167,13 @@ pub fn open(dir: &Path) -> Result<(Sound, Music), String> {
     Ok((Sound { _stream: stream }, Music { tx }))
 }
 
-/// Opens the default output and starts the audio thread for the 16-bit
-/// game.
+/// Opens the default output and starts the audio thread for a 16-bit game.
 ///
-/// `dir` is the game directory: `MUSADL.DRV` comes from there, the same
-/// file `ENVIRO.EXE` loads whole and installs — motionvm reads its tables
-/// and rebuilds the code around them.
-pub fn open_enviro(dir: &Path) -> Result<(Sound, PsmMusic), String> {
+/// `dir` is the game directory: `MUSADL.DRV` comes from there, the same file
+/// the 16-bit player loads whole and installs — motionvm reads its tables and
+/// rebuilds the code around them. Both 16-bit games ship that driver, and the
+/// two copies are byte-identical, so one opener serves them.
+pub fn open_motion16(dir: &Path) -> Result<(Sound, PsmMusic), String> {
     let path = motionvm_formats::find_ci(dir, "MUSADL.DRV").ok_or("MUSADL.DRV: not found")?;
     let driver = std::fs::read(path).map_err(|e| format!("MUSADL.DRV: {e}"))?;
 

@@ -24,6 +24,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// The key code `ICTRL` compares against, read out of the game's own bytecode.
@@ -42,7 +43,7 @@ const ESCAPE: i32 = 27;
 /// The title has no such conversation. `_IMX` answering is the same signal
 /// `fades.rs` waits on, and it is only written while `ICTRL` reaches its bar
 /// handling, so it says the free-play region is running.
-fn settled_in_the_title(dir: &std::path::Path) -> Game {
+fn settled_in_the_title(dir: &std::path::Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}

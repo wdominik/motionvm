@@ -1,66 +1,87 @@
 # motionvm
 
-Play **Im Netzwerk gefangen – Dunkle Schatten 2** and **Die Enviro-Kids
-greifen ein** — two German point-and-click adventure games from 1996, made
-for MS-DOS — natively on today's Windows, macOS and Linux. No DOSBox, no
-emulator: motionvm is a from-scratch Rust reimplementation of **MOTION**,
-the adventure engine both games were built with. You bring the files of
-your own copy of a game; motionvm finds them and plays it — picture,
-music, savegames and all.
+Play German MS-DOS point-and-click adventures of the mid-nineties natively on
+today's Windows, macOS and Linux. No DOSBox, no emulator: motionvm is a
+from-scratch Rust reimplementation of **MOTION**, the adventure engine those
+games were built with. You bring the files of your own copy of a game;
+motionvm finds them and plays it — picture, music, savegames and all.
 
-> *motionvm spielt die beiden 1996er DOS-Adventures „Im Netzwerk gefangen –
-> Dunkle Schatten 2“ und „Die Enviro-Kids greifen ein“ nativ auf heutigen
+The games it plays today are **Im Netzwerk gefangen – Dunkle Schatten 2**,
+**Die Enviro-Kids greifen ein** and **Jeff Jet - Abenteuer InfoHighway**.
+MOTION made more than those, and that list is a record of what has been
+done, not a limit of the engine underneath it.
+
+> *motionvm spielt DOS-Adventures der neunziger Jahre nativ auf heutigen
 > Rechnern — ohne DOSBox, ohne Emulator. Benötigt werden nur die Dateien
-> einer eigenen Spielkopie.*
+> einer eigenen Spielkopie. Zurzeit laufen „Im Netzwerk gefangen – Dunkle
+> Schatten 2“, „Die Enviro-Kids greifen ein“ und „Jeff Jet - Abenteuer
+> InfoHighway“.*
 
-MOTION was written by DigiTales (Stefan Hoffmann); both games were
-productions of the **Art Department Werbeagentur GmbH**, each
-commissioned by a German public authority — Dunkle Schatten 2 by the
-Bundesministerium des Innern (the Federal Ministry of the Interior),
-Die Enviro-Kids greifen ein by the Ministerium für Umwelt, Raumordnung
-und Landwirtschaft des Landes Nordrhein-Westfalen (North
-Rhine-Westphalia's environment ministry). The engine is not a game: it is an
-authoring system — a Forth compiler and a runtime, in its later form
-also an IDE and a debugger, in one binary. A game made with it is
-*data*: compiled Forth script modules plus sprites, palettes, fonts,
-texts and music inside resource containers. motionvm reads that data
-and runs it — the same bytecode, the same frame cycle, the same
-picture, the same music, with no emulator underneath.
+MOTION was written by DigiTales (Stefan Hoffmann), and the games made with it
+were German advergames and edutainment titles — commissioned work, given away
+rather than sold. Of the three here, two were productions of the **Art
+Department Werbeagentur GmbH**, each commissioned by a German public authority
+— Dunkle Schatten 2 by the Bundesministerium des Innern (the Federal Ministry
+of the Interior), Die Enviro-Kids greifen ein by the Ministerium für Umwelt,
+Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen (North
+Rhine-Westphalia's environment ministry); Jeff Jet was made by the
+**Promotion Software GmbH** in Tübingen for the **Hewlett Packard GmbH**.
 
-## Two generations, two games
+The engine is not a game: it is an authoring system — a Forth compiler and a
+runtime, in its later form also an IDE and a debugger, in one binary. A game
+made with it is *data*: compiled Forth script modules plus sprites, palettes,
+fonts, texts and music inside resource containers. motionvm reads that data
+and runs it — the same bytecode, the same frame cycle, the same picture, the
+same music, with no emulator underneath.
 
-Two games were built with MOTION, two months apart, on two generations of the
-engine:
+## The games it plays
+
+Three so far, across the two generations of the engine:
 
 | Game | Engine | In motionvm |
 |---|---|---|
 | *Im Netzwerk gefangen – Dunkle Schatten 2* (**DS2**, 1996) | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22: a 32-bit protected-mode binary with the IDE, compiler and debugger still inside; `NNN.RSC` containers, 640×480×256, HMI music at 25 fps | **Runs**, end to end. Every reader, the VM's address model and the runtime in this tree are this engine's |
 | *Die Enviro-Kids greifen ein* (**ENVIRO**, 1996) | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27: a 16-bit real-mode player with no compiler; one `DATA.-1-` container, 320×200×256, PSM 2 music | **Plays.** The container, the 16-bit machine and the engine's words carry `RUN` through the DigiTales logo and the briefing into the scrapyard and on through every location: the walk, the inventory bar, the verb menu, the hover caption and the conversations run as read from `ENVIRO.EXE`. Saves go through the game's own page into three files of motionvm's own layout, and the PSM 2 tunes play through a rebuild of the game's own Ad Lib driver, held register for register against an OPL capture of the original. `docs/motion16/` and `docs/games/enviro/` are its specification |
+| *Jeff Jet - Abenteuer InfoHighway* (**JEFFJET**) | **MOTION 16-bit** — `HPPLAY.EXE`, an older build of the same player, five kernel words fewer; two `DATA.-n-` volumes with every item LZW-packed, 320×200×256, PSM 2 music | **Plays.** The same machine, the same words and the same save scheme as Die Enviro-Kids greifen ein — what is this game's own is the container: two volumes, and 2.5 MB of packed items unfolding to 8.4 MB. `RUN` carries it through the intro into Jeff's room and on through all thirteen locations. `docs/motion16/` and `docs/games/jeffjet/` are its specification |
 
-The two share the Forth dialect, the compiler's output conventions and most
-of the kernel's vocabulary; they do not share the machine — cell width,
-kernel ordinals, address model, container, asset encodings and music format
-all differ. [`docs/README.md`](docs/README.md) lays the two side by side.
-Throughout this repository a statement about one game or one generation
-says so; a statement that names neither holds for both.
+The two generations share the Forth dialect, the compiler's output
+conventions and most of the kernel's vocabulary; they do not share the
+machine — cell width, kernel ordinals, address model, container, asset
+encodings and music format all differ.
+[`docs/README.md`](docs/README.md) lays the two side by side. Throughout this
+repository a statement about one game or one generation says so; a statement
+that names neither holds for all of them.
+
+**The other MOTION games.** There are more of them, and the work here already
+reaches past the three: the 16-bit container is documented from four games
+rather than two — the pair above plus *Amajambere* and *Eddy M.* — and the
+32-bit readers index *Checker 2000*, a game on an earlier build of the same
+engine, and disassemble its modules through its own kernel table. Reading a
+game's data and *playing* it are different distances, though. The engine, the
+readers, the renderer and the audio are shared already; what a further game
+needs is its own bootstrap, its script variables and its location scheme read,
+which is the per-game work the
+[documentation map](docs/README.md#documentation-map) keeps a section for.
+Until that is done for a game, motionvm refuses its directory by name at
+start-up rather than opening it under another game's title.
 
 ## What is here
 
 | Crate | What it is |
 |---|---|
-| `motionvm-formats` | Readers for every shipped format of both generations: the 32-bit RSC containers, GFX8 sprites and the GFXCRUNCH LZW codec, HMI songs, Ad Lib banks, driver archives and LE binaries; the 16-bit `DATA.-1-` container, raw sprites and fonts, the MZ binary; and for both, palettes, fonts, text tables, script modules and the kernel tables |
+| `motionvm-formats` | Readers for every shipped format of both generations: the 32-bit RSC containers, GFX8 sprites and the GFXCRUNCH LZW codec, HMI songs, Ad Lib banks, driver archives and LE binaries; the 16-bit `DATA.-n-` containers, raw sprites and fonts, the MZ binary; and for both, palettes, fonts, text tables, script modules and the kernel tables |
 | `motionvm-forth` | The Forth virtual machines — threaded code, the two stacks, the kernel dispatch; the 32-bit machine with its packed address model, the 16-bit machine with its flat space and word-id table |
 | `motionvm-render` | The indexed framebuffer and the screen compositing above it |
-| `motionvm-audio` | The rebuilt FM driver, the HMI sequencer and OPL3 synthesis; the 16-bit game's PSM 2 sequencer and player, rebuilt from `MUSADL.DRV` |
+| `motionvm-audio` | The rebuilt FM driver, the HMI sequencer and OPL3 synthesis; the 16-bit games' PSM 2 sequencer and player, rebuilt from `MUSADL.DRV` |
 | `motionvm-engine` | The runtime the VM calls into: screens, descriptors, text, walking, saving, the game loop |
 | `motionvm-tools` | `motionvm-tools`, a CLI for inspecting and extracting a game's resources |
 | `motionvm-app` | `motionvm`, the window |
-| `motionvm-testutil` | Where the test suites find the game's files. Development only; nothing ships with it |
+| `motionvm-testutil` | Where the test suites find the games' files. Development only; nothing ships with it |
 
 `motionvm-formats` and `motionvm-forth` carry both engine generations, as
 `m32` and `m16`; the engine is generic over the machine it drives, with the
 behaviors that differ named per generation, and the renderer, the audio and
-the window serve both games.
+the window serve every game here.
 
 **What is not here.** MOTION was two halves: the runtime that plays a game, and
 the authoring side that makes one — an IDE, a Forth compiler and a debugger, all
@@ -157,6 +178,45 @@ mkdir enviro-min
 cp DATA.-1- ENVIRO.EXE MUSADL.DRV  enviro-min/
 ```
 
+### Jeff Jet - Abenteuer InfoHighway
+
+#### Required
+
+Three files. Without any one of them motionvm stops at startup and says which.
+
+| File | Size | What it holds |
+|---|---|---|
+| `DATA.-1-` | 1.4 MB | Volume 1: 55 script modules, 65 text tables, 119 blocks and 947 sprites, all LZW-packed |
+| `DATA.-2-` | 1.1 MB | Volume 2: 523 more sprites, and **every palette, both fonts and the font reference table** |
+| `HPPLAY.EXE` | 162 KB | Not run, read: the 228-word kernel table is lifted out of the MZ image. It is an older build than `ENVIRO.EXE` and its ordinals differ, so this game's table has to come from this game's binary |
+
+The second volume is not optional. Everything the game draws through lives on
+it; a copy without it would find every script and no colour, and motionvm
+refuses it by name rather than starting.
+
+#### Required for sound
+
+| File | Size | What it holds |
+|---|---|---|
+| `MUSADL.DRV` | 5 KB | The PSM 2 Ad Lib driver — byte-identical to Die Enviro-Kids greifen ein's |
+
+Missing, it is not fatal: motionvm prints `sound is off: …` and plays on
+in silence.
+
+#### Everything else is ignored
+
+The other nine files — `HP.BAT`, `SOUND.EXE`, the five other `.DRV` files and
+the two splash pictures `HPLOGO.EXE` and `PROMSOFT.EXE`, which are not MOTION
+programs at all — are never opened. What each of them is, file by file, is
+documented in [Other shipped files](docs/games/jeffjet/other-files.md).
+
+So a minimal copy is three files, or four with music:
+
+```sh
+mkdir jeffjet-min
+cp DATA.-1- DATA.-2- HPPLAY.EXE MUSADL.DRV  jeffjet-min/
+```
+
 ### The game directory is only ever read
 
 motionvm never writes into it, and cannot be made to: the one place a writable
@@ -199,19 +259,18 @@ cargo build --release
 by the files in it. Without one it asks: the platform's own folder dialog
 opens, and a directory that is not a MOTION game is reported in a message box
 and asked for again — so the binary can be double-clicked. Savegames go under
-the platform data directory (above), one directory per game: `saves/ds2/` for
-Dunkle Schatten 2 and `saves/enviro/` for Die Enviro-Kids greifen ein — the
-two games name their slots alike and each looks for them at start-up; the
-directory is created on startup if it is not there and its path is printed,
-so a fresh clone needs no setup. `--loc N` starts in a given
-location — instead of the intro for Dunkle Schatten 2, right after it for
-Die Enviro-Kids greifen ein, whose `RUN` enters location 1 itself — and
-`--no-sound` runs silent.
+the platform data directory (above), one directory per game: `saves/ds2/`,
+`saves/enviro/` and `saves/jeffjet/` — all three name their slots alike and
+each looks for them at start-up; the directory is created on startup if it is
+not there and its path is printed, so a fresh clone needs no setup.
+`--loc N` starts in a given location — instead of the intro for Dunkle
+Schatten 2, right after it for the two 16-bit games, whose `RUN` enters a
+first location itself — and `--no-sound` runs silent.
 
 The window shows the picture the way the game's own monitor did, and only
 ever scaled by whole numbers — one per axis. Dunkle Schatten 2's 640×480 is
-square-pixel 4:3 and opens at twice its size; Die Enviro-Kids greifen ein's
-320×200 filled a 4:3 screen with pixels 6/5 as tall as wide, so each of its
+square-pixel 4:3 and opens at twice its size; the 16-bit games'
+320×200 filled a 4:3 screen with pixels 6/5 as tall as wide, so each of their
 pixels becomes an sx×sy block with sy/sx as close to 6/5 as whole numbers
 come — exact at 5×6 and its multiples, and the window opens on the largest
 exact step the screen has room for (1600×1200 where it fits, 960×800 at 3×4
@@ -242,12 +301,13 @@ filesystem an exact-case lookup would find nothing.
 ## Looking inside the data
 
 `motionvm-tools` reads a game's containers and writes what it finds as
-ordinary files — the 32-bit `NNN.RSC` banks of Dunkle Schatten 2 or the 16-bit
-`DATA.-1-` of Die Enviro-Kids greifen ein, told apart by the files in the
-directory. Every command takes the game directory as its first argument;
-`--help` prints the same summary. The ids in the examples are Dunkle
-Schatten 2's. The release archives carry only `motionvm` — the tool is run
-from a checkout:
+ordinary files — a 32-bit game's `NNN.RSC` banks or a 16-bit game's `DATA.-n-`
+volumes, told apart by the files in the directory. It asks less of a directory
+than the player does — a container and the engine binary beside it are enough,
+and it reads a MOTION game whether or not motionvm plays it. Every command
+takes the game directory as its first argument; `--help` prints the same
+summary. The ids in the examples are Dunkle Schatten 2's. The release archives
+carry only `motionvm` — the tool is run from a checkout:
 
 ```sh
 cargo run --release -p motionvm-tools -- info /path/to/gamedata
@@ -274,8 +334,9 @@ resolved by name, and `kernel-usage.txt`, which lists the kernel words the
 game's own code reaches for and marks which of them this engine implements.
 For a 16-bit game the blocks come out as `.blk` with an index that marks the
 PSM 2 songs, the modules additionally as `scripts/modules.txt` (every
-module's symbol table) and as `.f` listings read through `ENVIRO.EXE`'s
-kernel table, with its own `kernel-usage.txt`, and the sprites — which carry
+module's symbol table) and as `.f` listings read through the game's own
+engine binary's kernel table, with its own `kernel-usage.txt`, and the
+sprites — which carry
 no palette of their own — through palette `--pal N`, palette 0 by default.
 `--out` defaults to `out`.
 
@@ -293,8 +354,9 @@ motionvm-tools sprite /path/to/gamedata 1010
 
 **`script <gamedata> <id>`** — one script module on stdout: its header, its
 symbol table, and its threaded code disassembled with kernel words resolved by
-name — through `ENGINE.EXE`'s table for a 32-bit module, `ENVIRO.EXE`'s for a
-16-bit one. Reading a compiled module is in scope for this project; writing
+name — through `ENGINE.EXE`'s table for a 32-bit module, and through
+`ENVIRO.EXE`'s or `HPPLAY.EXE`'s, whichever the directory holds, for a 16-bit
+one. Reading a compiled module is in scope for this project; writing
 one is not.
 
 ```sh
@@ -313,7 +375,7 @@ describes.
 |---|---|
 | Left click | Walk, use, or pick the thing under the pointer |
 | Right click | Open the verb menu on it |
-| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In Die Enviro-Kids greifen ein it skips the intro; that game's menu is the icon at the bar's right end |
+| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In the two 16-bit games it skips the intro; their menu is the icon at the bar's right end |
 | Cursor keys | Move through Dunkle Schatten 2's in-game mailbox; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
 | F12 | Freeze the picture **and** write it out as an indexed PNG — to `shot.png` in the data directory; the path is printed |
@@ -342,33 +404,39 @@ or without [`just`](https://github.com/casey/just):
 cargo test --workspace
 ```
 
-which finds the games at `../games/DS2` and `../games/ENVIRO` beside the
-checkout; `MOTIONVM_GAMEDATA_DS2` and `MOTIONVM_GAMEDATA_ENVIRO` point
-anywhere else.
+which finds the games at `../games/DS2`, `../games/ENVIRO` and
+`../games/JEFFJET` beside the checkout; `MOTIONVM_GAMEDATA_DS2`,
+`MOTIONVM_GAMEDATA_ENVIRO` and `MOTIONVM_GAMEDATA_JEFFJET` point anywhere
+else.
 
 The tests hold the implementation against the originals' own files: the
-decoders against every resource in the containers of both games, the FM driver
+decoders against every resource in all three games' containers, the FM driver
 against the bytes of `HMIMDRV.386` and the PSM player against `MUSADL.DRV`'s
 tables, the renderer against extracted artwork, the engine against the
-behavior of both games' script modules — Dunkle Schatten 2's scenes, and Die
+behavior of the games' own script modules — Dunkle Schatten 2's scenes, Die
 Enviro-Kids greifen ein's boot, locations, conversations, savegames and text
-rendering.
+rendering, and Jeff Jet's boot, thirteen locations, modules, music and slots.
 They need the game directories — `MOTIONVM_GAMEDATA_DS2` for Dunkle Schatten 2
 (`001.RSC` and friends, looked for at `../games/DS2` when the variable is not
-set) and `MOTIONVM_GAMEDATA_ENVIRO` for Die Enviro-Kids greifen ein
-(`DATA.-1-` and `ENVIRO.EXE`, `../games/ENVIRO`); without one, every test
-that needs that game's data **skips itself** rather than failing, so a
-checkout tests cleanly on a machine that has no copy of either game, and a
-machine with one game runs that game's tests. Every test says which game it
-drives.
+set), `MOTIONVM_GAMEDATA_ENVIRO` for Die Enviro-Kids greifen ein
+(`ENVIRO.EXE`, `../games/ENVIRO`) and `MOTIONVM_GAMEDATA_JEFFJET` for Jeff Jet
+(`HPPLAY.EXE`, `../games/JEFFJET`); without one, every test that needs that
+game's data **skips itself** rather than failing, so a checkout tests cleanly
+on a machine that has no copy of any of them, and a machine with one game runs
+that game's tests. Every test says which game it drives.
 
-Setting either variable to a directory that does not hold its game — no
-`001.RSC`, no `DATA.-1-` — is the one case that is **not** a skip: it panics
+The two 16-bit games are told apart by their engine binary, and so are their
+variables: both ship a `DATA.-1-`, so a probe for the container would let
+either variable accept the other game.
+
+Setting one of the variables to a directory that does not hold its game — no
+`001.RSC`, no `ENVIRO.EXE`, no `HPPLAY.EXE` — is the one case that is **not**
+a skip: it panics
 and says so. A mistyped path would otherwise read as "this machine has no game
 data", and a run that skips everything looks exactly like a run that passes
 everything.
 
-`tests/scenes.rs` drives the engine to four standing pictures of Dunkle
+`tests/ds2_scenes.rs` drives the engine to four standing pictures of Dunkle
 Schatten 2 — the title, a page of intro text, a conversation's answer menu, a
 page of the help viewer — and asserts it gets there and draws something. Reaching them is most of the
 check: the answer menu needs startup, the location loader, the task machine and
@@ -427,10 +495,14 @@ them are not part of this suite. What ships is their result, stated above.
 Everything else is verified against the original's *files* — its resources, its
 bytecode, its driver binary — which is a different and weaker thing: it says the
 readers agree with the data, not that the engine behaves as the engine did.
-Interaction, dialogue, walking, savegames, the verb menu and most locations
-of either game have never been differentially compared. That is not a gap being
-hidden; it is the honest edge of what a reimplementation without the original
-running beside it can claim.
+Interaction, dialogue, walking, savegames, the verb menu and most locations of
+any of the three games have never been differentially compared, and **nothing
+of Jeff Jet has been**: it is held against its own files — every item unpacked
+and re-parsed, every module disassembled with no unknown ordinal, all thirteen
+locations entered and drawn, its nine tunes played — and not yet against a
+recording of the original. That is not a gap being hidden; it is the honest
+edge of what a reimplementation without the original running beside it can
+claim.
 
 ## Questions that come up
 
@@ -440,7 +512,7 @@ sprites, music — and runs them itself, the way the original engine did.
 DOSBox is not involved and not needed.
 
 **Where do I get the games?** From your own copy — an original CD-ROM or
-installation. Both games were given away free of charge at the time, as
+installation. They were given away free of charge at the time, as
 commissioned promotional games, and copies circulate on the internet —
 but free distribution then is not a license now: the copyright stands
 with its holders, and this repository neither hosts nor links to any
@@ -451,16 +523,22 @@ and stops.
 [release archives](#downloads) carry a Windows and a macOS build; on
 Linux it builds from source with one `cargo build --release`.
 
-**Are the games in English?** No. Both games are German-language, and
+**Are the games in English?** No, they are German-language throughout, and
 motionvm plays them as they are: it changes nothing about the content.
+
+**Will it play another MOTION game?** Not today. `motionvm-tools` reads one —
+the readers are the engine's, not a game's — but playing one needs its
+bootstrap and its script variables read first, and until they are, motionvm
+says so at start-up rather than opening the directory under the name of a game
+it already knows.
 
 ## Documentation
 
 [`docs/README.md`](docs/README.md) is the hub for the full technical
 documentation — every file format, the virtual machine and the engine's
 subsystems for both generations of the engine, a page per script module of
-Dunkle Schatten 2 and the structure of both games — written to stand on its
-own as a specification of MOTION.
+Dunkle Schatten 2 and the structure of each game it plays — written to stand
+on its own as a specification of MOTION.
 
 ## Licensing
 

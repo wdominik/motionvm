@@ -311,6 +311,88 @@ fn a_minimal_container_tells_empty_slots_from_occupied_ones() {
     assert_eq!(c.boot().module, 100);
 }
 
+/// A one-volume `DATA.-n-` over three GFX slots: an item, an empty slot, an
+/// item — with the header words the caller wants to set.
+///
+/// `volumes` is the count at 18 and `packed_gfx` the GFX flag at `0x16`; the
+/// two items are handed in whole, header and all, so a test can give a packed
+/// one a header of its choosing.
+fn dat_one_volume(volumes: u16, packed_gfx: u16, items: [&[u8]; 2]) -> Vec<u8> {
+    let mut v = dat_header([3, 0, 0, 0, 0, 0, 0]);
+    v[18..20].copy_from_slice(&volumes.to_le_bytes());
+    v[0x16..0x18].copy_from_slice(&packed_gfx.to_le_bytes());
+    v.extend_from_slice(&[1u16, 0, 1].map(u16::to_le_bytes).concat());
+    let first = (v.len() + 3 * 4) as u32;
+    let second = first + items[0].len() as u32;
+    v.extend_from_slice(&[first, second, second].map(u32::to_le_bytes).concat());
+    v.extend_from_slice(items[0]);
+    v.extend_from_slice(items[1]);
+    v
+}
+
+/// The eight bytes a packed item opens with, and then a GFXCRUNCH stream of
+/// three literal 9-bit codes — the shortest real one there is.
+fn packed_item(dictionary: u16, initial_width: u16) -> Vec<u8> {
+    let stream = [0x00u8, 0x80, 0x80, 0x60];
+    let mut v = Vec::new();
+    v.extend_from_slice(&3u16.to_le_bytes());
+    v.extend_from_slice(&(stream.len() as u16).to_le_bytes());
+    v.extend_from_slice(&dictionary.to_le_bytes());
+    v.extend_from_slice(&initial_width.to_le_bytes());
+    v.extend_from_slice(&stream);
+    v
+}
+
+#[test]
+fn a_container_declaring_more_volumes_than_it_was_handed_is_refused() {
+    // Half a game reads as a whole one with most of its slots empty, and a
+    // 16-bit game can keep every palette and font on the volume that is
+    // missing. Saying so is the only safe answer.
+    let v = dat_one_volume(2, 0, [&[1, 0, 1, 0, 0, 0], &[2, 0, 1, 0, 0, 0, 7, 8]]);
+    assert!(m16::Container::from_bytes(v, "t".into()).is_err());
+}
+
+#[test]
+fn a_slot_flagged_for_a_volume_that_is_not_there_reads_as_empty() {
+    // The occupancy word is a bitmask over volumes. A one-volume container
+    // whose slot 2 says "volume 2" is a contradiction, not a reason to index
+    // into a volume that does not exist: the slot has no bytes and the
+    // container says which slots disagree with it.
+    let mut v = dat_one_volume(1, 0, [&[1, 0, 1, 0, 0, 0], &[2, 0, 1, 0, 0, 0, 7, 8]]);
+    v[0x26 + 4..0x26 + 6].copy_from_slice(&2u16.to_le_bytes());
+    let c = m16::Container::from_bytes(v, "t".into()).unwrap();
+    assert_eq!(c.present(m16::Segment::Gfx), [0]);
+    assert!(c.item(m16::Segment::Gfx, 2).unwrap().is_none());
+    assert_eq!(c.occupancy_mismatches(), [2]);
+}
+
+#[test]
+fn a_packed_item_whose_header_is_not_gfxcrunch_is_refused() {
+    for (dictionary, width) in [(1024, 9), (2048, 12), (0, 0)] {
+        let item = packed_item(dictionary, width);
+        let v = dat_one_volume(1, 1, [&item, &item]);
+        assert!(
+            m16::Container::from_bytes(v, "t".into()).is_err(),
+            "dictionary {dictionary}, width {width}"
+        );
+    }
+    // A packed flag over an item that carries no header at all is the same
+    // answer: the flag says how to read it and the bytes say it cannot be.
+    let v = dat_one_volume(1, 1, [&[1, 0, 1, 0, 0, 0], &[2, 0, 1, 0, 0, 0, 7, 8]]);
+    assert!(m16::Container::from_bytes(v, "t".into()).is_err());
+}
+
+#[test]
+fn a_packed_item_is_handed_out_unpacked() {
+    let item = packed_item(2048, 9);
+    let v = dat_one_volume(1, 1, [&item, &item]);
+    let c = m16::Container::from_bytes(v, "t".into()).unwrap();
+    assert_eq!(c.item(m16::Segment::Gfx, 0).unwrap(), Some(&[1, 2, 3][..]));
+    assert_eq!(c.item(m16::Segment::Gfx, 2).unwrap(), Some(&[1, 2, 3][..]));
+    assert!(c.packed(m16::Segment::Gfx));
+    assert!(!c.packed(m16::Segment::Txt));
+}
+
 #[test]
 fn an_executable_that_is_not_mz_or_is_cut_short_is_refused() {
     assert!(m16::mz::Image::parse(vec![]).is_err());

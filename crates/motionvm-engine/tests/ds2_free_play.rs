@@ -21,13 +21,14 @@
 
 use motionvm_engine::{DescriptorKind, Game};
 use motionvm_forth::Address;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// The key code `ICTRL` compares against, from the game's own bytecode.
 const ESCAPE: i32 = 27;
 
 /// The mode cell of `_ORDER`, at +0x0c.
-fn order_mode(game: &Game) -> i32 {
+fn order_mode(game: &Game<Vm>) -> i32 {
     let base = motionvm_forth::m32::word_address(&game.vm, 2, "_ORDER")
         .expect("_ORDER")
         .next();
@@ -37,7 +38,7 @@ fn order_mode(game: &Game) -> i32 {
 }
 
 /// The answer boxes currently on screen: text descriptors at level 99.
-fn answers(game: &Game) -> Vec<(i32, i32)> {
+fn answers(game: &Game<Vm>) -> Vec<(i32, i32)> {
     game.engine
         .descriptors()
         .iter()
@@ -47,7 +48,7 @@ fn answers(game: &Game) -> Vec<(i32, i32)> {
 }
 
 /// Whether the game is the player's: both gates open.
-fn free(game: &Game) -> bool {
+fn free(game: &Game<Vm>) -> bool {
     game.get_var(2, "_SYS_LEVEL") == Some(0)
         && !game.engine.in_transition()
         && matches!(order_mode(game), 0 | 8 | 9)
@@ -62,7 +63,7 @@ fn free(game: &Game) -> bool {
 ///
 /// Returns the number of frames it took, so a change in the scene's length
 /// shows up as a number rather than as a timeout.
-fn play_into_free_play(dir: &std::path::Path) -> (Game, usize) {
+fn play_into_free_play(dir: &std::path::Path) -> (Game<Vm>, usize) {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
@@ -201,7 +202,7 @@ fn the_inventory_arrows_scroll_the_window() {
     // numbers. More than eight items, so there is somewhere to scroll to.
     let list = game.get_var(2, "_ACTINV").expect("_ACTINV") as u32;
     let head = Address::new(list >> 16, list & 0xffff);
-    let offset = |g: &Game| g.vm.fetch(head).unwrap_or(0) as i32;
+    let offset = |g: &Game<Vm>| g.vm.fetch(head).unwrap_or(0) as i32;
 
     let mut item = 1;
     while count_items(&game) < 12 && item < 200 {
@@ -236,7 +237,7 @@ fn the_inventory_arrows_scroll_the_window() {
 }
 
 /// How many items the bar's list holds, up to its terminating zero.
-fn count_items(game: &Game) -> usize {
+fn count_items(game: &Game<Vm>) -> usize {
     let list = game.get_var(2, "_ACTINV").unwrap_or(0) as u32;
     let cell = |off: u32| {
         game.vm

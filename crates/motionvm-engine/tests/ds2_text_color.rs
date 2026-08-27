@@ -26,10 +26,11 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// A game standing in the title with the intro's fades run out.
-fn settled(dir: &std::path::Path) -> Game {
+fn settled(dir: &std::path::Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
@@ -43,7 +44,7 @@ fn settled(dir: &std::path::Path) -> Game {
     panic!("the game never settled");
 }
 
-fn shown(game: &mut Game) -> motionvm_render::Framebuffer {
+fn shown(game: &mut Game<Vm>) -> motionvm_render::Framebuffer {
     game.engine.draw();
     game.engine.present();
     game.render()

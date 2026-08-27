@@ -527,7 +527,7 @@ impl Engine {
         self.display.size
     }
 
-    /// The off-screen buffers the 16-bit game has asked for.
+    /// The off-screen buffers a 16-bit game has asked for.
     pub fn buffers(&self) -> &buffer::Buffers {
         &self.buffers
     }

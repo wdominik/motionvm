@@ -34,6 +34,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::{DescriptorKind, Game};
+use motionvm_forth::m32::Vm;
 use motionvm_render::Framebuffer;
 use motionvm_testutil::gamedata_ds2;
 use std::path::Path;
@@ -75,7 +76,7 @@ fn drew_something(name: &str, frame: &Framebuffer) {
 /// A state predicate rather than a frame count on purpose: a step is one band
 /// while a curtain runs, so a fixed number of them would spend most of itself
 /// inside the fade. The rest of this suite settles the same way.
-fn settle(game: &mut Game) {
+fn settle(game: &mut Game<Vm>) {
     let mut guard = 0;
     while game.engine.in_transition() {
         game.set_input(0, 0, false, false, 0).expect("input");
@@ -90,7 +91,7 @@ fn settle(game: &mut Game) {
     game.step().expect("a settled frame");
 }
 
-fn click(game: &mut Game) {
+fn click(game: &mut Game<Vm>) {
     game.set_input(0, 0, true, false, 0).expect("click");
     game.step().expect("the frame with the click");
     game.set_input(0, 0, false, false, 0).expect("input");
@@ -98,7 +99,7 @@ fn click(game: &mut Game) {
     settle(game);
 }
 
-fn title(dir: &Path) -> Game {
+fn title(dir: &Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.startup_only().expect("startup");
     game.enter_location(23).expect("title macro");
@@ -111,7 +112,7 @@ fn title(dir: &Path) -> Game {
 /// `ICTRL` only fills `_IMX` while the pointer is in the bar, and only when it
 /// runs at all — while a word is part-way through, the frame goes to that word
 /// instead. Waiting for `_IMX` to answer is waiting for both.
-fn settled_in_the_title(dir: &Path) -> Game {
+fn settled_in_the_title(dir: &Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
@@ -126,7 +127,7 @@ fn settled_in_the_title(dir: &Path) -> Game {
 }
 
 /// The answer menu is four text descriptors at level 99.
-fn menu_lines(game: &Game) -> usize {
+fn menu_lines(game: &Game<Vm>) -> usize {
     game.engine
         .descriptors()
         .iter()

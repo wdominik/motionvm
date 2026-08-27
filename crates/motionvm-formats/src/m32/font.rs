@@ -1,6 +1,6 @@
 //! Fonts as the 32-bit engine stores them (`Kind::Font`, and the loose
 //! `000.FNT`): the glyph table of [`crate::font::Font`], LZW-compressed with
-//! the very same codec as the sprites — see [`crate::m32::lzw`] — behind a
+//! the very same codec as the sprites — see [`crate::lzw`] — behind a
 //! header that states the codec parameters outright rather than leaving them
 //! implicit:
 //!
@@ -18,7 +18,7 @@
 
 use crate::error::{Error, Result};
 use crate::font::Font;
-use crate::m32::lzw;
+use crate::lzw;
 use crate::u16le;
 
 /// Bytes of font header before the LZW stream.

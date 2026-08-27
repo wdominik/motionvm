@@ -2,7 +2,7 @@
 
 # The FM driver — `fmmidi3.com`
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit-enviro).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 The music the game actually makes is made by this: 14,416 bytes of 32-bit code
 inside [`HMIMDRV.386`](../formats/driver-archive.md), device id `0xA009`, which

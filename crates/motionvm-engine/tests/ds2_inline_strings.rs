@@ -16,11 +16,12 @@
 
 use motionvm_engine::Game;
 use motionvm_forth::Address;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// Reads a NUL-terminated name out of module memory, the way every consumer of
 /// one of these addresses does.
-fn name_at(game: &Game, packed: u32) -> String {
+fn name_at(game: &Game<Vm>, packed: u32) -> String {
     (0..16u32)
         .map(|i| {
             let at = Address::new(packed >> 16, (packed & 0xffff) + i);

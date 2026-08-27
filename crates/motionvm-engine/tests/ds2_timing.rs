@@ -20,12 +20,13 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::{DescriptorKind, Game};
+use motionvm_forth::m32::Vm;
 use motionvm_render::Framebuffer;
 use motionvm_testutil::gamedata_ds2;
 use std::time::Instant;
 
 /// Frames of nothing in particular, to get past startup into a real scene.
-fn play(game: &mut Game, frames: usize) {
+fn play(game: &mut Game<Vm>, frames: usize) {
     for _ in 0..frames {
         game.set_input(0, 0, false, false, 0).unwrap();
         game.step().unwrap();

@@ -21,6 +21,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// The terminal's first text row and how tall one is — `INITFADE` places row
@@ -37,7 +38,7 @@ const LEFT: i32 = 90;
 const RIGHT: i32 = 574;
 
 /// Drives the game into the terminal with the player already logged in.
-fn terminal(dir: &std::path::Path) -> Game {
+fn terminal(dir: &std::path::Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
@@ -76,7 +77,7 @@ fn terminal(dir: &std::path::Path) -> Game {
 ///
 /// Index 9 counts as nothing: that is the colour the monitor's screen area
 /// carries in background sprite 4009, and the one the bars paint in.
-fn dark_rows(game: &mut Game, rows: i32) -> i32 {
+fn dark_rows(game: &mut Game<Vm>, rows: i32) -> i32 {
     let frame = game.render();
     let lit = |y: i32| (LEFT..RIGHT).any(|x| frame.get(x, y).is_some_and(|p| p != 0 && p != 9));
     (0..rows)
@@ -85,7 +86,7 @@ fn dark_rows(game: &mut Game, rows: i32) -> i32 {
 }
 
 /// How many of the first `rows` rows carry anything at all.
-fn written_rows(game: &mut Game, rows: i32) -> i32 {
+fn written_rows(game: &mut Game<Vm>, rows: i32) -> i32 {
     let frame = game.render();
     (0..rows)
         .filter(|r| {

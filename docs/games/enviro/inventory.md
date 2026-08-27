@@ -2,7 +2,7 @@
 
 # Resource Inventory
 
-*Die Enviro-Kids greifen ein — this page describes the game's own data. The engine it runs on is documented under [MOTION 16-bit](../../README.md#motion-16-bit-enviro).*
+*Die Enviro-Kids greifen ein — this page describes the game's own data. The engine it runs on is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 A survey of everything `DATA.-1-` holds. Counts, ids and sizes are measured
 from the shipped file.

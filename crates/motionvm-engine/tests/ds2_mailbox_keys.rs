@@ -29,6 +29,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// The codes module 216 dispatches on.
@@ -48,13 +49,13 @@ const RETURN: i32 = 13;
 const SETTLE: usize = 60;
 
 /// One press, then long enough for the terminal to have acted on it.
-fn press(game: &mut Game, key: i32) {
+fn press(game: &mut Game<Vm>, key: i32) {
     game.set_input(0, 0, false, false, key).expect("input");
     game.step().expect("the frame the key arrives on");
     idle(game, SETTLE);
 }
 
-fn idle(game: &mut Game, frames: usize) {
+fn idle(game: &mut Game<Vm>, frames: usize) {
     for _ in 0..frames {
         game.set_input(0, 0, false, false, 0).expect("input");
         game.step().expect("a frame");
@@ -66,7 +67,7 @@ fn idle(game: &mut Game, frames: usize) {
 /// The terminal's screens are task phases, and a phase that is mid-fade or
 /// waiting on `->LTWAIT` is not a place to press a key. Nothing announces
 /// "done", so what is waited for is the task and phase not moving.
-fn settled(game: &mut Game, what: &str) {
+fn settled(game: &mut Game<Vm>, what: &str) {
     let mut held = 0;
     let mut where_ = game.task_phase();
     for _ in 0..3000 {
@@ -84,7 +85,7 @@ fn settled(game: &mut Game, what: &str) {
 
 /// Runs until the terminal is where the test needs it, or says what it was
 /// waiting for.
-fn until(game: &mut Game, want: &str, mut ready: impl FnMut(&Game) -> bool) {
+fn until(game: &mut Game<Vm>, want: &str, mut ready: impl FnMut(&Game<Vm>) -> bool) {
     for _ in 0..1500 {
         game.set_input(0, 0, false, false, 0).expect("input");
         game.step().expect("a frame");
@@ -97,7 +98,7 @@ fn until(game: &mut Game, want: &str, mut ready: impl FnMut(&Game) -> bool) {
 
 /// The mailbox on its main menu: six entries, the bar on screen, the first
 /// entry highlighted.
-fn main_menu(dir: &std::path::Path) -> Game {
+fn main_menu(dir: &std::path::Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}

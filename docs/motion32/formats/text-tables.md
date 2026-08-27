@@ -2,7 +2,7 @@
 
 # TEXT — String Tables
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit-enviro).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 A text item is a table of NUL-terminated strings. Dunkle Schatten 2 ships 133 tables
 holding 6785 strings in total: dialogue, item descriptions, UI messages.

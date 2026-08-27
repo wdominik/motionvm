@@ -767,7 +767,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-app"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "cpal",
  "motionvm-audio",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-audio"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-testutil",
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-engine"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-forth",
@@ -800,14 +800,14 @@ dependencies = [
 
 [[package]]
 name = "motionvm-formats"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "motionvm-testutil",
 ]
 
 [[package]]
 name = "motionvm-forth"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-testutil",
@@ -815,7 +815,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-render"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-testutil",
@@ -824,11 +824,11 @@ dependencies = [
 
 [[package]]
 name = "motionvm-testutil"
-version = "0.3.1"
+version = "0.4.0"
 
 [[package]]
 name = "motionvm-tools"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "motionvm-formats",
  "motionvm-forth",

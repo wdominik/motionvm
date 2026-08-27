@@ -2,7 +2,7 @@
 
 # Game Structure
 
-*Die Enviro-Kids greifen ein — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 16-bit](../../README.md#motion-16-bit-enviro).*
+*Die Enviro-Kids greifen ein — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 How the game's 65 script modules organize into a running adventure: the
 setting, the location scheme and its three module series, the verb table,

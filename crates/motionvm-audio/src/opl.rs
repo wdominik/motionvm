@@ -721,8 +721,9 @@ impl Fm {
     /// consequence well beyond percussion not bending: `bent[9]` therefore
     /// never becomes true, so once every melodic channel has bent at least
     /// once, channel 9 is the only one voice stealing will take from. In a
-    /// piece where the melodic parts all bend — and every one of the game's
-    /// does — the drums are what gets cut off when the ninth voice runs out.
+    /// piece where the melodic parts all bend — and every one of Dunkle
+    /// Schatten 2's does — the drums are what gets cut off when the ninth
+    /// voice runs out.
     fn pitch_bend(&mut self, ch: usize, msb: u8) {
         if ch == 9 {
             return;

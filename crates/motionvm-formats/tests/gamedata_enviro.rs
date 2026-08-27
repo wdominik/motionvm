@@ -42,7 +42,7 @@ fn the_header_names_the_boot_word_and_seven_segments() {
     assert_eq!(c.boot().word, 401, "RUN");
     let counts: Vec<usize> = Segment::ALL.iter().map(|&s| c.slot_count(s)).collect();
     assert_eq!(counts, [2500, 1000, 700, 25, 10, 10, 100]);
-    assert_eq!(c.open_fields(), [1, 3]);
+    assert_eq!((c.volumes(), c.spare_offsets()), (1, 3));
     assert_eq!(c.first_item_offset(), 26120);
     assert_eq!(
         c.trailing_slack(),

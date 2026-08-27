@@ -17,10 +17,20 @@ use std::path::Path;
 
 type Res = Result<(), Box<dyn std::error::Error>>;
 
-/// The kernel of the game in `dir`: `ENVIRO.EXE` read and its tables bound.
+/// The 16-bit engine binaries a game directory may hold, in probe order.
+///
+/// A second list of the same two names as the engine crate's, on purpose: this
+/// tool reads a game's files without opening the game, and does not depend on
+/// the engine.
+const ENGINES: [&str; 2] = ["ENVIRO.EXE", "HPPLAY.EXE"];
+
+/// The kernel of the game in `dir`: its engine binary read and its tables
+/// bound. The binary is read, never run — the word table is what is wanted.
 fn binding(dir: &Path) -> Result<Binding, Box<dyn std::error::Error>> {
-    let exe = motionvm_formats::find_ci(dir, "ENVIRO.EXE")
-        .ok_or_else(|| format!("{}: no ENVIRO.EXE", dir.display()))?;
+    let exe = ENGINES
+        .iter()
+        .find_map(|name| motionvm_formats::find_ci(dir, name))
+        .ok_or_else(|| format!("{}: no {}", dir.display(), ENGINES.join(" and no ")))?;
     let img = mz::Image::open(exe)?;
     Ok(mz::binding_of(&mz::kernel_words(&img))?)
 }
@@ -36,11 +46,12 @@ pub(crate) fn info(dir: &Path) -> Res {
     let c = Container::open_dir(dir)?;
     let boot = c.boot();
     println!(
-        "{:>10}  boot: module {} word {}; header words {:?}",
+        "{:>10}  boot: module {} word {}; {} volume(s), {} spare offset entries",
         "DATA.-1-",
         boot.module,
         boot.word,
-        c.open_fields()
+        c.volumes(),
+        c.spare_offsets()
     );
     for &seg in &Segment::ALL {
         let ids = c.present(seg);
@@ -50,10 +61,11 @@ pub(crate) fn info(dir: &Path) -> Res {
             .map(<[u8]>::len)
             .sum();
         println!(
-            "{:>10}  {:>5} of {:>5} slots occupied, {bytes:>9} bytes",
+            "{:>10}  {:>5} of {:>5} slots occupied, {bytes:>9} bytes{}",
             seg.name(),
             ids.len(),
-            c.slot_count(seg)
+            c.slot_count(seg),
+            if c.packed(seg) { ", packed" } else { "" }
         );
     }
     let songs = c

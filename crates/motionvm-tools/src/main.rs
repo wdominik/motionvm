@@ -8,10 +8,11 @@
 //! motionvm-tools script  <gamedata> <id>                   module header, symbols, disassembly
 //! ```
 //!
-//! The directory's files say which game it is: `NNN.RSC` containers beside
-//! `ENGINE.EXE` are a 32-bit game (Dunkle Schatten 2) and go to [`m32`], a
-//! `DATA.-1-` beside `ENVIRO.EXE` is a 16-bit game (Die Enviro-Kids greifen
-//! ein) and goes to [`m16`]. The two command sets write the same kinds of
+//! The directory's files say which generation it is: `NNN.RSC` containers
+//! beside `ENGINE.EXE` are a 32-bit game (Dunkle Schatten 2) and go to
+//! [`m32`], a `DATA.-1-` is a 16-bit game (Die Enviro-Kids greifen ein or
+//! Jeff Jet - Abenteuer InfoHighway, told apart by the engine binary beside
+//! it) and goes to [`m16`]. The two command sets write the same kinds of
 //! files where the data allows and say where they differ.
 
 mod json;
@@ -48,10 +49,11 @@ usage: motionvm-tools <command> [arguments]
                                      and disassembly, on stdout
 
 <gamedata> is the directory the game was installed into: 001.RSC and
-ENGINE.EXE for Dunkle Schatten 2 (MOTION 32-bit), DATA.-1- and ENVIRO.EXE
-for Die Enviro-Kids greifen ein (MOTION 16-bit). --pal names the palette a
-16-bit sprite is written through — its sprites carry none — and defaults
-to 0, the one the game installs first; a 32-bit sprite carries its own.";
+ENGINE.EXE for Dunkle Schatten 2 (MOTION 32-bit), DATA.-1- and ENVIRO.EXE for
+Die Enviro-Kids greifen ein, DATA.-1-, DATA.-2- and HPPLAY.EXE for Jeff Jet -
+Abenteuer InfoHighway (both MOTION 16-bit). --pal names the palette a 16-bit
+sprite is written through — its sprites carry none — and defaults to 0, the
+one the game installs first; a 32-bit sprite carries its own.";
 
 fn usage() -> ! {
     eprintln!("{USAGE}");
@@ -62,7 +64,7 @@ fn usage() -> ! {
 enum Generation {
     /// `NNN.RSC` containers and `ENGINE.EXE`.
     M32,
-    /// One `DATA.-1-` and `ENVIRO.EXE`.
+    /// A `DATA.-n-` container, and the engine binary beside it.
     M16,
 }
 

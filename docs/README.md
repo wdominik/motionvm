@@ -1,13 +1,14 @@
 # MOTION — Technical Documentation
 
 Reverse-engineering documentation for **MOTION**, the DOS adventure authoring
-system by DigiTales (Stefan Hoffmann), and for the two games built with it
-that motionvm runs:
+system by DigiTales (Stefan Hoffmann), and for the games built with it that
+motionvm plays today:
 
 | Game | Short name | Engine generation |
 |---|---|---|
 | *Im Netzwerk gefangen – Dunkle Schatten 2* (1996, Art Department Werbeagentur GmbH, commissioned by the Bundesministerium des Innern) | **DS2** | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22 |
 | *Die Enviro-Kids greifen ein* (1996, Art Department Werbeagentur GmbH, commissioned by the Ministerium für Umwelt, Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen — the shipped files name no client) | **ENVIRO** | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27 |
+| *Jeff Jet - Abenteuer InfoHighway* (Promotion Software GmbH, commissioned by the Hewlett Packard GmbH — the in-game credits name both; `HP.BAT` signs off 1995, the shipped files are re-stamped 1998-04-10) | **JEFFJET** | **MOTION 16-bit** — `HPPLAY.EXE`, an older build of the same player |
 
 ## The engine and its two generations
 
@@ -17,14 +18,15 @@ binary. A game made with it is *data* — compiled Forth script modules plus
 sprites, palettes, fonts, texts and music in resource containers. The engine
 binary reads that data and runs it.
 
-The two games on hand were built two months apart with two generations of
-that system. They share the *language* and most of the *vocabulary*; they do
-not share the *machine*:
+Those three were built with two generations of that system, and so were the
+MOTION games this documentation cites but does not describe. The generations
+share the *language* and most of the *vocabulary*; they do not share the
+*machine*:
 
-| | MOTION 16-bit (ENVIRO) | MOTION 32-bit (DS2) |
+| | MOTION 16-bit | MOTION 32-bit (DS2) |
 |---|---|---|
-| Binary | `ENVIRO.EXE`: 16-bit real-mode MZ, Turbo-C, needs EMS; player only, no compiler | `ENGINE.EXE`: 32-bit LE for DOS/4GW, Watcom C/C++32; IDE, compiler, debugger and player |
-| Container | One file, `DATA.-1-`, seven segments in one id space | `NNN.RSC` files, merged by type and id |
+| Binary | `ENVIRO.EXE` and `HPPLAY.EXE`: 16-bit real-mode MZ, Turbo-C, needs EMS; player only, no compiler | `ENGINE.EXE`: 32-bit LE for DOS/4GW, Watcom C/C++32; IDE, compiler, debugger and player |
+| Container | `DATA.-n-`, one volume per floppy, seven segments in one id space, items packed or plain | `NNN.RSC` files, merged by type and id |
 | Cell | 16 bits | 32 bits |
 | Kernel call | `0x8000 \| ordinal`, ordinals 1-based in two tables | `0x4000xxxx`, ordinals in steps of five |
 | Word call | A global 16-bit word id through a table `=>GET` fills | `(module << 16) \| offset` |
@@ -62,10 +64,11 @@ exercises.
   numbers.
 - **Provenance.** A page under `motion32/` describes the 32-bit engine as
   measured on DS2's files; a page under `motion16/` describes the 16-bit engine
-  as measured on ENVIRO's. Pages under `games/` describe one game's own data
-  and script library. A sentence that names neither game holds for both
-  generations; a count ("all 86 modules", "all 1586 sprites") is always a
-  count over one game's corpus, and says which.
+  as measured on ENVIRO's, and on Jeff Jet's where the two builds differ.
+  Pages under `games/` describe one game's own data and script library. A
+  sentence that names no game holds for the whole generation; a count ("all 86
+  modules", "all 1586 sprites") is always a count over one game's corpus, and
+  says which.
 
 ## Documentation map
 
@@ -102,11 +105,11 @@ exercises.
 | [Walking](motion32/engine/walking.md) | The figure-movement system (`DOWALK` and the script words) |
 | [Savegames](motion32/engine/savegames.md) | The three files a slot is made of, and what a save keeps |
 
-### MOTION 16-bit (ENVIRO)
+### MOTION 16-bit
 
 | Page | Covers |
 |---|---|
-| [The DATA container](motion16/formats/data-container.md) | `DATA.-1-`: header, occupancy flags, offset table, the seven segments |
+| [The DATA container](motion16/formats/data-container.md) | `DATA.-n-`: header, volumes, the occupancy bitmask, the offset tables, packed items, the seven segments |
 | [Sprites](motion16/formats/sprites.md) | Raw 8-bit graphics without a palette of their own |
 | [Fonts](motion16/formats/fonts.md) | Raw bitmap fonts and the font reference table |
 | [Text tables](motion16/formats/text-tables.md) | String tables with relative offsets |
@@ -116,7 +119,8 @@ exercises.
 | [Execution model](motion16/vm/execution-model.md) | Interpreter, stacks, the flat address space, the word table |
 | [Threaded code](motion16/vm/threaded-code.md) | Cell encoding, ordinals, inline operands, branches |
 | [Kernel words](motion16/vm/kernel-words.md) | The 233-word kernel, its two tables, what the game uses |
-| [ENVIRO.EXE](motion16/engine/enviro-exe.md) | The MZ binary, what lives where |
+| [ENVIRO.EXE](motion16/engine/enviro-exe.md) | The later build of the player: the MZ binary, what lives where |
+| [HPPLAY.EXE](motion16/engine/hpplay-exe.md) | The earlier build: five words fewer, every ordinal from 124 up shifted |
 | [Boot and frame loop](motion16/engine/boot-and-loop.md) | `RUN`, `SCRCTRL`, `ANIMPLAY`, location changes, shutdown |
 | [Descriptors and screens](motion16/engine/descriptors.md) | What the scripts' call sites establish about the kernel's display words |
 | [Text rendering](motion16/engine/text-rendering.md) | The drawer's two passes, the gaps, justification |
@@ -147,6 +151,15 @@ exercises.
 | [Module map](games/enviro/module-map.md) | What each of the 65 script modules does |
 | [Resource inventory](games/enviro/inventory.md) | What `DATA.-1-` holds, by the numbers |
 | [Other files](games/enviro/other-files.md) | Sound setup and drivers, the launcher, readme, leftovers |
+
+### Jeff Jet - Abenteuer InfoHighway
+
+| Page | Covers |
+|---|---|
+| [Game structure](games/jeffjet/game-structure.md) | Setting, the thirteen locations, the three module series, verbs, saving |
+| [Module map](games/jeffjet/module-map.md) | What each of the 55 script modules does |
+| [Resource inventory](games/jeffjet/inventory.md) | What the two `DATA.-n-` volumes hold, by the numbers |
+| [Other files](games/jeffjet/other-files.md) | The launcher, the sound stack, the two splash pictures |
 
 ### Reference
 
@@ -185,3 +198,13 @@ exercises.
 | `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers ([other files](games/enviro/other-files.md)) |
 | `README.TXT` | German readme (EMS setup) |
 | `A.DAT`, `32RTM.EXE`, `DPMI32VM.OVL` | Unreferenced by the game ([other files](games/enviro/other-files.md)) |
+
+### Jeff Jet - Abenteuer InfoHighway
+
+| File(s) | Format |
+|---|---|
+| `DATA.-1-`, `DATA.-2-` | [The DATA container](motion16/formats/data-container.md) — the whole game, on two volumes, packed |
+| `HPPLAY.EXE` | [The older build of the MOTION 16-bit player](motion16/engine/hpplay-exe.md) |
+| `HP.BAT` | Launcher ([other files](games/jeffjet/other-files.md)) |
+| `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers, byte-identical to the other 16-bit game's ([other files](games/jeffjet/other-files.md)) |
+| `HPLOGO.EXE`, `PROMSOFT.EXE` | Graphic Workshop splash pictures, not MOTION ([other files](games/jeffjet/other-files.md)) |

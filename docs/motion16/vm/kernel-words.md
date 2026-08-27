@@ -2,7 +2,7 @@
 
 # Kernel Words
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein; what is measured here is measured on that game's files. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The 16-bit kernel registers its words in two arrays in `ENVIRO.EXE`'s data,
 each a list of 8-byte entries
@@ -35,6 +35,24 @@ parentheses (see [ENVIRO.EXE](../engine/enviro-exe.md)).
 the number of cells in the 65 modules that name the word, counted by walking
 every body with the inline operands skipped; a dash is an unused word. A
 reimplementation needs the 151; the other 82 can stay stubs for this game.
+
+## The older build's table
+
+`HPPLAY.EXE` has **228** words in the same two tables — core 82 at file
+`0x20236`, name for name and order for order the same, and domain **146** at
+`0x1f42e`. Five of ENVIRO's are missing and none is added: `SETMOUSEX`,
+`SETMOUSEY`, `SETMOUSELB` and `SETMOUSERB` (ENVIRO ordinals 124–127) and
+`?SAMPLE` (255). Four of the five sit inside the domain table rather than
+after it, so **every domain word from ordinal 124 up is four below its
+namesake here** — `DOWALK` 239 against 243, `PLAYSAMPLE` 250 against 254 —
+and the ordinals in the tables below are ENVIRO's alone. Jeff Jet's modules
+use 150 of the 228: the same set as ENVIRO's less `-FONT`, `SDBLK` and
+`SDH%SHR`, plus `GDOX` and `GDOY`.
+
+A table read from one of the two builds and applied to the other binds
+without complaint and names the wrong handler from ordinal 124 on, which is
+why the binding is scanned out of the binary the game ships with
+([HPPLAY.EXE](../engine/hpplay-exe.md)).
 
 ## Core table — ordinals 1–82
 

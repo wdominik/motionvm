@@ -26,8 +26,13 @@ use motionvm_formats::{Palette, TextTable};
 pub(crate) enum Resources {
     /// The 32-bit engine's `NNN.RSC` banks, merged into one id space.
     Motion32(Bank),
-    /// The 16-bit engine's single `DATA.-1-`.
-    Motion16(Container),
+    /// The 16-bit engine's `DATA.-n-` volumes, opened as one container.
+    ///
+    /// Boxed because the 16-bit container carries a table per volume and the
+    /// buffer its packed items were unfolded into, which would otherwise make
+    /// every `Resources` — including the 32-bit one, which holds a handful of
+    /// pointers — as wide as the widest.
+    Motion16(Box<Container>),
 }
 
 impl Resources {
@@ -135,7 +140,7 @@ impl Resources {
     }
 
     /// The font a text draws in when nothing chose one: the loose `000.FNT`
-    /// beside the 32-bit banks; for the 16-bit game font 0 of the container —
+    /// beside the 32-bit banks; for a 16-bit game font 0 of the container —
     /// the text face, which is what `0 SDFNT` at eight of its sites reads as.
     /// Read now, both ends: `SDFNT` (`05f1:1375`) stores a bare table index
     /// at `+0x2b`, and `NEWANIM` (`05f1:0021`) runs `0 +FONT` first thing —
@@ -173,7 +178,7 @@ impl Engine {
         self.pointer_counted = true;
         self.pointer_visible = false;
         self.save_layout = crate::save::Layout::Motion16;
-        self.with_resources(dir, Resources::Motion16(container))
+        self.with_resources(dir, Resources::Motion16(Box::new(container)))
     }
 
     fn with_resources(mut self, dir: &std::path::Path, resources: Resources) -> Self {

@@ -1,11 +1,11 @@
 //! Setting the game up and stepping it, without a screen attached.
 //!
-//! [`Game`] is the whole machine assembled and ready to step: the containers
+//! [`Game<Vm>`] is the whole machine assembled and ready to step: the containers
 //! opened, the kernel table lifted out of the engine binary, the modules
 //! loaded, the VM wired to the engine as its host. It is generic over the
-//! machine — the 32-bit one by default, which is what every caller that just
-//! says `Game` gets — and what one game does that another does not lives in
-//! `titles/`, behind [`Hooks`]. What it does not own is the clock or
+//! machine, and named with it — `Game<m32::Vm>` or `Game<m16::Vm>`, neither
+//! of them the default — and what one game does that another does not lives
+//! in `titles/`, behind [`Hooks`]. What it does not own is the clock or
 //! the window — a caller decides when a frame happens and what becomes of the
 //! picture. That split is what lets the same setup drive a window, a test and a
 //! headless run without any of the three knowing about the others.
@@ -17,7 +17,7 @@
 
 use std::path::Path;
 
-use motionvm_forth::{Address, Host, Machine, Run, m32};
+use motionvm_forth::{Address, Host, Machine, Run};
 use motionvm_render::Framebuffer;
 
 use crate::Engine;
@@ -31,11 +31,18 @@ pub(crate) type Res<T> = Result<T, Box<dyn std::error::Error>>;
 /// and the test suite drives them. A **frontend** needs neither — see
 /// [`Game::palette`], [`Game::frame_duration`] and [`Game::set_music`], which
 /// are the three things a window turns out to want.
-pub struct Game<M: Machine = m32::Vm> {
+pub struct Game<M: Machine> {
     /// The interpreter, with the game's modules loaded.
     pub vm: M,
     /// The runtime the interpreter's words act on.
     pub engine: Engine,
+    /// Which game this is.
+    ///
+    /// The one thing a loaded game cannot work out from its own parts: the two
+    /// 16-bit titles run the same machine on the same container format, and
+    /// Rust allows one `Playable` for one concrete `Game<M>`. The opener knows,
+    /// and writes it down here.
+    pub(crate) title: crate::titles::Title,
     /// Whether a word is part-way through and waiting to be resumed.
     pub(crate) running: bool,
     /// Whether the execution now on the machine is the one put back after

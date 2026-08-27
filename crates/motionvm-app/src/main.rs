@@ -16,8 +16,8 @@
 //! palette. So the picture is scaled by whole numbers and centered in
 //! whatever space is left, with black around it. The two axes carry their own
 //! whole number, because the pixels themselves were not square everywhere:
-//! Die Enviro-Kids greifen ein's 320×200 filled a 4:3 monitor, each pixel 6/5
-//! as tall as wide ([`Playable::pixel_aspect`]), so its picture is drawn in
+//! the 16-bit games' 320×200 filled a 4:3 monitor, each pixel 6/5 as tall as
+//! wide ([`Playable::pixel_aspect`]), so their picture is drawn in
 //! sx×sy blocks with sy/sx as close to 6/5 as whole numbers allow — exact at
 //! ×5/×6 and its multiples. Dunkle Schatten 2's 640×480 is square-pixel 4:3
 //! and keeps sx = sy.
@@ -59,7 +59,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 /// round the pixel aspect down — the window may open a touch narrow, never
 /// squashed. Square pixels get (2, 2): 1280x960 logical points fit under the
 /// title bar of a 1080p screen and three times — 1920x1440 — does not.
-/// Die Enviro-Kids greifen ein's 6:5 pixels get (3, 4) — 960×800 — because
+/// The 16-bit games' 6:5 pixels get (3, 4) — 960×800 — because
 /// (2, 2) would show the squash this pair exists to correct.
 fn base_pair(aspect: (u32, u32)) -> (u32, u32) {
     let mut sx = 2;
@@ -148,13 +148,14 @@ motionvm — the MOTION engine, for the games built with it
 usage: motionvm [GAMEDIR] [options]
 
   GAMEDIR         the directory a game is installed in: 001.RSC and
-                  ENGINE.EXE (Dunkle Schatten 2), or DATA.-1- and
-                  ENVIRO.EXE (Die Enviro-Kids greifen ein). Without
+                  ENGINE.EXE (Dunkle Schatten 2), DATA.-1- and ENVIRO.EXE
+                  (Die Enviro-Kids greifen ein), or DATA.-1-, DATA.-2- and
+                  HPPLAY.EXE (Jeff Jet - Abenteuer InfoHighway). Without
                   one, a folder dialog asks for it.
 
 options:
   --loc N         start in location N: instead of the intro (Dunkle
-                  Schatten 2), or right after it (Die Enviro-Kids greifen ein).
+                  Schatten 2), or right after it (the two 16-bit games).
   --no-sound      do not open an audio device.
   -h, --help      this text.
 ";
@@ -245,7 +246,10 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
 fn choose_game() -> Option<(PathBuf, Box<dyn Playable>)> {
     loop {
         let dir = rfd::FileDialog::new()
-            .set_title("Choose the game directory (it holds 001.RSC and ENGINE.EXE, or DATA.-1- and ENVIRO.EXE)")
+            .set_title(
+                "Choose the game directory (it holds 001.RSC and ENGINE.EXE, \
+                 or DATA.-1- and the 16-bit player)",
+            )
             .pick_folder()?;
         match titles::open(&dir) {
             Ok(game) => return Some((dir, game)),
@@ -302,22 +306,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     // Before `start()`: the very first location is entered during startup and
-    // its `STARTTUNE` has to find a sink already in place. Each game brings
-    // its own stack — Dunkle Schatten 2's HMI songs through the rebuilt MIDI
-    // driver, Die Enviro-Kids greifen ein's PSM 2 tunes through the rebuilt
-    // `MUSADL.DRV` sequencer.
+    // its `STARTTUNE` has to find a sink already in place. Each generation
+    // brings its own stack — Dunkle Schatten 2's HMI songs through the rebuilt
+    // MIDI driver, the 16-bit games' PSM 2 tunes through the rebuilt
+    // `MUSADL.DRV` sequencer, whose driver file is byte-identical in both.
     let audio = if quiet {
         None
     } else {
         let opened = match game.title() {
-            Title::DunkleSchatten2 => sound::open(&dir).map(|(stream, music)| {
+            Title::DunkleSchatten2 => sound::open_motion32(&dir).map(|(stream, music)| {
                 game.set_music(Box::new(music));
                 stream
             }),
-            Title::EnviroKids => sound::open_enviro(&dir).map(|(stream, music)| {
-                game.set_music(Box::new(music));
-                stream
-            }),
+            Title::EnviroKids | Title::JeffJet => {
+                sound::open_motion16(&dir).map(|(stream, music)| {
+                    game.set_music(Box::new(music));
+                    stream
+                })
+            }
         };
         match opened {
             Ok(stream) => Some(stream),
@@ -336,15 +342,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the engine refuses a save directory inside it. And a flag that points the
     // slots elsewhere is mostly a way to point them at something that is not a
     // save directory; the one place they belong is the one `data_dir` names.
-    // The two games name their slots alike — `701.blk`, `701.anm`, `701.FRZ`
+    // All three games name their slots alike — `701.blk`, `701.anm`, `701.FRZ`
     // and so on up to 705 — and each asks at start-up whether a slot exists,
-    // so they cannot share a directory: Die Enviro-Kids greifen ein would
-    // find Dunkle Schatten 2's saves and open its load page on them. Each
-    // therefore gets a subdirectory of `saves/` named for it, and neither is
-    // the special case: `saves/ds2/` and `saves/enviro/`.
+    // so they cannot share a directory: one would find another's saves and
+    // open its load page on them. The two 16-bit games would go further and
+    // load one, because the savegame magic is the generation's and not the
+    // game's. Each therefore gets a subdirectory of `saves/` named for it, and
+    // none is the special case: `saves/ds2/`, `saves/enviro/`, `saves/jeffjet/`.
     let saves = data_path("saves").join(match game.title() {
         Title::DunkleSchatten2 => "ds2",
         Title::EnviroKids => "enviro",
+        Title::JeffJet => "jeffjet",
     });
     let shot = data_path("shot.png");
     if let Err(e) = game.set_saves(&saves) {
@@ -437,7 +445,7 @@ const MIN_PRESENT: Duration = Duration::from_nanos(1_000_000_000 / 120);
 struct App {
     game: Box<dyn Playable>,
     /// The game's picture size — 640×480 for Dunkle Schatten 2, 320×200 for
-    /// Die Enviro-Kids greifen ein — which the window is a whole multiple of,
+    /// the two 16-bit games — which the window is a whole multiple of,
     /// axis by axis.
     size: (u32, u32),
     /// The shape of one game pixel on the original's monitor, height:width —
@@ -1057,7 +1065,7 @@ mod tests {
     /// A flag's operand must not fall through to the positional.
     ///
     /// Taken as "the first argument not starting with `--`", the `5` of
-    /// `--loc 5` becomes the game directory and the game looks for `001.RSC`
+    /// `--loc 5` becomes the game directory, and a game gets looked for
     /// inside a directory called `5`.
     #[test]
     fn a_flags_value_is_not_the_game_directory() {
@@ -1269,7 +1277,7 @@ mod tests {
         assert_eq!(opening_pair(game, par, 960, 800), (3, 4)); // none fits
         assert_eq!(opening_pair((640, 480), (1, 1), 2560, 1920), (4, 4));
         // And the window opens unsquashed: (2,2) for square pixels, (3,4)
-        // for the 16-bit game's tall ones.
+        // for the 16-bit games' tall ones.
         assert_eq!(base_pair((1, 1)), (2, 2));
         assert_eq!(base_pair((6, 5)), (3, 4));
     }

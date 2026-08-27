@@ -23,6 +23,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// The title card times out on its own and the scene moves on.
@@ -248,7 +249,7 @@ fn a_location_takes_its_scenery_with_it() {
     // of on the scene. `Game::step` runs the controller only when no curtain is
     // up, which is exactly the original's rule — the fade handler spins and the
     // frame loop does not turn.
-    let run = |game: &mut Game, frames: usize| {
+    let run = |game: &mut Game<Vm>, frames: usize| {
         let mut left = frames;
         let mut guard = 0;
         while left > 0 {
@@ -265,7 +266,7 @@ fn a_location_takes_its_scenery_with_it() {
         }
     };
     // A background is a block, everything else a sprite; both count as scenery.
-    let scenery = |game: &Game| -> Vec<u32> {
+    let scenery = |game: &Game<Vm>| -> Vec<u32> {
         let mut v: Vec<u32> = game
             .engine
             .descriptors()
@@ -327,7 +328,7 @@ fn picking_an_answer_moves_the_conversation_on() {
         .expect("new game: the classroom");
 
     // Run until the answers are up: four text descriptors on one level.
-    let menu = |game: &Game| -> Vec<(i32, i32)> {
+    let menu = |game: &Game<Vm>| -> Vec<(i32, i32)> {
         game.engine
             .descriptors()
             .iter()
@@ -550,4 +551,55 @@ fn the_pointer_draws_itself_over_the_frame() {
         }
     }
     assert!(opaque > 0, "the cursor shape has visible pixels");
+}
+
+/// A MOTION 32-bit container that is not this game's is refused by name.
+///
+/// The file check `Game::open` opens with asks for a `NNN.RSC`, an
+/// `ENGINE.EXE` and a `000.FRT`, and every MOTION 32-bit game ships all
+/// three — so passing it does not mean the container holds *this* game. Nor
+/// do the words the bootstrap names: `START`, `STARTUP` and `INCLLOC` come
+/// from the authoring template, and Checker 2000, another MOTION 32-bit game,
+/// exports them from the same modules. What it does not export is module 2's
+/// `_STARTLOC`, the variable this game's own compiler named and this code
+/// reads.
+///
+/// Checker 2000's files are no more redistributable than this game's, so what
+/// stands in for them here is a directory that reaches the same state out of
+/// this game's own files: `003.RSC` holds 57 sprites and no script module at
+/// all, so a bank built from it alone has no module 2 — which is also what an
+/// incomplete copy of this game looks like. Either way the open has to stop
+/// and say so, rather than bind the template's words and fail somewhere
+/// inside the VM under this game's name.
+#[test]
+fn a_container_without_this_game_s_script_is_refused_by_name() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no gamedata directory");
+        return;
+    };
+    let tmp = std::env::temp_dir().join("motionvm-ds2-signature");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).expect("a scratch directory");
+    for name in ["003.RSC", "ENGINE.EXE", "000.FRT"] {
+        let from = motionvm_formats::find_ci(&dir, name).expect("the game ships it");
+        std::fs::copy(from, tmp.join(name)).expect("it copies");
+    }
+
+    // The file check passes: this is a MOTION 32-bit directory by every test
+    // that looks at file names alone.
+    assert!(motionvm_engine::titles::ds2::missing_data(&tmp).is_empty());
+
+    let Err(err) = Game::<Vm>::open(&tmp) else {
+        panic!("no module 2, so this is not this game and the open has to say so");
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("does not hold Dunkle Schatten 2's script"),
+        "says which game it is not: {msg}"
+    );
+    assert!(
+        msg.contains("_STARTLOC"),
+        "names the word it looked for: {msg}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
 }

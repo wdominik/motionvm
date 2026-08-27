@@ -11,8 +11,8 @@
 use std::path::Path;
 
 use motionvm_formats::m32::{Kind, ScrModule, rsc::Bank};
-use motionvm_forth::Address;
 use motionvm_forth::m32::Vm;
+use motionvm_forth::{Address, Machine};
 
 use crate::Engine;
 use crate::game::{Game, Hooks, Res};
@@ -49,6 +49,15 @@ const REQUIRED: &[(&str, &str)] = &[
         "the font reference table, without which no text is drawn",
     ),
 ];
+
+/// The words that make a MOTION 32-bit container *this* game.
+///
+/// Both are module 2 variables the game's own compiler named, and both are
+/// read from here: `_STARTLOC` is the location a run begins at,
+/// [`Playable::start_location`], and `_NEXTLOC` is the one the stand-in frame
+/// loop moves to. A container that does not define them is not a container
+/// this code can drive, whatever else it holds.
+pub const SIGNATURE: &[&str] = &["_STARTLOC", "_NEXTLOC"];
 
 /// Which of the required files `dir` does not hold, as `(what, what for)`.
 ///
@@ -104,10 +113,11 @@ impl Game<Vm> {
         if !missing.is_empty() {
             let names: Vec<&str> = missing.iter().map(|(n, _)| *n).collect();
             return Err(format!(
-                "{} is not a MOTION game directory\n  missing: {}\n  \
+                "{} is not a complete {} directory\n  missing: {}\n  \
                  This needs the files of an original installation; \
                  see \"Game data\" in the README.",
                 dir.display(),
+                Title::DunkleSchatten2.name(),
                 names.join(", "),
             )
             .into());
@@ -136,10 +146,47 @@ impl Game<Vm> {
             }
         }
 
+        // A `NNN.RSC` container beside an `ENGINE.EXE` says MOTION 32-bit. It
+        // does not say *this* game, and the words the bootstrap names do not
+        // say it either: they come from the authoring template, so another
+        // MOTION game has them too. Checker 2000 — the same container pattern
+        // beside its own `ENGINE.EXE` V0.04.15/R78 — exports `STARTUP`,
+        // `START` and `INCLLOC` from modules 3, 4 and 5 exactly as this game
+        // does. What is Dunkle Schatten 2's own is module 2's script
+        // variables, and `SIGNATURE` holds the two this code reads: the start
+        // location and the location the frame loop moves to. Checker 2000's
+        // module 2 has neither.
+        //
+        // Without the check the template's words would bind, run against
+        // another game's data, and fail somewhere inside the VM — under this
+        // game's name, which is the part that misleads. The 16-bit opener
+        // answers the same question by the engine binary beside the container;
+        // here the binary is `ENGINE.EXE` in both games, so the answer has to
+        // come from the data.
+        //
+        // The other directory this catches is a copy of this game missing the
+        // container its script is in, which reaches exactly the same state —
+        // hence a message that names the two cases rather than deciding
+        // between them, which the data cannot do.
+        if let Some(name) = SIGNATURE
+            .iter()
+            .find(|name| vm.word_address(2, name).is_none())
+        {
+            return Err(format!(
+                "{} does not hold Dunkle Schatten 2's script\n  \
+                 module 2 has no {name}, a variable this game's own compiler named\n  \
+                 This is another MOTION 32-bit game, or an incomplete copy of this one; \
+                 see \"Game data\" in the README for the files a copy needs.",
+                dir.display(),
+            )
+            .into());
+        }
+
         let engine = Engine::new().with_bank(dir, bank);
         Ok(Self {
             vm,
             engine,
+            title: Title::DunkleSchatten2,
             running: false,
             ending: false,
             over: false,

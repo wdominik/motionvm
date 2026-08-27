@@ -5,16 +5,18 @@
 # what has to pass before a change is finished.
 #
 # The game data is not in the repository and cannot be. Point GAMEDATA_DS2 at
-# your copy of Dunkle Schatten 2 and GAMEDATA_ENVIRO at your copy of Die
-# Enviro-Kids greifen ein — the defaults are directories next to this one,
-# which is where a checkout beside installed copies of the games finds them.
-# Tests that need data and cannot find it skip themselves; a *wrong* path
-# panics rather than skipping, so a typo cannot read as "no data on this
-# machine".
+# your copy of Dunkle Schatten 2, GAMEDATA_ENVIRO at your copy of Die
+# Enviro-Kids greifen ein and GAMEDATA_JEFFJET at your copy of Jeff Jet -
+# Abenteuer InfoHighway — the defaults are directories next to this one, which
+# is where a checkout beside installed copies of the games finds them. Tests
+# that need data and cannot find it skip themselves; a *wrong* path panics
+# rather than skipping, so a typo cannot read as "no data on this machine".
 DEFAULT_GAMEDATA_DS2 := justfile_directory() / ".." / "games" / "DS2"
 GAMEDATA_DS2 := DEFAULT_GAMEDATA_DS2
 DEFAULT_GAMEDATA_ENVIRO := justfile_directory() / ".." / "games" / "ENVIRO"
 GAMEDATA_ENVIRO := DEFAULT_GAMEDATA_ENVIRO
+DEFAULT_GAMEDATA_JEFFJET := justfile_directory() / ".." / "games" / "JEFFJET"
+GAMEDATA_JEFFJET := DEFAULT_GAMEDATA_JEFFJET
 
 # What actually reaches the suite.
 #
@@ -22,12 +24,17 @@ GAMEDATA_ENVIRO := DEFAULT_GAMEDATA_ENVIRO
 # built-in default is passed only when the data is really there — otherwise a
 # clone on a machine that has no copy of a game would panic on the very
 # command this file exists to define, instead of skipping the way the README
-# describes.
+# describes. The two 16-bit games are told apart by their engine binary: both
+# ship a DATA.-1-, so probing for that would let either default match the other
+# game's directory.
 _DATA_DS2 := if GAMEDATA_DS2 != DEFAULT_GAMEDATA_DS2 { GAMEDATA_DS2 } \
     else if path_exists(GAMEDATA_DS2 / "001.RSC") == "true" { GAMEDATA_DS2 } \
     else { "" }
 _DATA_ENVIRO := if GAMEDATA_ENVIRO != DEFAULT_GAMEDATA_ENVIRO { GAMEDATA_ENVIRO } \
-    else if path_exists(GAMEDATA_ENVIRO / "DATA.-1-") == "true" { GAMEDATA_ENVIRO } \
+    else if path_exists(GAMEDATA_ENVIRO / "ENVIRO.EXE") == "true" { GAMEDATA_ENVIRO } \
+    else { "" }
+_DATA_JEFFJET := if GAMEDATA_JEFFJET != DEFAULT_GAMEDATA_JEFFJET { GAMEDATA_JEFFJET } \
+    else if path_exists(GAMEDATA_JEFFJET / "HPPLAY.EXE") == "true" { GAMEDATA_JEFFJET } \
     else { "" }
 
 # Savegames cannot be reconstructed, only played to, so there is no default that
@@ -44,11 +51,13 @@ check: fmt-check clippy test doc
 # The test suite, with the games' files.
 test:
     MOTIONVM_GAMEDATA_DS2="{{ _DATA_DS2 }}" MOTIONVM_GAMEDATA_ENVIRO="{{ _DATA_ENVIRO }}" \
+        MOTIONVM_GAMEDATA_JEFFJET="{{ _DATA_JEFFJET }}" \
         MOTIONVM_SAVES="{{ SAVES }}" RUSTFLAGS="-D warnings" cargo test --workspace
 
-# One test target, e.g. `just test-one scenes` or `just test-one fm_driver`.
+# One test target, e.g. `just test-one ds2_scenes` or `just test-one enviro_psm`.
 test-one target:
     MOTIONVM_GAMEDATA_DS2="{{ _DATA_DS2 }}" MOTIONVM_GAMEDATA_ENVIRO="{{ _DATA_ENVIRO }}" \
+        MOTIONVM_GAMEDATA_JEFFJET="{{ _DATA_JEFFJET }}" \
         MOTIONVM_SAVES="{{ SAVES }}" cargo test --workspace --test {{ target }} -- --nocapture
 
 fmt:
@@ -82,10 +91,12 @@ doc:
     RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links -D warnings" \
         cargo doc --workspace --no-deps --document-private-items
 
-# The games themselves. `run` is Dunkle Schatten 2, `run-enviro` the
-# 16-bit Die Enviro-Kids greifen ein.
-run *ARGS:
+# The games themselves, one recipe each and none of them the default.
+run-ds2 *ARGS:
     cargo run --release -p motionvm-app -- "{{ GAMEDATA_DS2 }}" {{ ARGS }}
 
 run-enviro *ARGS:
     cargo run --release -p motionvm-app -- "{{ GAMEDATA_ENVIRO }}" {{ ARGS }}
+
+run-jeffjet *ARGS:
+    cargo run --release -p motionvm-app -- "{{ GAMEDATA_JEFFJET }}" {{ ARGS }}

@@ -20,11 +20,12 @@
 
 use motionvm_engine::Game;
 use motionvm_forth::Host;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::{gamedata_ds2, saves_dir};
 use std::path::{Path, PathBuf};
 
 /// Opens the game with a save directory attached.
-fn game_with_saves(dir: &Path, name: &str) -> (Game, PathBuf) {
+fn game_with_saves(dir: &Path, name: &str) -> (Game<Vm>, PathBuf) {
     let saves = saves_dir(name);
     let mut game = Game::open(dir).expect("game opens");
     game.set_saves(&saves)
@@ -33,7 +34,7 @@ fn game_with_saves(dir: &Path, name: &str) -> (Game, PathBuf) {
 }
 
 /// Runs one kernel word with the given arguments and returns what it left.
-fn kernel(game: &mut Game, word: &str, args: &[i32]) {
+fn kernel(game: &mut Game<Vm>, word: &str, args: &[i32]) {
     game.vm.data.extend_from_slice(args);
     game.engine
         .word(word, &mut game.vm)
@@ -217,7 +218,7 @@ fn the_resident_modules_are_the_ones_the_original_would_have() {
 }
 
 /// Runs the game up to a settled location, the way `4:START` does.
-fn started_in(dir: &Path, name: &str, location: i32) -> (Game, PathBuf) {
+fn started_in(dir: &Path, name: &str, location: i32) -> (Game<Vm>, PathBuf) {
     let (mut game, saves) = game_with_saves(dir, name);
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
@@ -399,7 +400,7 @@ fn a_savegame_that_does_not_fit_is_refused_before_anything_changes() {
 /// fills that table — cases 1003 and 1004 both end in `SHOW_FILES`. Saving
 /// happens to work without it, because the save path runs `SHOW_FILES` itself
 /// on the way out.
-fn open_menu(game: &mut Game, mode: i32) {
+fn open_menu(game: &mut Game<Vm>, mode: i32) {
     game.set_var(2, "_INVMODE", mode).expect("the menu mode");
     game.call(5, "SHOW_FILES", &[]).expect("5:SHOW_FILES");
 }
@@ -426,7 +427,7 @@ fn open_menu(game: &mut Game, mode: i32) {
 /// — `MOUSEY 400 <` at 0x028a0 decides it, and `_IMY` is `MOUSEY - 400`. The
 /// slot is `(_IMX - 239) / 80`, so x = 280 is slot 0 and the id is 701. The
 /// press has to be a fresh one: both branches test `_MLK @ _MPRESSED @ NOT AND`.
-fn click_slot(game: &mut Game, slot: i32) {
+fn click_slot(game: &mut Game<Vm>, slot: i32) {
     let x = 239 + 80 * slot + 20;
     game.set_input(x, 440, true, false, 0).expect("press");
     game.step().expect("the frame the click lands on");
@@ -556,7 +557,7 @@ fn a_load_leaves_the_picture_running() {
 
 /// A savegame loaded into a *fresh* game hands out no handle twice.
 ///
-/// This has to use two `Game`s, and that is the whole point. Descriptor handles
+/// This has to use two `Game<Vm>`s, and that is the whole point. Descriptor handles
 /// are counted from one and never reused within a run, so the counter in the
 /// game doing the loading is always at least as high as the one in the file —
 /// **a single-process test cannot see this fault at all.** Only a second game,

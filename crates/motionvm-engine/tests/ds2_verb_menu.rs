@@ -18,10 +18,11 @@
 
 use motionvm_engine::Game;
 use motionvm_forth::Address;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// The `_ORDER` block, and a field of it.
-fn order(game: &Game) -> Address {
+fn order(game: &Game<Vm>) -> Address {
     motionvm_forth::m32::word_address(&game.vm, 2, "_ORDER")
         .expect("_ORDER")
         .next()
@@ -39,7 +40,7 @@ fn field(base: Address, off: u32) -> Address {
 /// need is not a count but a *state* — mode 0, the machine ready for a click.
 /// Waiting for the state says so, and stops the number drifting whenever the
 /// pacing changes.
-fn until_idle(game: &mut Game, order: Address) {
+fn until_idle(game: &mut Game<Vm>, order: Address) {
     let mut guard = 0;
     loop {
         game.set_input(0, 0, false, false, 0).expect("input");
@@ -102,7 +103,7 @@ fn a_right_click_opens_the_verb_menu() {
         "and no verb is chosen yet"
     );
 
-    let strip = |game: &Game| -> Vec<(u32, i32, i32)> {
+    let strip = |game: &Game<Vm>| -> Vec<(u32, i32, i32)> {
         (0..5)
             .filter_map(|i| {
                 game.engine
@@ -231,7 +232,7 @@ fn asking_about_something_enters_the_conversation_at_its_info_answer() {
     game.set_var(2, "_NEXTLOC", 1).expect("the classroom");
 
     let o = order(&game);
-    let name_at = |game: &Game, base: u32| -> String {
+    let name_at = |game: &Game<Vm>, base: u32| -> String {
         (0..16u32)
             .map(|i| {
                 game.vm

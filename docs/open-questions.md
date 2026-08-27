@@ -6,8 +6,8 @@ A consolidated list of everything that is documented as unknown, unverified,
 or hypothetical, for both generations of the engine. Each topic page carries
 its own short "Open questions" section; this page collects them with links.
 The sections down to *The music's clock* concern the **32-bit engine** and
-Dunkle Schatten 2; [MOTION 16-bit (ENVIRO)](#motion-16-bit-enviro) collects
-the 16-bit engine's and Die Enviro-Kids greifen ein's.
+Dunkle Schatten 2; [MOTION 16-bit](#motion-16-bit) collects the 16-bit
+engine's and its two games'. An entry that names a game is that game's.
 
 ## Remaining unmapped kernel words and handler regions
 
@@ -154,11 +154,13 @@ one within 41 ms where 120 Hz runs 313 ms ahead — so this is a question about
 The voice-allocation divergence measured in the same recording is with the
 driver: see [The FM driver](motion32/engine/fm-driver.md#open-questions).
 
-## MOTION 16-bit (ENVIRO)
+## MOTION 16-bit
 
 The 16-bit engine is documented from its shipped files and from its
 handlers as far as the intro, the locations and the conversations needed
-them read. What is open:
+them read. Almost all of that reading was done on `ENVIRO.EXE` with Die
+Enviro-Kids greifen ein; `HPPLAY.EXE` is the same player in an older build
+and has been read only where the two differ. What is open:
 
 - **The interpreter loop** at file `0x174f7` and the nested-run sentinel
   `0xfffd` — from a first reading.
@@ -198,10 +200,20 @@ them read. What is open:
 - **`SFT` with a non-zero argument** — the game only passes 0; the
   drawer's rules themselves are read
   ([Text rendering](motion16/engine/text-rendering.md)).
-- **The container header's values at 18 and 20** and the multi-volume
-  logic. ([The DATA container](motion16/formats/data-container.md))
-- **`A.DAT`** — unreferenced by the player, 117 192 bytes of high entropy.
-  ([Other files](games/enviro/other-files.md))
+- **The spare `u32` entries** at the end of a container's offset table —
+  their count is in the header at 20 and they are zero in every shipped
+  container. ([The DATA container](motion16/formats/data-container.md))
+- **The volume-change path** — the player carries *"Bitte Diskette #d
+  einlegen!"* and *"Datenblock <#s> nicht gefunden."* and what it does with
+  a volume that is not in the drive has not been read; motionvm opens every
+  volume at once and never reaches it
+  ([Departures](departures.md#the-16-bit-machine)).
+  ([The DATA container](motion16/formats/data-container.md))
+- **The animation catalogs' first field** — `0xFFFF` in several of Jeff
+  Jet's catalogs 125–182 where Die Enviro-Kids greifen ein's hold small
+  integers. ([Blocks](motion16/formats/blocks.md))
+- **`A.DAT`** — unreferenced by Die Enviro-Kids greifen ein's player,
+  117 192 bytes of high entropy. ([Other files](games/enviro/other-files.md))
 
 ## See also
 

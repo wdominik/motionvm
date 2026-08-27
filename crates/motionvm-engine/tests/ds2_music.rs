@@ -8,6 +8,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::{Game, MusicSink};
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 use std::sync::{Arc, Mutex};
 
@@ -42,7 +43,7 @@ impl MusicSink for Log {
     }
 }
 
-fn game_with_music(dir: &std::path::Path) -> (Game, Log) {
+fn game_with_music(dir: &std::path::Path) -> (Game<Vm>, Log) {
     let mut game = Game::open(dir).expect("game opens");
     let log = Log::default();
     game.engine.set_music(Box::new(log.clone()));
@@ -182,7 +183,7 @@ fn the_tune_words_leave_the_stack_as_they_found_it() {
         game.start().expect("4:START");
         while game.pump().expect("startup runs") {}
 
-        let settled = |g: &Game| g.vm.data.len();
+        let settled = |g: &Game<Vm>| g.vm.data.len();
         game.set_var(2, "_NEXTLOC", 1).expect("the classroom");
         for _ in 0..400 {
             game.set_input(0, 0, false, false, 0).expect("input");

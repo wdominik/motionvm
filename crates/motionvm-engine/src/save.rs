@@ -53,7 +53,10 @@ pub(crate) enum Layout {
     /// Dunkle Schatten 2's, `DS2FRZ`/`DS2ANM` — the layout the released
     /// binaries have written since 0.1.
     Motion32,
-    /// Die Enviro-Kids greifen ein's, `ENVFRZ`/`ENVANM`.
+    /// The 16-bit engine's, `ENVFRZ`/`ENVANM`. The magic is the
+    /// generation's and not the game's, so both 16-bit games write and read
+    /// the same one — which is why they must not share a save directory: one
+    /// would open the other's slot rather than refuse it.
     Motion16,
 }
 

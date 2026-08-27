@@ -6,15 +6,93 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-28
+
+### Added
+
+- **Jeff Jet - Abenteuer InfoHighway plays.** A third game, and the second on
+  the 16-bit engine: Promotion Software's advergame for Hewlett-Packard, whose
+  player `HPPLAY.EXE` is an older build of the one Die Enviro-Kids greifen ein
+  ships. It asks nothing new of the machine — the same words, the same
+  authoring template, the same save scheme — and everything of it that is its
+  own is in the container. It comes on **two volumes**, and every item of it is
+  **LZW-packed**: the occupancy word turns out to be a volume bitmask,
+  `1 << (volume - 1)`, a secondary volume is nothing but an offset table over
+  the same slots and then its items, and seven words of the header say per
+  segment whether that segment's items carry a GFXCRUNCH header. The item
+  loader reads exactly those words and branches on them (`HPPLAY.EXE` file
+  `0x400c`, and the same routine at `0x401f` in `ENVIRO.EXE`, whose seven are
+  all zero). Both volumes are opened when the game is opened, and every packed
+  item is unfolded there — 2 459 890 bytes into 8 412 811 — so nothing else in
+  the tree can tell a packed game from a plain one. A missing second volume is
+  refused by name rather than silently emptying every palette, both fonts and
+  the font reference table, which is what that volume holds.
+
+  The kernel table has to come from the game's own binary, and now visibly so:
+  this build has five words fewer, and because four of them were later inserted
+  into the middle of a live ordinal space, 127 of its 146 domain words sit four
+  ordinals below their namesakes in the other build. A table taken from one
+  game and used on the other would bind, and would then call the wrong words.
+
+- **The two header words the DATA container never explained are explained.**
+  They are the volume count and the number of spare offset-table entries, and
+  the sixteen bytes behind them that were documented as zero are seven
+  per-segment packed flags and a spare. Measured over ENVIRO, Jeff Jet,
+  Amajambere and Eddy M.: the flags and the shape of the items agree in all 28
+  segments.
+
 ### Changed
+
+- **No game is the default any more.** With three games the shorthands that
+  meant Dunkle Schatten 2 had stopped being shorthands and become a claim:
+  `just run` is now `just run-ds2` beside `run-enviro` and `run-jeffjet`,
+  `Game` is `Game<m32::Vm>` or `Game<m16::Vm>` with no default machine,
+  `sound::open` is `sound::open_motion32` beside `open_motion16`, and every
+  test that needs a game's files is named for it — `ds2_scenes.rs`,
+  `enviro_psm.rs`, `gamedata_jeffjet.rs`. Nothing behaves differently; the
+  names simply stop saying that one game is the one you get when you do not
+  say which.
+
+- **The GFXCRUNCH LZW codec moved to the crate root** of `motionvm-formats`,
+  from `m32`. Both generations pack their containers with it, bit for bit, and
+  the crate root is where what the two share lives.
 
 - **Dunkle Schatten 2 keeps its savegames in `saves/ds2/`.** Each game
   has a directory of its own under the platform data directory, named for
   the game, rather than Die Enviro-Kids greifen ein sitting in a
   subdirectory of Dunkle Schatten 2's. The two still cannot share one —
   they name their slots alike, `701` through `705`, and each asks at
-  start-up whether a slot exists — and neither is now the special case.
-  The path in use is printed at start-up, as ever.
+  start-up whether a slot exists — and none is now the special case; Jeff Jet
+  keeps its own in `saves/jeffjet/`. The path in use is printed at start-up,
+  as ever.
+
+  **Upgrading from 0.3.1 or earlier:** this game's slots were in `saves/`
+  itself. Move `saves/701.*` through `saves/705.*` into `saves/ds2/` to keep
+  them — the load page lists what is in the directory it is given, so slots
+  left behind stop appearing.
+
+### Fixed
+
+- **A MOTION 32-bit game that is not Dunkle Schatten 2 is refused by name.**
+  `NNN.RSC` beside an `ENGINE.EXE` says which generation of the engine made a
+  game, not which game it is, and the words the bootstrap names do not say it
+  either: `START`, `STARTUP` and `INCLLOC` come from the authoring template, so
+  another MOTION game exports them from the same modules. Checker 2000 — on the
+  earlier build `V0.04.15/R78` — has all three. What it does not have is module
+  2's `_STARTLOC` and `_NEXTLOC`, the script variables this game's own compiler
+  named and this runtime reads, and those are what the opener asks for now.
+  Such a directory used to pass detection, name the window after Dunkle
+  Schatten 2 and then fail inside the VM with a `StackUnderflow`; it now stops
+  before that and says which game's script the directory does not hold. The
+  same message covers an incomplete copy of this game, which reaches the same
+  state and cannot be told from the other case by the data.
+
+- **The "not a game" messages say what they mean.** MOTION made more games than
+  the three here, so a directory motionvm cannot open is not thereby "not a
+  MOTION game directory" — one holding any of the others reached exactly that
+  sentence. It now reads *"is not a game motionvm can open"* and lists what each
+  of the three would need; a directory that is one of them but incomplete is
+  named for the game it is missing files of.
 
 ## [0.3.1] - 2026-08-25
 
@@ -291,7 +369,8 @@ behaves as the engine did. See "What is and is not verified" in the README.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/wdominik/motionvm/releases/tag/v0.4.0
 [0.3.1]: https://github.com/wdominik/motionvm/releases/tag/v0.3.1
 [0.3.0]: https://github.com/wdominik/motionvm/releases/tag/v0.3.0
 [0.2.0]: https://github.com/wdominik/motionvm/releases/tag/v0.2.0

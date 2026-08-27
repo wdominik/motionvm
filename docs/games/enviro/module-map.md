@@ -2,7 +2,7 @@
 
 # Module Map
 
-*Die Enviro-Kids greifen ein — this page describes the game's own script modules. The engine they run on is documented under [MOTION 16-bit](../../README.md#motion-16-bit-enviro).*
+*Die Enviro-Kids greifen ein — this page describes the game's own script modules. The engine they run on is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 The game ships 65 script modules. Their numbering is systematic: the boot
 module is 100, the resident library lives at 600–651, and each location *N*

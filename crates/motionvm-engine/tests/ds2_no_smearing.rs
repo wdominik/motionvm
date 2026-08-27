@@ -20,10 +20,11 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// Plays into the park and lets it settle.
-fn park(dir: &std::path::Path) -> Game {
+fn park(dir: &std::path::Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
@@ -41,7 +42,7 @@ fn park(dir: &std::path::Path) -> Game {
 }
 
 /// How the two pictures differ, and where the first difference is.
-fn compare(game: &mut Game) -> Option<(usize, i32, i32)> {
+fn compare(game: &mut Game<Vm>) -> Option<(usize, i32, i32)> {
     let before = game.render();
     let screens: Vec<u32> = game.engine.screens().iter().map(|s| s.handle).collect();
     for handle in screens {

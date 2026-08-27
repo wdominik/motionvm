@@ -21,7 +21,7 @@
 use crate::error::Error;
 use crate::error::Result;
 use crate::pal::Palette;
-use crate::{m32::lzw, u16le, u32le};
+use crate::{lzw, u16le, u32le};
 
 /// The eight bytes every sprite resource starts with.
 pub const MAGIC: &[u8; 8] = b"32BITGFX";

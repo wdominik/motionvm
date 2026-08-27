@@ -2,7 +2,7 @@
 
 # Blocks
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein; what is measured here is measured on that game's files. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 A BLK item is untyped binary data: the engine hands it to the script with
 `GET` or plays it with `STARTTUNE`, and what it means is decided by who asks
@@ -76,7 +76,8 @@ occupied block belongs to one of the four families above.
 ## Open questions
 
 - The animation-catalog record layout and what `GETANIM`/`PUTANIM` keep of
-  it across a save.
+  it across a save. Its first field is `0xFFFF` in several of Jeff Jet's
+  catalogs 125–182 where Die Enviro-Kids greifen ein's hold small integers.
 - The route links, the extended-route fields and the click `kind`; what `DR`, `DX`/`DY`, `EXIT` and `ORDER` of an item record select.
 
 ## See also

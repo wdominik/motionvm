@@ -2,7 +2,7 @@
 
 # Transitions — FADEOUT and FADEIN
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit-enviro).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 Scene transitions are a **curtain (wipe), not a palette fade**, despite the
 names. Neither handler touches the DAC: the palette writer is `0x82078`, its

@@ -5,9 +5,9 @@
 //!
 //! The crate root holds only what the two generations share byte for byte or
 //! decode to the same structure: palettes, the font reference table, the
-//! decoded font and text table, the error type and the byte helpers. A
-//! reader under `m32` or `m16` reads one generation's layout and nothing
-//! else; a caller picks the generation.
+//! decoded font and text table, the GFXCRUNCH LZW codec, the error type and
+//! the byte helpers. A reader under `m32` or `m16` reads one generation's
+//! layout and nothing else; a caller picks the generation.
 //!
 //! Everything here was derived from the shipped data files and the strings in
 //! the engine binaries. Each reader carries the evidence for its format: the
@@ -18,6 +18,7 @@
 pub mod error;
 pub mod font;
 pub mod kernel;
+pub mod lzw;
 pub mod m16;
 pub mod m32;
 pub mod pal;

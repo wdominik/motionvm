@@ -13,7 +13,9 @@ signed exception to that.
 
 The sections down to *The FM driver* concern the **32-bit engine** as it
 runs Dunkle Schatten 2; [The 16-bit machine](#the-16-bit-machine) holds the
-entries about the 16-bit engine as it runs Die Enviro-Kids greifen ein.
+entries about the 16-bit engine as it runs Die Enviro-Kids greifen ein and
+Jeff Jet - Abenteuer InfoHighway. An entry that names one of them is that
+game's.
 
 ## The virtual machine
 
@@ -140,9 +142,12 @@ same case with a different cause: its `=>PUTAS` (`ENVIRO.EXE` file `0x16fe9`)
 writes one run of its arena, addresses and all, and the rebuild's arena is
 laid out differently ([the 16-bit machine](#the-16-bit-machine)) — so its
 `.FRZ` and `.anm` are motionvm's own as well, under magics of their own
-(`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. The two games name
-their slots alike and each asks at start-up whether a slot exists, so the
-16-bit game keeps its saves in a directory of its own
+(`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. All three games name
+their slots alike — `701` through `705` — and each asks at start-up whether a
+slot exists, so each keeps its saves in a directory of its own. For the two
+16-bit games that is not merely tidiness: the magics are the generation's and
+not the game's, so a slot of one would be *opened* by the other rather than
+refused, and what came back would be another game's module image
 ([boot and frame loop](motion16/engine/boot-and-loop.md#saves)).
 
 Handing one of motionvm's to the original is not merely useless, it is loud:
@@ -242,6 +247,25 @@ a measured difference from the original.
 
 ## The 16-bit machine
 
+**A `DATA.-n-` volume is never asked for; they are all open.** The player
+carries the prompts for a disk change — *"Bitte Diskette #d einlegen!"*,
+*"Disketten-Fehler. Falsche Disk im Laufwerk?"*, *"Datenblock <#s> nicht
+gefunden."* — because the format was made for floppies and Jeff Jet came on
+two. motionvm opens every volume the header declares when the game is opened,
+and refuses to open the game at all when one of them is missing rather than
+running on with the slots that volume holds reported empty. There is no
+sequence of play that reaches the prompt, so nothing draws it; what the
+original does on that path has not been read
+([open questions](open-questions.md#motion-16-bit)).
+
+**An index the font reference table has no glyph for draws nothing.** Jeff
+Jet's table was written for a font of 120 glyphs and its fonts have 102, so
+two CP437 bytes — `0x8C` and `0xA0` — map to glyphs 104 and 103 that do not
+exist. The renderer leaves such a character out of the line. Neither byte
+occurs in any of the game's 5709 shipped strings, and what the original's
+drawer does with one has not been measured
+([resource inventory](games/jeffjet/inventory.md)).
+
 **Modules are placed first-fit from address `0x100` upward; the original
 stacks them.** `=>GET` (`ENVIRO.EXE` file `0x176ac`) appends a module at the
 top of one arena and binds its ids to absolute cells there; `=>ERASE` (file
@@ -310,7 +334,7 @@ then on every poll yields the frame to the window: the loop turns once a
 frame, with that frame's input, and the screen is presented in between,
 which the original's loop does not do either way. A frame of `CTRL` polls
 a handful of times and never comes near the budget. The rule is the
-engine's and holds for both games; only the 16-bit one has a loop that
+engine's and holds for every game; only the 16-bit ones have a loop that
 exercises it. ([Boot and frame loop](motion16/engine/boot-and-loop.md))
 
 **Four kernel words of the 16-bit engine answer by reading, not by

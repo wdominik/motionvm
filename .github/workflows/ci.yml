@@ -68,8 +68,9 @@ jobs:
       - name: Lints
         run: cargo clippy --workspace --all-targets
 
-      # No MOTIONVM_GAMEDATA_DS2, no MOTIONVM_GAMEDATA_ENVIRO and no
-      # MOTIONVM_SAVES: the data-dependent tests print why they skipped.
+      # No MOTIONVM_GAMEDATA_DS2, no MOTIONVM_GAMEDATA_ENVIRO, no
+      # MOTIONVM_GAMEDATA_JEFFJET and no MOTIONVM_SAVES: the data-dependent
+      # tests print why they skipped.
       # `--nocapture` so that those reasons are in the log — a run that skipped
       # everything must not read like a run that passed everything.
       - name: Tests, without the game data

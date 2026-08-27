@@ -10,6 +10,7 @@
 //! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
 
 use motionvm_engine::Game;
+use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 /// A game standing in the title, settled, with the pointer able to reach the
@@ -18,7 +19,7 @@ use motionvm_testutil::gamedata_ds2;
 /// `ICTRL` only fills `_IMX`/`_IMY` while the pointer is in the bar, and only
 /// when it runs at all — while a word is part-way through, the frame goes to
 /// that word instead. Waiting for `_IMX` to answer is waiting for both.
-fn settled_in_the_title(dir: &std::path::Path) -> Game {
+fn settled_in_the_title(dir: &std::path::Path) -> Game<Vm> {
     let mut game = Game::open(dir).expect("game opens");
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}

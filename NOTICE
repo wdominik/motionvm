@@ -47,6 +47,7 @@ which travels with every release as the source archive.
 The game data
 -------------
 
-The game's own files — artwork, text, music, script modules and `ENGINE.EXE` —
-are **not** part of this project and are not redistributable. motionvm reads an
-existing installation and ships none of it. See "Game data" in README.md.
+The games' own files — artwork, text, music, script modules and the engine
+binary each of them ships — are **not** part of this project and are not
+redistributable. motionvm reads an existing installation and ships none of it.
+See "Game data" in README.md.

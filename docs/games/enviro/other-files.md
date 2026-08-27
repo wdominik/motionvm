@@ -2,7 +2,7 @@
 
 # Other Shipped Files
 
-*Die Enviro-Kids greifen ein — this page describes the game's own files. The engine it runs on is documented under [MOTION 16-bit](../../README.md#motion-16-bit-enviro).*
+*Die Enviro-Kids greifen ein — this page describes the game's own files. The engine it runs on is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 Everything in the game directory that is not the container or the engine.
 Fourteen files ship; the game needs four of them to run and five more for

@@ -6,7 +6,7 @@
 //! drift, and a copy that reaches one directory too few answers "no data" on a
 //! machine that has it — which reads exactly like a clean skip.
 //!
-//! Three environment variables are read:
+//! Four environment variables are read:
 //!
 //! - `MOTIONVM_GAMEDATA_DS2` — the directory holding Dunkle Schatten 2:
 //!   `001.RSC` and friends. Falls back to `../games/DS2` beside the
@@ -15,14 +15,22 @@
 //! - `MOTIONVM_GAMEDATA_ENVIRO` — the directory holding Die Enviro-Kids
 //!   greifen ein: `DATA.-1-` and `ENVIRO.EXE`. Falls back to
 //!   `../games/ENVIRO` beside the workspace.
+//! - `MOTIONVM_GAMEDATA_JEFFJET` — the directory holding Jeff Jet - Abenteuer
+//!   InfoHighway: `DATA.-1-`, `DATA.-2-` and `HPPLAY.EXE`. Falls back to
+//!   `../games/JEFFJET` beside the workspace.
 //! - `MOTIONVM_SAVES` — a directory holding a savegame. There is no fallback;
 //!   savegames cannot be reconstructed, only played to. It has to be one of
 //!   *this* engine's: the layouts are not interchangeable with the original's,
 //!   which stores raw heap pointers where this stores handles.
 //!
-//! Two games, two variables, two functions — rather than one variable and a
-//! guess from the files it points at — because a test is written against one
-//! game's modules and ids, and says which by the function it calls.
+//! Three games, three variables, three functions — rather than one variable
+//! and a guess from the files it points at — because a test is written against
+//! one game's modules and ids, and says which by the function it calls.
+//!
+//! Each game is probed for its **engine binary**, not for its container: the
+//! two 16-bit games both ship a `DATA.-1-`, so a container probe would let
+//! `MOTIONVM_GAMEDATA_ENVIRO` accept a Jeff Jet directory and then fail deep
+//! inside a suite instead of at the variable.
 
 use std::path::PathBuf;
 
@@ -45,12 +53,23 @@ pub fn gamedata_ds2() -> Option<PathBuf> {
 
 /// Die Enviro-Kids greifen ein's game directory, or `None` when there is
 /// nothing to test against. The same rules as [`gamedata_ds2`], probing for
-/// `DATA.-1-` and falling back to `../games/ENVIRO`.
+/// `ENVIRO.EXE` and falling back to `../games/ENVIRO`.
 pub fn gamedata_enviro() -> Option<PathBuf> {
     game(
         "MOTIONVM_GAMEDATA_ENVIRO",
         "../../../games/ENVIRO",
-        "DATA.-1-",
+        "ENVIRO.EXE",
+    )
+}
+
+/// Jeff Jet - Abenteuer InfoHighway's game directory, or `None` when there is
+/// nothing to test against. The same rules as [`gamedata_ds2`], probing for
+/// `HPPLAY.EXE` and falling back to `../games/JEFFJET`.
+pub fn gamedata_jeffjet() -> Option<PathBuf> {
+    game(
+        "MOTIONVM_GAMEDATA_JEFFJET",
+        "../../../games/JEFFJET",
+        "HPPLAY.EXE",
     )
 }
 

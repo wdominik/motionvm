@@ -2,7 +2,7 @@
 
 # Boot and Frame Loop
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein; what is measured here is measured on that game's files. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The engine starts the VM at the module and word the container header names
 — module 100, word id 401, `RUN` in ENVIRO — and everything else is the
@@ -54,8 +54,8 @@ In order:
     until `_?STARTUP` is set (*Neustart* at x 246–305, *Laden* at 12–56, y
     172–189). The loop polls the pointer; how the rebuild keeps such a loop
     turning is a [departure](../../departures.md#the-16-bit-machine). The
-    five slots are the same file names the 32-bit game uses (`701.blk` and
-    so on), so the two games must not share a save directory.
+    five slots are the same file names the other games use (`701.blk` and
+    so on), so no two games may share a save directory.
 15. **`ANIMPLAY`** — the frame loop. It does not return until the game is
     over.
 16. `HIDEMOUSE`, `GFXTO` (back to text mode), `=>ERASE` of 609, 607, 606,
@@ -138,8 +138,10 @@ rebuild that places modules elsewhere cannot take back. So the layout of
 magics of its own (`ENVFRZ`, `ENVANM`): the resident modules' images, the
 descriptors with their buffers, the screens, the palette, the off-screen
 buffers; only `.blk` — two raw bytes here, four there — coincides with the
-original's. And the two games keep their saves apart: both name their
-slots alike and each asks at start-up whether a slot exists. See the
+original's. And every game keeps its saves apart: all of them name their
+slots alike and each asks at start-up whether a slot exists — and between the
+two 16-bit games even the magics match, so one would open the other's slot
+rather than refuse it. See the
 [savegame departure](../../departures.md#savegames).
 
 `NEWANIM` (`05f1:000a`) is the display system's initializer: it sets up
