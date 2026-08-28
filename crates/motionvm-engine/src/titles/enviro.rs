@@ -8,7 +8,8 @@ use std::path::Path;
 
 use motionvm_forth::m16::Vm;
 
-use crate::game::{Game, Res};
+use crate::Result;
+use crate::game::Game;
 use crate::titles::{Title, motion16};
 
 /// What a directory must hold before the game can be opened.
@@ -35,6 +36,6 @@ pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
 }
 
 /// Opens the game in `dir`.
-pub fn open(dir: &Path) -> Res<Game<Vm>> {
+pub fn open(dir: &Path) -> Result<Game<Vm>> {
     motion16::open(dir, Title::EnviroKids, ENGINE, REQUIRED)
 }

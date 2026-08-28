@@ -55,6 +55,20 @@ Abenteuer InfoHighway (both MOTION 16-bit). --pal names the palette a 16-bit
 sprite is written through — its sprites carry none — and defaults to 0, the
 one the game installs first; a 32-bit sprite carries its own.";
 
+/// What to append to a count line when the container's index over-claimed.
+///
+/// Empty for an undamaged container, which is every shipped one. A copy that
+/// was truncated in transit, or a download that stopped early, says how many
+/// items it is short of beside how many came out — the same shape `info`
+/// already uses for the occupancy mismatches and the trailing slack.
+pub(crate) fn over_claimed(n: usize) -> String {
+    match n {
+        0 => String::new(),
+        1 => "  (1 more is indexed and not in the file)".into(),
+        n => format!("  ({n} more are indexed and not in the file)"),
+    }
+}
+
 fn usage() -> ! {
     eprintln!("{USAGE}");
     std::process::exit(2);
@@ -271,4 +285,23 @@ pub(crate) fn write_font_json(
     writeln!(out, "  }}")?;
     writeln!(out, "}}")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::over_claimed;
+
+    #[test]
+    fn an_undamaged_container_adds_nothing_to_the_line() {
+        assert_eq!(over_claimed(0), "");
+    }
+
+    #[test]
+    fn a_damaged_one_says_how_many_and_reads_as_a_sentence() {
+        assert_eq!(over_claimed(1), "  (1 more is indexed and not in the file)");
+        assert_eq!(
+            over_claimed(7),
+            "  (7 more are indexed and not in the file)"
+        );
+    }
 }

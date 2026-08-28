@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.97.0"
 license = "MIT"
@@ -43,6 +43,43 @@ png = "0.18"
 nuked-opl3 = "0.1"
 # Sound output. Apache-2.0.
 cpal = "0.18"
+
+# The window and the event loop: one window, the keyboard and mouse events the
+# game is fed from, the fullscreen toggle. Apache-2.0. This is the frontend's
+# entire platform layer — there is no second windowing dependency and no
+# graphics API anywhere in the workspace. Held at 0.30 on purpose; the note on
+# `rfd` below says what a bump would buy and what it would cost.
+winit = "0.30"
+
+# The presenter: hands the window a buffer of 32-bit pixels and puts it on the
+# screen with nothing in between. MIT OR Apache-2.0. That is the whole
+# requirement — the engine renders in software into an indexed framebuffer and
+# `motionvm-app`'s `blit` expands it through the palette — so a GPU stack here
+# would be a dependency on something this project does not do.
+softbuffer = "0.4"
+
+# The folder dialog that asks for the game directory when the command line
+# names none, and the message box that says why a chosen directory is not one.
+# MIT. Native on Windows and macOS, on the `windows-sys` and `objc2` crates
+# softbuffer and cpal already bring — not the ones winit brings, which are a
+# generation older on both axes: rfd resolves `windows-sys 0.61.2` as
+# softbuffer does, and `objc2 0.6.4`, `block2 0.6.2` and
+# `objc2-foundation 0.3.2` as cpal and softbuffer do, where winit 0.30.13 is
+# still on `windows-sys 0.52.0`, `objc2 0.5.2`, `block2 0.5.1` and
+# `objc2-foundation 0.2.2`. What rfd itself adds is `objc2-app-kit 0.3.2`, of
+# which it is the only user, and `pollster`, reached on the Linux path below.
+# Every one of the five pairs `cargo tree --duplicates` reports gets its older
+# half from winit and from nothing else, so dropping rfd would clear one of
+# the five and leave four standing. The bump that would clear them is winit's,
+# and the only release above 0.30.13 is `0.31.0-beta.2`, a pre-release that
+# also splits the crate into `winit-core`, `winit-x11` and `winit-wayland` —
+# hence 0.30 here.
+# On Linux the XDG desktop portal, spoken over a `libdbus` that is loaded at
+# run time rather than linked, so nothing new is needed to build — at run time
+# it wants the `xdg-desktop-portal` service, which GNOME and KDE ship, and
+# falls back to `zenity`. Not the `gtk3` feature: that links GTK at build time
+# and would put a development package between a Linux checkout and a window.
+rfd = "0.17"
 
 # Lints are declared here and switched on per crate with `[lints] workspace =
 # true`, which every member carries. Without that line in the member the table

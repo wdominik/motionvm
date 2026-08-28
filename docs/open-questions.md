@@ -203,6 +203,18 @@ and has been read only where the two differ. What is open:
 - **The spare `u32` entries** at the end of a container's offset table —
   their count is in the header at 20 and they are zero in every shipped
   container. ([The DATA container](motion16/formats/data-container.md))
+- **Jeff Jet's two contradictory GFX slots** — 1319 and 1848 carry an
+  occupancy word naming a volume whose offset table gives them a length of
+  zero: the container saying a sprite is there and then not having one. One
+  sits on each volume (1319 flagged for `DATA.-1-`, 1848 for `DATA.-2-`), both
+  in the middle of a run of occupied slots, with `off[i] == off[i+1]` — the
+  ordinary encoding of an empty slot, beside an occupancy word that says
+  otherwise. Whether that is an authoring leftover, a sprite deleted without
+  its flag being cleared, or a meaning nobody has read is unread; the loader
+  is not affected, because what has bytes is what is there. Die Enviro-Kids
+  greifen ein's container has none, and `motionvm-tools info` reports the
+  count. ([The DATA container](motion16/formats/data-container.md),
+  [Resource inventory](games/jeffjet/inventory.md))
 - **The volume-change path** — the player carries *"Bitte Diskette #d
   einlegen!"* and *"Datenblock <#s> nicht gefunden."* and what it does with
   a volume that is not in the drive has not been read; motionvm opens every

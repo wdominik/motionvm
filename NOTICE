@@ -37,8 +37,8 @@ Other third-party libraries
 ---------------------------
 
 The binaries statically link further open-source libraries, among them
-`winit` and `cpal` (Apache-2.0), and `softbuffer`, `png` and `rfd`
-(MIT OR Apache-2.0), together with their dependencies as recorded in
+`winit` and `cpal` (Apache-2.0), `softbuffer` and `png` (MIT OR Apache-2.0)
+and `rfd` (MIT), together with their dependencies as recorded in
 `Cargo.lock`. Their license texts and attribution notices are part of
 each crate's source package on crates.io; the exact set and versions a
 binary is built from are those of the tagged commit's `Cargo.lock`,

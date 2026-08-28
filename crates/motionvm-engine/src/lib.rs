@@ -15,6 +15,7 @@ mod descriptor;
 mod dialogue;
 mod dialogue16;
 mod draw;
+mod error;
 mod game;
 mod geometry;
 mod menu;
@@ -27,6 +28,7 @@ mod stack;
 pub mod titles;
 mod walk;
 mod words;
+pub use error::{Error, Result};
 pub use game::Game;
 pub use titles::{Playable, Title};
 // Re-exported rather than moved out of sight: `Descriptor` and its enums are
@@ -44,7 +46,14 @@ use motionvm_formats::TextTable;
 use motionvm_formats::font::{Font, FontRefTable};
 use motionvm_formats::m32::Sprite;
 use motionvm_forth::m32::{Memory, Vm};
-use motionvm_forth::{Address, Error, Host, Machine, Result, m16};
+// The machine's own `Error` and `Result` are *not* imported here, and this
+// crate's `Error` and `Result` — re-exported just above — are what the bare
+// names mean throughout it. The two are different channels and the distinction
+// is load-bearing: a kernel-word handler fails on the machine's terms, and
+// every file under `words/` says so by importing `motionvm_forth::Result`
+// itself rather than picking up whatever a `use` in this file happens to name.
+// The five signatures below that really do answer the machine spell it out.
+use motionvm_forth::{Address, Host, Machine, m16};
 use motionvm_render::{Display, Framebuffer};
 
 /// A window slide the 16-bit `->SCRX`/`->SCRY` started; see [`Engine::scroll`].
@@ -772,7 +781,7 @@ impl Engine {
         stack: &mut Vec<i32>,
         arity: usize,
         name: &'static str,
-    ) -> Result<()> {
+    ) -> motionvm_forth::Result<()> {
         crate::stack::pop_n(stack, arity, name)?;
         self.note_no_effect(name);
         Ok(())
@@ -829,7 +838,7 @@ impl Host for Engine {
         self.in_transition() || self.entering_loop || self.poll_yield()
     }
 
-    fn word(&mut self, name: &str, vm: &mut Vm) -> Result<bool> {
+    fn word(&mut self, name: &str, vm: &mut Vm) -> motionvm_forth::Result<bool> {
         // The interaction machine runs bytecode of its own and therefore needs
         // the machine, not just its stack and memory.
         if name == "DOORDER" {
@@ -859,12 +868,22 @@ impl Engine {
     /// duplicate sitting earlier in the match wins silently and faults debug
     /// builds. Splitting the match into files is exactly the change that
     /// invites one in.
+    ///
+    /// Which is why the fifteen near-identical `if` blocks below — seventeen
+    /// in [`Engine::plain_word16`] — are written out rather than folded. The
+    /// repetition has been examined and kept. A loop over function pointers or
+    /// a map keyed by name would destroy the property outright: neither has an
+    /// order a reader can see. A two-line macro would keep the order visible
+    /// and still cost something real — the one thing a reader of this function
+    /// must check is the sequence of group names against the original's match,
+    /// and a macro puts a layer between them for no gain but height. Thirty-two
+    /// lines of the same shape are what a hand-checkable order looks like.
     pub fn plain_word(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
         mem: &mut Memory,
-    ) -> Result<bool> {
+    ) -> motionvm_forth::Result<bool> {
         if self.words_state(name, stack, mem)?.is_some() {
             return Ok(true);
         }
@@ -936,7 +955,7 @@ impl Host<m16::Vm> for Engine {
     /// that load and drop modules, and the one that installs the frame
     /// handler by word id — and are answered here; the rest go to
     /// [`Engine::plain_word16`] with the stack and the memory.
-    fn word(&mut self, name: &str, vm: &mut m16::Vm) -> Result<bool> {
+    fn word(&mut self, name: &str, vm: &mut m16::Vm) -> motionvm_forth::Result<bool> {
         match name {
             // `( module -- )`: loads a module out of the container and binds
             // its ids — which the machine does; what the engine keeps is the
@@ -948,13 +967,13 @@ impl Host<m16::Vm> for Engine {
                     .resources
                     .as_ref()
                     .and_then(|r| r.script(n.max(0) as u32))
-                    .ok_or_else(|| Error::Unimplemented {
+                    .ok_or_else(|| motionvm_forth::Error::Unimplemented {
                         ordinal: 0,
                         name: format!("=>GET: module {n} is not in the container"),
                         at: Address(0),
                     })?;
                 let parsed = motionvm_formats::m16::scr::ScrModule::parse(&item)
-                    .map_err(|e| Error::Unsupported(format!("=>GET {n}: {e}")))?;
+                    .map_err(|e| motionvm_forth::Error::Unsupported(format!("=>GET {n}: {e}")))?;
                 vm.load(&item, &parsed)?;
                 self.mark_resident(n.max(0) as u32);
                 Ok(true)
@@ -974,7 +993,7 @@ impl Host<m16::Vm> for Engine {
             "SCRCTRL" => {
                 let id = crate::stack::pop1(&mut vm.data, "SCRCTRL")?;
                 let Some(target) = vm.callback_target(id) else {
-                    return Err(Error::UnboundWord {
+                    return Err(motionvm_forth::Error::UnboundWord {
                         id: id as u16,
                         at: vm.here(),
                     });
@@ -998,12 +1017,16 @@ impl Engine {
     /// share, in the order [`Engine::plain_word`] asks them in — the walk
     /// with its offsets scaled to 2-byte cells, the inventory with the rules
     /// read from `ENVIRO.EXE`, the savegame words over the 16-bit arena.
+    ///
+    /// Written out one call per line for the reason [`Engine::plain_word`]
+    /// gives: the sequence is the thing to be checked, and it has to be
+    /// readable without expanding anything.
     pub fn plain_word16(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
         mem: &mut motionvm_forth::m16::Memory,
-    ) -> Result<bool> {
+    ) -> motionvm_forth::Result<bool> {
         if self.words_m16(name, stack, mem)?.is_some() {
             return Ok(true);
         }

@@ -10,7 +10,8 @@
 //! The savegame codecs live here too: the numbers they write are these enums
 //! and nothing else uses them.
 
-use crate::{Engine, Error, Result};
+use crate::Engine;
+use motionvm_forth::{Error, Result};
 use std::collections::BTreeMap;
 
 impl Engine {

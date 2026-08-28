@@ -76,8 +76,30 @@ impl Layout {
     }
 }
 
+/// What this build writes into a `.FRZ` and an `.anm` header, and refuses to
+/// read anything else of.
 pub(crate) const VERSION: u32 = 1;
 
+/// This module's own result, and the one place in the crate where an error is
+/// a plain message.
+///
+/// Deliberate, and not the crate's [`crate::Error`] in miniature. Every caller
+/// is a savegame word — `PUT`, `GET`, `PUTANIM`, `GETANIM`, `=>PUTAS`,
+/// `=>GETAS` — reached through the machine, and the machine's own
+/// `motionvm_forth::Error::Unsupported` carries exactly a `String`. So
+/// `words/saves.rs` converts with `.map_err(Error::Unsupported)` and nothing
+/// else ever sees the value: an enum here would be flattened one call later,
+/// into a variant that exists to carry a sentence.
+///
+/// The sentence is what matters. Every message opens with `what` — the file
+/// and the word that asked for it, `GETANIM 3` or `701.FRZ` — and then says
+/// what would not read: "module 907 appears twice, as record 4 and 11". The
+/// person reading one has a savegame that will not load and needs to know
+/// which part of it is wrong.
+///
+/// This carried no comment for three releases, because `missing_docs = "deny"`
+/// does not reach `pub(crate)` items. The lint cannot be the only thing that
+/// makes a comment appear.
 pub(crate) type Result<T> = std::result::Result<T, String>;
 
 /// A little-endian reader that refuses to run off the end.

@@ -9,10 +9,10 @@
 
 use crate::Engine;
 use crate::Fade;
-use crate::Result;
 use crate::Wipe;
 use crate::stack::{pop_n, pop1};
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Result;
 
 impl Engine {
     pub(crate) fn words_m16(

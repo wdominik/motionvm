@@ -16,8 +16,9 @@
 
 use crate::menu;
 use crate::stack::pop1;
-use crate::{Address, Engine, Error, Memory, Result, Vm};
+use crate::{Address, Engine, Memory, Vm};
 use motionvm_forth::{AddressSpace, Host, Machine};
+use motionvm_forth::{Error, Result};
 
 /// The `_ORDER` block's fields, by name.
 ///

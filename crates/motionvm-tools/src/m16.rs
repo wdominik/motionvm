@@ -113,6 +113,37 @@ fn palette(c: &Container, id: usize) -> Result<Palette, Box<dyn std::error::Erro
     Ok(Palette::from_6bit(item))
 }
 
+/// Runs `each` over every item of `segment` that the index claims *and* the
+/// file really holds, and answers `(written, over-claimed)`.
+///
+/// The same shape as the 32-bit command's helper, and for the same reason: a
+/// tool that asserts its way past a damaged container aborts naming nothing
+/// the person holding it can act on. Where the two differ is what they can
+/// meet. `Container::present` and `Container::item` decide emptiness with one
+/// predicate — the span's own length — so on this generation the second count
+/// is zero for any file that opened at all, and the occupancy word, which
+/// *can* disagree with the offsets, is reported separately by `info`. The
+/// count is carried anyway rather than asserted away: it costs a `usize`, and
+/// which of two functions in another crate share a predicate is not something
+/// this tool should be built on.
+fn each_item(
+    c: &Container,
+    segment: Segment,
+    mut each: impl FnMut(usize, &[u8]) -> Res,
+) -> Result<(usize, usize), Box<dyn std::error::Error>> {
+    let (mut written, mut over) = (0, 0);
+    for id in c.present(segment) {
+        match c.item(segment, id)? {
+            Some(item) => {
+                each(id, item)?;
+                written += 1;
+            }
+            None => over += 1,
+        }
+    }
+    Ok((written, over))
+}
+
 pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
     let c = Container::open_dir(dir)?;
     let palette = palette(&c, pal)?;
@@ -121,9 +152,7 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
     // Sprites, every one through the same palette.
     let sprite_dir = out.join("sprites");
     std::fs::create_dir_all(&sprite_dir)?;
-    let mut n_sprites = 0;
-    for id in c.present(Segment::Gfx) {
-        let item = c.item(Segment::Gfx, id)?.expect("present");
+    let (n_sprites, over) = each_item(&c, Segment::Gfx, |id, item| {
         let s = gfx::Sprite::parse(item)?;
         motionvm_render::write_indexed_png(
             &sprite_dir.join(format!("{id:04}.png")),
@@ -132,44 +161,43 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
             &s.pixels,
             rgb.clone(),
             Some(motionvm_render::TRANSPARENT),
-        )?;
-        n_sprites += 1;
-    }
+        )
+    })?;
     println!(
-        "{n_sprites:>6} sprites (palette {pal}) -> {}",
-        sprite_dir.display()
+        "{n_sprites:>6} sprites (palette {pal}) -> {}{}",
+        sprite_dir.display(),
+        crate::over_claimed(over)
     );
 
     // Palettes: raw 6-bit bytes plus a swatch grid.
     let pal_dir = out.join("palettes");
     std::fs::create_dir_all(&pal_dir)?;
-    let mut n_pal = 0;
-    for id in c.present(Segment::Pal) {
-        let item = c.item(Segment::Pal, id)?.expect("present");
+    let (n_pal, over) = each_item(&c, Segment::Pal, |id, item| {
         std::fs::write(pal_dir.join(format!("{id:03}.pal")), item)?;
         crate::write_palette_png(
             &pal_dir.join(format!("{id:03}.png")),
             &Palette::from_6bit(item),
-        )?;
-        n_pal += 1;
-    }
-    println!("{n_pal:>6} palettes -> {}", pal_dir.display());
+        )
+    })?;
+    println!(
+        "{n_pal:>6} palettes -> {}{}",
+        pal_dir.display(),
+        crate::over_claimed(over)
+    );
 
     // Text tables as JSON.
     let text_dir = out.join("text");
     std::fs::create_dir_all(&text_dir)?;
-    let mut n_text = 0;
     let mut n_strings = 0;
-    for id in c.present(Segment::Txt) {
-        let item = c.item(Segment::Txt, id)?.expect("present");
+    let (n_text, over) = each_item(&c, Segment::Txt, |id, item| {
         let table = text::parse(item)?;
         n_strings += table.strings.len();
-        crate::write_text_json(&text_dir.join(format!("{id:03}.json")), &table)?;
-        n_text += 1;
-    }
+        crate::write_text_json(&text_dir.join(format!("{id:03}.json")), &table)
+    })?;
     println!(
-        "{n_text:>6} text tables ({n_strings} strings) -> {}",
-        text_dir.display()
+        "{n_text:>6} text tables ({n_strings} strings) -> {}{}",
+        text_dir.display(),
+        crate::over_claimed(over)
     );
 
     // Blocks, written out unchanged, with an index that says which are songs.
@@ -177,10 +205,8 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
     std::fs::create_dir_all(&blk_dir)?;
     let mut index = std::io::BufWriter::new(std::fs::File::create(blk_dir.join("index.txt"))?);
     writeln!(index, "{:<6} {:>8}  CONTENT", "BLOCK", "BYTES")?;
-    let mut n_blk = 0;
     let mut n_songs = 0;
-    for id in c.present(Segment::Blk) {
-        let item = c.item(Segment::Blk, id)?.expect("present");
+    let (n_blk, over) = each_item(&c, Segment::Blk, |id, item| {
         std::fs::write(blk_dir.join(format!("{id:04}.blk")), item)?;
         let what = match psm::tags(item) {
             Some(tags) => {
@@ -193,12 +219,12 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
             }
             None => String::new(),
         };
-        writeln!(index, "{id:<6} {:>8}  {what}", item.len())?;
-        n_blk += 1;
-    }
+        Ok(writeln!(index, "{id:<6} {:>8}  {what}", item.len())?)
+    })?;
     println!(
-        "{n_blk:>6} blocks ({n_songs} PSM 2 songs) -> {}",
-        blk_dir.display()
+        "{n_blk:>6} blocks ({n_songs} PSM 2 songs) -> {}{}",
+        blk_dir.display(),
+        crate::over_claimed(over)
     );
 
     // Fonts: raw file, a contact sheet, the metrics; the one FRT maps them.
@@ -207,20 +233,18 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
     let refs = c
         .item(Segment::Frt, 0)?
         .and_then(|d| FontRefTable::parse(d).ok());
-    let mut n_font = 0;
     let mut n_glyphs = 0;
-    for id in c.present(Segment::Fnt) {
-        let item = c.item(Segment::Fnt, id)?.expect("present");
+    let (n_font, over) = each_item(&c, Segment::Fnt, |id, item| {
         std::fs::write(font_dir.join(format!("{id:03}.fnt")), item)?;
         let f = font::parse(item)?;
         n_glyphs += f.glyphs.len();
         crate::write_font_sheet(&font_dir.join(format!("{id:03}.png")), &f)?;
-        crate::write_font_json(&font_dir.join(format!("{id:03}.json")), &f, refs.as_ref())?;
-        n_font += 1;
-    }
+        crate::write_font_json(&font_dir.join(format!("{id:03}.json")), &f, refs.as_ref())
+    })?;
     println!(
-        "{n_font:>6} fonts ({n_glyphs} glyphs) -> {}",
-        font_dir.display()
+        "{n_font:>6} fonts ({n_glyphs} glyphs) -> {}{}",
+        font_dir.display(),
+        crate::over_claimed(over)
     );
 
     // Scripts: the raw module, a symbol table, and a listing of every word
@@ -230,13 +254,13 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
     std::fs::create_dir_all(&scr_dir)?;
     let mut symbols = std::io::BufWriter::new(std::fs::File::create(scr_dir.join("modules.txt"))?);
     let mut modules = Vec::new();
-    for number in c.present(Segment::Scr) {
-        let item = c.item(Segment::Scr, number)?.expect("present");
+    let (_, over) = each_item(&c, Segment::Scr, |number, item| {
         std::fs::write(scr_dir.join(format!("{number:03}.scr")), item)?;
         let m = scr::ScrModule::parse(item)?;
         write_symbols(&mut symbols, &m, item.len())?;
         modules.push(m);
-    }
+        Ok(())
+    })?;
     // Ids are reused across modules that are never resident together, so
     // the names a listing resolves calls to are those of the library — the
     // modules RUN keeps — plus, for a location's three modules, each other's.
@@ -257,7 +281,12 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
         }
         std::fs::write(scr_dir.join(format!("{:03}.f", m.module)), dis.module(m))?;
     }
-    println!("{:>6} scripts  -> {}", modules.len(), scr_dir.display());
+    println!(
+        "{:>6} scripts  -> {}{}",
+        modules.len(),
+        scr_dir.display(),
+        crate::over_claimed(over)
+    );
 
     // Which kernel words the game reaches for, and which the 16-bit machine
     // implements itself; the rest are the engine's.
@@ -377,4 +406,77 @@ fn write_symbols(f: &mut impl Write, m: &scr::ScrModule, bytes: usize) -> std::i
         )?;
     }
     writeln!(f)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A one-volume `DATA.-n-` over three GFX slots: an item, an empty slot,
+    /// an item — the shape the container reader's own tests use.
+    fn minimal_dat() -> Vec<u8> {
+        let mut v = vec![0u8; 0x26];
+        v[0..2].copy_from_slice(&100u16.to_le_bytes()); // boot module
+        v[2..4].copy_from_slice(&401u16.to_le_bytes()); // boot word
+        v[4..6].copy_from_slice(&3u16.to_le_bytes()); // three GFX slots
+        v[18..20].copy_from_slice(&1u16.to_le_bytes()); // one volume
+        v.extend_from_slice(&[1u16, 0, 1].map(u16::to_le_bytes).concat());
+        let first = (v.len() + 3 * 4) as u32;
+        let items: [&[u8]; 2] = [&[1, 0, 1, 0, 0, 0], &[2, 0, 1, 0, 0, 0, 7, 8]];
+        let second = first + items[0].len() as u32;
+        v.extend_from_slice(&[first, second, second].map(u32::to_le_bytes).concat());
+        v.extend_from_slice(items[0]);
+        v.extend_from_slice(items[1]);
+        v
+    }
+
+    #[test]
+    fn every_slot_the_index_claims_is_handed_over() {
+        let c = Container::from_bytes(minimal_dat(), "t".into()).expect("the container opens");
+        assert_eq!(c.present(Segment::Gfx), [0, 2], "slot 1 is empty");
+
+        let mut seen = Vec::new();
+        let (written, over) = each_item(&c, Segment::Gfx, |id, item| {
+            seen.push((id, item.len()));
+            Ok(())
+        })
+        .expect("no hard error");
+        assert_eq!(seen, [(0, 6), (2, 8)]);
+        assert_eq!(
+            (written, over),
+            (2, 0),
+            "this generation's present and item share a predicate"
+        );
+    }
+
+    #[test]
+    fn a_slot_flagged_for_a_volume_that_is_not_there_is_not_walked() {
+        // The occupancy word can disagree with the offsets — Jeff Jet's
+        // shipped container has two such slots — and `info` reports the
+        // count. What `extract` walks is the offsets, so a flagged slot with
+        // no bytes is simply not among them: what has bytes is what is there.
+        let mut bytes = minimal_dat();
+        bytes[0x26 + 2..0x26 + 4].copy_from_slice(&1u16.to_le_bytes());
+        let c = Container::from_bytes(bytes, "t".into()).expect("the container opens");
+        assert_eq!(c.occupancy_mismatches(), [1]);
+
+        let mut ids = Vec::new();
+        let (written, over) = each_item(&c, Segment::Gfx, |id, _| {
+            ids.push(id);
+            Ok(())
+        })
+        .expect("no hard error");
+        assert_eq!(ids, [0, 2]);
+        assert_eq!((written, over), (2, 0));
+    }
+
+    #[test]
+    fn an_error_from_the_body_is_not_swallowed() {
+        // A reader that fails on bytes that are really there still stops the
+        // command; the second count is for what the file does not hold.
+        let c = Container::from_bytes(minimal_dat(), "t".into()).expect("the container opens");
+        let e = each_item(&c, Segment::Gfx, |_, _| Err("the reader said no".into()))
+            .expect_err("the body's error reaches the caller");
+        assert_eq!(e.to_string(), "the reader said no");
+    }
 }

@@ -19,10 +19,11 @@ use motionvm_formats::m16::{Container, Segment, mz, scr::ScrModule};
 use motionvm_forth::m16::Vm;
 use motionvm_forth::{Address, Machine};
 
-use crate::Engine;
-use crate::game::{Game, Hooks, Res};
+use crate::Result;
+use crate::game::{Game, Hooks};
 use crate::resources::Resources;
 use crate::titles::{Playable, Title};
+use crate::{Engine, Error};
 
 /// Which of `required` the directory `dir` does not hold, as `(what, what
 /// for)`.
@@ -51,40 +52,34 @@ pub(super) fn open(
     title: Title,
     exe: &str,
     required: &[(&'static str, &'static str)],
-) -> Res<Game<Vm>> {
+) -> Result<Game<Vm>> {
     if !dir.is_dir() {
-        return Err(format!("{}: no such directory", dir.display()).into());
+        return Err(Error::NoSuchDirectory {
+            dir: dir.to_path_buf(),
+        });
     }
     let missing = missing_data(dir, required);
     if !missing.is_empty() {
-        let names: Vec<&str> = missing.iter().map(|(n, _)| *n).collect();
-        return Err(format!(
-            "{} is not a complete {} directory\n  missing: {}\n  \
-                 This needs the files of an original installation; \
-                 see \"Game data\" in the README.",
-            dir.display(),
-            title.name(),
-            names.join(", "),
-        )
-        .into());
+        return Err(Error::Incomplete {
+            dir: dir.to_path_buf(),
+            title: title.name(),
+            missing: missing.iter().map(|(n, _)| *n).collect(),
+        });
     }
-    let container = Container::open_dir(dir)?;
-    let exe = motionvm_formats::find_ci(dir, exe)
-        .ok_or_else(|| format!("{}: no {exe}", dir.display()))?;
-    let img = mz::Image::open(exe)?;
-    let binding = mz::binding_of(&mz::kernel_words(&img))?;
+    let container = Container::open_dir(dir).map_err(|e| Error::data(dir, e))?;
+    let exe = motionvm_formats::find_ci(dir, exe).ok_or_else(|| Error::missing_file(dir, exe))?;
+    let img = mz::Image::open(&exe).map_err(|e| Error::data(&exe, e))?;
+    let binding = mz::binding_of(&mz::kernel_words(&img)).map_err(|e| Error::data(&exe, e))?;
     let mut vm = Vm::new(&binding);
     let boot = container.boot();
     let item = container
-        .item(Segment::Scr, boot.module as usize)?
-        .ok_or_else(|| {
-            format!(
-                "{}: the boot module {} is empty",
-                container.source(),
-                boot.module
-            )
+        .item(Segment::Scr, boot.module as usize)
+        .map_err(|e| Error::data(dir, e))?
+        .ok_or_else(|| Error::EmptyBootModule {
+            source: container.source().to_string(),
+            module: boot.module,
         })?;
-    let parsed = ScrModule::parse(item)?;
+    let parsed = ScrModule::parse(item).map_err(|e| Error::data(dir, e))?;
     vm.load(item, &parsed)?;
     // 320×200: the mode `TOGFX` enters in this engine, which has no
     // `SETRES` to ask for another.
@@ -104,15 +99,15 @@ impl Game<Vm> {
     /// Begins the game the way it begins itself: at the word the container's
     /// header names — module 100's `RUN`, word id 401 — which loads the
     /// library, plays the intro, enters location 1 and runs `ANIMPLAY`.
-    pub fn start(&mut self) -> Res<()> {
+    pub fn start(&mut self) -> Result<()> {
         let Some(Resources::Motion16(c)) = self.engine.resources.as_ref() else {
-            return Err("the engine holds no 16-bit container".into());
+            return Err(Error::NoContainer);
         };
         let boot = c.boot();
         let addr = self
             .vm
             .callback_target(boot.word as i32)
-            .ok_or_else(|| format!("the boot word {} is bound to no loaded module", boot.word))?;
+            .ok_or(Error::UnboundBootWord { word: boot.word })?;
         self.engine.mark_resident(boot.module as u32);
         self.vm.start(addr)?;
         self.running = true;
@@ -123,7 +118,7 @@ impl Game<Vm> {
     /// the mouse record the `MOUSE…` words read, the key where `?KEY` finds
     /// it. No script variable is written — `CTRL` stores `?KEY` into
     /// `_AKTKEY` and reads `MOUSELK` itself.
-    pub fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Res<()> {
+    pub fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Result<()> {
         self.engine.key = key;
         self.engine.mouse.x = x;
         self.engine.mouse.y = y;
@@ -137,7 +132,7 @@ impl Hooks for Game<Vm> {
     /// Nothing stands in: `RUN` installs `CTRL` with `400 SCRCTRL` before it
     /// enters `ANIMPLAY`, and the intro installs `ICTRL` before its own, so a
     /// frame without a controller has nothing to run.
-    fn fallback_controller(&mut self) -> Res<Option<Address>> {
+    fn fallback_controller(&mut self) -> Result<Option<Address>> {
         Ok(None)
     }
 }
@@ -159,19 +154,19 @@ impl Playable for Game<Vm> {
         (6, 5)
     }
 
-    fn start(&mut self) -> Res<()> {
+    fn start(&mut self) -> Result<()> {
         Game::<Vm>::start(self)
     }
 
-    fn pump(&mut self) -> Res<bool> {
+    fn pump(&mut self) -> Result<bool> {
         Game::<Vm>::pump(self)
     }
 
-    fn step(&mut self) -> Res<()> {
+    fn step(&mut self) -> Result<()> {
         Game::<Vm>::step(self)
     }
 
-    fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Res<()> {
+    fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Result<()> {
         Game::<Vm>::set_input(self, x, y, left, right, key)
     }
 
@@ -191,7 +186,7 @@ impl Playable for Game<Vm> {
         Game::<Vm>::set_music(self, sink)
     }
 
-    fn set_saves(&mut self, dir: &Path) -> Res<()> {
+    fn set_saves(&mut self, dir: &Path) -> Result<()> {
         Game::<Vm>::set_saves(self, dir)
     }
 
@@ -206,7 +201,7 @@ impl Playable for Game<Vm> {
     /// 609, for one. There is no way around `RUN`'s own first location: it
     /// stores 1 into `STARTLOC` and enters it before `CTRL` gets a frame, so
     /// the request is honored one frame later, from inside location 1.
-    fn request_location(&mut self, n: i32) -> Res<()> {
+    fn request_location(&mut self, n: i32) -> Result<()> {
         self.set_var(601, "NEXTLOC", n)
     }
 

@@ -12,9 +12,10 @@
 //! at file `0x13a5d`, `ADDTOINV` `0x13cb4`, `?INVINCL` `0x13d20`,
 //! `SUBFROMINV` `0x13d98`); the two places they differ are [`Rules`].
 
+use crate::Engine;
 use crate::stack::pop_n;
-use crate::{Engine, Result};
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Result;
 
 /// What differs between the two engines' inventory handlers; everything else
 /// in this file is one reading that both binaries confirm.

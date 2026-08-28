@@ -27,9 +27,10 @@
 
 use crate::menu;
 use crate::order::{Conversation, M16_RULES};
-use crate::{Engine, Error, Placement, Result};
+use crate::{Engine, Placement};
 use motionvm_forth::Machine;
 use motionvm_forth::m16::Vm;
+use motionvm_forth::{Error, Result};
 
 /// The block's conversation fields, 16-bit offsets.
 mod g {

@@ -180,6 +180,10 @@ game is addressed through the container only.
 - What the engine does when a volume it wants is not in the drive. It carries
   the prompts — *"Bitte Diskette #d einlegen!"*, *"Datenblock <#s> nicht
   gefunden."* — and the path they sit on has not been read.
+- What Jeff Jet's two contradictory GFX slots mean. 1319 and 1848 are flagged
+  for a volume — one for each — whose offset table gives them a length of
+  zero, both in the middle of a run of occupied slots. Nothing depends on the
+  answer: what has bytes is what is there.
 
 ## See also
 

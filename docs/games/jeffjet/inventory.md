@@ -36,8 +36,10 @@ header and a stream — see [the DATA container](../../motion16/formats/data-con
 | FRT | 1 / 10 | 516 |
 | TXT | 65 / 100 | 283 397 |
 
-Two further GFX slots, 1319 and 1848, are flagged for a volume and have no
-bytes in it.
+Two further GFX slots, 1319 and 1848, are flagged for a volume — 1319 for
+`DATA.-1-`, 1848 for `DATA.-2-` — and have no bytes in it; both sit in the
+middle of a run of occupied slots. What that means is
+[an open question](../../open-questions.md#motion-16-bit).
 
 **What is on which volume matters.** Volume 2 holds 523 of the sprites and
 **all sixteen palettes, both fonts and the font reference table**; volume 1

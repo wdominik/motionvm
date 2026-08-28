@@ -3,10 +3,11 @@
 //! One of the groups `plain_word` hands a word to. A group that does not
 //! know the word answers `None` and the next one is asked.
 
+use crate::Engine;
 use crate::order::{Rules, at};
 use crate::stack::pop_n;
-use crate::{Engine, Error, Result};
 use motionvm_forth::AddressSpace;
+use motionvm_forth::{Error, Result};
 
 impl Engine {
     pub(crate) fn words_dialogue(

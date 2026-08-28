@@ -5,9 +5,9 @@
 //! answers `None` and the next one is asked.
 
 use crate::Engine;
-use crate::Result;
 use crate::stack::pop1;
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Result;
 
 use crate::stack::pop_n;
 

@@ -7,9 +7,9 @@
 use crate::Curtain;
 use crate::Engine;
 use crate::Fade;
-use crate::Result;
 use crate::stack::pop_n;
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Result;
 
 impl Engine {
     pub(crate) fn words_transitions(

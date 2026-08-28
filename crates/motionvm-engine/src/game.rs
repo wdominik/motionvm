@@ -20,9 +20,7 @@ use std::path::Path;
 use motionvm_forth::{Address, Host, Machine, Run};
 use motionvm_render::Framebuffer;
 
-use crate::Engine;
-
-pub(crate) type Res<T> = Result<T, Box<dyn std::error::Error>>;
+use crate::{Engine, Error, Result};
 
 /// The loaded game: the virtual machine and the runtime behind it.
 ///
@@ -72,7 +70,7 @@ pub trait Hooks {
     /// The word to run this frame when `CTRL`/`SCRCTRL` has not installed a
     /// controller yet — or `None` when the frame is spent or there is nothing
     /// to run.
-    fn fallback_controller(&mut self) -> Res<Option<Address>>;
+    fn fallback_controller(&mut self) -> Result<Option<Address>>;
 }
 
 impl<M: Machine> Game<M>
@@ -90,8 +88,8 @@ where
     /// Without one, the slot list stays empty and saving stops by name. That is
     /// the safe default rather than an oversight: the original writes its saves
     /// beside its data files, and here the data files are read-only.
-    pub fn set_saves(&mut self, dir: &Path) -> Res<()> {
-        self.engine.set_saves(dir).map_err(|e| e.into())
+    pub fn set_saves(&mut self, dir: &Path) -> Result<()> {
+        self.engine.set_saves(dir).map_err(Error::Saves)
     }
 
     /// Looks a word up by module and name.
@@ -105,23 +103,24 @@ where
     /// A word can stop halfway — `INCLLOC` fades the status bar out and does not
     /// come back until that is over — so this pumps frames until it is really
     /// done. Callers that want the frames themselves use [`Self::pump`].
-    pub fn call(&mut self, module: u32, word: &str, args: &[i32]) -> Res<()> {
-        let addr = self
-            .address(module, word)
-            .ok_or_else(|| format!("module {module} has no word {word}"))?;
+    pub fn call(&mut self, module: u32, word: &str, args: &[i32]) -> Result<()> {
+        let addr = self.address(module, word).ok_or_else(|| Error::NoWord {
+            module,
+            name: word.to_string(),
+        })?;
         self.vm.data().extend_from_slice(args);
         self.call_at(addr)
     }
 
     /// Runs the word at `addr`, letting any transition it starts play out.
-    pub fn call_at(&mut self, addr: Address) -> Res<()> {
+    pub fn call_at(&mut self, addr: Address) -> Result<()> {
         self.vm.start(addr)?;
         self.running = true;
         let mut frames = 0u32;
         while self.pump()? {
             frames += 1;
             if frames > 100_000 {
-                return Err("the word never finished".into());
+                return Err(Error::Unfinished);
             }
         }
         Ok(())
@@ -132,7 +131,7 @@ where
     /// Between two resumes the transition moves on by one band; that is the
     /// time the original spends inside its own loop, with the interpreter
     /// stopped exactly where it was.
-    pub fn pump(&mut self) -> Res<bool> {
+    pub fn pump(&mut self) -> Result<bool> {
         if !self.running {
             return Ok(false);
         }
@@ -211,10 +210,13 @@ where
     /// Writes a module variable. This is how input reaches the game: the
     /// original engine's native loop fills `_MLK`, `_MRK` and `_AKTKEY` the
     /// same way, since no bytecode anywhere writes them.
-    pub fn set_var(&mut self, module: u32, name: &str, value: i32) -> Res<()> {
+    pub fn set_var(&mut self, module: u32, name: &str, value: i32) -> Result<()> {
         let addr = self
             .address(module, name)
-            .ok_or_else(|| format!("module {module} has no variable {name}"))?;
+            .ok_or_else(|| Error::NoVariable {
+                module,
+                name: name.to_string(),
+            })?;
         self.vm.set_variable(addr, value)?;
         Ok(())
     }
@@ -230,7 +232,7 @@ where
     /// A frame is the unit of time here, not a millisecond. `!LTWAIT` is
     /// `_LOCTASKWAI --`, one subtraction per call, so a task that asks to wait
     /// fifty waits for fifty of these steps.
-    pub fn step(&mut self) -> Res<()> {
+    pub fn step(&mut self) -> Result<()> {
         // A new frame, new input: the poll budget starts over, and a word
         // that had spent it and is now finished is no longer waiting.
         self.engine.polls = 0;
@@ -320,7 +322,7 @@ where
     /// A callback is bytecode and runs re-entrantly, which is what
     /// `call_nested` is for. It must not block: there is no parking place
     /// inside a walk, and nothing reached this way does.
-    fn descriptor_frame(&mut self) -> Res<()> {
+    fn descriptor_frame(&mut self) -> Result<()> {
         for (screen, handle) in self.engine.frame_order() {
             if let Some(word) = self.engine.tick_descriptor_on(screen, handle) {
                 let Some(addr) = self.vm.callback_target(word) else {

@@ -13,7 +13,8 @@
 //! answers.
 
 use crate::order::block::*;
-use crate::{Address, Engine, Error, Placement, Result, Vm};
+use crate::{Address, Engine, Placement, Vm};
+use motionvm_forth::{Error, Result};
 
 impl Engine {
     /// The deferred changes a location has queued for this conversation, 0x7b258.

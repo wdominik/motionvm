@@ -6,6 +6,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-28
+
+### Changed
+
+- **`motionvm-engine` has an error type of its own.** `Game::open`,
+  `titles::open` and every `Playable` method answered with
+  `Box<dyn std::error::Error>`, so a caller could not tell "this directory
+  holds no game" from "this sprite is truncated" without matching on message
+  text. `motionvm_engine::Error` is a fourteen-variant enum with the shape the
+  three crates below it already have, and `motionvm_engine::Result<T>` beside
+  it. Every message it prints is the one that was printed before, character
+  for character. **A breaking change for anything that named the old return
+  type**; nothing in this repository did but the crate itself.
+
+### Fixed
+
+- **A damaged container no longer aborts `motionvm-tools extract`.** Twelve
+  assertions sat on the result of looking up an item the container's index
+  claimed to hold, where the game's own loader skips such a slot and plays on.
+  `extract` now writes what is really there and says how many items the index
+  over-claimed, instead of panicking with a message naming nothing the user
+  can act on.
+- **Errors from a damaged game directory name the file they are about.** An
+  unreadable `ENGINE.EXE` reported "read of 4 bytes at 0x3c past end of
+  17-byte buffer", which is true of every file in the directory; a broken
+  container reported "RSC container: file is only 0 bytes". Both now open with
+  the path.
+- **Three file sizes and one word count in the documentation.** `HPPLAY.EXE`
+  is 166 KB and was given as 162, `MUSADL.DRV` is 4 KB and was given as 5 in
+  both of its tables, and the documentation index labelled the 16-bit
+  generation with `ENVIRO.EXE`'s 233 kernel words where the older
+  `HPPLAY.EXE` has 228.
+
 ## [0.4.0] - 2026-08-28
 
 ### Added
@@ -369,7 +402,8 @@ behaves as the engine did. See "What is and is not verified" in the README.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/wdominik/motionvm/releases/tag/v0.4.1
 [0.4.0]: https://github.com/wdominik/motionvm/releases/tag/v0.4.0
 [0.3.1]: https://github.com/wdominik/motionvm/releases/tag/v0.3.1
 [0.3.0]: https://github.com/wdominik/motionvm/releases/tag/v0.3.0

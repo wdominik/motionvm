@@ -6,7 +6,7 @@
 //! drift, and a copy that reaches one directory too few answers "no data" on a
 //! machine that has it — which reads exactly like a clean skip.
 //!
-//! Four environment variables are read:
+//! Five environment variables are read:
 //!
 //! - `MOTIONVM_GAMEDATA_DS2` — the directory holding Dunkle Schatten 2:
 //!   `001.RSC` and friends. Falls back to `../games/DS2` beside the
@@ -18,6 +18,15 @@
 //! - `MOTIONVM_GAMEDATA_JEFFJET` — the directory holding Jeff Jet - Abenteuer
 //!   InfoHighway: `DATA.-1-`, `DATA.-2-` and `HPPLAY.EXE`. Falls back to
 //!   `../games/JEFFJET` beside the workspace.
+//! - `MOTIONVM_NO_GAMEDATA` — set to anything non-empty, every lookup here
+//!   answers `None` before any of the others is consulted, so the suite runs
+//!   the way CI runs it. Without it that cannot be reproduced on a machine
+//!   that keeps the games beside the checkout: the fallback below is anchored
+//!   at compile time through `CARGO_MANIFEST_DIR`, so no working directory
+//!   escapes it and an empty `MOTIONVM_GAMEDATA_DS2` reaches the data anyway.
+//!   The data-free path is the only thing CI proves, and a change that breaks
+//!   it — a test that quietly starts needing a file, a skip that stops being a
+//!   skip — is otherwise invisible until after a push. `just check-nodata`.
 //! - `MOTIONVM_SAVES` — a directory holding a savegame. There is no fallback;
 //!   savegames cannot be reconstructed, only played to. It has to be one of
 //!   *this* engine's: the layouts are not interchangeable with the original's,
@@ -47,6 +56,9 @@ use std::path::PathBuf;
 /// An **empty** value counts as no variable rather than as a wrong path. A
 /// recipe that forwards the setting cannot know whether the caller gave one,
 /// and forwarding an empty string is how it says "nothing to pass on".
+///
+/// `MOTIONVM_NO_GAMEDATA` wins over all of it and answers `None`; see the
+/// module header.
 pub fn gamedata_ds2() -> Option<PathBuf> {
     game("MOTIONVM_GAMEDATA_DS2", "../../../games/DS2", "001.RSC")
 }
@@ -73,9 +85,24 @@ pub fn gamedata_jeffjet() -> Option<PathBuf> {
     )
 }
 
-/// The lookup both games share: the variable, or the fallback beside the
+/// Whether the caller asked for CI's floor: no game data, whatever is on
+/// this machine.
+///
+/// Read before anything else, and deliberately not overridable by the
+/// per-game variables — the point is a run with *no* data, and a single
+/// switch that four functions honour is one thing to get right rather than
+/// four. See the module header for why the fallback makes this necessary.
+fn no_gamedata() -> bool {
+    std::env::var("MOTIONVM_NO_GAMEDATA").is_ok_and(|v| !v.is_empty())
+}
+
+/// The lookup the three games share: nothing at all when
+/// [`no_gamedata`] says so, else the variable, else the fallback beside the
 /// workspace; a set-but-wrong path panics, a missing fallback skips.
 fn game(var: &str, fallback: &str, probe: &str) -> Option<PathBuf> {
+    if no_gamedata() {
+        return None;
+    }
     match std::env::var(var).ok().filter(|s| !s.is_empty()) {
         Some(set) => {
             let dir = PathBuf::from(set);
@@ -136,6 +163,8 @@ pub fn game_file(dir: &std::path::Path, name: &str) -> PathBuf {
 /// Unlike [`gamedata_ds2`] this has no fallback and does not panic on a wrong
 /// path: a savegame is made by playing the game to a particular place, so
 /// there is no directory a checkout could be expected to have.
+/// `MOTIONVM_NO_GAMEDATA` answers `None` here too: a savegame is a game's
+/// data as much as its container is, and CI's floor has neither.
 /// Slots are `i32` because that is what they are on the stack the moment they
 /// reach `GET`: a slot number is an ordinary Forth cell, not a separate kind of
 /// thing.
@@ -144,6 +173,9 @@ pub fn savegame_slot(slots: &[i32]) -> Option<(PathBuf, i32)> {
     // recipe that runs the suite passes the variable through whether or not it
     // was given one, and `PathBuf::from("")` would silently look for `701.FRZ`
     // wherever cargo happened to be standing.
+    if no_gamedata() {
+        return None;
+    }
     let set = std::env::var("MOTIONVM_SAVES")
         .ok()
         .filter(|s| !s.is_empty())?;

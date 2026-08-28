@@ -2,10 +2,13 @@
 #
 # `just check` is the real gate and it runs the suite against a copy of the
 # game. The game's files are copyrighted and cannot be here, so CI runs the
-# same four commands without them: of the test suite's ~255 tests, the ~115
+# same four commands without them: of the test suite's ~310 tests, the ~120
 # that need the data skip themselves and say so. What this proves is that the
 # workspace builds, lints, documents and passes its data-free tests — on three
 # platforms rather than on the one it was written on.
+#
+# `just check-nodata` runs exactly that locally, which is the only way to
+# reproduce it on a machine that keeps the games beside the checkout.
 #
 # That last part is the point. Nothing here can catch a mistake in how the
 # engine reads the game, but it does catch the kind that only shows up

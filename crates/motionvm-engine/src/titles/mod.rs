@@ -9,12 +9,13 @@ use std::path::Path;
 use motionvm_render::Framebuffer;
 
 use crate::MusicSink;
-use crate::game::Res;
+use crate::Result;
 
 pub mod ds2;
 pub mod enviro;
 pub mod jeffjet;
 pub mod motion16;
+pub mod motion32;
 
 /// The games motionvm knows, by the files they ship.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,16 +68,7 @@ pub fn detect(dir: &Path) -> Option<Title> {
         }
         return None;
     }
-    let rsc = std::fs::read_dir(dir).ok()?.flatten().any(|e| {
-        let p = e.path();
-        p.extension()
-            .and_then(|x| x.to_str())
-            .is_some_and(|x| x.eq_ignore_ascii_case("rsc"))
-            && p.file_stem()
-                .and_then(|s| s.to_str())
-                .is_some_and(|s| s.len() == 3 && s.bytes().all(|b| b.is_ascii_digit()))
-    });
-    rsc.then_some(Title::DunkleSchatten2)
+    motion32::has_container(dir).then_some(Title::DunkleSchatten2)
 }
 
 /// A game a window can drive, whichever machine it runs on.
@@ -102,14 +94,14 @@ pub trait Playable {
         (1, 1)
     }
     /// Begins the game the way it begins itself.
-    fn start(&mut self) -> Res<()>;
+    fn start(&mut self) -> Result<()>;
     /// One frame of whatever is running. Returns whether it is still going.
-    fn pump(&mut self) -> Res<bool>;
+    fn pump(&mut self) -> Result<bool>;
     /// One step of the game — what the original engine's native loop does
     /// once per frame.
-    fn step(&mut self) -> Res<()>;
+    fn step(&mut self) -> Result<()>;
     /// Hands the game this frame's input.
-    fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Res<()>;
+    fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Result<()>;
     /// The frame to show, pointer and all.
     fn render(&mut self) -> Framebuffer;
     /// The palette the frame's indices mean.
@@ -120,11 +112,11 @@ pub trait Playable {
     /// Where the music goes. Without one, the game plays silently.
     fn set_music(&mut self, sink: Box<dyn MusicSink>);
     /// Points saving and loading at a directory.
-    fn set_saves(&mut self, dir: &Path) -> Res<()>;
+    fn set_saves(&mut self, dir: &Path) -> Result<()>;
     /// Whether the game has run to its end.
     fn finished(&self) -> bool;
     /// Asks the game to begin at location `n` instead of where it would.
-    fn request_location(&mut self, n: i32) -> Res<()>;
+    fn request_location(&mut self, n: i32) -> Result<()>;
     /// The location the game itself wants to begin at, if it says.
     fn start_location(&self) -> Option<i32>;
 }
@@ -134,7 +126,7 @@ pub trait Playable {
 /// The error names the directory and what it lacks, the way each game's own
 /// opener does; a directory holding none of their files says so, and lists
 /// what each of them would need.
-pub fn open(dir: &Path) -> Res<Box<dyn Playable>> {
+pub fn open(dir: &Path) -> Result<Box<dyn Playable>> {
     match detect(dir) {
         Some(Title::DunkleSchatten2) => {
             Ok(Box::new(crate::Game::<motionvm_forth::m32::Vm>::open(dir)?))
@@ -143,18 +135,13 @@ pub fn open(dir: &Path) -> Res<Box<dyn Playable>> {
         Some(Title::JeffJet) => Ok(Box::new(jeffjet::open(dir)?)),
         None => {
             if !dir.is_dir() {
-                return Err(format!("{}: no such directory", dir.display()).into());
+                return Err(crate::Error::NoSuchDirectory {
+                    dir: dir.to_path_buf(),
+                });
             }
-            Err(format!(
-                "{} is not a game motionvm can open\n  \
-                 Dunkle Schatten 2 needs 001.RSC and ENGINE.EXE\n  \
-                 Die Enviro-Kids greifen ein needs DATA.-1- and ENVIRO.EXE\n  \
-                 Jeff Jet - Abenteuer InfoHighway needs DATA.-1-, DATA.-2- and HPPLAY.EXE\n  \
-                 Another MOTION game, or an incomplete copy of one of these; \
-                 see \"Game data\" in the README.",
-                dir.display()
-            )
-            .into())
+            Err(crate::Error::Unrecognized {
+                dir: dir.to_path_buf(),
+            })
         }
     }
 }

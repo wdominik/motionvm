@@ -53,7 +53,7 @@ cargo doc --workspace --no-deps --document-private-items
 ```
 
 **Game data.** The games' files are not in the repository and cannot be; they
-are copyrighted. The `justfile` reads four locations:
+are copyrighted. The `justfile` reads four locations and one switch:
 
 - `GAMEDATA_DS2` — a copy of Dunkle Schatten 2's game directory (`001.RSC`
   and friends); `GAMEDATA_ENVIRO` — a copy of Die Enviro-Kids greifen ein's
@@ -69,6 +69,13 @@ are copyrighted. The `justfile` reads four locations:
 - `SAVES` — a directory holding a savegame, for the savegame tests. Savegames
   cannot be reconstructed, only played to, so there is no default that could
   work; without one those tests skip.
+- `MOTIONVM_NO_GAMEDATA=1` — the opposite: no data at all, whatever this
+  machine has. `just check-nodata` sets it, and that is the only way to
+  reproduce CI's floor here, because the sibling-directory defaults above are
+  anchored at compile time and neither an empty variable nor a different
+  working directory escapes them. Worth running before a push that touches a
+  test: the data-free path is the only thing CI proves, and a test that
+  quietly starts needing a file was previously invisible until CI said so.
 
 Tests that need data they cannot find skip themselves and say so. A *set but
 wrong* path panics instead: a run that skips everything is indistinguishable
@@ -109,6 +116,9 @@ promoted to errors. It is the definition of "green". Run it before calling any
 change finished. For multi-step restructurings, run it after every step, so
 that the step that broke something is the step you just took.
 
+`just check-nodata` runs the suite the way CI does, with no game data at all;
+it is worth a run before pushing anything that touches a test.
+
 `.github/workflows/ci.yml` runs the same four commands on Linux, macOS and
 Windows — but **without the game data**, which cannot be in the repository. So
 CI is the floor and this command is the gate: CI proves the workspace builds,
@@ -141,7 +151,15 @@ with `[lints] workspace = true`:
 - `clippy::correctness` and `clippy::suspicious = "deny"` — the two groups
   that describe code which is probably wrong rather than code which is merely
   unfashionable. `pedantic` is deliberately absent: this codebase makes
-  deliberate choices it would argue with.
+  deliberate choices it would argue with. What it would say is mostly four
+  lints: `cargo clippy --workspace -- -W clippy::pedantic` reports 1177
+  warnings, of which 769 are `cast_sign_loss` (272), `cast_lossless` (197),
+  `cast_possible_truncation` (166) and `cast_possible_wrap` (134), and another
+  187 are `must_use_candidate`. **The casts are the semantics.** A 16-bit
+  Forth machine truncating an `i32` to a `u16` is reproducing what the
+  original did; a lint asking for `try_into` there is asking the
+  reimplementation to stop being one. Named here so that the next person does
+  not have to run the lint to find out what it would have said.
 
 `#[allow]` is legal but must carry its reason at the attribute — no bare
 `#[allow]` anywhere in the tree.
@@ -384,6 +402,12 @@ change. Conventions:
   under `motion16/`, stack effects use Forth's `( a b -- c )` notation, and
   engine addresses refer to `ENGINE.EXE`'s *relocated* image for the 32-bit
   engine and to file offsets in `ENVIRO.EXE` for the 16-bit one.
+- **File sizes are decimal KB and MB**, everywhere a round figure is given —
+  845 KB for a file of 845 467 bytes, 7.6 MB for one of 7 609 296. Exact byte
+  counts are written out in full and grouped with thin spaces. Two
+  conventions in one column is the kind of drift nothing catches — the
+  README's three file tables carried both for a release before anyone
+  measured them.
 - Unresolved questions about the original belong in
   `docs/open-questions.md`, the single ledger of what is not yet known, in
   the section of the generation they concern.

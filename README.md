@@ -159,7 +159,7 @@ Two files. Without either one motionvm stops at startup and says which.
 
 | File | Size | What it holds |
 |---|---|---|
-| `MUSADL.DRV` | 5 KB | The PSM 2 Ad Lib driver, whose tables the rebuilt player reads |
+| `MUSADL.DRV` | 4 KB | The PSM 2 Ad Lib driver, whose tables the rebuilt player reads |
 
 Missing, it is not fatal: motionvm prints `sound is off: …` and plays on
 in silence.
@@ -188,7 +188,7 @@ Three files. Without any one of them motionvm stops at startup and says which.
 |---|---|---|
 | `DATA.-1-` | 1.4 MB | Volume 1: 55 script modules, 65 text tables, 119 blocks and 947 sprites, all LZW-packed |
 | `DATA.-2-` | 1.1 MB | Volume 2: 523 more sprites, and **every palette, both fonts and the font reference table** |
-| `HPPLAY.EXE` | 162 KB | Not run, read: the 228-word kernel table is lifted out of the MZ image. It is an older build than `ENVIRO.EXE` and its ordinals differ, so this game's table has to come from this game's binary |
+| `HPPLAY.EXE` | 166 KB | Not run, read: the 228-word kernel table is lifted out of the MZ image. It is an older build than `ENVIRO.EXE` and its ordinals differ, so this game's table has to come from this game's binary |
 
 The second volume is not optional. Everything the game draws through lives on
 it; a copy without it would find every script and no colour, and motionvm
@@ -198,7 +198,7 @@ refuses it by name rather than starting.
 
 | File | Size | What it holds |
 |---|---|---|
-| `MUSADL.DRV` | 5 KB | The PSM 2 Ad Lib driver — byte-identical to Die Enviro-Kids greifen ein's |
+| `MUSADL.DRV` | 4 KB | The PSM 2 Ad Lib driver — byte-identical to Die Enviro-Kids greifen ein's |
 
 Missing, it is not fatal: motionvm prints `sound is off: …` and plays on
 in silence.
@@ -396,6 +396,7 @@ screenshot, so freezing and capturing belong together.
 ```sh
 just check          # format, lints, tests and documentation
 just test           # only the tests, with the games' files
+just check-nodata   # the same, with no game data at all — what CI runs
 ```
 
 or without [`just`](https://github.com/casey/just):

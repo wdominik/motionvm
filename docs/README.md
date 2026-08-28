@@ -118,7 +118,7 @@ exercises.
 | [Script modules](motion16/formats/script-modules.md) | Compiled Forth modules with 16-bit cells and global word ids |
 | [Execution model](motion16/vm/execution-model.md) | Interpreter, stacks, the flat address space, the word table |
 | [Threaded code](motion16/vm/threaded-code.md) | Cell encoding, ordinals, inline operands, branches |
-| [Kernel words](motion16/vm/kernel-words.md) | The 233-word kernel, its two tables, what the game uses |
+| [Kernel words](motion16/vm/kernel-words.md) | The 16-bit kernel — 233 words in `ENVIRO.EXE`, 228 in the older `HPPLAY.EXE` — its two tables, what the games use |
 | [ENVIRO.EXE](motion16/engine/enviro-exe.md) | The later build of the player: the MZ binary, what lives where |
 | [HPPLAY.EXE](motion16/engine/hpplay-exe.md) | The earlier build: five words fewer, every ordinal from 124 up shifted |
 | [Boot and frame loop](motion16/engine/boot-and-loop.md) | `RUN`, `SCRCTRL`, `ANIMPLAY`, location changes, shutdown |

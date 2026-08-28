@@ -6,10 +6,10 @@
 
 use crate::Engine;
 use crate::Placement;
-use crate::Result;
 use crate::stack::pop_n;
 use crate::stack::pop1;
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Result;
 
 /// What differs between the two engines' `MOUSEINFO`: the inventory bar's
 /// geometry, read from each handler.

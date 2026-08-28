@@ -54,6 +54,20 @@ test:
         MOTIONVM_GAMEDATA_JEFFJET="{{ _DATA_JEFFJET }}" \
         MOTIONVM_SAVES="{{ SAVES }}" RUSTFLAGS="-D warnings" cargo test --workspace
 
+# `just test` above cannot do this. The per-game variables fall back to
+# `../games/<GAME>` beside the checkout — which is the arrangement the README
+# recommends — and the fallback is anchored at compile time, so neither an
+# empty variable nor a different working directory escapes it. Short of moving
+# `../games` aside, the data-free tests could not be exercised in isolation,
+# and the data-free path is the only thing CI proves: a test that quietly
+# starts needing a file, or a skip that stops being a skip, was invisible here
+# and only surfaced after a push. This is the floor, not the gate: `just
+# check` is still what has to pass before a change is finished.
+#
+# CI's floor, on your own machine: the suite with no game data at all.
+check-nodata:
+    MOTIONVM_NO_GAMEDATA=1 RUSTFLAGS="-D warnings" cargo test --workspace
+
 # One test target, e.g. `just test-one ds2_scenes` or `just test-one enviro_psm`.
 test-one target:
     MOTIONVM_GAMEDATA_DS2="{{ _DATA_DS2 }}" MOTIONVM_GAMEDATA_ENVIRO="{{ _DATA_ENVIRO }}" \

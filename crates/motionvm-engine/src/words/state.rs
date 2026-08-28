@@ -5,15 +5,15 @@
 //! answers `None` and the next one is asked.
 
 use crate::Engine;
-use crate::Error;
 use crate::MODE_320X200X256;
 use crate::MODE_640X480X32K;
 use crate::MODE_640X480X256;
-use crate::Result;
 use crate::stack::pop_n;
 use crate::stack::pop1;
 use motionvm_forth::Address;
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Error;
+use motionvm_forth::Result;
 
 impl Engine {
     pub(crate) fn words_state(

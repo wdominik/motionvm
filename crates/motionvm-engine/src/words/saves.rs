@@ -10,11 +10,11 @@
 //! ([`save::Layout`]).
 
 use crate::Engine;
-use crate::Error;
-use crate::Result;
 use crate::save;
 use crate::stack::pop1;
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Error;
+use motionvm_forth::Result;
 
 impl Engine {
     pub(crate) fn words_saves(

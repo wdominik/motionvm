@@ -6,7 +6,7 @@
 //! an error that names the word rather than into a panic. Screening a callback
 //! value is the machine's, [`motionvm_forth::AddressSpace::callable`].
 
-use crate::{Error, Result};
+use motionvm_forth::{Error, Result};
 
 /// Pops `n` values, deepest first in the returned vector.
 pub(crate) fn pop_n(stack: &mut Vec<i32>, n: usize, word: &'static str) -> Result<Vec<i32>> {

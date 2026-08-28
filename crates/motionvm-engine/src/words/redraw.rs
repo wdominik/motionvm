@@ -5,8 +5,8 @@
 //! answers `None` and the next one is asked.
 
 use crate::Engine;
-use crate::Result;
 use motionvm_forth::AddressSpace;
+use motionvm_forth::Result;
 
 impl Engine {
     pub(crate) fn words_redraw(
