@@ -54,7 +54,7 @@ pub(crate) enum Layout {
     /// binaries have written since 0.1.
     Motion32,
     /// The 16-bit engine's, `ENVFRZ`/`ENVANM`. The magic is the
-    /// generation's and not the game's, so both 16-bit games write and read
+    /// generation's and not the game's, so the 16-bit games write and read
     /// the same one — which is why they must not share a save directory: one
     /// would open the other's slot rather than refuse it.
     Motion16,
@@ -399,10 +399,11 @@ pub(crate) struct DescriptorState {
     pub(crate) x: i32,
     pub(crate) y: i32,
     pub(crate) level: i32,
-    pub(crate) sprite: Option<i32>,
-    pub(crate) block: Option<i32>,
+    /// What the descriptor shows, as `(tag, value)`: 0 nothing, 1 a sprite,
+    /// 2 a picture. One field, because the engine has one — see
+    /// [`crate::Shows`].
+    pub(crate) shows: (u8, i32),
     pub(crate) text: Option<i32>,
-    pub(crate) table: Option<i32>,
     pub(crate) font: Option<i32>,
     pub(crate) color: Option<i32>,
     pub(crate) template: Option<i32>,
@@ -410,7 +411,6 @@ pub(crate) struct DescriptorState {
     pub(crate) callback: i32,
     pub(crate) x_mode: u8,
     pub(crate) y_mode: u8,
-    pub(crate) kind: u8,
     pub(crate) active: bool,
     pub(crate) auto_buffer: bool,
     pub(crate) fields: Vec<(String, i32)>,
@@ -453,16 +453,15 @@ pub(crate) fn write_anm(a: &Anim, layout: Layout) -> Vec<u8> {
         w.i32(d.x);
         w.i32(d.y);
         w.i32(d.level);
-        for v in [
-            d.sprite, d.block, d.text, d.table, d.font, d.color, d.template,
-        ] {
+        w.u8(d.shows.0);
+        w.i32(d.shows.1);
+        for v in [d.text, d.font, d.color, d.template] {
             w.option_i32(v);
         }
         w.i32(d.wait);
         w.i32(d.callback);
         w.u8(d.x_mode);
         w.u8(d.y_mode);
-        w.u8(d.kind);
         w.u8(u8::from(d.active));
         w.u8(u8::from(d.auto_buffer));
         w.u32(d.fields.len() as u32);
@@ -526,15 +525,13 @@ pub(crate) fn read_anm(bytes: &[u8], what: &str, layout: Layout) -> Result<Anim>
         let handle = r.u32()?;
         let screen = r.u32()?;
         let (x, y, level) = (r.i32()?, r.i32()?, r.i32()?);
-        let sprite = r.option_i32()?;
-        let block = r.option_i32()?;
+        let shows = (r.u8()?, r.i32()?);
         let text = r.option_i32()?;
-        let table = r.option_i32()?;
         let font = r.option_i32()?;
         let color = r.option_i32()?;
         let template = r.option_i32()?;
         let (wait, callback) = (r.i32()?, r.i32()?);
-        let (x_mode, y_mode, kind) = (r.u8()?, r.u8()?, r.u8()?);
+        let (x_mode, y_mode) = (r.u8()?, r.u8()?);
         let active = r.u8()? != 0;
         let auto_buffer = r.u8()? != 0;
         let mut fields = Vec::new();
@@ -552,10 +549,8 @@ pub(crate) fn read_anm(bytes: &[u8], what: &str, layout: Layout) -> Result<Anim>
             x,
             y,
             level,
-            sprite,
-            block,
+            shows,
             text,
-            table,
             font,
             color,
             template,
@@ -563,7 +558,6 @@ pub(crate) fn read_anm(bytes: &[u8], what: &str, layout: Layout) -> Result<Anim>
             callback,
             x_mode,
             y_mode,
-            kind,
             active,
             auto_buffer,
             fields,
@@ -602,4 +596,153 @@ fn r_u16(r: &mut Reader<'_>) -> Result<u16> {
 
 fn r_i16(r: &mut Reader<'_>) -> Result<i16> {
     Ok(r.i32()? as i16)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A descriptor with every field distinguishable from every other, so a
+    /// round trip that drops one or swaps two cannot come back equal.
+    fn descriptor(handle: u32, buffer: Option<i32>) -> DescriptorState {
+        DescriptorState {
+            handle,
+            screen: 7,
+            x: -11,
+            y: 12,
+            level: 13,
+            shows: (2, 15),
+            text: Some(16),
+            font: Some(18),
+            color: Some(19),
+            template: Some(20),
+            wait: -21,
+            callback: 22,
+            x_mode: 1,
+            y_mode: 2,
+            active: true,
+            auto_buffer: true,
+            fields: vec![("SDBLK".into(), 23), ("SDTDT".into(), 24)],
+            buffer,
+        }
+    }
+
+    fn anim(layout: Layout) -> Anim {
+        Anim {
+            next_descriptor: 42,
+            current: Some(2),
+            screen: Some(1),
+            pointer_visible: true,
+            dialog_offset: 3,
+            dialog_return: 4,
+            palette: [5; 768],
+            screens: vec![ScreenState {
+                handle: 1,
+                size: (320, 200),
+                full_view: (320, 200),
+                view: (320, 165),
+                view_pos: (6, 7),
+                pos: (8, 9),
+                origin: (10, 11),
+            }],
+            flips: vec![(30, 31)],
+            descriptors: vec![
+                descriptor(2, (layout == Layout::Motion16).then_some(25)),
+                descriptor(3, (layout == Layout::Motion16).then_some(-1)),
+            ],
+            buffers_on: layout == Layout::Motion16,
+            buffers: if layout == Layout::Motion16 {
+                vec![(26, 27, 28)]
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    /// What a descriptor shows has to survive a save and a load.
+    ///
+    /// The suite drives the games end to end and never looks at these fields
+    /// afterwards, so a picture lost between `PUTANIM` and `GETANIM` would
+    /// only surface as a room that comes back blank — a long way from the
+    /// line that dropped it.
+    #[track_caller]
+    fn round_trip(layout: Layout) {
+        let before = anim(layout);
+        let bytes = write_anm(&before, layout);
+        let after = read_anm(&bytes, "a written savegame", layout).expect("reads back");
+
+        assert_eq!(after.next_descriptor, before.next_descriptor);
+        assert_eq!(after.current, before.current);
+        assert_eq!(after.screen, before.screen);
+        assert_eq!(after.pointer_visible, before.pointer_visible);
+        assert_eq!(
+            (after.dialog_offset, after.dialog_return),
+            (before.dialog_offset, before.dialog_return)
+        );
+        assert_eq!(after.palette, before.palette);
+        assert_eq!(after.flips, before.flips);
+        assert_eq!(after.buffers_on, before.buffers_on);
+        assert_eq!(after.buffers, before.buffers);
+        assert_eq!(after.screens.len(), before.screens.len());
+        for (a, b) in after.screens.iter().zip(&before.screens) {
+            assert_eq!(
+                (
+                    a.handle,
+                    a.size,
+                    a.full_view,
+                    a.view,
+                    a.view_pos,
+                    a.pos,
+                    a.origin
+                ),
+                (
+                    b.handle,
+                    b.size,
+                    b.full_view,
+                    b.view,
+                    b.view_pos,
+                    b.pos,
+                    b.origin
+                )
+            );
+        }
+
+        assert_eq!(after.descriptors.len(), before.descriptors.len());
+        for (a, b) in after.descriptors.iter().zip(&before.descriptors) {
+            assert_eq!((a.handle, a.screen), (b.handle, b.screen));
+            assert_eq!((a.x, a.y, a.level), (b.x, b.y, b.level));
+            // The picture and the text, which is what nothing else checks.
+            assert_eq!(a.shows, b.shows, "what {} shows", b.handle);
+            assert_eq!(a.text, b.text, "text of {}", b.handle);
+            assert_eq!((a.font, a.color, a.template), (b.font, b.color, b.template));
+            assert_eq!((a.wait, a.callback), (b.wait, b.callback));
+            assert_eq!((a.x_mode, a.y_mode), (b.x_mode, b.y_mode));
+            assert_eq!((a.active, a.auto_buffer), (b.active, b.auto_buffer));
+            assert_eq!(a.fields, b.fields);
+            assert_eq!(a.buffer, b.buffer, "buffer of {}", b.handle);
+        }
+    }
+
+    #[test]
+    fn a_32_bit_animation_comes_back_field_for_field() {
+        round_trip(Layout::Motion32);
+    }
+
+    #[test]
+    fn a_16_bit_animation_comes_back_field_for_field() {
+        round_trip(Layout::Motion16);
+    }
+
+    /// The other generation's file is refused by name, not misread.
+    #[test]
+    fn an_animation_of_the_other_layout_is_refused() {
+        let bytes = write_anm(&anim(Layout::Motion32), Layout::Motion32);
+        let Err(e) = read_anm(&bytes, "a 32-bit savegame", Layout::Motion16) else {
+            panic!("the magic does not match, so this should not have read");
+        };
+        assert!(
+            e.to_string().contains("a 32-bit savegame"),
+            "should name what it was reading: {e}"
+        );
+    }
 }

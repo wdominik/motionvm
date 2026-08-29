@@ -2,14 +2,14 @@
 
 # Threaded Code — Cell Encoding
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 A word body is a sequence of 16-bit cells. Each cell is one of:
 
 | Cell | Meaning |
 |---|---|
 | `0x8000 \| ordinal` | A kernel word. Ordinals are 1-based; 1–82 are the core table, 105–255 the domain table, 83–104 do not occur ([kernel words](kernel-words.md)) |
-| any other value | A call to the word with that global id (400–1944 in ENVIRO) |
+| any other value | A call to the word with that global id (400–1944 in Die Enviro-Kids greifen ein) |
 | the cell after certain kernel words | That word's operand — a literal, a branch distance, a data cell, or the bytes of a string |
 
 The 32-bit engine's `0x4000xxxx` tag, its five-per-index ordinals and its
@@ -18,7 +18,8 @@ when comparing the two, never by number.
 
 ## Inline operands
 
-Measured by decoding all 65 ENVIRO modules with exactly this set — the walk
+Measured by decoding all 65 modules of Die Enviro-Kids greifen ein with exactly
+this set — the walk
 meets no unknown ordinal and every body ends where the next word's header
 begins:
 
@@ -29,14 +30,14 @@ begins:
 | `_PutConst` | 38 | one cell: pushes its value and **returns** — a `CONST` |
 | `_CheckIf` | 41 | signed forward distance (`IF`) |
 | `_CheckEIf` | 42 | signed forward distance (`=IF`) |
-| `_ChElseDup` | 43 | forward; in the kernel, unused by ENVIRO |
+| `_ChElseDup` | 43 | forward; in the kernel, unused by Die Enviro-Kids greifen ein |
 | `_CheckElse` | 44 | signed forward distance (`ELSE`) |
 | `_LoopBreak` | 51 | signed forward distance (`WHILE`) |
 | `_Until` | 50 | signed backward distance |
 | `_Repeat` | 52 | signed backward distance |
 | `_LoopEnd` | 40 | signed backward distance (`LOOP`) |
-| `_AddLoop` | 47 | backward (`+LOOP`); unused by ENVIRO |
-| `_ULoopEnd` | 48 | backward (`/LOOP`); unused by ENVIRO |
+| `_AddLoop` | 47 | backward (`+LOOP`); unused by Die Enviro-Kids greifen ein |
+| `_ULoopEnd` | 48 | backward (`/LOOP`); unused by Die Enviro-Kids greifen ein |
 | `_PutString` | 78 | a NUL-terminated CP437 string padded to a cell boundary; 2 sites |
 | `_PutStringAdr` | 81 | the same payload; pushes the string's address and continues; 162 sites |
 
@@ -82,7 +83,8 @@ _PutAdr   13         \ STARTLOC — initial value 13; RUN stores 1 before use
 _PutAdr   0  0 0 …   \ _LOCLINK — a VAR with 16 ALLOT cells
 ```
 
-ENVIRO's modules define 792 variables and 310 constants this way. Module
+The modules of Die Enviro-Kids greifen ein define 792 variables and 310 constants
+this way. Module
 600 defines the small integers as constants — 0 to 20, the even numbers to
 30, −1, 100 and 1000 — which is why a decoded listing shows bare numbers
 that are *calls*, not literals.
@@ -90,7 +92,8 @@ that are *calls*, not literals.
 ## Open questions
 
 - Whether `_PutStringAdr`'s handler follows the compiler's padding rule.
-- `_ChElseDup`'s exact semantics (the `ELSEDUP` runtime); no ENVIRO site.
+- `_ChElseDup`'s exact semantics (the `ELSEDUP` runtime); no site in
+  Die Enviro-Kids greifen ein reaches it.
 
 ## See also
 

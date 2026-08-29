@@ -9,6 +9,8 @@
 //! Thirteen locations, and the point of walking all of them is the container:
 //! every backdrop is packed and half the artwork sits on the second volume, so
 //! a room that comes up blank is a container fault and not a script one.
+//!
+//! The game this file drives is Jeff Jet (MOTION 16-bit).
 
 use motionvm_engine::{Game, Playable, titles};
 use motionvm_forth::m16::Vm;

@@ -4,7 +4,7 @@
 //! `001.RSC` etc.; the tests skip themselves if it is missing, so the crate
 //! still builds and tests cleanly without the game.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_formats::m32::{Kind, ScrModule, Sprite, rsc::Bank};
 use motionvm_formats::{Palette, font};
@@ -15,7 +15,7 @@ macro_rules! bank_or_skip {
         match gamedata_ds2() {
             Some(dir) => Bank::open_dir(&dir).expect("open RSC banks"),
             None => {
-                eprintln!("skipping: no gamedata directory");
+                eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
                 return;
             }
         }
@@ -190,7 +190,7 @@ fn script_modules_parse_and_sizes_add_up() {
 #[test]
 fn standalone_files_match_their_in_container_twins() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     // 000.PAL on disk is a plain palette.
@@ -297,7 +297,7 @@ fn fonts_decode_and_spell_the_alphabet() {
 #[test]
 fn engine_executable_relocates_and_yields_the_kernel_word_table() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let img =
@@ -374,7 +374,7 @@ fn engine_executable_relocates_and_yields_the_kernel_word_table() {
 #[test]
 fn the_adlib_banks_parse_and_name_their_instruments() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let melodic = std::fs::read(game_file(&dir, "MELODIC.BNK")).expect("MELODIC.BNK");
@@ -561,7 +561,7 @@ fn smf_notes(d: &[u8]) -> std::collections::BTreeMap<u16, Vec<(u32, u8, u8)>> {
 #[test]
 fn the_hmi_test_song_matches_its_midi_source() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let song = motionvm_formats::m32::hmi::Song::parse(
@@ -622,7 +622,7 @@ fn the_hmi_test_song_matches_its_midi_source() {
 #[test]
 fn the_driver_archives_walk_to_their_last_byte() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     for (name, count) in [("HMIMDRV.386", 8), ("HMIDET.386", 80), ("HMIDRV.386", 100)] {

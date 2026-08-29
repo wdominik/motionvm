@@ -1,12 +1,12 @@
-//! The four commands over a 16-bit game — one `DATA.-n-` container, as Die
-//! Enviro-Kids greifen ein ships it.
+//! The four commands over a 16-bit game — its `DATA.-n-` container, on one
+//! volume or two.
 //!
 //! What comes out mirrors the 32-bit commands where the data allows: sprites
 //! as indexed PNGs (through a palette of the caller's choice, because a
 //! 16-bit sprite carries none of its own), palettes, fonts, texts, blocks,
-//! and scripts both raw and as a `.f` listing read through the kernel table
-//! of `ENVIRO.EXE`, with a `kernel-usage.txt` that marks which of the kernel
-//! words the 16-bit machine implements.
+//! and scripts both raw and as a `.f` listing read through the kernel table of
+//! the engine binary beside the container, with a `kernel-usage.txt` that marks
+//! which of the kernel words the 16-bit machine implements.
 
 use motionvm_formats::m16::{
     Container, Segment, disasm::Disassembler, font, gfx, mz, psm, scr, text,
@@ -19,10 +19,10 @@ type Res = Result<(), Box<dyn std::error::Error>>;
 
 /// The 16-bit engine binaries a game directory may hold, in probe order.
 ///
-/// A second list of the same two names as the engine crate's, on purpose: this
-/// tool reads a game's files without opening the game, and does not depend on
-/// the engine.
-const ENGINES: [&str; 2] = ["ENVIRO.EXE", "HPPLAY.EXE"];
+/// A second list of the same three names as the engine crate's, on purpose:
+/// this tool reads a game's files without opening the game, and does not depend
+/// on the engine.
+const ENGINES: [&str; 3] = ["ENVIRO.EXE", "HPPLAY.EXE", "BMZ.EXE"];
 
 /// The kernel of the game in `dir`: its engine binary read and its tables
 /// bound. The binary is read, never run — the word table is what is wanted.
@@ -317,9 +317,15 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
 }
 
 /// Whether a module number is one of a location's three — 100+N, 300+N,
-/// 500+N for N in 1..=17 — as opposed to the resident library.
+/// 500+N — as opposed to the resident library, which starts at 600.
+///
+/// The bound is 20, the most locations any of the games has: Hilfe für
+/// Amajambere numbers to 120/320/520, Die Enviro-Kids greifen ein to 117 and
+/// Jeff Jet to 113. Too low a bound is silent rather than loud — a location
+/// module counted as library teaches its ids to every other listing, and the
+/// names come out wrong with nothing said.
 fn is_location(module: u16) -> bool {
-    matches!(module, 101..=117 | 301..=317 | 501..=517)
+    matches!(module, 101..=120 | 301..=320 | 501..=520)
 }
 
 pub(crate) fn one_sprite(dir: &Path, id: usize, out: &Path, pal: usize) -> Res {
@@ -410,6 +416,24 @@ fn write_symbols(f: &mut impl Write, m: &scr::ScrModule, bytes: usize) -> std::i
 
 #[cfg(test)]
 mod tests {
+
+    /// The three module series a location owns, against the resident library.
+    ///
+    /// The bound matters and is silent when it is wrong: a location module
+    /// counted as library teaches its ids to every other listing, and the
+    /// names come out wrong with nothing said. Twenty is the most locations
+    /// any of the games has.
+    #[test]
+    fn a_locations_three_modules_are_told_from_the_library() {
+        for n in 1..=20 {
+            for base in [100, 300, 500] {
+                assert!(is_location(base + n), "module {}", base + n);
+            }
+        }
+        for module in [100, 300, 500, 121, 321, 521, 600, 607, 650, 651] {
+            assert!(!is_location(module), "module {module} is not a location's");
+        }
+    }
     use super::*;
 
     /// A one-volume `DATA.-n-` over three GFX slots: an item, an empty slot,

@@ -2,12 +2,13 @@
 
 # Off-Screen Buffers
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The kernel has a family of buffer words — `BUFON`, `SETBUF`, `SDBUF`,
 `RESETBUF`, `KILLNBUF`, and the descriptor mode `SDBLK` beside them — that
 the 32-bit game never exercises: in Dunkle Schatten 2 `SETBUF`/`RESETBUF`
-are inert bookkeeping. In ENVIRO they carry the intro and every person
+are inert bookkeeping. In Die Enviro-Kids greifen ein they carry the intro and
+every person
 sprite, so they cannot be stubs here. What follows is what the call sites
 establish; the handlers are unread.
 

@@ -17,9 +17,9 @@
 //!
 //! Release only. A debug build measures the optimizer, not the code.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
-use motionvm_engine::{DescriptorKind, Game};
+use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
 use motionvm_render::Framebuffer;
 use motionvm_testutil::gamedata_ds2;
@@ -93,7 +93,7 @@ fn where_the_frame_time_goes() {
         .descriptors()
         .iter()
         .filter(|d| d.active)
-        .filter_map(|d| d.sprite.or(d.block))
+        .filter_map(|d| d.shows.graphic())
         .collect();
     let sprites: Vec<_> = ids
         .iter()
@@ -146,7 +146,7 @@ fn where_the_frame_time_goes() {
         .engine
         .descriptors()
         .iter()
-        .filter(|d| d.active && d.kind == DescriptorKind::Text)
+        .filter(|d| d.active && d.is_text())
         .cloned()
         .collect();
     let backed = texts

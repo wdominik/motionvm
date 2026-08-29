@@ -3,10 +3,10 @@
 //!
 //! ```text
 //! volume 1
-//! 0x00  u16      boot module number            (100 in ENVIRO and Jeff Jet)
+//! 0x00  u16      boot module number            (100 in all three games)
 //! 0x02  u16      boot word id                  (401, `RUN`)
 //! 0x04  u16[7]   slot counts: gfx, blk, scr, pal, fnt, frt, txt
-//! 0x12  u16      volumes the game ships on     (1 in ENVIRO, 2 in Jeff Jet)
+//! 0x12  u16      volumes the game ships on     (1, 2 or 3)
 //! 0x14  u16      spare entries after the offset table
 //! 0x16  u16[7]   per segment: non-zero if that segment's items are packed
 //! 0x24  u16      spare
@@ -19,7 +19,8 @@
 //!       ...      the items, back to back
 //! ```
 //!
-//! `n` is the sum of the seven counts — 4345 in ENVIRO and in Jeff Jet. The
+//! `n` is the sum of the seven counts — 4345 in Die Enviro-Kids greifen ein and in
+//! Jeff Jet, 4395 in Hilfe für Amajambere. The
 //! seven segments share one slot space in the order above, so a script's
 //! sprite id is the slot itself, a block id is the slot minus the GFX count, a
 //! module number is the slot minus the GFX and BLK counts, and so on;
@@ -33,8 +34,9 @@
 //! volumes. A slot's item ends at the next slot's offset *in its own volume*
 //! — the offsets of a volume are cumulative over all slots, so a slot living
 //! elsewhere repeats its neighbour's offset — or at the end of that volume for
-//! the last slot. Measured over the nine volumes of ENVIRO, Jeff Jet, Amajambere
-//! and Eddy M.: every volume's items tile it exactly, from its own table's end
+//! the last slot. Measured over the nine volumes of Die Enviro-Kids greifen ein,
+//! Jeff Jet, Hilfe für Amajambere and Eddy M.: every volume's items tile it
+//! exactly, from its own table's end
 //! to its last byte.
 //!
 //! **Whether items are packed** is the seven words at `0x16`, one per segment
@@ -54,7 +56,8 @@
 //! 16-bit engine has no bootstrap file like the 32-bit engine's `SYSTEM.RSC`
 //! — see [`Boot`].
 //!
-//! Measured on ENVIRO's one volume: the flag table ends at 8728, the offset
+//! Measured on the one volume of Die Enviro-Kids greifen ein: the flag table ends
+//! at 8728, the offset
 //! table at 26108 with three spare zeros, the first item starts at 26120, and
 //! the items account for every byte after the tables. On Jeff Jet's two: seven
 //! spare zeros, the first item of volume 1 at 26136 and of volume 2 at 17408 —
@@ -80,7 +83,7 @@ pub enum Segment {
     /// Fonts — see [`crate::m16::font`].
     Fnt,
     /// Font reference tables — [`crate::font::FontRefTable`]; only slot 0 is
-    /// occupied in ENVIRO.
+    /// occupied in Die Enviro-Kids greifen ein.
     Frt,
     /// Text tables — see [`crate::m16::text`].
     Txt,
@@ -117,9 +120,9 @@ impl Segment {
 /// words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Boot {
-    /// The module to load — 100 in ENVIRO.
+    /// The module to load — 100 in every shipped container.
     pub module: u16,
-    /// The global word id to run in it — 401 in ENVIRO, which is `RUN`.
+    /// The global word id to run in it — 401 in every one, which is `RUN`.
     pub word: u16,
 }
 
@@ -406,8 +409,9 @@ impl Container {
     /// How many volumes the header of `head` says the game is on, with a
     /// header that says none read as the one volume it is.
     ///
-    /// Zero is not a count any shipped container holds — ENVIRO says 1, Jeff Jet
-    /// and Amajambere 2, Eddy M. 3 — and reading it as one is what lets a
+    /// Zero is not a count any shipped container holds — Die Enviro-Kids greifen ein
+    /// says 1, Jeff Jet and Hilfe für Amajambere 2, Eddy M. 3 — and reading it
+    /// as one is what lets a
     /// hand-built fixture of nothing but slot counts still open.
     fn declared_volumes(head: &[u8]) -> Result<usize> {
         if head.len() < HEADER_LEN {
@@ -441,13 +445,15 @@ impl Container {
         self.boot
     }
 
-    /// How many volumes the game is on — 1 for ENVIRO, 2 for Jeff Jet.
+    /// How many volumes the game is on — 1 for Die Enviro-Kids greifen ein, 2 for
+    /// the other two.
     pub fn volumes(&self) -> usize {
         self.volume_lens.len()
     }
 
-    /// How many spare `u32` entries follow the offset table — 3 in ENVIRO, 7 in
-    /// Jeff Jet. They are zero in every shipped container; what the authoring
+    /// How many spare `u32` entries follow the offset table — 3 in
+    /// Die Enviro-Kids greifen ein, 7 in the other two. They are zero in every
+    /// shipped container; what the authoring
     /// tool kept them for is open.
     pub fn spare_offsets(&self) -> usize {
         self.spare
@@ -507,7 +513,8 @@ impl Container {
     /// volume the header does not declare, a flagged slot whose volume gives it
     /// no bytes, or an unflagged slot that some volume does.
     ///
-    /// Empty for ENVIRO's file. Jeff Jet answers with two GFX slots, 1319 and
+    /// Empty for the file of Die Enviro-Kids greifen ein. Jeff Jet answers with two
+    /// GFX slots, 1319 and
     /// 1848, that are flagged for a volume whose table gives them a length of
     /// zero — the container saying a sprite is there and then not having one.
     pub fn occupancy_mismatches(&self) -> Vec<usize> {
@@ -517,7 +524,8 @@ impl Container {
     }
 
     /// Where volume 1's items begin: the end of its offset table, spare entries
-    /// and all. 26120 in ENVIRO, 26136 in Jeff Jet.
+    /// and all. 26120 in Die Enviro-Kids greifen ein, 26136 in Jeff Jet, 26436 in
+    /// Hilfe für Amajambere.
     ///
     /// The first item sits exactly there in both, and in Amajambere; Eddy M.'s
     /// second and third volumes leave 24 bytes between the two, so this is

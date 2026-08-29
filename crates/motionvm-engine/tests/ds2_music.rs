@@ -5,7 +5,7 @@
 //! `_ACTMUSIC @ IF _ACTMUSIC @ ENDTUNE 0 _ACTMUSIC ! THEN`. So the two words
 //! are exercised by simply entering locations.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::{Game, MusicSink};
 use motionvm_forth::m32::Vm;
@@ -60,7 +60,7 @@ fn game_with_music(dir: &std::path::Path) -> (Game<Vm>, Log) {
 #[test]
 fn a_location_starts_its_own_tune_and_the_next_one_stops_it() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, log) = game_with_music(&dir);
@@ -136,7 +136,7 @@ fn a_location_starts_its_own_tune_and_the_next_one_stops_it() {
 #[test]
 fn a_location_without_music_starts_nothing() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, log) = game_with_music(&dir);
@@ -172,7 +172,7 @@ fn a_location_without_music_starts_nothing() {
 #[test]
 fn the_tune_words_leave_the_stack_as_they_found_it() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     for with_music in [false, true] {

@@ -282,7 +282,7 @@ impl Engine {
     /// that happens to be empty, and the original still measures it and still
     /// places it — it only declines to draw anything.
     pub fn descriptor_text(&mut self, d: &Descriptor) -> Option<String> {
-        let (table, entry) = (d.table?, d.text?);
+        let (table, entry) = (d.shows.table()?, d.text?);
         let index = entry.checked_sub(1).filter(|i| *i >= 0)?;
         self.text_table(table)?.strings.get(index as usize).cloned()
     }

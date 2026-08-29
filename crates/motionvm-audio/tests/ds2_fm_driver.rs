@@ -4,7 +4,7 @@
 //! and holds the rebuild against them. They need the game's files; point
 //! `MOTIONVM_GAMEDATA_DS2` at the directory with `001.RSC`, or they skip themselves.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_audio::opl::{Fm, Patch, Tables, VOICES, Write};
 use motionvm_audio::{Kind, Message};
@@ -42,7 +42,7 @@ fn driver(dir: &std::path::Path) -> Fm {
 #[test]
 fn the_tables_come_out_of_the_driver_image() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let arc = archive(&dir);
@@ -89,7 +89,7 @@ fn the_tables_come_out_of_the_driver_image() {
 #[test]
 fn a_note_lands_on_its_own_f_number() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let arc = archive(&dir);
@@ -160,7 +160,7 @@ fn a_note_lands_on_its_own_f_number() {
 #[test]
 fn velocity_becomes_a_total_level() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let arc = archive(&dir);
@@ -201,7 +201,7 @@ fn velocity_becomes_a_total_level() {
 #[test]
 fn an_instrument_folds_into_register_bytes() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (melodic, _) = banks(&dir);
@@ -260,7 +260,7 @@ fn an_instrument_folds_into_register_bytes() {
 #[test]
 fn the_driver_switches_the_chip_on_in_one_fixed_order() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut fm = driver(&dir);
@@ -299,7 +299,7 @@ fn the_driver_switches_the_chip_on_in_one_fixed_order() {
 #[test]
 fn voices_are_taken_free_first_then_stolen_from_the_unbent() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut fm = driver(&dir);
@@ -355,7 +355,7 @@ fn voices_are_taken_free_first_then_stolen_from_the_unbent() {
 #[test]
 fn a_note_off_only_clears_the_key_bit() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut fm = driver(&dir);

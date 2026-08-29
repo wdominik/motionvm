@@ -7,6 +7,8 @@
 //! says it must — the library's helper words compute what their names say,
 //! the resident set binds every id it calls, and `RUN` executes up to the
 //! first word that only the engine can answer.
+//!
+//! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_formats::m16::{Container, Segment, mz, scr::ScrModule};
 use motionvm_forth::m16::{Vm, word_address};
@@ -38,7 +40,7 @@ const LIBRARY: [usize; 10] = [100, 600, 601, 602, 603, 604, 605, 606, 607, 609];
 #[test]
 fn the_library_helpers_compute_what_their_names_say() {
     let Some((c, mut vm)) = machine() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     for n in LIBRARY {
@@ -94,7 +96,7 @@ fn the_library_helpers_compute_what_their_names_say() {
 #[test]
 fn the_resident_set_binds_every_id_the_library_calls_or_names_a_transient_module() {
     let Some((c, mut vm)) = machine() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     for n in LIBRARY {
@@ -169,7 +171,7 @@ impl Host<Vm> for Loader<'_> {
 #[test]
 fn run_executes_on_this_machine_up_to_the_first_engine_word() {
     let Some((c, mut vm)) = machine() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     load(&c, &mut vm, 100);

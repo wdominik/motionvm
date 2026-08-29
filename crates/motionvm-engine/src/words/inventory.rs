@@ -36,7 +36,8 @@ pub(crate) struct Rules {
     pub scrx_moves_window: bool,
 }
 
-/// MOTION 32-bit, as read from `ENGINE.EXE` with DS2: past the eighth slot
+/// MOTION 32-bit, as read from `ENGINE.EXE` with Dunkle Schatten 2: past the
+/// eighth slot
 /// the list scrolls so the new item is on screen, and a cleared slot keeps
 /// its descriptor active with no sprite.
 pub(crate) const M32_RULES: Rules = Rules {
@@ -65,7 +66,8 @@ impl Engine {
     ) -> Result<Option<()>> {
         match name {
             // Lays the inventory bar out. `CALCINV` calls it the same way in
-            // both games — DS2's module 5 and ENVIRO's module 602:
+            // both games — module 5 of Dunkle Schatten 2 and module 602
+            // of Die Enviro-Kids greifen ein:
             //
             //   _ACTINV @  _FITEM  _INVDOWN @  _INVUP @  _ITEM @  _IS @
             //   _ORDER <75 cells> + @  _ORDER <74 cells> + @  CCALCINV
@@ -88,7 +90,8 @@ impl Engine {
 
                 // Both of these index with values that come out of module
                 // memory, so both wrap rather than multiply into an overflow.
-                // A negative scroll offset is reachable — in DS2 the back
+                // A negative scroll offset is reachable — in Dunkle Schatten 2
+                // the back
                 // arrow's branch is `_ACTINV @ @ 8 - _ACTINV @ !` (module 4,
                 // `0x02b28`) with no floor under it, and the hit box does not
                 // care whether the arrow is being drawn — and a garbage item

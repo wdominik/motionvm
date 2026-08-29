@@ -169,16 +169,17 @@ impl fmt::Display for Error {
                  see \"Game data\" in the README for the files a copy needs.",
                 dir.display(),
             ),
-            Error::Unrecognized { dir } => write!(
-                f,
-                "{} is not a game motionvm can open\n  \
-                 Dunkle Schatten 2 needs 001.RSC and ENGINE.EXE\n  \
-                 Die Enviro-Kids greifen ein needs DATA.-1- and ENVIRO.EXE\n  \
-                 Jeff Jet - Abenteuer InfoHighway needs DATA.-1-, DATA.-2- and HPPLAY.EXE\n  \
-                 Another MOTION game, or an incomplete copy of one of these; \
-                 see \"Game data\" in the README.",
-                dir.display()
-            ),
+            Error::Unrecognized { dir } => {
+                writeln!(f, "{} is not a game motionvm can open", dir.display())?;
+                for title in crate::Title::ALL {
+                    writeln!(f, "  {} needs {}", title.short(), title.needs())?;
+                }
+                write!(
+                    f,
+                    "  Another MOTION game, or an incomplete copy of one of these; \
+                     see \"Game data\" in the README."
+                )
+            }
             Error::MissingFile { dir, name } => write!(f, "{}: no {name}", dir.display()),
             Error::Data { path, source } => write!(f, "{}: {source}", path.display()),
             Error::EmptyBootModule { source, module } => {

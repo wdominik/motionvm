@@ -12,7 +12,7 @@
 //! written and never read turns the door one-way and `ENDGAME` never happens
 //! at all — which is exactly what this test would catch.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::Host;
@@ -21,7 +21,7 @@ use motionvm_testutil::gamedata_ds2;
 #[test]
 fn quitanim_lets_start_run_on_into_endgame() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");

@@ -17,7 +17,7 @@
 //! keeps pixels no descriptor owns any more, on purpose, and that is what
 //! `bbs_wipe.rs` is about.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -68,7 +68,7 @@ fn compare(game: &mut Game<Vm>) -> Option<(usize, i32, i32)> {
 #[test]
 fn a_scene_is_the_same_picture_drawn_in_full() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = park(&dir);

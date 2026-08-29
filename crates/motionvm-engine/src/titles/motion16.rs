@@ -1,4 +1,4 @@
-//! What both 16-bit games need to be opened and run: the same player, the same
+//! What the 16-bit games need to be opened and run: the same player, the same
 //! authoring template, the same frame handler.
 //!
 //! There is less here than for Dunkle Schatten 2, and that is the engine's
@@ -7,11 +7,11 @@
 //! the boot is a header word rather than a bootstrap file, and the frame
 //! handler is installed by the scripts with `SCRCTRL`.
 //!
-//! A game's own module — [`super::enviro`], [`super::jeffjet`] — says which
-//! files it ships and which binary the kernel comes out of, and nothing more.
-//! Rust allows one [`Playable`] for one concrete `Game<Vm>`, so the two games
-//! share this one and answer [`Playable::title`] out of the field the opener
-//! set.
+//! A game's own module — [`super::enviro`], [`super::hfa`], [`super::jeffjet`]
+//! — says which files it ships and which binary the kernel comes out of, and
+//! nothing more. Rust allows one [`Playable`] for one concrete `Game<Vm>`, so
+//! the games share this one and answer [`Playable::title`] out of the field the
+//! opener set.
 
 use std::path::Path;
 
@@ -62,7 +62,7 @@ pub(super) fn open(
     if !missing.is_empty() {
         return Err(Error::Incomplete {
             dir: dir.to_path_buf(),
-            title: title.name(),
+            title: title.short(),
             missing: missing.iter().map(|(n, _)| *n).collect(),
         });
     }
@@ -98,7 +98,9 @@ pub(super) fn open(
 impl Game<Vm> {
     /// Begins the game the way it begins itself: at the word the container's
     /// header names — module 100's `RUN`, word id 401 — which loads the
-    /// library, plays the intro, enters location 1 and runs `ANIMPLAY`.
+    /// library, plays the intro, enters its first location and runs
+    /// `ANIMPLAY`. Which location that is, is the game's: 1 in Die Enviro-Kids
+    /// greifen ein, 13 in Jeff Jet, 20 in Hilfe für Amajambere.
     pub fn start(&mut self) -> Result<()> {
         let Some(Resources::Motion16(c)) = self.engine.resources.as_ref() else {
             return Err(Error::NoContainer);
@@ -138,7 +140,7 @@ impl Hooks for Game<Vm> {
 }
 
 impl Playable for Game<Vm> {
-    /// Out of the field, not out of the type: both 16-bit games are the same
+    /// Out of the field, not out of the type: the 16-bit games are all the same
     /// `Game<Vm>`, and only the opener knows which of them it opened.
     fn title(&self) -> Title {
         self.title
@@ -199,18 +201,30 @@ impl Playable for Game<Vm> {
     /// `NEXTLOC @ -1 != IF NEXTLOC @ INCLLOC -1 NEXTLOC ! THEN` every frame,
     /// and the scripts store their exits there — `13 NEXTLOC !` in module
     /// 609, for one. There is no way around `RUN`'s own first location: it
-    /// stores 1 into `STARTLOC` and enters it before `CTRL` gets a frame, so
-    /// the request is honored one frame later, from inside location 1.
+    /// enters whatever `STARTLOC` holds before `CTRL` gets a frame, so the
+    /// request is honored one frame later, from inside that location.
     fn request_location(&mut self, n: i32) -> Result<()> {
         self.set_var(601, "NEXTLOC", n)
     }
 
-    /// The pending `NEXTLOC` if one is set, else 1 — the location `RUN`
-    /// enters itself.
+    /// The pending `NEXTLOC` if one is set, else the location `RUN` entered
+    /// itself — and `None` while it has entered none.
+    ///
+    /// Read rather than assumed, because the location is the game's and not the
+    /// generation's: `RUN` writes `1 STARTLOC !` in Die Enviro-Kids greifen ein
+    /// and `20 STARTLOC !` in Hilfe für Amajambere, while Jeff Jet's leaves the
+    /// 13 its module 601 declares. It writes it on the way out of the intro,
+    /// though, and until then `STARTLOC` holds only what the module declares —
+    /// 13 in Die Enviro-Kids greifen ein, which starts at 1. `ACTLOC` is -1
+    /// until a location is entered, so it is what says whether `STARTLOC`
+    /// means anything yet.
     fn start_location(&self) -> Option<i32> {
         match self.get_var(601, "NEXTLOC") {
             Some(n) if n >= 0 => Some(n),
-            _ => Some(1),
+            _ => self
+                .get_var(601, "ACTLOC")
+                .filter(|&n| n >= 0)
+                .and_then(|_| self.get_var(601, "STARTLOC")),
         }
     }
 }

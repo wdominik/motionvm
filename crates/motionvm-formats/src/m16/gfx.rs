@@ -8,7 +8,8 @@
 //! ```
 //!
 //! No magic, no compression, no palette: a pixel is an index into whatever
-//! palette `SETPAL` last installed. Measured over all 1586 sprites of ENVIRO,
+//! palette `SETPAL` last installed. Measured over all 1586 sprites of
+//! Die Enviro-Kids greifen ein,
 //! the third field is 0 and the item is exactly `6 + width * height` bytes
 //! long — which is the one check a reader can make, and does.
 

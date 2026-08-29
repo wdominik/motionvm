@@ -10,6 +10,8 @@
 //!
 //! These need the game's files (`MOTIONVM_GAMEDATA_JEFFJET`) and skip without
 //! them.
+//!
+//! The game this file drives is Jeff Jet (MOTION 16-bit).
 
 use motionvm_engine::{Game, Playable, titles};
 use motionvm_forth::m16::Vm;

@@ -31,7 +31,8 @@ impl Engine {
             //
             // The store is a fixed array indexed by the id — `ds:0x1A0C`,
             // ten bytes an entry, on the 16-bit machine — so defining a
-            // template again *replaces* it. ENVIRO leans on that: the
+            // template again *replaces* it. Die Enviro-Kids greifen ein leans
+            // on that: the
             // intro loads its own shadow font and defines templates 6 and
             // 2 over it (module 610), frees that font on its way out
             // (`_SHFONT @ -FONT`), and `RUN` then defines all nine

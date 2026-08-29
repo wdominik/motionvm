@@ -214,7 +214,7 @@ impl Engine {
     /// is what lets this be called from the setters, where it runs long before
     /// anything reaches the screen.
     pub(crate) fn drawn_rect(&mut self, d: &Descriptor) -> (i32, i32, i32, i32) {
-        if d.kind == DescriptorKind::Text {
+        if d.is_text() {
             // A text covers its backing, which is a good deal larger than the
             // glyphs — and the original's buffer record grows by the template's
             // margin for exactly that reason (0x6baa7).
@@ -405,49 +405,75 @@ impl Engine {
     }
 
     /// `SDSPR`: the sprite to draw. Negative clears it.
+    ///
+    /// Writes the one field [`Shows`] is, with the sprite marker on — the
+    /// original's `+0x10` with bit 15 set (`05f1:12b6`). Whatever the
+    /// descriptor showed before is gone, because it is the same word.
     pub(crate) fn set_sprite(&mut self, v: i32) -> Result<()> {
-        let want = (v >= 0).then_some(v as u32);
-        if !self.sd_marks_always && self.require_descriptor("SDSPR")?.sprite == want {
+        let want = if v >= 0 {
+            Shows::Sprite(v as u32)
+        } else {
+            Shows::Nothing
+        };
+        if !self.sd_marks_always && self.require_descriptor("SDSPR")?.shows == want {
             return Ok(());
         }
-        self.changing("SDSPR", |d| d.sprite = want)
+        self.changing("SDSPR", |d| d.shows = want)
     }
 
-    /// `SDBL`: the block to draw. Negative clears it.
+    /// `SDBL`: the picture to draw. Negative clears it.
     ///
-    /// The same graphics pool as [`Engine::set_sprite`] — the two differ in
-    /// descriptor *type*, not in where the picture comes from.
+    /// The same field and the same graphics pool as [`Engine::set_sprite`],
+    /// only without the marker (`05f1:11ee`): what tells a block from a sprite
+    /// is bit 15, not where the picture comes from. And on a descriptor
+    /// `SDTXT` has already made a text, the same word is that text's table —
+    /// which is how Hilfe für Amajambere turns its diary pages
+    /// (`16 SDBL 1 SDTXT`).
     pub(crate) fn set_block(&mut self, v: i32) -> Result<()> {
-        let want = (v >= 0).then_some(v as u32);
-        if !self.sd_marks_always && self.require_descriptor("SDBL")?.block == want {
+        let want = if v >= 0 {
+            Shows::Picture(v)
+        } else {
+            Shows::Nothing
+        };
+        if !self.sd_marks_always && self.require_descriptor("SDBL")?.shows == want {
             return Ok(());
         }
-        self.changing("SDBL", |d| d.block = want)
+        self.changing("SDBL", |d| d.shows = want)
     }
 
     /// `SDTXT`: the text entry to show, which makes this a text descriptor.
     pub(crate) fn set_text(&mut self, v: i32) -> Result<()> {
         let always = self.sd_marks_always;
         let d = self.require_descriptor("SDTXT")?;
-        if !always && d.text == Some(v) && d.kind == DescriptorKind::Text {
+        if !always && d.text == Some(v) {
             return Ok(());
         }
-        self.changing("SDTXT", |d| {
-            d.text = Some(v);
-            d.kind = DescriptorKind::Text;
-        })
+        self.changing("SDTXT", |d| d.text = Some(v))
     }
 
-    /// `SDTB`: the text table to read from, which makes this a text descriptor.
+    /// `SDTB`: the text table to read from.
+    ///
+    /// The same store as `SDBL` — one word, one picture-or-table
+    /// (`05f1:0d7b`). On the 16-bit machine it does *not* make the descriptor
+    /// a text: only `SDTXT` does that, and until it runs the value is read as
+    /// a block. On the 32-bit machine `SDTB` allocates the text record itself,
+    /// so there it marks the descriptor as `SDTXT` would.
     pub(crate) fn set_text_table(&mut self, v: i32) -> Result<()> {
         let always = self.sd_marks_always;
+        let text16 = self.text16;
         let d = self.require_descriptor("SDTB")?;
-        if !always && d.table == Some(v) && d.kind == DescriptorKind::Text {
+        let settled = d.shows == Shows::Picture(v) && (text16 || d.text.is_some());
+        if !always && settled {
             return Ok(());
         }
         self.changing("SDTB", |d| {
-            d.table = Some(v);
-            d.kind = DescriptorKind::Text;
+            d.shows = Shows::Picture(v);
+            if !text16 && d.text.is_none() {
+                // The 32-bit engine allocates the text record here (0x71d45),
+                // so a descriptor is a text from `SDTB` on even before
+                // `SDTXT` names an entry. Entry 0 is what that record holds.
+                d.text = Some(0);
+            }
         })
     }
 
@@ -571,17 +597,26 @@ impl Engine {
         i32::from(self.selected_with_corner().0.active)
     }
 
-    /// `GDSPR`: the sprite id, or -1.
+    /// `GDSPR`: the sprite id, or -1 when the field holds something else.
+    ///
+    /// `05f1:16bd` tests bit 15 and answers -1 without it. The verb menu and
+    /// the walk cycle count on from what this returns as a frame number, so
+    /// handing them a block id would animate it.
     pub(crate) fn descriptor_sprite(&mut self) -> i32 {
-        self.selected_with_corner()
-            .0
-            .sprite
-            .map_or(-1, |s| s as i32)
+        match self.selected_with_corner().0.shows {
+            Shows::Sprite(id) => id as i32,
+            _ => -1,
+        }
     }
 
-    /// `GDBL`: the block id, or -1.
+    /// `GDBL`: the block id, or -1 when the field holds a sprite.
+    ///
+    /// `05f1:168e`, the mirror of `GDSPR`.
     pub(crate) fn descriptor_block(&mut self) -> i32 {
-        self.selected_with_corner().0.block.map_or(-1, |b| b as i32)
+        match self.selected_with_corner().0.shows {
+            Shows::Picture(id) => id,
+            _ => -1,
+        }
     }
 
     /// `GDTXT`: the text entry.
@@ -589,9 +624,19 @@ impl Engine {
         self.selected_with_corner().0.text.unwrap_or(0)
     }
 
-    /// `GDTB`: the text table.
+    /// `GDTB`: the field raw, whatever it holds.
+    ///
+    /// `05f1:0d5c` reads `+0x10` and masks nothing, so a sprite comes back
+    /// with its bit 15 still on. Only the 16-bit machine keeps the marker in
+    /// the value; the 32-bit one has a type field of its own.
     pub(crate) fn descriptor_table(&mut self) -> i32 {
-        self.selected_with_corner().0.table.unwrap_or(0)
+        let text16 = self.text16;
+        match self.selected_with_corner().0.shows {
+            Shows::Picture(id) => id,
+            Shows::Sprite(id) if text16 => id as i32 | 0x8000,
+            Shows::Sprite(id) => id as i32,
+            Shows::Nothing => 0,
+        }
     }
 
     /// `GDCOL`: the composite color `SDCOL` stored, undivided.
@@ -694,31 +739,6 @@ pub enum Placement {
     FarEdge,
 }
 
-/// What a descriptor draws.
-///
-/// The original keeps this in a two-byte field at offset 2 and switches on it:
-/// `SDSPR` writes 2 and allocates eight bytes, `SDBL` writes 3 with four, and
-/// `SDTXT` and `SDTB` both write 4 with 0x5c. A descriptor is therefore one of
-/// these and not several — which matters, because a descriptor that was once
-/// given a text and later a sprite would otherwise draw both.
-///
-/// It was called `Kind2` for a while, after a collision with
-/// [`motionvm_formats::m32::Kind`] — a name that recorded the accident rather than
-/// the thing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DescriptorKind {
-    /// Nothing chosen yet. `NEWSETDESC` leaves a descriptor here when it is
-    /// given no graphic.
-    #[default]
-    Empty,
-    /// A sprite, from `SDSPR`.
-    Sprite,
-    /// A background block, from `SDBL`.
-    Block,
-    /// Text, from `SDTXT` or `SDTB`.
-    Text,
-}
-
 /// One entry of the engine's scene graph.
 ///
 /// The original packs these into a 0x3E-byte struct; the field offsets that are
@@ -737,16 +757,15 @@ pub struct Descriptor {
     /// `SDLEV`, `SDLV`, `SDZ`: the order the per-frame walk draws in, low
     /// first. Ties keep the order they were made in.
     pub level: i32,
-    /// `SDSPR`: the sprite to draw.
-    pub sprite: Option<u32>,
-    /// `SDBL`: a background picture. Indexes the same graphics pool as
-    /// `sprite`; the two differ in descriptor type, not in where the picture
-    /// comes from.
-    pub block: Option<u32>,
+    /// `SDSPR`, `SDBL`, `SDTB`: what this descriptor shows.
+    ///
+    /// One field, because the original has one: `+0x10`, written by all three
+    /// of those words and read back by `GDSPR`, `GDBL` and `GDTB`. Giving a
+    /// descriptor a sprite therefore takes its block away, and there is no
+    /// state in which it has both.
+    pub shows: Shows,
     /// `SDTXT`: index into a text table.
     pub text: Option<i32>,
-    /// `SDTB`: the descriptor's text buffer or table id.
-    pub table: Option<i32>,
     /// `SDFNT`: which registered font the text draws in. Unset falls back to
     /// the system font, not to whatever was registered first.
     pub font: Option<i32>,
@@ -819,7 +838,7 @@ pub struct Descriptor {
     /// meaning for each one before it has been measured.
     pub fields: BTreeMap<&'static str, i32>,
     /// Which of the three kinds this is, as the type field at offset 2 records.
-    pub kind: DescriptorKind,
+
     /// Whether the drawer visits it at all — bit 0x80 of the flag byte at
     /// +0x13, set and cleared only by `SDACTIVE`/`SDINACTIVE`.
     ///
@@ -877,6 +896,62 @@ pub struct Descriptor {
     pub auto_buffer: bool,
 }
 
+/// What a descriptor shows: the original's `+0x10`.
+///
+/// One word over two id spaces. Bit 15 marks a sprite and the rest is a
+/// graphics id; without it the value is a graphics id too — a block, drawn
+/// opaque where a sprite is drawn through its key colour — unless `SDTXT` has
+/// made the descriptor a text, in which case the same number is the id of the
+/// text table to read from (`016a:1eea` decides in that order).
+///
+/// There is no "nothing" in the 16-bit original: `NEWSETDESC` writes the
+/// graphics argument straight into the field, so a descriptor made with 0 is a
+/// block on graphic 0 and not an empty one. [`Shows::Nothing`] is what a
+/// descriptor holds before any of that, and what a negative argument leaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Shows {
+    /// Nothing chosen yet.
+    #[default]
+    Nothing,
+    /// `SDSPR`: a sprite, drawn through its key colour.
+    Sprite(u32),
+    /// `SDBL` or `SDTB`: a block when the descriptor is not a text, and the
+    /// text's table when it is.
+    Picture(i32),
+}
+
+impl Descriptor {
+    /// Whether this descriptor draws text rather than a picture.
+    ///
+    /// The original asks its text word, `+0x12`, and takes any non-zero as
+    /// yes (`016a:0b09`, and the same test again in the resolver `016a:1ef6`
+    /// and the save-under check `0362:10d9`). `SDTXT` is what puts a value
+    /// there, so that is what this asks — and `+0x10`, whatever it holds, is
+    /// then read as the id of a text table rather than of a picture.
+    pub fn is_text(&self) -> bool {
+        self.text.is_some()
+    }
+}
+
+impl Shows {
+    /// The graphics id to draw, for a descriptor that is not a text.
+    pub fn graphic(self) -> Option<u32> {
+        match self {
+            Shows::Nothing => None,
+            Shows::Sprite(id) => Some(id),
+            Shows::Picture(id) => u32::try_from(id).ok(),
+        }
+    }
+
+    /// The text table this reads from, for a descriptor that is a text.
+    pub fn table(self) -> Option<i32> {
+        match self {
+            Shows::Picture(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
 /// A text template defined by `DEFTDT`, which takes seventeen arguments.
 #[derive(Debug, Clone)]
 pub struct TextTemplate {
@@ -906,27 +981,6 @@ pub(crate) fn placement_of(code: u8) -> std::result::Result<Placement, String> {
         2 => Ok(Placement::FarEdge),
         n => Err(format!(
             "savegame has placement mode {n}, which this build does not know"
-        )),
-    }
-}
-
-pub(crate) fn kind_code(k: DescriptorKind) -> u8 {
-    match k {
-        DescriptorKind::Empty => 0,
-        DescriptorKind::Sprite => 1,
-        DescriptorKind::Block => 2,
-        DescriptorKind::Text => 3,
-    }
-}
-
-pub(crate) fn kind_of(code: u8) -> std::result::Result<DescriptorKind, String> {
-    match code {
-        0 => Ok(DescriptorKind::Empty),
-        1 => Ok(DescriptorKind::Sprite),
-        2 => Ok(DescriptorKind::Block),
-        3 => Ok(DescriptorKind::Text),
-        n => Err(format!(
-            "savegame has descriptor kind {n}, which this build does not know"
         )),
     }
 }

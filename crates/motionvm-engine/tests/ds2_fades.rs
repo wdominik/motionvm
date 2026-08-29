@@ -7,7 +7,7 @@
 //! 0x03cb4/0x03cdc for the bottom one). Nothing there ever blanks the screen,
 //! so a page has to appear over the one before it.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -59,7 +59,7 @@ fn row(frame: &motionvm_render::Framebuffer, y: i32) -> Vec<u8> {
 #[test]
 fn turning_a_help_page_reveals_it_over_the_page_before() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = settled_in_the_title(&dir);
@@ -123,7 +123,7 @@ fn turning_a_help_page_reveals_it_over_the_page_before() {
 #[test]
 fn the_menu_fades_the_bar_and_not_the_picture() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = settled_in_the_title(&dir);
@@ -170,7 +170,7 @@ fn the_menu_fades_the_bar_and_not_the_picture() {
 #[test]
 fn a_fade_puts_every_band_on_the_screen() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");

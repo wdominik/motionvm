@@ -3,10 +3,11 @@
 //! These need the original files; point `MOTIONVM_GAMEDATA_ENVIRO` at the
 //! directory with `DATA.-1-`, or they skip themselves.
 //!
-//! The game data this file drives is Die Enviro-Kids greifen ein's (MOTION
-//! 16-bit). The byte-for-byte check of the register stream is not here — it
+//! The byte-for-byte check of the register stream is not here — it
 //! runs against an OPL capture of the original, outside this repository;
 //! what is here is what can be asked of the shipped files alone.
+//!
+//! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_audio::psm::{Driver, Player, Sequencer};
 use motionvm_formats::m16::psm::Plx;

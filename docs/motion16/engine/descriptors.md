@@ -2,13 +2,14 @@
 
 # Descriptors and Screens
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The 16-bit kernel has the same display vocabulary as the 32-bit one —
 screens with a size, a position and a viewport; descriptors that show a
 sprite, a block or a text; `SD*` setters and `GD*` getters; three-argument
 fades — and the scripts use it the same way. What this page records is the
-**stack effects measured from ENVIRO's call sites**, the places where the
+**stack effects measured from the call sites in Die Enviro-Kids greifen ein**, the
+places where the
 16-bit usage differs from the 32-bit game's, and what is still unread. The
 C structures behind the handles are unread; the 32-bit engine's layouts
 ([descriptors](../../motion32/engine/descriptors.md),
@@ -137,17 +138,31 @@ this much of what the handles stand for (addresses in `ENVIRO.EXE`):
   descriptors from `n` up and sets its count back to `n`, which is how
   `INCLLOC`'s `?LPD 1 + KILLNDESC` clears a location's descriptors above
   the permanent ones. The same number names one descriptor on each screen.
-- **Descriptors** are 46 bytes: `+0` x, `+2` y, `+8/+0xa` size, `+0x10`
-  the picture — `0x8000 | id` for a sprite, the bare id for a block, which
-  is how the drawer (`016a:0aac`) tells them apart: a sprite goes through
-  the keyed blit at `14ee:0d1e`, a block through the plain copy at
-  `14ee:0d47`, every pixel, index 0 included (the location backgrounds are
-  80-pixel block strips, dark where they hold 0) — `+0x12` flags (`0x4000` marks a text), `+0x16` buffer number + 1,
-  `+0x20` callback word id (`SDWORD`), `+0x22` wait countdown (`SDWAIT`),
-  `+0x26` next in the draw list, `+0x28` flag byte with `0x80` active and
-  `0x40` dirty — every `SD*` word sets it — and `+0x2b`/`+0x2c` the buffer
-  and font indices `SDX` consults when it re-centers a text. The rest of
-  the record is unread.
+- **Descriptors** are 46 bytes in `ENVIRO.EXE` and 45 in `BMZ.EXE`, whose
+  record ends at `+0x2c` (`imul $0x2d`); the extra byte is padding nothing
+  reads. `+0` x, `+2` y, `+4`/`+6` the centering anchors, `+8`/`+0xa` the
+  last box drawn, `+0xc`/`+0xe` the scaled target size or −1, `+0x10`
+  **what the descriptor shows**, `+0x12` **the text word**, `+0x16` buffer
+  number + 1, `+0x18`–`+0x1e` a partial-redraw rectangle, `+0x20` callback
+  word id (`SDWORD`), `+0x22` wait countdown (`SDWAIT`), `+0x24`/`+0x26`
+  previous and next in the draw list, `+0x28` flag byte with `0x80` active
+  and `0x40` dirty — every `SD*` word sets it — `+0x29` level, `+0x2a` the
+  color's low byte, `+0x2b` the face font index and `+0x2c` the template.
+- **`+0x10` and `+0x12` are one pair, and between them they say what a
+  descriptor is.** `+0x10` holds `0x8000 | id` for a sprite and the bare id
+  for a block — or, when the descriptor is a text, the id of its text table:
+  one word over two id spaces, written by `SDSPR` (`05f1:12b6`), `SDBL`
+  (`05f1:11ee`) and `SDTB` (`05f1:0d7b`) alike. `+0x12` is the text word,
+  and **any non-zero value in it means text**. The drawer asks in that order
+  (`016a:0aac`, and the same test again in the resolver `016a:1eea` and the
+  save-under check `0362:10d9`): text first, then bit 15 for a sprite —
+  which goes through the keyed blit at `14ee:0d1e` — else a block through
+  the plain copy at `14ee:0d47`, every pixel, index 0 included (the location
+  backgrounds are 80-pixel block strips, dark where they hold 0).
+  `NEWSETDESC` writes its graphics argument straight into `+0x10`
+  (`05f1:0b51`) and zeroes `+0x12`, so there is no "nothing set" state:
+  `0 15 -1 NEWSETDESC`, which is how the scripts make a text descriptor, is
+  a block on graphic 0 until `SDTXT` runs.
 
 ## Walking, inventory, orders, the pointer
 
@@ -274,15 +289,18 @@ the start-up page's teardown both lean on it.
 
 ## Open questions
 
-- The rest of the 46-byte descriptor and of the screen block; the meaning
-  of `arg5` (15); the `XDEFTDT` template numbers; the mirror axis of
+- The rest of the screen block; the `XDEFTDT` template numbers; the mirror axis of
   `XGFXVFLIP` (left-right — a flip about the vertical axis — is what a
   walk cycle and the card flip need; unmeasured against a capture).
-- `SDBLK` (file `0xa625`) sets bit `0x2000` of the descriptor's flags —
-  one of the three layout bits the drawer folds for its text call
-  (`0x4000` centers on x, `0x1000` on y) — and the drawer reads it as
+- `SDBLK` (file `0xa625`) takes no argument and sets bit `0x2000` of the
+  **text word** `+0x12` — one of the three layout bits the drawer folds for
+  its text call (`0x4000` centers on x, `0x1000` on y), and one of the bits
+  `SDNORM` takes away again with `and 0x80FF`. The drawer reads it as
   justification: the newspaper's article texts are set in a block
   ([text rendering](text-rendering.md)).
+- `NEWSETDESC` writes `arg5` (always 15) to `+0x14`, and **no instruction in
+  either binary reads that field**; `SDTXT` sets bit `0x20` of the flag byte
+  and nothing tests it either.
 - The other handlers with a 32-bit namesake, at the instruction level.
 
 ## See also

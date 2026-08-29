@@ -11,7 +11,7 @@
 //! pointer is over the scene and the mouse x once it is at y ≥ 400
 //! (`0x028E0`), which is what keeps the arrows from firing on a scene click.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -101,7 +101,8 @@ impl Bar {
                     .iter()
                     .find(|d| d.handle == handle)
                     .unwrap_or_else(|| panic!("no descriptor with handle {handle}"))
-                    .sprite
+                    .shows
+                    .graphic()
             })
             .collect()
     }
@@ -157,7 +158,7 @@ fn click_bar(game: &mut Game<Vm>, x: i32) {
 #[test]
 fn the_bar_shows_the_first_eight() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = in_a_location(&dir);
@@ -197,7 +198,7 @@ fn the_bar_shows_the_first_eight() {
 #[test]
 fn the_bar_shows_what_the_list_says_after_scrolling() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = in_a_location(&dir);
@@ -253,7 +254,7 @@ fn the_bar_shows_what_the_list_says_after_scrolling() {
 #[test]
 fn the_carried_items_slot_keeps_blinking() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = in_a_location(&dir);
@@ -291,7 +292,7 @@ fn the_carried_items_slot_keeps_blinking() {
     for _ in 0..12 {
         game.set_input(0, 0, false, false, 0).expect("input");
         game.step().expect("a frame");
-        seen.insert(slot(&game, &b).sprite);
+        seen.insert(slot(&game, &b).shows.graphic());
     }
     assert!(
         seen.len() > 1,
@@ -316,7 +317,7 @@ fn the_carried_items_slot_keeps_blinking() {
 #[test]
 fn a_savegame_says_what_the_bar_is_showing() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let Some((saves, slot)) = savegame_slot(&[702, 701, 703, 704, 705]) else {
@@ -363,7 +364,7 @@ fn a_savegame_says_what_the_bar_is_showing() {
             item => Some(b.sprite_of(&game, item) as u32),
         };
         assert_eq!(
-            (d.sprite, d.x),
+            (d.shows.graphic(), d.x),
             (want, 64 + k * 64),
             "slot {k} (descriptor {handle}) does not carry what the list says"
         );

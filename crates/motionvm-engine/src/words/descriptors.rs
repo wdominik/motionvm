@@ -5,9 +5,9 @@
 //! answers `None` and the next one is asked.
 
 use crate::Descriptor;
-use crate::DescriptorKind;
 use crate::Engine;
 use crate::Placement;
+use crate::Shows;
 use crate::descriptor::DESCRIPTOR_SETTERS;
 use crate::stack::pop_n;
 use crate::stack::pop1;
@@ -58,12 +58,11 @@ impl Engine {
                     x: a[0],
                     y: a[1],
                     level: a[2],
-                    block: (a[3] != 0).then_some(a[3] as u32),
-                    kind: if a[3] != 0 {
-                        DescriptorKind::Block
-                    } else {
-                        DescriptorKind::Empty
-                    },
+                    // The graphics argument goes into the one field, marker
+                    // off: `05f1:0b51` writes it raw, so `0 15 -1 NEWSETDESC`
+                    // — which is how the scripts make a text descriptor — is a
+                    // block on graphic 0 until `SDTXT` says otherwise.
+                    shows: Shows::Picture(a[3]),
                     active: true,
                     // `NEWSETDESC` writes the flag word 0xD000 at 0x70d07 —
                     // active, dirty and changed — so a fresh descriptor is

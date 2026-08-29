@@ -131,14 +131,14 @@ fn a_directory_holding_none_of_the_games_lists_what_each_would_need() {
     let d = dir("empty");
     assert_eq!(titles::detect(&d), None);
     let text = refused_naming_dir(&d, "an empty directory");
-    for name in ["001.RSC", "DATA.-1-", "HPPLAY.EXE", "ENVIRO.EXE"] {
+    for name in ["001.RSC", "DATA.-1-", "HPPLAY.EXE", "ENVIRO.EXE", "BMZ.EXE"] {
         assert!(text.contains(name), "should name {name}: {text}");
     }
 }
 
 #[test]
 fn a_container_beside_no_engine_binary_is_not_guessed_at() {
-    // Both 16-bit games ship a `DATA.-1-`, and the engine binary beside it is
+    // All three 16-bit games ship a `DATA.-1-`, and the engine binary beside it is
     // the only thing that tells them apart. Neither binary means neither
     // game, and naming one of them and then failing on its missing files
     // would be worse than saying so.
@@ -249,7 +249,7 @@ fn a_broken_16_bit_container_is_refused_rather_than_indexed_into() {
         let d = dir(&format!("dat_{name}"));
         put(&d, "DATA.-1-", &bytes);
         put(&d, "ENVIRO.EXE", b"not an executable");
-        assert_eq!(titles::detect(&d), Some(Title::EnviroKids));
+        assert_eq!(titles::detect(&d), Some(Title::DieEnviroKidsGreifenEin));
         refused_naming_dir(&d, &format!("a {name} DATA.-1-"));
     }
 }
@@ -257,16 +257,18 @@ fn a_broken_16_bit_container_is_refused_rather_than_indexed_into() {
 #[test]
 fn a_16_bit_engine_binary_that_is_not_mz_is_refused() {
     // The container opens and the game is told apart correctly; the word
-    // table still has to come out of the binary beside it. Both 16-bit games,
-    // because each reads its own — `HPPLAY.EXE` is an older build whose
-    // ordinals differ, so one game's table cannot stand in for the other's.
-    for (exe, title) in [
-        ("ENVIRO.EXE", Title::EnviroKids),
-        ("HPPLAY.EXE", Title::JeffJet),
+    // table still has to come out of the binary beside it. All three 16-bit
+    // games, because each reads its own — the three builds hold 233, 232 and
+    // 228 words and `HPPLAY.EXE`'s ordinals are shifted besides, so no game's
+    // table can stand in for another's.
+    for (exe, title, volumes) in [
+        ("ENVIRO.EXE", Title::DieEnviroKidsGreifenEin, 1),
+        ("HPPLAY.EXE", Title::JeffJet, 2),
+        ("BMZ.EXE", Title::HilfeFuerAmajambere, 2),
     ] {
         let d = dir(&format!("mz_{exe}"));
         put(&d, "DATA.-1-", &minimal_dat());
-        if title == Title::JeffJet {
+        if volumes == 2 {
             put(&d, "DATA.-2-", &minimal_dat());
         }
         put(&d, exe, b"not an executable");
@@ -289,6 +291,28 @@ fn jeff_jet_without_its_second_volume_is_refused_by_name() {
 
     assert_eq!(
         titles::jeffjet::missing_data(&d)
+            .iter()
+            .map(|(n, _)| *n)
+            .collect::<Vec<_>>(),
+        ["DATA.-2-"]
+    );
+}
+
+#[test]
+fn amajambere_without_its_second_volume_is_refused_by_name() {
+    // The same rule, and this game leans on it harder: its second volume holds
+    // *every* sprite as well as every palette, font and the font reference
+    // table, so a copy without it would find every script and nothing at all
+    // to draw.
+    let d = dir("hfa_one_volume");
+    put(&d, "DATA.-1-", &minimal_dat());
+    put(&d, "BMZ.EXE", b"not an executable");
+    assert_eq!(titles::detect(&d), Some(Title::HilfeFuerAmajambere));
+    let text = refused_naming_dir(&d, "Hilfe für Amajambere with one volume");
+    assert!(text.contains("DATA.-2-"), "should name it: {text}");
+
+    assert_eq!(
+        titles::hfa::missing_data(&d)
             .iter()
             .map(|(n, _)| *n)
             .collect::<Vec<_>>(),

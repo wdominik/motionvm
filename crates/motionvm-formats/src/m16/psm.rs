@@ -21,7 +21,8 @@
 //! +25 the instrument records and the event streams
 //! ```
 //!
-//! Measured on every one of ENVIRO's ten songs (blocks 1–5 and 7–11).
+//! Measured on every one of the ten songs of Die Enviro-Kids greifen ein
+//! (blocks 1–5 and 7–11).
 
 use crate::error::{Error, Result};
 use crate::{u16le, u32le};
@@ -32,7 +33,8 @@ pub const MAGIC: &[u8; 16] = b"MTCVTS PSM 2.00\0";
 /// Where the tags of one module sit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tags {
-    /// Offset of `MDH\0`, if present — 56 in every ENVIRO song.
+    /// Offset of `MDH\0`, if present — 56 in every song of
+    /// Die Enviro-Kids greifen ein.
     pub mdh: Option<usize>,
     /// Offset of the first `SM8\0`, if present.
     pub sm8: Option<usize>,

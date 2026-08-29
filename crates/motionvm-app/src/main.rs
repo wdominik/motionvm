@@ -124,13 +124,14 @@ usage: motionvm [GAMEDIR] [options]
 
   GAMEDIR         the directory a game is installed in: 001.RSC and
                   ENGINE.EXE (Dunkle Schatten 2), DATA.-1- and ENVIRO.EXE
-                  (Die Enviro-Kids greifen ein), or DATA.-1-, DATA.-2- and
-                  HPPLAY.EXE (Jeff Jet - Abenteuer InfoHighway). Without
-                  one, a folder dialog asks for it.
+                  (Die Enviro-Kids greifen ein), DATA.-1-, DATA.-2- and
+                  HPPLAY.EXE (Jeff Jet), or DATA.-1-,
+                  DATA.-2- and BMZ.EXE (Hilfe für Amajambere). Without one, a
+                  folder dialog asks for it.
 
 options:
   --loc N         start in location N: instead of the intro (Dunkle
-                  Schatten 2), or right after it (the two 16-bit games).
+                  Schatten 2), or right after it (the 16-bit games).
   --no-sound      do not open an audio device.
   -h, --help      this text.
 ";
@@ -284,7 +285,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // its `STARTTUNE` has to find a sink already in place. Each generation
     // brings its own stack — Dunkle Schatten 2's HMI songs through the rebuilt
     // MIDI driver, the 16-bit games' PSM 2 tunes through the rebuilt
-    // `MUSADL.DRV` sequencer, whose driver file is byte-identical in both.
+    // `MUSADL.DRV` sequencer, whose driver file is byte-identical in all three.
     let audio = if quiet {
         None
     } else {
@@ -293,7 +294,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 game.set_music(Box::new(music));
                 stream
             }),
-            Title::EnviroKids | Title::JeffJet => {
+            Title::HilfeFuerAmajambere | Title::DieEnviroKidsGreifenEin | Title::JeffJet => {
                 sound::open_motion16(&dir).map(|(stream, music)| {
                     game.set_music(Box::new(music));
                     stream
@@ -317,18 +318,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the engine refuses a save directory inside it. And a flag that points the
     // slots elsewhere is mostly a way to point them at something that is not a
     // save directory; the one place they belong is the one `data_dir` names.
-    // All three games name their slots alike — `701.blk`, `701.anm`, `701.FRZ`
+    // All four games name their slots alike — `701.blk`, `701.anm`, `701.FRZ`
     // and so on up to 705 — and each asks at start-up whether a slot exists,
     // so they cannot share a directory: one would find another's saves and
-    // open its load page on them. The two 16-bit games would go further and
+    // open its load page on them. The three 16-bit games would go further and
     // load one, because the savegame magic is the generation's and not the
     // game's. Each therefore gets a subdirectory of `saves/` named for it, and
-    // none is the special case: `saves/ds2/`, `saves/enviro/`, `saves/jeffjet/`.
-    let saves = data_path("saves").join(match game.title() {
-        Title::DunkleSchatten2 => "ds2",
-        Title::EnviroKids => "enviro",
-        Title::JeffJet => "jeffjet",
-    });
+    // none is the special case: `saves/ds2/`, `saves/enviro/`, `saves/jeffjet/`,
+    // `saves/hfa/`.
+    let saves = data_path("saves").join(game.title().slug());
     let shot = data_path("shot.png");
     if let Err(e) = game.set_saves(&saves) {
         // Not fatal: the game runs, the slot row simply stays empty and a click

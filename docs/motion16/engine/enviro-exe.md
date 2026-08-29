@@ -2,7 +2,7 @@
 
 # ENVIRO.EXE — The Later Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 `ENVIRO.EXE` (167 430 bytes, dated 1996-08-27) is the 16-bit MOTION
 **player**: the Forth interpreter, the kernel words and the drivers behind
@@ -12,9 +12,9 @@ the 32-bit `ENGINE.EXE` still carries are absent. The game it plays is
 entirely in `DATA.-1-`.
 
 Every address on this page and on the pages it links to is this image's. The
-same player shipped once more, earlier and under another name, with
-`HPPLAY.EXE` — see [that page](hpplay-exe.md) for what differs, ordinals
-first.
+same player shipped twice more, earlier and under other names, as
+`HPPLAY.EXE` and `BMZ.EXE` — see [those](hpplay-exe.md)
+[pages](bmz-exe.md) for what differs, ordinals first.
 
 ## The binary
 
@@ -103,7 +103,8 @@ is on the pages it belongs to: [execution model](../vm/execution-model.md),
 
 ## See also
 
-- [HPPLAY.EXE](hpplay-exe.md) — the earlier build of this player
+- [HPPLAY.EXE](hpplay-exe.md) — the earliest build of this player
+- [BMZ.EXE](bmz-exe.md) — the middle build, this table less its last word
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
 - [Execution model](../vm/execution-model.md) — what the interpreter does with a cell
 - [ENGINE.EXE (MOTION 32-bit)](../../motion32/engine/engine-exe.md) — the 32-bit binary

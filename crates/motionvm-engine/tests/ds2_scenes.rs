@@ -31,9 +31,9 @@
 //! call order, so a change elsewhere that draws one more random number moves
 //! every later one.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
-use motionvm_engine::{DescriptorKind, Game};
+use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
 use motionvm_render::Framebuffer;
 use motionvm_testutil::gamedata_ds2;
@@ -131,7 +131,7 @@ fn menu_lines(game: &Game<Vm>) -> usize {
     game.engine
         .descriptors()
         .iter()
-        .filter(|d| d.active && d.kind == DescriptorKind::Text && d.level == 99)
+        .filter(|d| d.active && d.is_text() && d.level == 99)
         .count()
 }
 
@@ -141,7 +141,7 @@ fn menu_lines(game: &Game<Vm>) -> usize {
 #[test]
 fn the_title_screen() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = title(&dir);
@@ -155,7 +155,7 @@ fn the_title_screen() {
 #[test]
 fn the_intro_text_page() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = title(&dir);
@@ -177,7 +177,7 @@ fn the_intro_text_page() {
 #[test]
 fn the_dialogue_answer_menu() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -210,7 +210,7 @@ fn the_dialogue_answer_menu() {
 #[test]
 fn the_help_viewer() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = settled_in_the_title(&dir);

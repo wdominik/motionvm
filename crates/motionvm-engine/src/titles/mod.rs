@@ -13,47 +13,115 @@ use crate::Result;
 
 pub mod ds2;
 pub mod enviro;
+pub mod hfa;
 pub mod jeffjet;
 pub mod motion16;
 pub mod motion32;
 
 /// The games motionvm knows, by the files they ship.
+///
+/// A game is named in three registers, and which one to use follows from what
+/// the name is for. [`Title::name`] is the full title, the one on the box and
+/// in the window. [`Title::short`] drops the part after the dash — the
+/// subtitle — and is what prose, error messages and test output use, because
+/// a sentence carrying "Im Netzwerk gefangen – Dunkle Schatten 2" twice reads
+/// worse than one that says it once. [`Title::slug`] is neither: it is the
+/// key the game's files are found under, and it never appears in a sentence.
+///
+/// The variants are the short form in PascalCase, ASCII for the umlaut.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Title {
+    /// *Die Enviro-Kids greifen ein*, on the 16-bit engine: one `DATA.-1-`
+    /// beside `ENVIRO.EXE`.
+    DieEnviroKidsGreifenEin,
     /// *Im Netzwerk gefangen – Dunkle Schatten 2*, on the 32-bit engine:
     /// `NNN.RSC` containers beside `ENGINE.EXE`.
     DunkleSchatten2,
-    /// *Die Enviro-Kids greifen ein*, on the 16-bit engine: one `DATA.-1-`
-    /// beside `ENVIRO.EXE`.
-    EnviroKids,
+    /// *Hilfe für Amajambere*, on the 16-bit engine: `DATA.-1-` and `DATA.-2-`
+    /// beside `BMZ.EXE`.
+    HilfeFuerAmajambere,
     /// *Jeff Jet - Abenteuer InfoHighway*, on the 16-bit engine as well:
     /// `DATA.-1-` and `DATA.-2-` beside `HPPLAY.EXE`.
     JeffJet,
 }
 
 impl Title {
-    /// The game's title, as a window shows it.
+    /// The game's full title, as a window shows it.
     pub fn name(self) -> &'static str {
         match self {
-            Title::DunkleSchatten2 => "Dunkle Schatten 2",
-            Title::EnviroKids => "Die Enviro-Kids greifen ein",
+            Title::DieEnviroKidsGreifenEin => "Die Enviro-Kids greifen ein",
+            Title::DunkleSchatten2 => "Im Netzwerk gefangen – Dunkle Schatten 2",
+            Title::HilfeFuerAmajambere => "Hilfe für Amajambere",
             Title::JeffJet => "Jeff Jet - Abenteuer InfoHighway",
         }
     }
+
+    /// The game's title without its subtitle — what prose calls it.
+    ///
+    /// Two of the four titles carry a second half after a dash; those lose it.
+    /// The other two are already as short as they get and answer the same as
+    /// [`Title::name`].
+    pub fn short(self) -> &'static str {
+        match self {
+            Title::DieEnviroKidsGreifenEin => "Die Enviro-Kids greifen ein",
+            Title::DunkleSchatten2 => "Dunkle Schatten 2",
+            Title::HilfeFuerAmajambere => "Hilfe für Amajambere",
+            Title::JeffJet => "Jeff Jet",
+        }
+    }
+
+    /// The key the game's own files are kept under.
+    ///
+    /// It is the name of the directory the original was installed into —
+    /// `games/DS2`, `games/ENVIRO` — lower-cased, and everything the program
+    /// files away per game is named after it: `MOTIONVM_GAMEDATA_<SLUG>`, the
+    /// module in `titles/`, the savegame directory, the documentation page.
+    /// It is a key and not a name: it belongs in a path, never in a sentence.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Title::DieEnviroKidsGreifenEin => "enviro",
+            Title::DunkleSchatten2 => "ds2",
+            Title::HilfeFuerAmajambere => "hfa",
+            Title::JeffJet => "jeffjet",
+        }
+    }
+
+    /// The files a copy has to hold, as the start-up message names them.
+    ///
+    /// Beside [`Title::short`] this is what [`crate::Error::Unrecognized`]
+    /// lists, so that the message cannot fall behind the enum: a game added
+    /// without a line here does not compile.
+    pub fn needs(self) -> &'static str {
+        match self {
+            Title::DieEnviroKidsGreifenEin => "DATA.-1- and ENVIRO.EXE",
+            Title::DunkleSchatten2 => "001.RSC and ENGINE.EXE",
+            Title::HilfeFuerAmajambere => "DATA.-1-, DATA.-2- and BMZ.EXE",
+            Title::JeffJet => "DATA.-1-, DATA.-2- and HPPLAY.EXE",
+        }
+    }
+
+    /// Every game, in the order the documentation lists them: the 32-bit game
+    /// first, then the 16-bit ones as they were taken on.
+    pub const ALL: [Title; 4] = [
+        Title::DunkleSchatten2,
+        Title::DieEnviroKidsGreifenEin,
+        Title::JeffJet,
+        Title::HilfeFuerAmajambere,
+    ];
 }
 
 /// Which game a directory holds, told by its files — or `None` for none of
 /// them.
 ///
-/// A `DATA.-1-` is one of the two 16-bit games, and which one is the **engine
-/// binary** beside it: both ship a container of that name, and neither ships
-/// the other's binary. A `DATA.-1-` with neither is not a game this can open,
-/// and saying so beats naming one of them and then failing on its missing
-/// files. Otherwise a `NNN.RSC` container is the 32-bit game. Every lookup is
+/// A `DATA.-1-` is one of the three 16-bit games, and which one is the
+/// **engine binary** beside it: all of them ship a container of that name, and
+/// none ships another's binary. A `DATA.-1-` with none of them is not a game
+/// this can open, and saying so beats naming one of them and then failing on
+/// its missing files. Otherwise a `NNN.RSC` container is the 32-bit game. Every lookup is
 /// case-insensitive, because a copied install is often lower-cased.
 ///
 /// This reads file names and nothing else, and file names are as far as they
-/// go on the 32-bit side: MOTION made more games than the three here, and
+/// go on the 32-bit side: MOTION made more games than the four here, and
 /// Checker 2000 ships `NNN.RSC` beside an `ENGINE.EXE` exactly as Dunkle
 /// Schatten 2 does, so this answers `DunkleSchatten2` for it. What settles
 /// that case is the container's own script, which the opener asks for with
@@ -61,10 +129,13 @@ impl Title {
 pub fn detect(dir: &Path) -> Option<Title> {
     if motionvm_formats::find_ci(dir, "DATA.-1-").is_some() {
         if motionvm_formats::find_ci(dir, enviro::ENGINE).is_some() {
-            return Some(Title::EnviroKids);
+            return Some(Title::DieEnviroKidsGreifenEin);
         }
         if motionvm_formats::find_ci(dir, jeffjet::ENGINE).is_some() {
             return Some(Title::JeffJet);
+        }
+        if motionvm_formats::find_ci(dir, hfa::ENGINE).is_some() {
+            return Some(Title::HilfeFuerAmajambere);
         }
         return None;
     }
@@ -128,10 +199,11 @@ pub trait Playable {
 /// what each of them would need.
 pub fn open(dir: &Path) -> Result<Box<dyn Playable>> {
     match detect(dir) {
+        Some(Title::HilfeFuerAmajambere) => Ok(Box::new(hfa::open(dir)?)),
         Some(Title::DunkleSchatten2) => {
             Ok(Box::new(crate::Game::<motionvm_forth::m32::Vm>::open(dir)?))
         }
-        Some(Title::EnviroKids) => Ok(Box::new(enviro::open(dir)?)),
+        Some(Title::DieEnviroKidsGreifenEin) => Ok(Box::new(enviro::open(dir)?)),
         Some(Title::JeffJet) => Ok(Box::new(jeffjet::open(dir)?)),
         None => {
             if !dir.is_dir() {

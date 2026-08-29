@@ -5,6 +5,8 @@
 //! if it is missing, so the crate still builds and tests cleanly without the
 //! game. Every number asserted here is a measurement over that one file —
 //! the corpus the 16-bit readers were written against.
+//!
+//! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_formats::font::FontRefTable;
 use motionvm_formats::m16::{Container, Segment, disasm, font, gfx, mz, psm, scr, text};
@@ -15,7 +17,7 @@ macro_rules! container_or_skip {
         match gamedata_enviro() {
             Some(dir) => Container::open_dir(&dir).expect("open DATA.-1-"),
             None => {
-                eprintln!("skipping: no ENVIRO gamedata directory");
+                eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
                 return;
             }
         }
@@ -293,7 +295,7 @@ fn kernel_or_skip() -> Option<(mz::Image, Vec<motionvm_formats::KernelWord>)> {
 #[test]
 fn the_kernel_tables_are_found_where_they_sit_and_bind_as_the_modules_use_them() {
     let Some((img, words)) = kernel_or_skip() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     assert_eq!(img.header_len(), 0x3200);
@@ -367,7 +369,7 @@ fn the_kernel_tables_are_found_where_they_sit_and_bind_as_the_modules_use_them()
 #[test]
 fn every_module_disassembles_without_an_unknown_ordinal() {
     let Some((_, words)) = kernel_or_skip() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let c = container_or_skip!();
@@ -407,7 +409,7 @@ fn every_module_disassembles_without_an_unknown_ordinal() {
 #[test]
 fn run_and_ctrl_decode_as_the_boot_sequence_and_its_branches() {
     let Some((_, words)) = kernel_or_skip() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let c = container_or_skip!();

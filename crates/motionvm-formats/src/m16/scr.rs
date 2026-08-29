@@ -19,7 +19,8 @@
 //! A body offset points at the **body**; the 16-byte header is the sixteen
 //! bytes before it, so the first offset is at least 8 cells. Headers are not
 //! gathered in a table — each travels with its body — and the last body runs
-//! to the end of the item. Measured over all 65 modules of ENVIRO: the
+//! to the end of the item. Measured over all 65 modules of
+//! Die Enviro-Kids greifen ein: the
 //! repeated triple equals the first, the twenty bytes are zero, the module
 //! number equals the slot, the first word's id is `firstID`, the last word's
 //! is `lastID`, and there are `nwords` words.
@@ -28,14 +29,16 @@
 //! no magic, no `DP`/`LAST`, no second region; a cell is 16 bits; and a word
 //! is named by a **global id**, not by `(module << 16) | offset`. Ids are
 //! allocated per module at authoring time and reused across modules that are
-//! never loaded together — every one of ENVIRO's sixteen location macros
+//! never loaded together — every one of the sixteen location macros of
+//! Die Enviro-Kids greifen ein
 //! defines id 549 — so which word an id names depends on what is resident.
 //! This reader keeps the ids as stored and leaves the binding to the machine.
 //!
 //! A body's first cell says what kind of word it is: `0x8000 | 37`
 //! (`_PutAdr`) opens a variable, whose data cell and any `ALLOT` cells
 //! follow; `0x8000 | 38` (`_PutConst`) opens a constant; anything else is a
-//! colon definition. ENVIRO's 1774 words are 792 variables, 310 constants and
+//! colon definition. The 1774 words of Die Enviro-Kids greifen ein are 792
+//! variables, 310 constants and
 //! 672 colon definitions.
 
 use crate::error::{Error, Result};
@@ -89,7 +92,7 @@ impl Entry {
 /// One parsed 16-bit module: its number, its id range and its dictionary.
 pub struct ScrModule {
     /// The module number, from the header — equal to the slot minus 3500 in
-    /// every ENVIRO module.
+    /// every module of Die Enviro-Kids greifen ein.
     pub module: u16,
     /// The lowest id defined here, as the header states it.
     pub first_id: u16,

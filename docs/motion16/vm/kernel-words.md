@@ -2,7 +2,7 @@
 
 # Kernel Words
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The 16-bit kernel registers its words in two arrays in `ENVIRO.EXE`'s data,
 each a list of 8-byte entries
@@ -31,28 +31,46 @@ Handlers are far functions; the `segment:offset` below is of the load
 image, which starts at file offset `0x3200`, and the file offset follows in
 parentheses (see [ENVIRO.EXE](../engine/enviro-exe.md)).
 
-**Of the 233 words, ENVIRO's script modules use 151.** The "Sites" column is
+**Of the 233 words, the script modules of Die Enviro-Kids greifen ein use 151.**
+The "Sites" column is
 the number of cells in the 65 modules that name the word, counted by walking
 every body with the inline operands skipped; a dash is an unused word. A
 reimplementation needs the 151; the other 82 can stay stubs for this game.
 
-## The older build's table
+## The other builds' tables
 
-`HPPLAY.EXE` has **228** words in the same two tables — core 82 at file
-`0x20236`, name for name and order for order the same, and domain **146** at
-`0x1f42e`. Five of ENVIRO's are missing and none is added: `SETMOUSEX`,
-`SETMOUSEY`, `SETMOUSELB` and `SETMOUSERB` (ENVIRO ordinals 124–127) and
-`?SAMPLE` (255). Four of the five sit inside the domain table rather than
-after it, so **every domain word from ordinal 124 up is four below its
-namesake here** — `DOWALK` 239 against 243, `PLAYSAMPLE` 250 against 254 —
-and the ordinals in the tables below are ENVIRO's alone. Jeff Jet's modules
-use 150 of the 228: the same set as ENVIRO's less `-FONT`, `SDBLK` and
-`SDH%SHR`, plus `GDOX` and `GDOY`.
+Three builds ship, and each is a prefix of the next by deletion alone —
+nothing is ever added going forward:
 
-A table read from one of the two builds and applied to the other binds
-without complaint and names the wrong handler from ordinal 124 on, which is
-why the binding is scanned out of the binary the game ships with
-([HPPLAY.EXE](../engine/hpplay-exe.md)).
+| Build | Core | Domain | Total | Missing against `ENVIRO.EXE` |
+|---|---:|---:|---:|---|
+| `HPPLAY.EXE` | 82 at `0x20236` | 146 at `0x1f42e` | 228 | `SETMOUSEX/Y/LB/RB` (124–127) and `?SAMPLE` (255) |
+| `BMZ.EXE` | 82 at `0x2067a` | 150 at `0x1f7e6` | 232 | `?SAMPLE` (255) |
+| `ENVIRO.EXE` | 82 | 151 | 233 | — |
+
+The core table is name for name and order for order the same in all three.
+
+Where the deletions sit is what decides whether ordinals move. `HPPLAY.EXE`
+lacks four words *inside* the domain table, so **every domain word from ordinal
+124 up is four below its namesake there** — `DOWALK` 239 against 243,
+`PLAYSAMPLE` 250 against 254. `BMZ.EXE` lacks only the appended `?SAMPLE`, so
+**its ordinals are exactly those of Die Enviro-Kids greifen ein**, 105 to 254, and
+only 255 is absent. The ordinals in the tables below are that game's, which
+makes them `BMZ.EXE`'s too and
+not `HPPLAY.EXE`'s.
+
+A table read from one build and applied to another binds without complaint. The
+loud case is `HPPLAY.EXE`, which would then name the wrong handler from ordinal
+124 on; the quiet one is `BMZ.EXE`, which would be named correctly throughout
+and hold a word at 255 that is not there. Either way the binding is scanned out
+of the binary the game ships with ([HPPLAY.EXE](../engine/hpplay-exe.md),
+[BMZ.EXE](../engine/bmz-exe.md)).
+
+What each game asks for: the modules of Die Enviro-Kids greifen ein use 151 of its
+233, Jeff Jet's 150 of its 228 — the same set less `-FONT`, `SDBLK` and
+`SDH%SHR`, plus
+`GDOX` and `GDOY` — and Hilfe für Amajambere's 143 of its 232, adding `&` and
+`GFXVFLIP` to what the other two use between them.
 
 ## Core table — ordinals 1–82
 
@@ -344,4 +362,5 @@ are read ([text rendering](../engine/text-rendering.md),
 
 - [Threaded code](threaded-code.md) — how a cell names a word
 - [ENVIRO.EXE](../engine/enviro-exe.md) — where the tables sit in the binary
+- [HPPLAY.EXE](../engine/hpplay-exe.md), [BMZ.EXE](../engine/bmz-exe.md) — the earlier builds' tables
 - [Kernel words (MOTION 32-bit)](../../motion32/vm/kernel-words.md) — the 356-word kernel for the names that match

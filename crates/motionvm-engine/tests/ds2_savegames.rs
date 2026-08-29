@@ -16,7 +16,7 @@
 //! `ENGINE.EXE` among the shipped data. Here that directory is read-only, and
 //! [`Game::set_saves`] refuses to point anywhere inside it.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::Host;
@@ -25,8 +25,13 @@ use motionvm_testutil::{gamedata_ds2, saves_dir};
 use std::path::{Path, PathBuf};
 
 /// Opens the game with a save directory attached.
+///
+/// The name carries the game's slug, as the other suites' do: `saves_dir`
+/// wipes what it hands back, and one directory under `target/` serves the
+/// whole suite — so two files asking for the same bare name would delete each
+/// other's slots mid-run.
 fn game_with_saves(dir: &Path, name: &str) -> (Game<Vm>, PathBuf) {
-    let saves = saves_dir(name);
+    let saves = saves_dir(&format!("ds2-{name}"));
     let mut game = Game::open(dir).expect("game opens");
     game.set_saves(&saves)
         .expect("the save directory is accepted");
@@ -56,7 +61,7 @@ fn kernel(game: &mut Game<Vm>, word: &str, args: &[i32]) {
 #[test]
 fn put_writes_a_block_and_get_reads_it_back() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, saves) = game_with_saves(&dir, "put_get");
@@ -107,7 +112,7 @@ fn put_writes_a_block_and_get_reads_it_back() {
 #[test]
 fn exist_answers_minus_one_for_a_taken_slot() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, saves) = game_with_saves(&dir, "exist");
@@ -131,7 +136,7 @@ fn exist_answers_minus_one_for_a_taken_slot() {
 #[test]
 fn show_files_fills_the_slot_table() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, saves) = game_with_saves(&dir, "show_files");
@@ -172,7 +177,7 @@ fn show_files_fills_the_slot_table() {
 #[test]
 fn the_resident_modules_are_the_ones_the_original_would_have() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -273,7 +278,7 @@ fn started_in(dir: &Path, name: &str, location: i32) -> (Game<Vm>, PathBuf) {
 #[test]
 fn putas_writes_the_resident_modules_and_getas_puts_them_back() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, saves) = started_in(&dir, "putas", 23);
@@ -356,7 +361,7 @@ fn frz_modules(bytes: &[u8]) -> Vec<u32> {
 #[test]
 fn a_savegame_that_does_not_fit_is_refused_before_anything_changes() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, saves) = started_in(&dir, "refused", 23);
@@ -451,7 +456,7 @@ fn click_slot(game: &mut Game<Vm>, slot: i32) {
 #[test]
 fn a_game_saves_and_loads_through_its_own_menu() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, saves) = started_in(&dir, "menu", 23);
@@ -523,7 +528,7 @@ fn a_game_saves_and_loads_through_its_own_menu() {
 #[test]
 fn a_load_leaves_the_picture_running() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, _saves) = started_in(&dir, "running", 23);
@@ -572,7 +577,7 @@ fn a_load_leaves_the_picture_running() {
 #[test]
 fn a_savegame_loaded_into_a_fresh_game_hands_out_no_handle_twice() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut far, saves) = started_in(&dir, "handles", 23);
@@ -659,7 +664,7 @@ fn a_savegame_loaded_into_a_fresh_game_hands_out_no_handle_twice() {
 #[test]
 fn only_the_boot_modules_create_fonts_templates_and_screens() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     // The names come from the machine's own ordinal table rather than from the
@@ -713,7 +718,7 @@ fn only_the_boot_modules_create_fonts_templates_and_screens() {
 #[test]
 fn the_save_directory_may_not_be_inside_the_game_data() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -743,7 +748,7 @@ fn the_save_directory_may_not_be_inside_the_game_data() {
     assert!(!dir.join("deeper").exists(), "and create nothing");
 
     assert!(
-        game.set_saves(&saves_dir("outside")).is_ok(),
+        game.set_saves(&saves_dir("ds2-outside")).is_ok(),
         "somewhere else is fine"
     );
 }

@@ -7,7 +7,7 @@
 //! of the drawer's two passes it matches, and why the other one may draw
 //! taller without that being a drift.
 
-use crate::{Descriptor, DescriptorKind, Engine, Placement};
+use crate::{Descriptor, Engine, Placement};
 use motionvm_formats::font::Font;
 
 impl Engine {
@@ -47,7 +47,7 @@ impl Engine {
     /// `corner`, and the eleven `descriptor_*` getters — inherits the borrow
     /// for the same reason.
     pub(crate) fn extent(&mut self, d: &Descriptor) -> (i32, i32) {
-        if d.kind == DescriptorKind::Text {
+        if d.is_text() {
             let Some(text) = self.descriptor_text(d) else {
                 return (0, 0);
             };
@@ -72,7 +72,7 @@ impl Engine {
             let height = (lines.len() as i32 * line_height - motionvm_render::SPACING).max(0);
             return (width, height);
         }
-        if let Some(id) = d.sprite.or(d.block)
+        if let Some(id) = d.shows.graphic()
             && let Some(g) = self.load_sprite(id)
         {
             let all = d.fields.get("SD%SHR").copied().unwrap_or(0);
@@ -127,7 +127,7 @@ impl Engine {
     /// with `GDX`, so the error moved the sentence as well as its backing.
     pub(crate) fn stored_extent(&mut self, d: &Descriptor) -> (i32, i32) {
         let (w, h) = self.extent(d);
-        if d.kind == DescriptorKind::Text && !self.text16 {
+        if d.is_text() && !self.text16 {
             (w + 4, h + 4)
         } else {
             // The 16-bit `GDWIDTH`/`GDHEIGHT` (`05f1:1705`, `05f1:177b`)

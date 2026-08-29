@@ -136,7 +136,8 @@ impl Inline {
     /// of that name, or `None` if any name but `_ChElseDup` is missing.
     ///
     /// This is how the 16-bit kernel's set is bound. It is a derivation, not
-    /// a measurement — the measurement is that walking all 65 of ENVIRO's
+    /// a measurement — the measurement is that walking all 65 modules of
+    /// Die Enviro-Kids greifen ein
     /// modules with this set meets no unknown ordinal and ends every body at
     /// the next word's header. The 32-bit kernel's set is measured directly
     /// and kept as constants ([`crate::m32::le::INLINE`]).

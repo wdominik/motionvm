@@ -9,16 +9,16 @@
 //! needs is the game and a clock, so it runs headless — the same reason the
 //! renderer could be verified against the original before any window existed.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
-use motionvm_engine::Game;
+use motionvm_engine::{Game, Shows};
 use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
 
 #[test]
 fn the_title_macro_arms_the_task_manager() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -43,7 +43,7 @@ fn the_title_macro_arms_the_task_manager() {
 #[test]
 fn a_click_advances_the_intro() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -95,7 +95,7 @@ fn a_click_advances_the_intro() {
 #[test]
 fn hiding_a_descriptor_leaves_its_picture_standing() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -184,7 +184,7 @@ fn hiding_a_descriptor_leaves_its_picture_standing() {
 #[test]
 fn the_fade_out_finishes_before_the_picture_changes() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -246,7 +246,7 @@ fn the_fade_out_finishes_before_the_picture_changes() {
 #[test]
 fn the_old_picture_fades_out_in_its_own_colors() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     // Palette 96 belongs to the logo, 91 to the title art the intro switches
@@ -377,7 +377,7 @@ fn text_lines(frame: &motionvm_render::Framebuffer) -> Vec<(u32, u32, u32)> {
 #[test]
 fn the_intro_shows_its_two_texts_in_order() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -423,7 +423,7 @@ fn the_intro_shows_its_two_texts_in_order() {
 #[test]
 fn a_fade_takes_its_screen_out_of_the_picture() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -463,7 +463,7 @@ fn a_fade_takes_its_screen_out_of_the_picture() {
 #[test]
 fn the_intro_hands_over_to_the_next_location() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -508,7 +508,7 @@ fn the_intro_hands_over_to_the_next_location() {
 #[test]
 fn the_game_reaches_the_park() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -538,7 +538,7 @@ fn the_game_reaches_the_park() {
         .engine
         .descriptors()
         .iter()
-        .filter(|d| d.active && d.screen == 2 && d.sprite.or(d.block).is_some())
+        .filter(|d| d.active && d.screen == 2 && d.shows.graphic().is_some())
         .count();
     assert!(
         drawn >= 3,
@@ -576,14 +576,14 @@ fn a_fade_in_draws_only_its_own_screen() {
     e.add_descriptor(motionvm_engine::Descriptor {
         handle: 1,
         screen: 1,
-        sprite: Some(10),
+        shows: Shows::Sprite(10),
         active: true,
         ..Default::default()
     });
     e.add_descriptor(motionvm_engine::Descriptor {
         handle: 2,
         screen: 2,
-        sprite: Some(11),
+        shows: Shows::Sprite(11),
         active: true,
         // With `SDAUTOBUF`, as everything that moves in the game has:
         // `INITANI` sets it on every animation (module 6, 0x007dc). It is what
@@ -709,7 +709,7 @@ fn play_the_title(dir: &std::path::Path, twice: bool) -> (Game<Vm>, i32) {
 #[test]
 fn the_title_sequence_hands_its_busy_lock_back() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (game, busy) = play_the_title(&dir, false);
@@ -744,7 +744,7 @@ fn the_title_sequence_hands_its_busy_lock_back() {
 #[test]
 fn entering_the_title_twice_orphans_a_busy_raise() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (game, busy) = play_the_title(&dir, true);

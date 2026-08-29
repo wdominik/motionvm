@@ -4,11 +4,17 @@ Reverse-engineering documentation for **MOTION**, the DOS adventure authoring
 system by DigiTales (Stefan Hoffmann), and for the games built with it that
 motionvm plays today:
 
-| Game | Short name | Engine generation |
+| Game | Directory | Engine generation |
 |---|---|---|
-| *Im Netzwerk gefangen – Dunkle Schatten 2* (1996, Art Department Werbeagentur GmbH, commissioned by the Bundesministerium des Innern) | **DS2** | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22 |
-| *Die Enviro-Kids greifen ein* (1996, Art Department Werbeagentur GmbH, commissioned by the Ministerium für Umwelt, Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen — the shipped files name no client) | **ENVIRO** | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27 |
-| *Jeff Jet - Abenteuer InfoHighway* (Promotion Software GmbH, commissioned by the Hewlett Packard GmbH — the in-game credits name both; `HP.BAT` signs off 1995, the shipped files are re-stamped 1998-04-10) | **JEFFJET** | **MOTION 16-bit** — `HPPLAY.EXE`, an older build of the same player |
+| *Im Netzwerk gefangen – Dunkle Schatten 2* (1996, Art Department Werbeagentur GmbH, commissioned by the Bundesministerium des Innern) | `DS2` | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22 |
+| *Die Enviro-Kids greifen ein* (1996, Art Department Werbeagentur GmbH, commissioned by the Ministerium für Umwelt, Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen — the shipped files name no client) | `ENVIRO` | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27 |
+| *Jeff Jet - Abenteuer InfoHighway* (Promotion Software GmbH, commissioned by the Hewlett Packard GmbH — the in-game credits name both; `HP.BAT` signs off 1995, the shipped files are re-stamped 1998-04-10) | `JEFFJET` | **MOTION 16-bit** — `HPPLAY.EXE`, an older build of the same player |
+| *Hilfe für Amajambere* (1995, ART DEPARTMENT WA GmbH, commissioned by the Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung — whose acronym names the binary; given away as freeware) | `HFA` | **MOTION 16-bit** — `BMZ.EXE`, dated 1995-06-05: the build between the other two |
+
+The directory is the name the original was installed into, and it is a key
+rather than a name: everything kept per game is filed under it —
+`MOTIONVM_GAMEDATA_<DIR>`, `saves/<dir>/`, `docs/games/<dir>/` — while prose
+calls a game by its title.
 
 ## The engine and its two generations
 
@@ -18,14 +24,14 @@ binary. A game made with it is *data* — compiled Forth script modules plus
 sprites, palettes, fonts, texts and music in resource containers. The engine
 binary reads that data and runs it.
 
-Those three were built with two generations of that system, and so were the
+Those four were built with two generations of that system, and so were the
 MOTION games this documentation cites but does not describe. The generations
 share the *language* and most of the *vocabulary*; they do not share the
 *machine*:
 
-| | MOTION 16-bit | MOTION 32-bit (DS2) |
+| | MOTION 16-bit | MOTION 32-bit |
 |---|---|---|
-| Binary | `ENVIRO.EXE` and `HPPLAY.EXE`: 16-bit real-mode MZ, Turbo-C, needs EMS; player only, no compiler | `ENGINE.EXE`: 32-bit LE for DOS/4GW, Watcom C/C++32; IDE, compiler, debugger and player |
+| Binary | `ENVIRO.EXE`, `BMZ.EXE` and `HPPLAY.EXE`: 16-bit real-mode MZ, Turbo-C, needs EMS; player only, no compiler | `ENGINE.EXE`: 32-bit LE for DOS/4GW, Watcom C/C++32; IDE, compiler, debugger and player |
 | Container | `DATA.-n-`, one volume per floppy, seven segments in one id space, items packed or plain | `NNN.RSC` files, merged by type and id |
 | Cell | 16 bits | 32 bits |
 | Kernel call | `0x8000 \| ordinal`, ordinals 1-based in two tables | `0x4000xxxx`, ordinals in steps of five |
@@ -63,8 +69,10 @@ exercises.
 - Resources are addressed by *(type, id)*; script module ids equal module
   numbers.
 - **Provenance.** A page under `motion32/` describes the 32-bit engine as
-  measured on DS2's files; a page under `motion16/` describes the 16-bit engine
-  as measured on ENVIRO's, and on Jeff Jet's where the two builds differ.
+  measured on the files of Dunkle Schatten 2; a page under `motion16/`
+  describes the 16-bit engine
+  as measured on the files of Die Enviro-Kids greifen ein, and on Jeff Jet's or
+  Hilfe für Amajambere's where the builds differ.
   Pages under `games/` describe one game's own data and script library. A
   sentence that names no game holds for the whole generation; a count ("all 86
   modules", "all 1586 sprites") is always a count over one game's corpus, and
@@ -72,7 +80,7 @@ exercises.
 
 ## Documentation map
 
-### MOTION 32-bit (DS2)
+### MOTION 32-bit
 
 | Page | Covers |
 |---|---|
@@ -118,9 +126,10 @@ exercises.
 | [Script modules](motion16/formats/script-modules.md) | Compiled Forth modules with 16-bit cells and global word ids |
 | [Execution model](motion16/vm/execution-model.md) | Interpreter, stacks, the flat address space, the word table |
 | [Threaded code](motion16/vm/threaded-code.md) | Cell encoding, ordinals, inline operands, branches |
-| [Kernel words](motion16/vm/kernel-words.md) | The 16-bit kernel — 233 words in `ENVIRO.EXE`, 228 in the older `HPPLAY.EXE` — its two tables, what the games use |
+| [Kernel words](motion16/vm/kernel-words.md) | The 16-bit kernel — 233 words in `ENVIRO.EXE`, 232 in `BMZ.EXE`, 228 in the oldest `HPPLAY.EXE` — its two tables, what the games use |
 | [ENVIRO.EXE](motion16/engine/enviro-exe.md) | The later build of the player: the MZ binary, what lives where |
-| [HPPLAY.EXE](motion16/engine/hpplay-exe.md) | The earlier build: five words fewer, every ordinal from 124 up shifted |
+| [HPPLAY.EXE](motion16/engine/hpplay-exe.md) | The earliest build: five words fewer, every ordinal from 124 up shifted |
+| [BMZ.EXE](motion16/engine/bmz-exe.md) | The middle build: one word fewer, and no ordinal moved |
 | [Boot and frame loop](motion16/engine/boot-and-loop.md) | `RUN`, `SCRCTRL`, `ANIMPLAY`, location changes, shutdown |
 | [Descriptors and screens](motion16/engine/descriptors.md) | What the scripts' call sites establish about the kernel's display words |
 | [Text rendering](motion16/engine/text-rendering.md) | The drawer's two passes, the gaps, justification |
@@ -160,6 +169,15 @@ exercises.
 | [Module map](games/jeffjet/module-map.md) | What each of the 55 script modules does |
 | [Resource inventory](games/jeffjet/inventory.md) | What the two `DATA.-n-` volumes hold, by the numbers |
 | [Other files](games/jeffjet/other-files.md) | The launcher, the sound stack, the two splash pictures |
+
+### Hilfe für Amajambere
+
+| Page | Covers |
+|---|---|
+| [Game structure](games/hfa/game-structure.md) | Setting, the twenty locations, the three module series, verbs, saving |
+| [Module map](games/hfa/module-map.md) | What each of the 76 script modules does |
+| [Resource inventory](games/hfa/inventory.md) | What the two `DATA.-n-` volumes hold, by the numbers |
+| [Other files](games/hfa/other-files.md) | The launcher, the sound stack, the integrity chain, the readmes |
 
 ### Reference
 
@@ -208,3 +226,15 @@ exercises.
 | `HP.BAT` | Launcher ([other files](games/jeffjet/other-files.md)) |
 | `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers, byte-identical to the other 16-bit game's ([other files](games/jeffjet/other-files.md)) |
 | `HPLOGO.EXE`, `PROMSOFT.EXE` | Graphic Workshop splash pictures, not MOTION ([other files](games/jeffjet/other-files.md)) |
+
+### Hilfe für Amajambere
+
+| File(s) | Format |
+|---|---|
+| `DATA.-1-`, `DATA.-2-` | [The DATA container](motion16/formats/data-container.md) — the whole game, on two volumes, stored plainly |
+| `BMZ.EXE` | [The middle build of the MOTION 16-bit player](motion16/engine/bmz-exe.md) |
+| `AFRIKA.BAT` | Launcher ([other files](games/hfa/other-files.md)) |
+| `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers, byte-identical to the other 16-bit games' ([other files](games/hfa/other-files.md)) |
+| `VRCHKSUM.EXE`, `ORIGINAL.BIN`, `ORIGINAL.REP`, `ORIGINAL.SCR` | The installation's integrity chain, never run here ([other files](games/hfa/other-files.md)) |
+| `CONFIG.DAT` | Installer output ([other files](games/hfa/other-files.md)) |
+| `INFO.TXT`, `FREEWARE.TXT`, `LIESMICH.DOK` | German readme, licence, ministry reply card |

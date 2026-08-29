@@ -5,8 +5,7 @@
 //! drive exactly that far and ask for the picture. They need the game's
 //! files — `MOTIONVM_GAMEDATA_ENVIRO` — and skip without them.
 //!
-//! The game data this file drives is Die Enviro-Kids greifen ein's (MOTION
-//! 16-bit).
+//! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_engine::{Title, titles};
 use motionvm_testutil::gamedata_enviro;
@@ -14,19 +13,19 @@ use motionvm_testutil::gamedata_enviro;
 #[test]
 fn the_directory_is_told_apart_and_opened_as_the_16_bit_game() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
-    assert_eq!(titles::detect(&dir), Some(Title::EnviroKids));
+    assert_eq!(titles::detect(&dir), Some(Title::DieEnviroKidsGreifenEin));
     let game = titles::open(&dir).expect("opens");
-    assert_eq!(game.title(), Title::EnviroKids);
+    assert_eq!(game.title(), Title::DieEnviroKidsGreifenEin);
     assert_eq!(game.display_size(), (320, 200));
 }
 
 #[test]
 fn run_reaches_the_intro_loop_and_the_first_frames_draw_a_picture() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = titles::enviro::open(&dir).expect("opens");
@@ -101,7 +100,7 @@ fn run_reaches_the_intro_loop_and_the_first_frames_draw_a_picture() {
 #[test]
 fn the_pointer_stays_off_the_intro() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = titles::enviro::open(&dir).expect("opens");
@@ -134,7 +133,7 @@ fn the_pointer_stays_off_the_intro() {
 #[test]
 fn a_scene_change_leaves_nothing_of_the_last_picture() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = titles::enviro::open(&dir).expect("opens");
@@ -213,7 +212,7 @@ fn a_scene_change_leaves_nothing_of_the_last_picture() {
 #[test]
 fn the_intro_grid_settles_all_four_motifs_at_full_size() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = titles::enviro::open(&dir).expect("opens");

@@ -2,10 +2,11 @@
 
 # HPPLAY.EXE — The Older Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 `HPPLAY.EXE` (165 702 bytes) is the same player as
-[`ENVIRO.EXE`](enviro-exe.md), built earlier. Everything the other page says
+[`ENVIRO.EXE`](enviro-exe.md), built earlier — and earlier than
+[`BMZ.EXE`](bmz-exe.md) too, which makes it the oldest of the three. Everything the other page says
 about the binary holds here — Turbo C real mode, an 800-paragraph header, two
 kernel tables of far function pointers, a data stack behind a far pointer in
 DGROUP — and this page is only what differs. Where a subsystem page cites an
@@ -26,7 +27,7 @@ two are not interchangeable.
 
 The file's date, 1998-04-10, is a re-stamp: every file of the installation
 carries it, including the six `*.DRV` and `SOUND.EXE`, which are byte-identical
-to the 1995-07-10 copies the other game ships. `HP.BAT` ends
+to the 1995-07-10 copies Die Enviro-Kids greifen ein ships. `HP.BAT` ends
 `@echo (c) 1995 Hewlett Packard`.
 
 Twice the expanded memory for a container a fifth the size, because it is
@@ -83,8 +84,8 @@ engine follows: scan the table out of the binary that ships with the game.
 
 ## What the game asks of it
 
-Jeff Jet's bytecode uses **150** of the 228 words. Against the other game's
-usage the difference is three words in and two out: it calls `GDOX` and `GDOY`,
+Jeff Jet's bytecode uses **150** of the 228 words. Against Die Enviro-Kids
+greifen ein's usage the difference is three words in and two out: it calls `GDOX` and `GDOY`,
 which that game does not, and does not call `-FONT`, `SDBLK` or `SDH%SHR`,
 which it does. `PLAYSAMPLE` and `XGFXSAMPLE` are in the table and called zero
 times — the game ships the four `DMA*.DRV` digital drivers and never reaches
@@ -92,7 +93,9 @@ them.
 
 ## See also
 
-- [ENVIRO.EXE](enviro-exe.md) — the later build, and everything the two share
+- [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the three share
+- [BMZ.EXE](bmz-exe.md) — the middle build, whose ordinals are those of
+  Die Enviro-Kids greifen ein
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
 - [The DATA container](../formats/data-container.md) — the volumes and the packing this build reads
 - [Other files (Jeff Jet)](../../games/jeffjet/other-files.md) — what else the installation holds

@@ -18,7 +18,7 @@
 //! index the monitor's screen area carries in background sprite 4009. A bar
 //! over the background is invisible; a bar over a row is an eraser.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -104,7 +104,7 @@ fn written_rows(game: &mut Game<Vm>, rows: i32) -> i32 {
 #[test]
 fn clscr_takes_the_screen_away_one_row_at_a_time() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = terminal(&dir);

@@ -2,7 +2,8 @@
 //! it lies in the container, with no compression wrapper.
 //!
 //! The 32-bit engine packs the same table with its LZW codec behind a 10-byte
-//! header ([`crate::m32::font`]); the 16-bit engine stores it bare. ENVIRO's
+//! header ([`crate::m32::font`]); the 16-bit engine stores it bare. The
+//! fonts of Die Enviro-Kids greifen ein
 //! three fonts — ids 0, 2 and 7 — all hold 116 glyphs, 12, 14 and 11 rows
 //! high, their bitmaps starting at byte 468 and packed back to back. The bit
 //! order is least significant bit first here too: rendered that way, glyph 0

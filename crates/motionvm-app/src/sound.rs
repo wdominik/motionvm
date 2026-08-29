@@ -21,7 +21,7 @@
 //!
 //! Every game comes through here with the same shape and its generation's
 //! player: Dunkle Schatten 2's HMI songs through the rebuilt MIDI driver
-//! ([`open_motion32`]), the two 16-bit games' PSM 2 tunes through the rebuilt
+//! ([`open_motion32`]), the 16-bit games' PSM 2 tunes through the rebuilt
 //! `MUSADL.DRV` sequencer ([`open_motion16`]).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -171,8 +171,8 @@ pub fn open_motion32(dir: &Path) -> Result<(Sound, Music), String> {
 ///
 /// `dir` is the game directory: `MUSADL.DRV` comes from there, the same file
 /// the 16-bit player loads whole and installs — motionvm reads its tables and
-/// rebuilds the code around them. Both 16-bit games ship that driver, and the
-/// two copies are byte-identical, so one opener serves them.
+/// rebuilds the code around them. All three 16-bit games ship that driver, and
+/// the copies are byte-identical, so one opener serves them.
 pub fn open_motion16(dir: &Path) -> Result<(Sound, PsmMusic), String> {
     let path = motionvm_formats::find_ci(dir, "MUSADL.DRV").ok_or("MUSADL.DRV: not found")?;
     let driver = std::fs::read(path).map_err(|e| format!("MUSADL.DRV: {e}"))?;

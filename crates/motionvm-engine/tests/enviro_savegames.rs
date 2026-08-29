@@ -7,8 +7,7 @@
 //! 16-bit layout. These tests run those words the way the scripts do and
 //! need the game's files (`MOTIONVM_GAMEDATA_ENVIRO`); they skip without them.
 //!
-//! The game data this file drives is Die Enviro-Kids greifen ein's (MOTION
-//! 16-bit).
+//! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_engine::{Game, Playable, titles};
 use motionvm_forth::m16::Vm;
@@ -90,7 +89,7 @@ fn temp_saves(tag: &str) -> PathBuf {
 #[test]
 fn a_game_saved_in_one_location_comes_back_there_with_its_state() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let saves = temp_saves("saves");
@@ -191,7 +190,7 @@ fn a_game_saved_in_one_location_comes_back_there_with_its_state() {
 #[test]
 fn a_slot_holding_the_other_games_files_is_refused_by_name() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let saves = temp_saves("foreign");

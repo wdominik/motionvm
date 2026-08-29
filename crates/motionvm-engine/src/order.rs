@@ -318,7 +318,8 @@ impl Engine {
         // `_ORDER @` — the block's *first cell*, which it has just set to the
         // verb. Every one of the forty `FORCE_ORDER` call sites in the game
         // passes `TALK`, so what arrives here is the number 5, and module 0
-        // does not exist. ENVIRO's `FORCE_ORDER` (module 603) does the same
+        // does not exist. `FORCE_ORDER` (module 603) of
+        // Die Enviro-Kids greifen ein does the same
         // with a flat address, which names no loaded module either.
         //
         // That call is not where the work is. The work is the four stores, and

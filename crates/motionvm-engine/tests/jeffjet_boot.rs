@@ -9,6 +9,8 @@
 //! cannot: it comes off two volumes, and every item of it is packed. If either
 //! were read wrongly the game would not fail, it would run without artwork or
 //! without colours — so these tests ask for pixels, and for a palette.
+//!
+//! The game this file drives is Jeff Jet (MOTION 16-bit).
 
 use motionvm_engine::{Title, titles};
 use motionvm_testutil::gamedata_jeffjet;
@@ -19,7 +21,7 @@ fn the_directory_is_told_apart_by_its_engine_binary() {
         eprintln!("skipping: no Jeff Jet gamedata directory");
         return;
     };
-    // Both 16-bit games ship a DATA.-1-; only this one ships HPPLAY.EXE.
+    // All three 16-bit games ship a DATA.-1-; only this one ships HPPLAY.EXE.
     assert_eq!(titles::detect(&dir), Some(Title::JeffJet));
     let game = titles::open(&dir).expect("opens");
     assert_eq!(game.title(), Title::JeffJet);

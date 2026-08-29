@@ -29,7 +29,7 @@
 //! `SDTXT` then stores the measured width **plus four** into the descriptor,
 //! and that padded value is what `GDWIDTH` reports. Hence the four below.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_formats::m32::{Kind, rsc::Bank};
@@ -50,7 +50,7 @@ const DESCRIPTOR_PADDING: i32 = 4;
 #[test]
 fn text_measures_the_same_as_in_the_original() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let game = Game::open(&dir).expect("game opens");
@@ -79,7 +79,7 @@ fn text_measures_the_same_as_in_the_original() {
 #[test]
 fn the_gap_falls_between_glyphs_and_not_after_the_last() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let game = Game::open(&dir).expect("game opens");
@@ -117,7 +117,7 @@ fn the_gap_falls_between_glyphs_and_not_after_the_last() {
 #[test]
 fn an_empty_text_draws_nothing() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -129,7 +129,7 @@ fn an_empty_text_draws_nothing() {
         .descriptors()
         .to_vec()
         .iter()
-        .filter(|d| d.active && d.kind == motionvm_engine::DescriptorKind::Text)
+        .filter(|d| d.active && d.is_text())
         .filter(|d| game.engine.descriptor_text(d).is_some_and(|t| t.is_empty()))
         .map(|d| d.handle)
         .collect();

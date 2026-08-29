@@ -2,7 +2,7 @@
 
 # Script Modules
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 A SCR item is one compiled Forth module: a short header, a table of body
 offsets, and a dictionary in which each word's 16-byte header sits
@@ -33,7 +33,8 @@ u16 body[]             ; threaded code, or a VAR/CONST data cell (plus ALLOT cel
 `bodyOffset[i]` points at the **body**; the header is the 16 bytes before
 it. The last word's body runs to the end of the item.
 
-Measured over all 65 ENVIRO modules: the repeated triple matches the first,
+Measured over all 65 modules of Die Enviro-Kids greifen ein: the repeated triple
+matches the first,
 the 20 bytes are zero, `moduleNumber` equals the slot, the first word's id
 is `firstID`, the last word's is `lastID`, and there are `nwords` words.
 
@@ -42,7 +43,7 @@ is `firstID`, the last word's is `lastID`, and there are `nwords` words.
 A body's first cell says what kind of word it is (see
 [Threaded code](../vm/threaded-code.md)):
 
-| First cell | Kind | In ENVIRO |
+| First cell | Kind | In Die Enviro-Kids greifen ein |
 |---|---|---:|
 | `0x8025` (`_PutAdr`) | `VAR` — the data cell follows, then any `ALLOT` cells | 792 |
 | `0x8026` (`_PutConst`) | `CONST` — the value follows | 310 |
@@ -53,13 +54,15 @@ code, because `_PutAdr` returns; a disassembler that walks past it prints
 nonsense.
 
 Names are capped at eleven characters, as in the 32-bit engine, and the
-length byte keeps the original count: 151 of ENVIRO's names are longer than
+length byte keeps the original count: 151 of the names in
+Die Enviro-Kids greifen ein are longer than
 their stored eleven characters (`BIRKENSTRAß`, `LD_7MÜLLMAN`, `MYCALCEXAMI`).
 Names are CP437 and carry umlauts.
 
 ## Word ids are global and not unique
 
-A word id is a 16-bit number in one game-wide space — 400 to 1944 in ENVIRO
+A word id is a 16-bit number in one game-wide space — 400 to 1944 in
+Die Enviro-Kids greifen ein
 — and a call cell in threaded code holds nothing but that id (see
 [Execution model](../vm/execution-model.md)). Ids are allocated per module at
 authoring time, and modules that are never loaded together reuse them:
@@ -100,5 +103,5 @@ nothing loads 608 or 613. What each module holds is in the
 
 - [Threaded code](../vm/threaded-code.md) — what the body cells mean
 - [Execution model](../vm/execution-model.md) — how ids resolve at run time
-- [Module map](../../games/enviro/module-map.md) — ENVIRO's 65 modules
+- [Module map](../../games/enviro/module-map.md) — the 65 modules of Die Enviro-Kids greifen ein
 - [Script modules (MOTION 32-bit)](../../motion32/formats/script-modules.md) — the 32-bit layout

@@ -9,7 +9,7 @@
 //! park that leaves Karsten on his spawn corner at x = −80, off the left edge,
 //! which is why the protagonist appeared to be missing altogether.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_testutil::gamedata_ds2;
@@ -28,7 +28,7 @@ use motionvm_testutil::gamedata_ds2;
 #[test]
 fn the_protagonist_walks_into_the_park() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -52,7 +52,7 @@ fn the_protagonist_walks_into_the_park() {
         else {
             continue;
         };
-        if let Some(sprite) = d.sprite {
+        if let Some(sprite) = d.shows.graphic() {
             let now = (d.x, d.y, sprite);
             if seen.last() != Some(&now) {
                 seen.push(now);

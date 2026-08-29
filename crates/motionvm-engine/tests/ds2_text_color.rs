@@ -23,7 +23,7 @@
 //! an untouched text draws in index 0 — black in 54 of the 60 shipped
 //! palettes.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -64,7 +64,7 @@ fn shown(game: &mut Game<Vm>) -> motionvm_render::Framebuffer {
 #[test]
 fn a_text_with_no_color_is_drawn_in_index_zero() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = settled(&dir);
@@ -124,7 +124,7 @@ fn a_text_with_no_color_is_drawn_in_index_zero() {
 #[test]
 fn a_help_page_is_black_text_on_the_pages_own_paper() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = settled(&dir);
@@ -140,7 +140,7 @@ fn a_help_page_is_black_text_on_the_pages_own_paper() {
         .engine
         .descriptors()
         .iter()
-        .filter(|d| d.active && d.block == Some(60))
+        .filter(|d| d.active && d.shows.table() == Some(60))
         .map(|d| d.handle)
         .collect();
     assert_eq!(
@@ -178,7 +178,7 @@ fn a_help_page_is_black_text_on_the_pages_own_paper() {
 #[test]
 fn a_color_that_was_set_survives_whole() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = settled(&dir);

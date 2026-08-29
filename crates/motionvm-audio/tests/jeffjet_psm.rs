@@ -11,6 +11,8 @@
 //! bytes in, where the others sit between 767 and 1640, and their speeds and
 //! tempos are their own. The section table is read, never assumed, and this is
 //! the corpus that says so.
+//!
+//! The game this file drives is Jeff Jet (MOTION 16-bit).
 
 use motionvm_audio::psm::{Driver, Sequencer};
 use motionvm_formats::m16::psm::Plx;

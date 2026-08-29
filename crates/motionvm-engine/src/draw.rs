@@ -25,7 +25,7 @@
 //! carry no `SDAUTOBUF`, so `HIDSCR` leaves them standing and `CLSCR` can wipe
 //! them a row at a time.
 
-use crate::{Descriptor, DescriptorKind, Engine, Placement, line_height};
+use crate::{Descriptor, Engine, Placement, Shows, line_height};
 use motionvm_formats::Palette;
 use motionvm_render::Framebuffer;
 
@@ -294,11 +294,11 @@ impl Engine {
         // the handler writes 2 with an eight-byte payload for a sprite and
         // 3 with a four-byte one for a block, the difference being the
         // animation state a background does not need.
-        if d.kind == DescriptorKind::Text {
+        if d.is_text() {
             self.draw_text_descriptor(d);
             return;
         }
-        let Some(id) = d.sprite.or(d.block) else {
+        let Some(id) = d.shows.graphic() else {
             return;
         };
         let Some(sprite) = self.sprite(id) else {
@@ -327,7 +327,9 @@ impl Engine {
             Placement::Center => d.y - sh / 2,
             Placement::FarEdge => d.y - sh,
         };
-        let opaque = self.opaque_blocks && d.sprite.is_none() && d.block.is_some();
+        // Bit 15 of `+0x10`, and nothing else: `016a:0fe8` sends a sprite to
+        // the keyed blit and a block to the opaque one, out of the same pool.
+        let opaque = self.opaque_blocks && matches!(d.shows, Shows::Picture(_));
         if let Some(screen) = self.display.screen_mut(d.screen) {
             if opaque && h == 1000 && v == 1000 {
                 screen.buffer.blit_masked(&sprite, x, y, None);

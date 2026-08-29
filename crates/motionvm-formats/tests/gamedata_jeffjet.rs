@@ -10,6 +10,8 @@
 //! `gamedata_enviro.rs` is that corpus. This is the second one, and what it is
 //! really for is the two things ENVIRO cannot exercise: a game on more than one
 //! volume, and a game whose items are packed.
+//!
+//! The game this file drives is Jeff Jet (MOTION 16-bit).
 
 use motionvm_formats::font::FontRefTable;
 use motionvm_formats::m16::{Container, Segment, disasm, font, gfx, mz, psm, scr, text};

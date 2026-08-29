@@ -118,7 +118,8 @@ impl Vm {
             }
             // `."`: the runtime that prints its string on a text console.
             // There is no console behind a 320×200 game; the two sites in
-            // ENVIRO sit on a debug path. Skipped, and noted in the trace.
+            // Die Enviro-Kids greifen ein sit on a debug path. Skipped, and
+            // noted in the trace.
             Prim::PutString => {
                 let at = self.ip;
                 self.skip_string(at);
@@ -199,7 +200,8 @@ impl Vm {
                 }
             }
         } else if Some(ordinal) == inline.ch_else_dup {
-            // `ELSEDUP`: its runtime is unread and no ENVIRO site reaches it.
+            // `ELSEDUP`: its runtime is unread and no site in
+            // Die Enviro-Kids greifen ein reaches it.
             return Err(Error::Unread {
                 what: "_ChElseDup, the ELSEDUP runtime".into(),
                 at: "ENVIRO.EXE, the handler the core table names at ordinal 43",

@@ -17,9 +17,9 @@
 //! so the second condition stays shut until somebody picks one. That is the game
 //! working as written, and it is why this file plays rather than waits.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
-use motionvm_engine::{DescriptorKind, Game};
+use motionvm_engine::Game;
 use motionvm_forth::Address;
 use motionvm_forth::m32::Vm;
 use motionvm_testutil::gamedata_ds2;
@@ -42,7 +42,7 @@ fn answers(game: &Game<Vm>) -> Vec<(i32, i32)> {
     game.engine
         .descriptors()
         .iter()
-        .filter(|d| d.active && d.kind == DescriptorKind::Text && d.level == 99)
+        .filter(|d| d.active && d.is_text() && d.level == 99)
         .map(|d| (d.x, d.y))
         .collect()
 }
@@ -121,7 +121,7 @@ fn play_into_free_play(dir: &std::path::Path) -> (Game<Vm>, usize) {
 #[test]
 fn the_opening_scene_hands_over_to_the_player() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (game, frames) = play_into_free_play(&dir);
@@ -145,7 +145,7 @@ fn the_opening_scene_hands_over_to_the_player() {
 #[test]
 fn escape_opens_the_quit_page() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, _) = play_into_free_play(&dir);
@@ -193,7 +193,7 @@ fn escape_opens_the_quit_page() {
 #[test]
 fn the_inventory_arrows_scroll_the_window() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (mut game, _) = play_into_free_play(&dir);

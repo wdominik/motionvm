@@ -26,7 +26,8 @@
 //! domain table — in file order the domain table comes first, so table 0
 //! is 105-based and table 1 is 1-based. The bases are measured from the
 //! modules, not read from the binary: every one of the 24 282 kernel cells in
-//! ENVIRO's 65 modules names an entry under this rule, `##` is cell `0x8001`
+//! the 65 modules of Die Enviro-Kids greifen ein names an entry under this rule,
+//! `##` is cell `0x8001`
 //! at the end of every colon definition, and `TOGFX` is `0x8069` where `RUN`
 //! enters graphics mode. Ordinals 83–104 fall between the tables and occur
 //! in no module.

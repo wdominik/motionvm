@@ -2,7 +2,7 @@
 
 # Text Tables
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 A TXT item is a table of NUL-terminated strings with a 16-bit offset per
 string:
@@ -15,7 +15,8 @@ u16 off[n]            ; offset of each string, relative to the string area
 ```
 
 `off[i]` counts from the **start of the string area**, not from the start of
-the item; `off[0]` is 0 in every table. The offsets of all 96 ENVIRO tables
+the item; `off[0]` is 0 in every table. The offsets of all 96 tables of
+Die Enviro-Kids greifen ein
 are monotone, and no string crosses its table's end.
 
 This differs from the 32-bit engine's table in two places: there the count
@@ -26,7 +27,8 @@ is a `u32` and the offsets are relative to the item start — see
 
 - Encoding is CP437; the German umlauts and `ß` appear as their CP437 bytes
   (`"Enviro-Kids"`, `Städtchen`, `grüne Lunge`).
-- Line breaks inside a string are a single `0x0A`. 2199 of ENVIRO's 3508
+- Line breaks inside a string are a single `0x0A`. 2199 of the 3508 strings
+  of Die Enviro-Kids greifen ein
   strings contain one; none contains `0x0D`.
 - Many tables start with a blank or one-space string: entry 0 of a table
   reads as "no text".

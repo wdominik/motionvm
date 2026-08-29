@@ -2,7 +2,7 @@
 
 # Sprites
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 A GFX item is a raw, uncompressed 8-bit picture. There is no magic, no
 compression and no palette of its own — three things the 32-bit engine's
@@ -15,7 +15,8 @@ u16 0                        ; zero in every occupied slot
 u8  pixels[width * height]   ; palette indices, row-major, top row first
 ```
 
-Measured over all 1586 occupied GFX slots of ENVIRO: the third field is 0 in
+Measured over all 1586 occupied GFX slots of Die Enviro-Kids greifen ein: the
+third field is 0 in
 every one, and every item's length is exactly `6 + width × height`.
 
 ## What the game ships

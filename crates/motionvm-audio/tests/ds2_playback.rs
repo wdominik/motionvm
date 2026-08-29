@@ -3,7 +3,7 @@
 //! These need the original files; point `MOTIONVM_GAMEDATA_DS2` at the directory with
 //! `001.RSC`, or they skip themselves.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_audio::opl::{Fm, Tables, Write};
 use motionvm_audio::{Kind, Message, Player};
@@ -120,7 +120,7 @@ fn a_write_addresses_the_bank_it_belongs_to() {
 #[test]
 fn silence_is_silent() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut p = player(&dir, 48_000);
@@ -143,7 +143,7 @@ fn silence_is_silent() {
 #[test]
 fn a_note_sounds_at_its_own_pitch() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let (arc, melodic, _) = parts(&dir);
@@ -199,7 +199,7 @@ fn a_note_sounds_at_its_own_pitch() {
 #[test]
 fn panning_lands_on_one_side() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let rate = 48_000u32;
@@ -271,7 +271,7 @@ fn panning_lands_on_one_side() {
 #[test]
 fn the_clock_runs_at_the_rate_the_original_did() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let s = song(&dir, 25);

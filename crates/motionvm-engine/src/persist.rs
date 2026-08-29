@@ -10,9 +10,9 @@
 //! directory, because that copy may well be read-only and is not ours to
 //! change.
 
-use crate::descriptor::{DESCRIPTOR_FIELDS, kind_code, kind_of, placement_code, placement_of};
+use crate::descriptor::{DESCRIPTOR_FIELDS, placement_code, placement_of};
 use crate::resources::resolve;
-use crate::{Descriptor, Engine, save};
+use crate::{Descriptor, Engine, Shows, save};
 use std::collections::BTreeMap;
 
 impl Engine {
@@ -97,10 +97,12 @@ impl Engine {
                     x: d.x,
                     y: d.y,
                     level: d.level,
-                    sprite: d.sprite.map(|v| v as i32),
-                    block: d.block.map(|v| v as i32),
+                    shows: match d.shows {
+                        Shows::Nothing => (0, 0),
+                        Shows::Sprite(id) => (1, id as i32),
+                        Shows::Picture(id) => (2, id),
+                    },
                     text: d.text,
-                    table: d.table,
                     font: d.font,
                     // The file keeps the option it always had, so savegames
                     // written before the field became a plain value still
@@ -111,7 +113,6 @@ impl Engine {
                     callback: d.callback,
                     x_mode: placement_code(d.x_mode),
                     y_mode: placement_code(d.y_mode),
-                    kind: kind_code(d.kind),
                     active: d.active,
                     auto_buffer: d.auto_buffer,
                     fields: d
@@ -156,10 +157,12 @@ impl Engine {
                 x: d.x,
                 y: d.y,
                 level: d.level,
-                sprite: d.sprite.map(|v| v as u32),
-                block: d.block.map(|v| v as u32),
+                shows: match d.shows {
+                    (1, id) => Shows::Sprite(id as u32),
+                    (2, id) => Shows::Picture(id),
+                    _ => Shows::Nothing,
+                },
                 text: d.text,
-                table: d.table,
                 font: d.font,
                 color: d.color.unwrap_or(0),
                 template: d.template,
@@ -170,7 +173,6 @@ impl Engine {
                 x_mode: placement_of(d.x_mode)?,
                 y_mode: placement_of(d.y_mode)?,
                 fields,
-                kind: kind_of(d.kind)?,
                 active: d.active,
                 // A savegame carries the game's state, not the surface: the
                 // original reloads the location and paints it again. So

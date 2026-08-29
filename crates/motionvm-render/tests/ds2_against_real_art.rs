@@ -12,7 +12,7 @@
 //!
 //! They need the original files and skip themselves without them.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_formats::Palette;
 use motionvm_formats::m32::{Kind, Sprite, rsc::Bank};
@@ -51,7 +51,7 @@ macro_rules! art_or_skip {
         match art() {
             Some(a) => a,
             None => {
-                eprintln!("skipping: no gamedata directory");
+                eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
                 return;
             }
         }

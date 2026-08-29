@@ -122,7 +122,7 @@ pub(super) fn open(
     if !missing.is_empty() {
         return Err(Error::Incomplete {
             dir: dir.to_path_buf(),
-            title: title.name(),
+            title: title.short(),
             missing: missing.iter().map(|(n, _)| *n).collect(),
         });
     }
@@ -160,7 +160,7 @@ pub(super) fn open(
     {
         return Err(Error::NotThisGame {
             dir: dir.to_path_buf(),
-            title: title.name(),
+            title: title.short(),
             word: (*name).to_string(),
         });
     }

@@ -3,7 +3,7 @@
 //! These need the original files; point `MOTIONVM_GAMEDATA_DS2` at the directory with
 //! `001.RSC`, or they skip themselves.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_audio::{Kind, Message, Sequencer};
 use motionvm_formats::m32::{
@@ -41,7 +41,7 @@ fn play(song: Song, ticks: u32) -> Vec<(u32, Message)> {
 #[test]
 fn the_notes_come_out_as_the_decoder_read_them() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let data = std::fs::read(game_file(&dir, "TEST.HMI")).expect("TEST.HMI");
@@ -109,7 +109,7 @@ fn the_notes_come_out_as_the_decoder_read_them() {
 #[test]
 fn a_note_ends_where_its_length_says() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let data = std::fs::read(game_file(&dir, "TEST.HMI")).expect("TEST.HMI");
@@ -178,7 +178,7 @@ fn a_note_ends_where_its_length_says() {
 #[test]
 fn the_loop_takes_every_track_back() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let bank = Bank::open_dir(&dir).expect("banks");
@@ -231,7 +231,7 @@ fn the_loop_takes_every_track_back() {
 #[test]
 fn the_shipped_songs_hold_no_event_that_allocates_per_note() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let bank = Bank::open_dir(&dir).expect("the resource banks open");

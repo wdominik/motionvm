@@ -13,9 +13,9 @@ signed exception to that.
 
 The sections down to *The FM driver* concern the **32-bit engine** as it
 runs Dunkle Schatten 2; [The 16-bit machine](#the-16-bit-machine) holds the
-entries about the 16-bit engine as it runs Die Enviro-Kids greifen ein and
-Jeff Jet - Abenteuer InfoHighway. An entry that names one of them is that
-game's.
+entries about the 16-bit engine as it runs Die Enviro-Kids greifen ein,
+Jeff Jet - Abenteuer InfoHighway and Hilfe für Amajambere. An entry that names
+one of them is that game's.
 
 ## The virtual machine
 
@@ -142,7 +142,7 @@ same case with a different cause: its `=>PUTAS` (`ENVIRO.EXE` file `0x16fe9`)
 writes one run of its arena, addresses and all, and the rebuild's arena is
 laid out differently ([the 16-bit machine](#the-16-bit-machine)) — so its
 `.FRZ` and `.anm` are motionvm's own as well, under magics of their own
-(`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. All three games name
+(`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. All four games name
 their slots alike — `701` through `705` — and each asks at start-up whether a
 slot exists, so each keeps its saves in a directory of its own. For the two
 16-bit games that is not merely tidiness: the magics are the generation's and
@@ -250,8 +250,8 @@ a measured difference from the original.
 **A `DATA.-n-` volume is never asked for; they are all open.** The player
 carries the prompts for a disk change — *"Bitte Diskette #d einlegen!"*,
 *"Disketten-Fehler. Falsche Disk im Laufwerk?"*, *"Datenblock <#s> nicht
-gefunden."* — because the format was made for floppies and Jeff Jet came on
-two. motionvm opens every volume the header declares when the game is opened,
+gefunden."* — because the format was made for floppies and both Jeff Jet and
+Hilfe für Amajambere came on two. motionvm opens every volume the header declares when the game is opened,
 and refuses to open the game at all when one of them is missing rather than
 running on with the slots that volume holds reported empty. There is no
 sequence of play that reaches the prompt, so nothing draws it; what the
@@ -261,10 +261,39 @@ original does on that path has not been read
 **An index the font reference table has no glyph for draws nothing.** Jeff
 Jet's table was written for a font of 120 glyphs and its fonts have 102, so
 two CP437 bytes — `0x8C` and `0xA0` — map to glyphs 104 and 103 that do not
-exist. The renderer leaves such a character out of the line. Neither byte
-occurs in any of the game's 5709 shipped strings, and what the original's
-drawer does with one has not been measured
-([resource inventory](games/jeffjet/inventory.md)).
+exist. Hilfe für Amajambere's table has the same two entries and its largest
+font holds 103, so both point past every font there too. The renderer leaves
+such a character out of the line. Neither byte occurs in either game's shipped
+strings — 5709 in one, 2709 in the other — and what the original's drawer does
+with one has not been measured
+([resource inventory](games/jeffjet/inventory.md),
+[and its own](games/hfa/inventory.md)).
+
+**A descriptor keeps its measured size nowhere, and its type not at all.** The
+original stores the last box it drew at `+8`/`+0xa` and works out what a
+descriptor is — text, sprite or block — from `+0x10` and `+0x12` every time it
+is asked. motionvm measures on demand instead ([geometry](#the-picture)), and
+derives the type the same way the original does, from the same two fields in
+the same order. What it does not reproduce is the *reachable-but-unused* corner
+of that pair: in the original `SDCEN`, `SDVCEN` or `SDBLK` on a picture
+descriptor put a bit in `+0x12` and thereby turn it into a text whose string
+number is 0, so it draws nothing at all. No shipped script does that, and
+reproducing it could only ever turn a working picture blank, so here those
+words leave a picture a picture ([descriptors](motion16/engine/descriptors.md)).
+
+**A location whose block the game does not ship is refused, where the original
+carried on.** Hilfe für Amajambere's location 7 has no item table — block 307
+is absent, and its occupancy word agrees — while `INCLLOC` loads block
+`300 + N` for every location it enters. The original's `GET` (`BMZ.EXE`
+`12bb:0e91`) tests the resolved block for null, calls its own error reporter
+with code `0xE` — *Fehler diverser Natur (FDN)* — and returns with the
+destination unfilled, so the room comes up holding whatever the previous
+location left in `_LDITEM`. motionvm refuses instead, naming the block: a
+missing resource is not a no-op here, because something downstream reads the
+memory that should have been filled, and a room furnished from another room's
+table is a wrong picture rather than a stopped one. The room is reachable in
+play, from location 11
+([open questions](open-questions.md#motion-16-bit)).
 
 **Modules are placed first-fit from address `0x100` upward; the original
 stacks them.** `=>GET` (`ENVIRO.EXE` file `0x176ac`) appends a module at the

@@ -2,7 +2,7 @@
 
 # Text Rendering
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The 16-bit text drawer is one branch of the descriptor drawer (`016a:0aac`)
 feeding a run drawer in the blitter segment (`14ee:11cf`), with the
@@ -13,14 +13,27 @@ follows is read from those routines at the instruction level.
 
 ## What the descriptor carries
 
-The text branch runs on fields of the 46-byte descriptor: **+0x10** is the
-text (resolved to a string by `0362:0023`; -1 means none), **+0x12** the
-text word — its low byte a length limit, its high bits the layout: 0x4000
-centers on x (`SDCEN`), 0x1000 on y (`SDVCEN`), 0x2000 justifies (`SDBLK`),
-and `SDNORM` clears the high bits with `and 0x80FF`. **+0x2A** is the
-color's low byte, **+0x2B** the face — an index into the font-handle table
-at `DS:0x45C` — and **+0x2C** the template. After drawing, the box goes to
-**+8**/**+0xA**.
+The text branch runs on two fields of the descriptor, and both are shared
+with the picture branch. **+0x10** is what the descriptor shows — for a text,
+the id of the **table** to read from, resolved by `0362:0023` (-1 means the
+table is not there). **+0x12** is the text word: its **low byte the string
+number** within that table (`GDTXT` masks it with `0xFF` at `05f1:0cec`, and
+`GDTXTLEN` hands the same byte to `016a:1E71` and takes `strlen` of what comes
+back), bit `0x8000` set by `SDTXT`, and the layout in between — `0x4000`
+centers on x (`SDCEN`), `0x1000` on y (`SDVCEN`), `0x2000` justifies
+(`SDBLK`), `0x0800` boxes. `SDNORM` clears the layout with `and 0x80FF`,
+keeping the string number and bit 15.
+
+What makes a descriptor a text is **`+0x12 != 0`**, tested first and in that
+form at all three places that ask — the drawer `016a:0b09`, the resolver
+`016a:1ef6` and the save-under check `0362:10d9`. Bit `0x8000` is set but
+never read: its only job is to make that test true when the string number and
+the layout bits are all zero. A descriptor that is not a text is a sprite when
+`+0x10` has bit 15 and a block otherwise (`016a:0fe8`).
+
+**+0x2A** is the color's low byte, **+0x2B** the face — an index into the
+font-handle table at `DS:0x45C` — and **+0x2C** the template. After drawing,
+the box goes to **+8**/**+0xA**.
 
 ## Measuring
 
@@ -100,8 +113,9 @@ caller: its texts mark headings and paragraph ends with `#`.
 ## Open questions
 
 - Bit 0x800 of the text word: the drawer grows the box by two and skips
-  the glyph passes entirely when no template is set; nothing in the game
-  is known to set the bit.
+  the glyph passes entirely when no template is set. The only handler that
+  sets it (`05f1:16e3`) is bound to no entry of either build's kernel table,
+  so no script can reach it — what it was for is unread.
 - `SFT` with a non-zero argument; the game only passes 0.
 - The stored box at +8/+0xA feeds the drawer's own save-under; whether
   anything else reads it is unchecked.

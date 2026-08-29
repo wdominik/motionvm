@@ -10,9 +10,9 @@
 //!
 //! The directory's files say which generation it is: `NNN.RSC` containers
 //! beside `ENGINE.EXE` are a 32-bit game (Dunkle Schatten 2) and go to
-//! [`m32`], a `DATA.-1-` is a 16-bit game (Die Enviro-Kids greifen ein or
-//! Jeff Jet - Abenteuer InfoHighway, told apart by the engine binary beside
-//! it) and goes to [`m16`]. The two command sets write the same kinds of
+//! [`m32`], a `DATA.-1-` is a 16-bit game (Die Enviro-Kids greifen ein, Jeff
+//! Jet or Hilfe für Amajambere, told apart by the engine binary beside it)
+//! and goes to [`m16`]. The two command sets write the same kinds of
 //! files where the data allows and say where they differ.
 
 mod json;
@@ -50,8 +50,9 @@ usage: motionvm-tools <command> [arguments]
 
 <gamedata> is the directory the game was installed into: 001.RSC and
 ENGINE.EXE for Dunkle Schatten 2 (MOTION 32-bit), DATA.-1- and ENVIRO.EXE for
-Die Enviro-Kids greifen ein, DATA.-1-, DATA.-2- and HPPLAY.EXE for Jeff Jet -
-Abenteuer InfoHighway (both MOTION 16-bit). --pal names the palette a 16-bit
+Die Enviro-Kids greifen ein, DATA.-1-, DATA.-2- and HPPLAY.EXE for Jeff Jet,
+DATA.-1-, DATA.-2- and BMZ.EXE for Hilfe für Amajambere (all three MOTION
+16-bit). --pal names the palette a 16-bit
 sprite is written through — its sprites carry none — and defaults to 0, the
 one the game installs first; a 32-bit sprite carries its own.";
 

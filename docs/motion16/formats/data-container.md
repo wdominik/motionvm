@@ -2,7 +2,7 @@
 
 # The DATA Container
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The 16-bit engine keeps a whole game in `DATA.-n-`, one volume per floppy it
 took: a header that also names the boot word, an occupancy table, an offset
@@ -10,11 +10,17 @@ table, and then every resource back to back. Seven resource kinds share a
 single slot space, segment after segment; the id a script uses is the slot
 number minus the segment's base.
 
-ENVIRO ships one volume of 7 609 296 bytes with its items stored plainly.
-Jeff Jet ships two, 1 404 960 and 1 098 474 bytes, with every item packed —
-2 459 890 bytes that unfold to 8 412 811, a bigger game than ENVIRO's on a
-third of the disc. Both are the same format; the header says which shape a
-given game has.
+**How many volumes there are and whether the items are packed are two
+independent choices**, and the three games make them differently.
+Die Enviro-Kids greifen ein ships
+one volume of 7 609 296 bytes with its items stored plainly. Jeff Jet ships
+two, 1 404 960 and 1 098 474 bytes, with every item packed — 2 459 890 bytes
+that unfold to 8 412 811, a bigger game than the first on a third of the disc.
+Hilfe für Amajambere ships two, 506 066 and 4 827 543 bytes, and packs
+neither: it is the
+game that shows the two properties apart, and until it was read they had never
+been seen except together. All three are the same format; the header says which
+shape a given game has.
 
 All multi-byte values are little-endian.
 
@@ -22,55 +28,63 @@ All multi-byte values are little-endian.
 
 Nineteen `u16`, of which the last is spare:
 
-| Offset | ENVIRO | Jeff Jet | Meaning |
-|---:|---:|---:|---|
-| 0 | 100 | 100 | **Boot module** — the module the engine loads first |
-| 2 | 401 | 401 | **Boot word id** — the word it runs (`RUN`) |
-| 4 | 2500 | 2500 | GFX slots |
-| 6 | 1000 | 1000 | BLK slots |
-| 8 | 700 | 700 | SCR slots |
-| 10 | 25 | 25 | PAL slots |
-| 12 | 10 | 10 | FNT slots |
-| 14 | 10 | 10 | FRT slots |
-| 16 | 100 | 100 | TXT slots |
-| 18 | 1 | 2 | **Volumes** the game ships on |
-| 20 | 3 | 7 | **Spare** `u32` entries after the offset table |
-| 22 | 0 | 1 | GFX items are packed |
-| 24 | 0 | 1 | BLK items are packed |
-| 26 | 0 | 1 | SCR items are packed |
-| 28 | 0 | 1 | PAL items are packed |
-| 30 | 0 | 1 | FNT items are packed |
-| 32 | 0 | 1 | FRT items are packed |
-| 34 | 0 | 1 | TXT items are packed |
-| 36 | 0 | 0 | Spare |
+| Offset | Die Enviro-Kids greifen ein | Jeff Jet | Hilfe für Amajambere | Meaning |
+|---:|---:|---:|---:|---|
+| 0 | 100 | 100 | 100 | **Boot module** — the module the engine loads first |
+| 2 | 401 | 401 | 401 | **Boot word id** — the word it runs (`RUN`) |
+| 4 | 2500 | 2500 | 2500 | GFX slots |
+| 6 | 1000 | 1000 | 1000 | BLK slots |
+| 8 | 700 | 700 | 700 | SCR slots |
+| 10 | 25 | 25 | 25 | PAL slots |
+| 12 | 10 | 10 | 10 | FNT slots |
+| 14 | 10 | 10 | 10 | FRT slots |
+| 16 | 100 | 100 | **150** | TXT slots |
+| 18 | 1 | 2 | 2 | **Volumes** the game ships on |
+| 20 | 3 | 7 | 7 | **Spare** `u32` entries after the offset table |
+| 22 | 0 | 1 | 0 | GFX items are packed |
+| 24 | 0 | 1 | 0 | BLK items are packed |
+| 26 | 0 | 1 | 0 | SCR items are packed |
+| 28 | 0 | 1 | 0 | PAL items are packed |
+| 30 | 0 | 1 | 0 | FNT items are packed |
+| 32 | 0 | 1 | 0 | FRT items are packed |
+| 34 | 0 | 1 | 0 | TXT items are packed |
+| 36 | 0 | 0 | 0 | Spare |
 
 The boot pair is the 16-bit counterpart of the 32-bit engine's `SYSTEM.RSC`:
 there is no bootstrap file, the container itself says where to start.
 
 The seven flags at 22–36 are read one at a time, by the segment being loaded.
 The item loader (`HPPLAY.EXE` file `0x400c`, `ENVIRO.EXE` file `0x401f` — the
-same routine in both builds) branches on the authoring-time extension of the
+same routine in both builds it has been read from) branches on the authoring-time extension of the
 segment, and each branch fetches its own word: `.gfx` takes `+0x16`, `.blk`
 `+0x18`, `.fth` `+0x1a`, `.pal` `+0x1c`, `.fnt` `+0x1e`, `.frt` `+0x20`,
 `.txt` `+0x22`. Zero reads the item straight into the caller's buffer;
 anything else reads it aside and unpacks it. Measured over the four
-multi-volume-capable games on hand — ENVIRO, Jeff Jet, Amajambere, Eddy M. —
+multi-volume-capable games on hand — Die Enviro-Kids greifen ein, Jeff Jet,
+Hilfe für Amajambere, Eddy M. —
 the flag and the shape of the items agree in all 28 segments, with no
 exception in either direction.
 
 ## Occupancy table (offset 38)
 
-One `u16` per slot — 4345 of them in both games, the sum of the seven counts.
+One `u16` per slot — 4345 in Die Enviro-Kids greifen ein and Jeff Jet, 4395 in
+Hilfe für Amajambere, the sum
+of the seven counts.
 Zero means the slot is empty; anything else is a **volume bitmask**,
 `1 << (volume − 1)`. The engine builds the same value from the volume it has
 open and matches it (`00e0:0017` in the loader: the current volume from
 `ds:0x1af2`, less one, shifted into a `1`). No slot names two volumes.
 
-ENVIRO's words are all 0 or 1, and with one volume that makes the table
+The words of Die Enviro-Kids greifen ein are all 0 or 1, and with one volume that
+makes the table
 redundant with the offsets. Jeff Jet's are 0, 1 and 2: 2615 empty, 1187 on
 `DATA.-1-`, 543 on `DATA.-2-` — and among those 543 are every palette, both
 fonts and the font reference table, so a reader that ignored the second
-volume would not render the game worse, it would render nothing.
+volume would not render the game worse, it would render nothing. Those of
+Hilfe für Amajambere are 0, 1 and 2 as well, but flagged by whole segment
+ranges rather than by
+slot: 1460 empty, 400 on `DATA.-1-`, 2535 on `DATA.-2-` — all 2500 GFX slots
+among them, of which 1045 carry bytes.
 
 ## Offset table
 
@@ -78,12 +92,15 @@ One `u32` per slot, and then `spare` more that are zero. Volume 1 keeps it
 behind the occupancy table; **a second or third volume is nothing but this
 table from byte 0, and then its items** — no header, no occupancy words of its
 own, the same 4345 slots. `DATA.-2-`'s first entry is 17408, which is
-`4 × (4345 + 7)`: the table's own length, saying where it ends.
+`4 × (4345 + 7)`: the table's own length, saying where it ends. The table of
+Hilfe für Amajambere says 17608, which is `4 × (4395 + 7)` for its larger
+slot space.
 
 The first byte a volume's items may occupy is therefore
 `38 + 2·n + 4·(n + spare)` for volume 1 and `4·(n + spare)` for the rest —
-26120 in ENVIRO, 26136 and 17408 in Jeff Jet, and the first item sits exactly
-there in both. (Eddy M.'s second and third volumes leave 24 bytes between the
+26120 in Die Enviro-Kids greifen ein, 26136 and 17408 in Jeff Jet, 26436 and
+17608 in Hilfe für Amajambere,
+and the first item sits exactly there in all three. (Eddy M.'s second and third volumes leave 24 bytes between the
 two, so this is where items may begin and not where they must.)
 
 - An **empty** slot has the same offset as the next slot, in every volume.
@@ -95,8 +112,13 @@ two, so this is where items may begin and not where they must.)
   it exactly, from its own table's end to its last byte, with nothing left
   over.
 - A slot can be flagged and still have no bytes. Jeff Jet has two, sprites
-  1319 and 1848, whose offsets are degenerate in the volume they name. What
-  has bytes is what is there.
+  1319 and 1848, whose offsets are degenerate in the volume they name.
+  Hilfe für Amajambere has **1534**, because it flags whole segment ranges
+  and fills what
+  it has — 1455 GFX slots, 45 text tables, 31 blocks and three fonts that are
+  claimed and empty. What has bytes is what is there, in both games and for the
+  same reason: presence is read from the offsets and the flag word is kept as a
+  diagnostic (`motionvm-tools info` counts it).
 
 ## Packed items
 
@@ -132,20 +154,30 @@ that header and decode to exactly the length it declares.
 | FRT | 4235–4244 | only slot 0 is occupied | [Fonts](fonts.md) |
 | TXT | 4245–4344 | text table id = slot − 4245 | [Text tables](text-tables.md) |
 
-Both games use the same seven counts, so the bases are the same for both.
-What ENVIRO puts in those slots — 1586 sprites, 130 blocks, 65 modules, 23
+Die Enviro-Kids greifen ein and Jeff Jet use the same seven counts, so the bases
+above are theirs. Hilfe für Amajambere reserves 150 text tables rather than
+100, which leaves every base up
+to TXT unchanged and makes its slot space 4395 — the counts are read from the
+header, so a different geometry is data and not a case to handle.
+
+What Die Enviro-Kids greifen ein puts in those slots — 1586 sprites, 130 blocks,
+65 modules, 23
 palettes, 3 fonts, 1 font reference table, 96 text tables — is counted in
 [its resource inventory](../../games/enviro/inventory.md); Jeff Jet's 1470,
-119, 55, 16, 2, 1 and 65 in [its own](../../games/jeffjet/inventory.md).
+119, 55, 16, 2, 1 and 65 in [its own](../../games/jeffjet/inventory.md), and
+1045, 153, 76, 24, 7, 1 and 95 in
+[its own](../../games/hfa/inventory.md).
 
 ### Palettes
 
 A PAL item is 768 bytes: 256 entries of `u8 r, g, b`, each 0–63 (6-bit VGA
-DAC values; every byte of ENVIRO's 23 and of Jeff Jet's 16 palettes is ≤ 63).
+DAC values; every byte of the 23, 16 and 24 palettes the three games ship is
+≤ 63).
 That is the layout of the 32-bit engine's palette item and of its loose
 `000.PAL`, byte for byte — see
 [Palettes (MOTION 32-bit)](../../motion32/formats/palette.md) for the
-6-to-8-bit expansion. `SETPAL ( id -- )` installs one; in ENVIRO `RUN`
+6-to-8-bit expansion. `SETPAL ( id -- )` installs one; in
+Die Enviro-Kids greifen ein `RUN`
 installs 0 and then 1 and the intro installs 22, and Jeff Jet's `RUN` opens
 the same way.
 
@@ -190,6 +222,6 @@ game is addressed through the container only.
 - [Sprites](sprites.md), [Fonts](fonts.md), [Text tables](text-tables.md),
   [Blocks](blocks.md), [Script modules](script-modules.md) — the item formats
 - [GFXCRUNCH LZW](../../motion32/formats/lzw.md) — the codec a packed item's stream is
-- [Resource inventory](../../games/enviro/inventory.md) — what ENVIRO ships in each segment
+- [Resource inventory](../../games/enviro/inventory.md) — what Die Enviro-Kids greifen ein ships in each segment
 - [Resource inventory (Jeff Jet)](../../games/jeffjet/inventory.md) — and what Jeff Jet does
 - [RSC containers (MOTION 32-bit)](../../motion32/formats/rsc-container.md) — the 32-bit engine's counterpart

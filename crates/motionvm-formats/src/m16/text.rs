@@ -7,12 +7,14 @@
 //! ```
 //!
 //! The string area begins right after the offset table, at `2 + 2 * n`, and
-//! every offset counts from there — `off[0]` is 0 in every one of ENVIRO's 96
+//! every offset counts from there — `off[0]` is 0 in every one of the 96
+//! tables of Die Enviro-Kids greifen ein
 //! tables. The 32-bit engine's table differs on both points: a `u32` count,
 //! offsets from the item start, and no entry for string 0
 //! ([`crate::m32::text`]). What comes out is the same [`crate::TextTable`].
 //!
-//! Line breaks are a single `0x0A`; 2199 of ENVIRO's 3508 strings contain
+//! Line breaks are a single `0x0A`; 2199 of the 3508 strings of
+//! Die Enviro-Kids greifen ein contain
 //! one. `SDTB` selects the table, `SDTXT n` the string — entry `n - 1`, as
 //! [`crate::TextTable::get`] counts.
 

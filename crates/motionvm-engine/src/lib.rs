@@ -37,7 +37,7 @@ pub use titles::{Playable, Title};
 // business; that they are here is everyone else's.
 pub use buffer::{Buffer, Buffers};
 pub use curtain::{Curtain, Fade, Wipe};
-pub use descriptor::{Descriptor, DescriptorKind, Placement, TextTemplate};
+pub use descriptor::{Descriptor, Placement, Shows, TextTemplate};
 
 use crate::geometry::line_height;
 use std::collections::BTreeMap;
@@ -1224,6 +1224,95 @@ mod tests {
         assert_eq!(steps, 31, "480 rows in steps of eight from the middle out");
     }
 
+    /// One picture is one field: what a descriptor shows is either a sprite or
+    /// a block, never both at once.
+    ///
+    /// The original keeps it in `+0x10` with bit 15 marking a sprite, so
+    /// `GDSPR` answers -1 for a block and `GDBL` -1 for a sprite (`ENVIRO.EXE`
+    /// `05f1:168e` and `05f1:16bd`). That matters beyond tidiness: the verb
+    /// menu and the walk cycle read `GDSPR` and count on from it as a frame
+    /// number, so a block id coming back there would be animated.
+    #[test]
+    fn a_descriptor_shows_a_sprite_or_a_block_and_says_which() {
+        let mut e = Engine::new();
+        let handle = e.add_descriptor(Descriptor {
+            handle: 1,
+            active: true,
+            ..Default::default()
+        });
+        e.select_descriptor(handle);
+
+        e.set_sprite(42).expect("SDSPR");
+        assert_eq!(e.descriptor_sprite(), 42);
+        assert_eq!(e.descriptor_block(), -1, "it is not a block");
+
+        e.set_block(43).expect("SDBL");
+        assert_eq!(e.descriptor_block(), 43);
+        assert_eq!(e.descriptor_sprite(), -1, "it is not a sprite any more");
+    }
+
+    /// A 16-bit block is painted opaque, a sprite through its key color.
+    ///
+    /// The distinction is bit 15 of `+0x10` and nothing else — the same
+    /// graphics pool, the same id space, two blits (`016a:0fe8`, keyed at
+    /// `14ee:0d1e` and opaque at `14ee:0d47`). Colour 0 is the key, so a
+    /// picture of nothing but zeroes lets the picture under it through as a
+    /// sprite and blacks it out as a block.
+    #[test]
+    fn a_16_bit_block_covers_what_a_sprite_lets_through() {
+        let paint = |as_block: bool| {
+            let mut e = Engine::new();
+            e.opaque_blocks = true;
+            let mut s = motionvm_render::Screen::new(1);
+            s.size = (4, 4);
+            s.view = (4, 4);
+            s.buffer = Framebuffer::new(4, 4);
+            s.active = true;
+            e.display.screens.push(s);
+            for (id, color) in [(7u32, 0u8), (8, 9)] {
+                e.sprites.insert(
+                    id,
+                    Sprite {
+                        width: 4,
+                        height: 4,
+                        palette: motionvm_formats::Palette::from_6bit(&[]),
+                        pixels: vec![color; 16],
+                    },
+                );
+            }
+            // Underneath, a block of solid colour 9; on top, the picture under
+            // test, all key pixels.
+            for (handle, level, id) in [(1u32, 0i32, 8u32), (2, 1, 7)] {
+                let h = e.add_descriptor(Descriptor {
+                    handle,
+                    screen: 1,
+                    level,
+                    active: true,
+                    dirty: true,
+                    ..Default::default()
+                });
+                e.select_descriptor(h);
+                if id == 8 || as_block {
+                    e.set_block(id as i32).expect("SDBL");
+                } else {
+                    e.set_sprite(id as i32).expect("SDSPR");
+                }
+            }
+            e.draw();
+            e.display.screens[0].buffer.pixels.clone()
+        };
+        assert!(
+            paint(false).iter().all(|&p| p == 9),
+            "a sprite of key pixels lets the block under it through: {:?}",
+            paint(false)
+        );
+        assert!(
+            paint(true).iter().all(|&p| p == 0),
+            "a block of the same pixels covers it: {:?}",
+            paint(true)
+        );
+    }
+
     /// Two screens tiling the display, each showing one flat color.
     ///
     /// Small on purpose, but not smaller than the effect: the band height is a
@@ -1255,7 +1344,7 @@ mod tests {
             e.descriptors.push(Descriptor {
                 handle,
                 screen,
-                sprite: Some(sprite),
+                shows: Shows::Sprite(sprite),
                 active: true,
                 dirty: true,
                 ..Default::default()
@@ -1302,7 +1391,7 @@ mod tests {
         e.descriptors.push(Descriptor {
             handle: 3,
             screen: 1,
-            sprite: Some(12),
+            shows: Shows::Sprite(12),
             active: true,
             dirty: true,
             stamp,
@@ -1367,7 +1456,8 @@ mod tests {
     ///
     /// `05f1:0c78` checks the popped id with `cmp $1` / `jl` and
     /// `cmp $0x14` / `jg` before the store, so `0 SDTDT` cannot clear a
-    /// template — the descriptor keeps the one it has. ENVIRO reaches
+    /// template — the descriptor keeps the one it has.
+    /// Die Enviro-Kids greifen ein reaches
     /// that: `SAYDAVID` hands `_SxTDT @` to `SDTDT`, and `_SxTDT` is 0
     /// until the first `SETSAY` (location 17's macro never calls
     /// `TOJEFF`, which is where `SETSAY` runs).

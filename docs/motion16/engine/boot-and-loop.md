@@ -2,10 +2,11 @@
 
 # Boot and Frame Loop
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 The engine starts the VM at the module and word the container header names
-— module 100, word id 401, `RUN` in ENVIRO — and everything else is the
+— module 100, word id 401, `RUN` in Die Enviro-Kids greifen ein — and everything
+else is the
 game's Forth. What follows is read from the compiled words `RUN` and `CTRL`
 (module 100), `STARTINTRO` and `ICTRL` (module 610), `INCLLOC` and
 `NEWPERS` (module 605); the kernel handlers they call are unread, and their

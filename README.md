@@ -7,25 +7,28 @@ games were built with. You bring the files of your own copy of a game;
 motionvm finds them and plays it — picture, music, savegames and all.
 
 The games it plays today are **Im Netzwerk gefangen – Dunkle Schatten 2**,
-**Die Enviro-Kids greifen ein** and **Jeff Jet - Abenteuer InfoHighway**.
-MOTION made more than those, and that list is a record of what has been
-done, not a limit of the engine underneath it.
+**Die Enviro-Kids greifen ein**, **Jeff Jet - Abenteuer InfoHighway** and
+**Hilfe für Amajambere**. MOTION made more than those, and that list is a
+record of what has been done, not a limit of the engine underneath it.
 
 > *motionvm spielt DOS-Adventures der neunziger Jahre nativ auf heutigen
 > Rechnern — ohne DOSBox, ohne Emulator. Benötigt werden nur die Dateien
 > einer eigenen Spielkopie. Zurzeit laufen „Im Netzwerk gefangen – Dunkle
-> Schatten 2“, „Die Enviro-Kids greifen ein“ und „Jeff Jet - Abenteuer
-> InfoHighway“.*
+> Schatten 2“, „Die Enviro-Kids greifen ein“, „Jeff Jet - Abenteuer
+> InfoHighway“ und „Hilfe für Amajambere“.*
 
 MOTION was written by DigiTales (Stefan Hoffmann), and the games made with it
 were German advergames and edutainment titles — commissioned work, given away
-rather than sold. Of the three here, two were productions of the **Art
+rather than sold. Of the four here, three were productions of the **Art
 Department Werbeagentur GmbH**, each commissioned by a German public authority
 — Dunkle Schatten 2 by the Bundesministerium des Innern (the Federal Ministry
 of the Interior), Die Enviro-Kids greifen ein by the Ministerium für Umwelt,
 Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen (North
-Rhine-Westphalia's environment ministry); Jeff Jet was made by the
-**Promotion Software GmbH** in Tübingen for the **Hewlett Packard GmbH**.
+Rhine-Westphalia's environment ministry), and Hilfe für Amajambere by the
+Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung (the
+federal development-aid ministry), whose acronym gave that game's player its
+name; Jeff Jet was made by the **Promotion Software GmbH** in Tübingen for the
+**Hewlett Packard GmbH**.
 
 The engine is not a game: it is an authoring system — a Forth compiler and a
 runtime, in its later form also an IDE and a debugger, in one binary. A game
@@ -36,13 +39,14 @@ same music, with no emulator underneath.
 
 ## The games it plays
 
-Three so far, across the two generations of the engine:
+Four so far, across the two generations of the engine:
 
 | Game | Engine | In motionvm |
 |---|---|---|
-| *Im Netzwerk gefangen – Dunkle Schatten 2* (**DS2**, 1996) | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22: a 32-bit protected-mode binary with the IDE, compiler and debugger still inside; `NNN.RSC` containers, 640×480×256, HMI music at 25 fps | **Runs**, end to end. Every reader, the VM's address model and the runtime in this tree are this engine's |
-| *Die Enviro-Kids greifen ein* (**ENVIRO**, 1996) | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27: a 16-bit real-mode player with no compiler; one `DATA.-1-` container, 320×200×256, PSM 2 music | **Plays.** The container, the 16-bit machine and the engine's words carry `RUN` through the DigiTales logo and the briefing into the scrapyard and on through every location: the walk, the inventory bar, the verb menu, the hover caption and the conversations run as read from `ENVIRO.EXE`. Saves go through the game's own page into three files of motionvm's own layout, and the PSM 2 tunes play through a rebuild of the game's own Ad Lib driver, held register for register against an OPL capture of the original. `docs/motion16/` and `docs/games/enviro/` are its specification |
-| *Jeff Jet - Abenteuer InfoHighway* (**JEFFJET**) | **MOTION 16-bit** — `HPPLAY.EXE`, an older build of the same player, five kernel words fewer; two `DATA.-n-` volumes with every item LZW-packed, 320×200×256, PSM 2 music | **Plays.** The same machine, the same words and the same save scheme as Die Enviro-Kids greifen ein — what is this game's own is the container: two volumes, and 2.5 MB of packed items unfolding to 8.4 MB. `RUN` carries it through the intro into Jeff's room and on through all thirteen locations. `docs/motion16/` and `docs/games/jeffjet/` are its specification |
+| *Im Netzwerk gefangen – Dunkle Schatten 2* (1996) | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22: a 32-bit protected-mode binary with the IDE, compiler and debugger still inside; `NNN.RSC` containers, 640×480×256, HMI music at 25 fps | **Runs**, end to end. Every reader, the VM's address model and the runtime in this tree are this engine's |
+| *Die Enviro-Kids greifen ein* (1996) | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27: a 16-bit real-mode player with no compiler; one `DATA.-1-` container, 320×200×256, PSM 2 music | **Plays.** The container, the 16-bit machine and the engine's words carry `RUN` through the DigiTales logo and the briefing into the scrapyard and on through every location: the walk, the inventory bar, the verb menu, the hover caption and the conversations run as read from `ENVIRO.EXE`. Saves go through the game's own page into three files of motionvm's own layout, and the PSM 2 tunes play through a rebuild of the game's own Ad Lib driver, held register for register against an OPL capture of the original. `docs/motion16/` and `docs/games/enviro/` are its specification |
+| *Jeff Jet - Abenteuer InfoHighway* | **MOTION 16-bit** — `HPPLAY.EXE`, an older build of the same player, five kernel words fewer; two `DATA.-n-` volumes with every item LZW-packed, 320×200×256, PSM 2 music | **Plays.** The same machine, the same words and the same save scheme as Die Enviro-Kids greifen ein — what is this game's own is the container: two volumes, and 2.5 MB of packed items unfolding to 8.4 MB. `RUN` carries it through the intro into Jeff's room and on through all thirteen locations. `docs/motion16/` and `docs/games/jeffjet/` are its specification |
+| *Hilfe für Amajambere* (1995) | **MOTION 16-bit** — `BMZ.EXE`, the build between the other two: `ENVIRO.EXE`'s kernel table less its last word, so no ordinal moves; two `DATA.-n-` volumes with every item stored plainly, 320×200×256, PSM 2 music | **Plays.** The same machine, the same words and the same save scheme again — what is this game's own is where it starts and how it is laid out: `RUN` opens on location 20, the game's own front page, with the menu up, and the twenty locations are reached from there. The second volume holds every sprite, palette and font, the first everything the game runs and says. `docs/motion16/` and `docs/games/hfa/` are its specification |
 
 The two generations share the Forth dialect, the compiler's output
 conventions and most of the kernel's vocabulary; they do not share the
@@ -53,8 +57,8 @@ repository a statement about one game or one generation says so; a statement
 that names neither holds for all of them.
 
 **The other MOTION games.** There are more of them, and the work here already
-reaches past the three: the 16-bit container is documented from four games
-rather than two — the pair above plus *Amajambere* and *Eddy M.* — and the
+reaches past the four: the 16-bit container is documented from four games
+rather than three — the three above plus *Eddy M.* — and the
 32-bit readers index *Checker 2000*, a game on an earlier build of the same
 engine, and disassemble its modules through its own kernel table. Reading a
 game's data and *playing* it are different distances, though. The engine, the
@@ -139,9 +143,9 @@ is documented in [Other shipped files](docs/games/ds2/other-files.md).
 So a minimal copy is five files, or eight with sound:
 
 ```sh
-mkdir motion-min
+mkdir ds2-min
 cp 001.RSC 002.RSC 003.RSC ENGINE.EXE 000.FRT \
-   HMIMDRV.386 MELODIC.BNK DRUM.BNK  motion-min/
+   HMIMDRV.386 MELODIC.BNK DRUM.BNK  ds2-min/
 ```
 
 ### Die Enviro-Kids greifen ein
@@ -217,6 +221,50 @@ mkdir jeffjet-min
 cp DATA.-1- DATA.-2- HPPLAY.EXE MUSADL.DRV  jeffjet-min/
 ```
 
+### Hilfe für Amajambere
+
+#### Required
+
+Three files. Without any one of them motionvm stops at startup and says which.
+
+| File | Size | What it holds |
+|---|---|---|
+| `DATA.-1-` | 494 KB | Volume 1: 76 script modules, 95 text tables and 153 blocks, four of them the songs |
+| `DATA.-2-` | 4.6 MB | Volume 2: **every sprite, every palette, all seven fonts and the font reference table** |
+| `BMZ.EXE` | 163 KB | Not run, read: the 232-word kernel table is lifted out of the MZ image. It is a build between `HPPLAY.EXE` and `ENVIRO.EXE`, one word short of the latter's table, so this game's table has to come from this game's binary |
+
+The second volume is not optional, and less so here than in Jeff Jet: this game
+splits its container by kind rather than by half, so volume 2 holds everything
+that is ever drawn. A copy without it would find every script and nothing at
+all to show, and motionvm refuses it by name rather than starting.
+
+#### Required for sound
+
+| File | Size | What it holds |
+|---|---|---|
+| `MUSADL.DRV` | 4 KB | The PSM 2 Ad Lib driver — byte-identical to the other two 16-bit games' |
+
+Missing, it is not fatal: motionvm prints `sound is off: …` and plays on
+in silence.
+
+#### Everything else is ignored
+
+The other fifteen files — `AFRIKA.BAT`, `SOUND.EXE`, the five other `.DRV`
+files, the four-file integrity chain `VRCHKSUM.EXE` with `ORIGINAL.BIN`,
+`ORIGINAL.REP` and `ORIGINAL.SCR`, `CONFIG.DAT` and the three readmes — are
+never opened. What each of them is, file by file, is documented in
+[Other shipped files](docs/games/hfa/other-files.md).
+
+So a minimal copy is three files, or four with music:
+
+```sh
+mkdir hfa-min
+cp DATA.-1- DATA.-2- BMZ.EXE MUSADL.DRV  hfa-min/
+```
+
+The game opens on its own menu rather than in a room, so `--loc N` is honoured
+one click later: the menu has to be closed before `CTRL` acts on the request.
+
 ### The game directory is only ever read
 
 motionvm never writes into it, and cannot be made to: the one place a writable
@@ -260,12 +308,13 @@ by the files in it. Without one it asks: the platform's own folder dialog
 opens, and a directory that is not a MOTION game is reported in a message box
 and asked for again — so the binary can be double-clicked. Savegames go under
 the platform data directory (above), one directory per game: `saves/ds2/`,
-`saves/enviro/` and `saves/jeffjet/` — all three name their slots alike and
+`saves/enviro/`, `saves/jeffjet/` and `saves/hfa/` — all four name their slots alike and
 each looks for them at start-up; the directory is created on startup if it is
 not there and its path is printed, so a fresh clone needs no setup.
 `--loc N` starts in a given location — instead of the intro for Dunkle
-Schatten 2, right after it for the two 16-bit games, whose `RUN` enters a
-first location itself — and `--no-sound` runs silent.
+Schatten 2, right after it for the 16-bit games, whose `RUN` enters a first
+location itself (and for Hilfe für Amajambere one click later, because it opens
+on its menu) — and `--no-sound` runs silent.
 
 The window shows the picture the way the game's own monitor did, and only
 ever scaled by whole numbers — one per axis. Dunkle Schatten 2's 640×480 is
@@ -355,8 +404,8 @@ motionvm-tools sprite /path/to/gamedata 1010
 **`script <gamedata> <id>`** — one script module on stdout: its header, its
 symbol table, and its threaded code disassembled with kernel words resolved by
 name — through `ENGINE.EXE`'s table for a 32-bit module, and through
-`ENVIRO.EXE`'s or `HPPLAY.EXE`'s, whichever the directory holds, for a 16-bit
-one. Reading a compiled module is in scope for this project; writing
+`ENVIRO.EXE`'s, `HPPLAY.EXE`'s or `BMZ.EXE`'s, whichever the directory holds,
+for a 16-bit one. Reading a compiled module is in scope for this project; writing
 one is not.
 
 ```sh
@@ -375,7 +424,7 @@ describes.
 |---|---|
 | Left click | Walk, use, or pick the thing under the pointer |
 | Right click | Open the verb menu on it |
-| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In the two 16-bit games it skips the intro; their menu is the icon at the bar's right end |
+| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In the 16-bit games it skips the intro; their menu is the icon at the bar's right end |
 | Cursor keys | Move through Dunkle Schatten 2's in-game mailbox; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
 | F12 | Freeze the picture **and** write it out as an indexed PNG — to `shot.png` in the data directory; the path is printed |
@@ -405,33 +454,35 @@ or without [`just`](https://github.com/casey/just):
 cargo test --workspace
 ```
 
-which finds the games at `../games/DS2`, `../games/ENVIRO` and
-`../games/JEFFJET` beside the checkout; `MOTIONVM_GAMEDATA_DS2`,
-`MOTIONVM_GAMEDATA_ENVIRO` and `MOTIONVM_GAMEDATA_JEFFJET` point anywhere
-else.
+which finds the games at `../games/DS2`, `../games/ENVIRO`, `../games/JEFFJET`
+and `../games/HFA` beside the checkout; `MOTIONVM_GAMEDATA_DS2`,
+`MOTIONVM_GAMEDATA_ENVIRO`, `MOTIONVM_GAMEDATA_JEFFJET` and
+`MOTIONVM_GAMEDATA_HFA` point anywhere else.
 
 The tests hold the implementation against the originals' own files: the
-decoders against every resource in all three games' containers, the FM driver
+decoders against every resource in all four games' containers, the FM driver
 against the bytes of `HMIMDRV.386` and the PSM player against `MUSADL.DRV`'s
 tables, the renderer against extracted artwork, the engine against the
 behavior of the games' own script modules — Dunkle Schatten 2's scenes, Die
 Enviro-Kids greifen ein's boot, locations, conversations, savegames and text
-rendering, and Jeff Jet's boot, thirteen locations, modules, music and slots.
+rendering, Jeff Jet's boot, thirteen locations, modules, music and slots, and
+Hilfe für Amajambere's boot, twenty locations, modules, music and slots.
 They need the game directories — `MOTIONVM_GAMEDATA_DS2` for Dunkle Schatten 2
 (`001.RSC` and friends, looked for at `../games/DS2` when the variable is not
 set), `MOTIONVM_GAMEDATA_ENVIRO` for Die Enviro-Kids greifen ein
-(`ENVIRO.EXE`, `../games/ENVIRO`) and `MOTIONVM_GAMEDATA_JEFFJET` for Jeff Jet
-(`HPPLAY.EXE`, `../games/JEFFJET`); without one, every test that needs that
+(`ENVIRO.EXE`, `../games/ENVIRO`), `MOTIONVM_GAMEDATA_JEFFJET` for Jeff Jet
+(`HPPLAY.EXE`, `../games/JEFFJET`) and `MOTIONVM_GAMEDATA_HFA` for Hilfe für
+Amajambere (`BMZ.EXE`, `../games/HFA`); without one, every test that needs that
 game's data **skips itself** rather than failing, so a checkout tests cleanly
 on a machine that has no copy of any of them, and a machine with one game runs
 that game's tests. Every test says which game it drives.
 
-The two 16-bit games are told apart by their engine binary, and so are their
-variables: both ship a `DATA.-1-`, so a probe for the container would let
-either variable accept the other game.
+The three 16-bit games are told apart by their engine binary, and so are their
+variables: they all ship a `DATA.-1-`, so a probe for the container would let
+any of those variables accept another game.
 
 Setting one of the variables to a directory that does not hold its game — no
-`001.RSC`, no `ENVIRO.EXE`, no `HPPLAY.EXE` — is the one case that is **not**
+`001.RSC`, no `ENVIRO.EXE`, no `HPPLAY.EXE`, no `BMZ.EXE` — is the one case that is **not**
 a skip: it panics
 and says so. A mistyped path would otherwise read as "this machine has no game
 data", and a run that skips everything looks exactly like a run that passes
@@ -497,13 +548,13 @@ Everything else is verified against the original's *files* — its resources, it
 bytecode, its driver binary — which is a different and weaker thing: it says the
 readers agree with the data, not that the engine behaves as the engine did.
 Interaction, dialogue, walking, savegames, the verb menu and most locations of
-any of the three games have never been differentially compared, and **nothing
-of Jeff Jet has been**: it is held against its own files — every item unpacked
-and re-parsed, every module disassembled with no unknown ordinal, all thirteen
-locations entered and drawn, its nine tunes played — and not yet against a
-recording of the original. That is not a gap being hidden; it is the honest
-edge of what a reimplementation without the original running beside it can
-claim.
+any of the four games have never been differentially compared, and **nothing of
+Jeff Jet or Hilfe für Amajambere has been**. Each is held against its own files
+— every item re-parsed, every module disassembled with no unknown ordinal, all
+of its locations entered and drawn, all of its tunes played — and not yet
+against a recording of the original. That is not a gap being hidden; it is the
+honest edge of what a reimplementation without the original running beside it
+can claim.
 
 ## Questions that come up
 

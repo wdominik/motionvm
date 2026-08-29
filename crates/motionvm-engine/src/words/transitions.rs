@@ -82,8 +82,8 @@ impl Engine {
                 let background = self
                     .descriptors
                     .iter()
-                    .find(|d| d.active && d.screen == screen && d.block.is_some())
-                    .and_then(|d| d.block);
+                    .find(|d| d.active && d.screen == screen && d.shows.table().is_some())
+                    .and_then(|d| d.shows.graphic());
                 self.fades.push(Fade {
                     name: name.to_string(),
                     screen,

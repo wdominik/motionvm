@@ -162,7 +162,8 @@ where
                 // place it belongs: immediately after `ANIMPLAY`, where
                 // `START` continues into `ENDGAME` once the loop is over.
                 //
-                // A game may have more than one such loop: ENVIRO's `RUN`
+                // A game may have more than one such loop: `RUN` of
+                // Die Enviro-Kids greifen ein
                 // enters `ANIMPLAY` for the intro, comes back when the intro
                 // quits, and enters it again for the game. So parking also
                 // forgets that the resumed word was on its way out — it has

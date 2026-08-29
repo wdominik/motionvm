@@ -7,8 +7,7 @@
 //! and blocks. These tests drive that far and on, and need the game's files
 //! (`MOTIONVM_GAMEDATA_ENVIRO`); they skip without them.
 //!
-//! The game data this file drives is Die Enviro-Kids greifen ein's (MOTION
-//! 16-bit).
+//! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_engine::{Game, Playable, titles};
 use motionvm_forth::m16::Vm;
@@ -96,7 +95,7 @@ fn lit(game: &mut Game<Vm>) -> bool {
 #[test]
 fn run_plays_through_the_intro_into_location_1_where_ctrl_takes_the_frames() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let (mut game, frames) = into_the_game(&dir);
@@ -142,7 +141,7 @@ fn run_plays_through_the_intro_into_location_1_where_ctrl_takes_the_frames() {
 #[test]
 fn a_requested_location_is_entered_through_nextloc_on_the_next_frame() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = settled_in_the_game(&dir);
@@ -198,7 +197,7 @@ fn a_requested_location_is_entered_through_nextloc_on_the_next_frame() {
 #[test]
 fn the_walker_wears_the_routes_scale_on_both_axes() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let (mut game, _) = into_the_game(&dir);
@@ -247,7 +246,7 @@ fn order_mode(game: &Game<Vm>) -> i32 {
 #[test]
 fn the_early_locations_load_and_run_under_ctrl() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     for loc in [3, 11] {
@@ -284,7 +283,7 @@ fn the_early_locations_load_and_run_under_ctrl() {
 #[test]
 fn the_verb_strip_follows_the_pointer_into_a_scrolled_view() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = settled_in_the_game(&dir);
@@ -387,7 +386,7 @@ fn the_verb_strip_follows_the_pointer_into_a_scrolled_view() {
 #[test]
 fn a_conversation_speaks_its_lines_and_takes_an_answer() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = settled_in_the_game(&dir);
@@ -439,7 +438,7 @@ fn a_conversation_speaks_its_lines_and_takes_an_answer() {
 #[test]
 fn the_start_up_page_waits_for_a_click_when_a_save_exists() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let saves = motionvm_testutil::saves_dir("enviro-start-up-page");
@@ -520,7 +519,7 @@ fn the_start_up_page_waits_for_a_click_when_a_save_exists() {
 #[test]
 fn a_door_changes_the_palette_only_behind_the_wipe() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata directory");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = settled_in_the_game(&dir);

@@ -12,7 +12,7 @@
 //! threaded code. So the test asserts both — the address, and that the word
 //! afterwards returns instead of wandering off.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::Address;
@@ -40,7 +40,7 @@ fn name_at(game: &Game<Vm>, packed: u32) -> String {
 #[test]
 fn a_word_can_answer_with_a_string_built_into_it() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     for (word, want) in [("CALCINFO", "DINFO"), ("CALCGIVE", "DGIVE")] {
@@ -88,7 +88,7 @@ fn a_word_can_answer_with_a_string_built_into_it() {
 #[test]
 fn a_string_whose_length_divides_by_four_still_lands_on_a_return() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");

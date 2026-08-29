@@ -6,6 +6,105 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-29
+
+### Added
+
+- **Hilfe für Amajambere plays.** A fourth game, and the third on the 16-bit
+  engine: the Art Department's edutainment adventure for the
+  Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung — whose
+  acronym names the player, `BMZ.EXE` — given away as freeware in 1995. It is
+  the cheapest title yet, because the work its container would have needed was
+  done for Jeff Jet: two volumes, read since 0.4.0, and this game was already
+  part of the corpus that format was measured over. What it adds to what is
+  known is that **two volumes and packed items are independent choices**. Jeff
+  Jet has both and Die Enviro-Kids greifen ein neither, so until this game they
+  had never been seen apart; it ships two volumes with every item stored
+  plainly, and splits them by kind rather than by half — volume 2 holds every
+  sprite, palette and font, volume 1 everything the game runs and says.
+
+  Its player is the build between the other two. `BMZ.EXE`'s kernel table is
+  `ENVIRO.EXE`'s less exactly one word — `?SAMPLE`, the last — and
+  `HPPLAY.EXE`'s plus the four `SETMOUSE*` that sit inside the table, which is
+  what puts it in the middle: a word is appended to a live ordinal space, not
+  inserted into it. So where Jeff Jet's build shifts 127 ordinals and would
+  mis-name a table taken from elsewhere, this one shifts none and would be
+  named correctly right up to the ordinal it does not have. Both are reasons to
+  do what the engine already does and scan the table out of the game's own
+  binary. The bytecode needs **zero new kernel words**: of the 143 it uses, the
+  two neither sibling calls — `&` and `GFXVFLIP` — were implemented already.
+
+  The game opens on its own front page rather than in a room: `RUN` writes
+  `20 STARTLOC !`, enters location 20, and puts the menu up with
+  `2 _INVMODE !`, which `CTRL`'s location switch is guarded against — so
+  `--loc N` is honoured one click later. Twenty locations, more than either
+  sibling; the per-location item table is block `300 + N` where the others put
+  it at `200 + N`; and the slot probe lives in the menu's `SHOW_FILES` rather
+  than in `RUN`. Savegames go to `saves/hfa/`.
+
+### Changed
+
+- **Savegames written by an earlier version no longer load.** A descriptor
+  keeps what it shows in one field now instead of three (below), so its record
+  in a `.anm` file is shorter. The format carries no version of its own, so an
+  older file is refused for its length rather than by name. Nothing else about
+  a save directory changes: the slots are still 701 to 705 and still live in
+  `saves/<game>/`.
+
+- **A game is named in three registers, and each has one job.** `Title::name`
+  is the full title, the one a window shows — Dunkle Schatten 2 now gets its
+  own, where it had been carrying the short form alone. `Title::short` is the
+  title without its subtitle and is what prose, error messages and test output
+  use. `Title::slug` is the key the game's files are kept under, and it never
+  appears in a sentence.
+
+  That last rule is what most of this change is: the directory name of Die
+  Enviro-Kids greifen ein had become the game's name in some seventy doc
+  comments and documentation lines, where it read as the engine binary beside
+  it. The `Title` variants are the short form in PascalCase, so `EnviroKids`
+  is now `DieEnviroKidsGreifenEin`; the slugs, the game directories, the
+  environment variables and the savegame directories are untouched.
+
+  `Title::needs` and `Title::ALL` came with it, so that the "not a game
+  motionvm can open" message is built from the enum rather than kept in step
+  with it by hand.
+
+### Fixed
+
+- **What a descriptor shows is one field now, as it is in the engine.** The
+  16-bit machine keeps it in `+0x10` — `0x8000 | id` for a sprite, the bare id
+  for a block, and the id of a text table when the descriptor is a text — and
+  `SDSPR`, `SDBL` and `SDTB` are three words writing that one word
+  (`ENVIRO.EXE` `05f1:12b6`, `05f1:11ee`, `05f1:0d7b`; the same code in
+  `BMZ.EXE`). Three separate fields allowed states the engine cannot reach,
+  and read `SDBL` as a picture where the original reads it as a text's table.
+
+  Three corrections came with it. `GDSPR` and `GDBL` now answer -1 for the
+  kind of picture they are not asked about (`05f1:16bd`, `05f1:168e`); `SDTB`
+  no longer makes a descriptor a text on the 16-bit machine, where only
+  `SDTXT` does that, while the 32-bit engine allocates its text record in
+  `SDTB` and so still marks it; and the stored `kind` is gone, because the
+  engine has none — it works out what a descriptor is from `+0x10` and `+0x12`
+  each time it asks, and now so does this.
+
+  The documentation had described the two fields the other way round — `+0x10`
+  as the text, `+0x12`'s low byte as a length limit — which is where the
+  three-field model came from. `text-rendering.md` and `descriptors.md` now
+  say what the handlers do.
+- **`Playable::start_location` no longer assumes every 16-bit game starts at
+  location 1.** It answered a hardcoded 1 when no `NEXTLOC` was pending, which
+  was true only of Die Enviro-Kids greifen ein: Jeff Jet's `RUN` enters
+  location 13 and Hilfe für Amajambere's location 20. It now reads `STARTLOC`
+  out of module 601 — where `RUN` leaves the answer for all three — and says
+  `None` while no location has been entered yet, rather than naming one the
+  game has not chosen.
+- **`motionvm-tools` counted a location module as library above location 17.**
+  The window that tells a location's three modules from the resident ones ran
+  to 117/317/517, which was Die Enviro-Kids greifen ein's highest; Hilfe für
+  Amajambere numbers to 120/320/520. Too low a bound is silent rather than
+  loud — the extra modules taught their word ids to every other listing, and
+  the names came out wrong with nothing said. It now runs to 20 and has a test.
+
 ## [0.4.1] - 2026-08-28
 
 ### Changed
@@ -70,8 +169,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The two header words the DATA container never explained are explained.**
   They are the volume count and the number of spare offset-table entries, and
   the sixteen bytes behind them that were documented as zero are seven
-  per-segment packed flags and a spare. Measured over ENVIRO, Jeff Jet,
-  Amajambere and Eddy M.: the flags and the shape of the items agree in all 28
+  per-segment packed flags and a spare. Measured over Die Enviro-Kids greifen ein,
+  Jeff Jet, Hilfe für Amajambere and Eddy M.: the flags and the shape of the
+  items agree in all 28
   segments.
 
 ### Changed
@@ -402,7 +502,8 @@ behaves as the engine did. See "What is and is not verified" in the README.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/wdominik/motionvm/releases/tag/v0.5.0
 [0.4.1]: https://github.com/wdominik/motionvm/releases/tag/v0.4.1
 [0.4.0]: https://github.com/wdominik/motionvm/releases/tag/v0.4.0
 [0.3.1]: https://github.com/wdominik/motionvm/releases/tag/v0.3.1

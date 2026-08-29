@@ -26,7 +26,7 @@
 //! script itself uses to move between the terminal's screens. Everything after
 //! that is the shipped bytecode reacting to keys.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -133,7 +133,7 @@ fn main_menu(dir: &std::path::Path) -> Game<Vm> {
 #[test]
 fn left_and_right_walk_the_menu_bar() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = main_menu(&dir);
@@ -158,7 +158,7 @@ fn left_and_right_walk_the_menu_bar() {
 #[test]
 fn up_and_down_walk_the_selection_list() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = main_menu(&dir);
@@ -205,7 +205,7 @@ fn up_and_down_walk_the_selection_list() {
 #[test]
 fn the_list_keys_are_ignored_while_no_list_is_open() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = main_menu(&dir);

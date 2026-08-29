@@ -5,6 +5,8 @@
 //! own: the living-room arrival, whose first spoken line goes up without any
 //! input. Needs the game's files; point `MOTIONVM_GAMEDATA_ENVIRO` at the
 //! directory with `DATA.-1-`, or the test skips itself.
+//!
+//! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_engine::{Game, Playable, titles};
 use motionvm_forth::m16::Vm;
@@ -46,7 +48,7 @@ fn into_the_game(dir: &Path) -> Game<Vm> {
 #[test]
 fn a_spoken_line_wears_its_outline_all_around() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = into_the_game(&dir);
@@ -192,7 +194,7 @@ fn settled_in_the_game(dir: &Path) -> Game<Vm> {
 #[test]
 fn a_morning_scene_line_keeps_its_ring_past_the_intros_font_teardown() {
     let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no ENVIRO gamedata");
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let mut game = settled_in_the_game(&dir);

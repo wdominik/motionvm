@@ -14,7 +14,7 @@
 //! (201, 210), and the strip is centered on it: `201 − 0x18·2 + 2 = 155`, then
 //! one step of 0x30 — so 155 and 203.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::Address;
@@ -68,7 +68,7 @@ fn until_idle(game: &mut Game<Vm>, order: Address) {
 #[test]
 fn a_right_click_opens_the_verb_menu() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -112,7 +112,7 @@ fn a_right_click_opens_the_verb_menu() {
                     .find(|d| d.handle == base + i)
             })
             .filter(|d| d.active)
-            .map(|d| (d.sprite.unwrap_or(0), d.x, d.y))
+            .map(|d| (d.shows.graphic().unwrap_or(0), d.x, d.y))
             .collect()
     };
     assert_eq!(
@@ -152,7 +152,7 @@ fn a_right_click_opens_the_verb_menu() {
 #[test]
 fn looking_at_something_shows_its_description() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -200,7 +200,11 @@ fn looking_at_something_shows_its_description() {
         shown.active,
         "looking at something activates its description"
     );
-    assert_eq!(shown.table, Some(2), "the description lives in block 2");
+    assert_eq!(
+        shown.shows.table(),
+        Some(2),
+        "the description lives in block 2"
+    );
     assert_eq!(shown.text, Some(66), "and it is the area's own text");
 }
 
@@ -223,7 +227,7 @@ fn looking_at_something_shows_its_description() {
 #[test]
 fn asking_about_something_enters_the_conversation_at_its_info_answer() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");

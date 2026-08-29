@@ -7,7 +7,7 @@ or hypothetical, for both generations of the engine. Each topic page carries
 its own short "Open questions" section; this page collects them with links.
 The sections down to *The music's clock* concern the **32-bit engine** and
 Dunkle Schatten 2; [MOTION 16-bit](#motion-16-bit) collects the 16-bit
-engine's and its two games'. An entry that names a game is that game's.
+engine's and its three games'. An entry that names a game is that game's.
 
 ## Remaining unmapped kernel words and handler regions
 
@@ -159,8 +159,8 @@ driver: see [The FM driver](motion32/engine/fm-driver.md#open-questions).
 The 16-bit engine is documented from its shipped files and from its
 handlers as far as the intro, the locations and the conversations needed
 them read. Almost all of that reading was done on `ENVIRO.EXE` with Die
-Enviro-Kids greifen ein; `HPPLAY.EXE` is the same player in an older build
-and has been read only where the two differ. What is open:
+Enviro-Kids greifen ein; `HPPLAY.EXE` and `BMZ.EXE` are the same player in
+older builds and have been read only where they differ. What is open:
 
 - **The interpreter loop** at file `0x174f7` and the nested-run sentinel
   `0xfffd` — from a first reading.
@@ -226,6 +226,35 @@ and has been read only where the two differ. What is open:
   integers. ([Blocks](motion16/formats/blocks.md))
 - **`A.DAT`** — unreferenced by Die Enviro-Kids greifen ein's player,
   117 192 bytes of high entropy. ([Other files](games/enviro/other-files.md))
+
+- **What `NEWSETDESC` does when a screen already holds a hundred descriptors**
+  — `05f1:0ad4` jumps past every pop *and* the push, so six values stay on the
+  data stack and no handle comes back. motionvm pops cleanly and answers a
+  handle, which is a divergence from the hundred-and-first descriptor on;
+  nothing in the shipped games gets near it.
+  ([Descriptors](motion16/engine/descriptors.md))
+
+- **Hilfe für Amajambere's location 7 has no item table** — block 307 is not
+  in the container, and its occupancy word agrees, while `INCLLOC` loads block
+  `300 + N` for every location it enters. The room is reachable in play:
+  location 11 sets `7 NEXTLOC !` on one of its branches. The original does not
+  recover — `GET` in `BMZ.EXE` (`12bb:0e91`) tests the resolved block for null
+  and answers a missing one with error `0xE`, *Fehler diverser Natur (FDN)*,
+  leaving `_LDITEM` unfilled, so the room would come up holding the previous
+  location's items. Whether the room was cut late, or its table lost in
+  mastering, is unread. ([Game structure](games/hfa/game-structure.md),
+  [departures](departures.md#the-16-bit-machine))
+- **Why Hilfe für Amajambere's occupancy words over-claim** — it flags whole
+  segment ranges rather than single slots, so 1534 of them name a volume that
+  gives them no bytes, against Jeff Jet's two and Die Enviro-Kids greifen ein's
+  none. It looks like an authoring habit — reserve the segment, fill what there
+  is — but nothing has been read that says so, and the loader is unaffected
+  because what has bytes is what is there.
+  ([The DATA container](motion16/formats/data-container.md),
+  [Resource inventory](games/hfa/inventory.md))
+- **What Hilfe für Amajambere's 70 animation catalogs hold** — blocks 125–212,
+  unclassified, where the sibling games' have been mapped.
+  ([Blocks](motion16/formats/blocks.md))
 
 ## See also
 

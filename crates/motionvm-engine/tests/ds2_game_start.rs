@@ -20,7 +20,7 @@
 //!
 //! Drop that argument and the game gets no further than its own first sentence.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -35,7 +35,7 @@ use motionvm_testutil::gamedata_ds2;
 #[test]
 fn the_opening_scene_gets_past_its_title_card() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -104,7 +104,7 @@ fn the_opening_scene_gets_past_its_title_card() {
 #[test]
 fn the_opening_conversation_speaks_its_lines() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -122,10 +122,7 @@ fn the_opening_conversation_speaks_its_lines() {
             break;
         }
         let showing = game.engine.descriptors().to_vec();
-        for d in showing
-            .iter()
-            .filter(|d| d.active && d.kind == motionvm_engine::DescriptorKind::Text)
-        {
+        for d in showing.iter().filter(|d| d.active && d.is_text()) {
             if let Some(line) = game.engine.descriptor_text(d)
                 && !line.is_empty()
                 && said.last() != Some(&line)
@@ -236,7 +233,7 @@ fn a_wait_counts_down_only_behind_a_callback() {
 #[test]
 fn a_location_takes_its_scenery_with_it() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -271,7 +268,7 @@ fn a_location_takes_its_scenery_with_it() {
             .engine
             .descriptors()
             .iter()
-            .filter_map(|d| d.sprite.or(d.block))
+            .filter_map(|d| d.shows.graphic())
             .collect();
         v.sort_unstable();
         v.dedup();
@@ -318,7 +315,7 @@ fn a_location_takes_its_scenery_with_it() {
 #[test]
 fn picking_an_answer_moves_the_conversation_on() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -332,9 +329,7 @@ fn picking_an_answer_moves_the_conversation_on() {
         game.engine
             .descriptors()
             .iter()
-            .filter(|d| {
-                d.active && d.kind == motionvm_engine::DescriptorKind::Text && d.level == 99
-            })
+            .filter(|d| d.active && d.is_text() && d.level == 99)
             .map(|d| (d.x, d.y))
             .collect()
     };
@@ -366,7 +361,7 @@ fn picking_an_answer_moves_the_conversation_on() {
         .descriptors()
         .to_vec()
         .iter()
-        .filter(|d| d.active && d.kind == motionvm_engine::DescriptorKind::Text && d.level >= 99)
+        .filter(|d| d.active && d.is_text() && d.level >= 99)
         .filter_map(|d| game.engine.descriptor_text(d).map(|t| (d.y, t)))
         .filter(|(_, t)| !t.is_empty())
         .collect();
@@ -431,7 +426,7 @@ fn picking_an_answer_moves_the_conversation_on() {
 #[test]
 fn a_fade_out_hides_the_frame_that_was_showing() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -490,7 +485,7 @@ fn a_fade_out_hides_the_frame_that_was_showing() {
 #[test]
 fn the_pointer_draws_itself_over_the_frame() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
@@ -574,7 +569,7 @@ fn the_pointer_draws_itself_over_the_frame() {
 #[test]
 fn a_container_without_this_game_s_script_is_refused_by_name() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let tmp = std::env::temp_dir().join("motionvm-ds2-signature");

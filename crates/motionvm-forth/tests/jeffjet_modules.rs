@@ -11,6 +11,8 @@
 //! taken from the other game would still bind — and would run this bytecode
 //! calling the wrong words. Running `RUN` and watching which words it asks for
 //! by name is what would catch that.
+//!
+//! The game this file drives is Jeff Jet (MOTION 16-bit).
 
 use motionvm_formats::m16::{Container, Segment, mz, scr::ScrModule};
 use motionvm_forth::m16::{Vm, word_address};

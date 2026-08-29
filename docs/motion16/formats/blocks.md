@@ -2,11 +2,12 @@
 
 # Blocks
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein and in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, which is an older build of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names the other game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
 
 A BLK item is untyped binary data: the engine hands it to the script with
 `GET` or plays it with `STARTTUNE`, and what it means is decided by who asks
-for it. ENVIRO's 130 occupied blocks fall into four families, told apart by
+for it. The 130 occupied blocks of Die Enviro-Kids greifen ein fall into four
+families, told apart by
 id range and by what the scripts do with them.
 
 ## Music — ids 1–5 and 7–11

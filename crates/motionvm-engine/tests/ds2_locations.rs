@@ -21,7 +21,7 @@
 //! uninitialized in the shipped data, so entering it is a jump into nowhere in
 //! the original too, and nothing in the game ever asks for it.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_testutil::gamedata_ds2;
@@ -30,7 +30,7 @@ use motionvm_testutil::gamedata_ds2;
 #[test]
 fn the_locations_that_read_through_stray_pointers_still_load() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     for want in [5, 6, 7, 8, 10] {

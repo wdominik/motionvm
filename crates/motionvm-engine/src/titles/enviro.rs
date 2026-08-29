@@ -37,5 +37,5 @@ pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
 
 /// Opens the game in `dir`.
 pub fn open(dir: &Path) -> Result<Game<Vm>> {
-    motion16::open(dir, Title::EnviroKids, ENGINE, REQUIRED)
+    motion16::open(dir, Title::DieEnviroKidsGreifenEin, ENGINE, REQUIRED)
 }

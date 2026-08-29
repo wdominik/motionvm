@@ -21,7 +21,7 @@
 //! which is that file\'s business. This one holds down the narrower fact that
 //! everything else rests on: the code arrives.
 //!
-//! The game data this file drives is Dunkle Schatten 2's (MOTION 32-bit).
+//! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_engine::Game;
 use motionvm_forth::m32::Vm;
@@ -60,7 +60,7 @@ fn settled_in_the_title(dir: &std::path::Path) -> Game<Vm> {
 #[test]
 fn the_key_code_reaches_aktkey_rather_than_a_flag() {
     let Some(dir) = gamedata_ds2() else {
-        eprintln!("skipping: no gamedata directory");
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
     let mut game = settled_in_the_title(&dir);
