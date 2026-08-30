@@ -24,7 +24,7 @@ fn machine() -> Option<(Container, Vm)> {
     let dir = gamedata_jeffjet()?;
     let c = Container::open_dir(&dir).expect("DATA.-1- and DATA.-2-");
     let img = mz::Image::open(game_file(&dir, "HPPLAY.EXE")).expect("HPPLAY.EXE");
-    let binding = mz::binding_of(&mz::kernel_words(&img)).expect("the kernel binds");
+    let binding = mz::binding_of(&img, &mz::kernel_words(&img)).expect("the kernel binds");
     Some((c, Vm::new(&binding)))
 }
 

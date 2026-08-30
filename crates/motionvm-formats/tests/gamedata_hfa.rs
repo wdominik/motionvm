@@ -403,7 +403,7 @@ fn the_kernel_is_the_later_builds_table_less_its_last_word() {
         ("##", "$->")
     );
 
-    let b = mz::binding_of(&words).expect("the inline words are all named");
+    let b = mz::binding_of(&img, &words).expect("the inline words are all named");
     assert_eq!(b.len(), 232, "one fewer than `ENVIRO.EXE`");
     assert_eq!(b.name(1), Some("##"));
     assert_eq!(b.name(105), Some("TOGFX"), "the domain table starts here");
@@ -421,10 +421,10 @@ fn the_kernel_is_the_later_builds_table_less_its_last_word() {
 #[test]
 fn every_module_disassembles_without_an_unknown_ordinal() {
     let c = container_or_skip!();
-    let Some((_, words)) = kernel_or_skip() else {
+    let Some((img, words)) = kernel_or_skip() else {
         return;
     };
-    let binding = mz::binding_of(&words).unwrap();
+    let binding = mz::binding_of(&img, &words).unwrap();
     let modules: Vec<scr::ScrModule> = ids(&c, Segment::Scr)
         .into_iter()
         .map(|n| scr::ScrModule::parse(c.item(Segment::Scr, n).unwrap().unwrap()).unwrap())

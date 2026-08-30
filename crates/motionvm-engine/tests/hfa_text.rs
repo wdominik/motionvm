@@ -1,7 +1,7 @@
 //! Hilfe für Amajambere puts the right words on its pages.
 //!
 //! Every other test in this suite asks whether text was *drawn* — how wide,
-//! how tall, what colour the outline is. None of them has ever asked **which
+//! how tall, what color the outline is. None of them has ever asked **which
 //! text**, and that is the gap this file closes: a descriptor can be pointed
 //! at the wrong table and still draw a perfectly shaped line of the wrong
 //! words.

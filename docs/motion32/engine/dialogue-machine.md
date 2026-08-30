@@ -21,7 +21,7 @@ means "nothing to say."
 
 The record:
 
-| Offset | Content |
+| Offset | Description |
 |---|---|
 | +0x04 | Entry node |
 | +0x08 | Number of answers |

@@ -66,7 +66,7 @@ show them — the game begins where `HPPLAY.EXE` begins.
 
 ## See also
 
-- [The DATA container](../../motion16/formats/data-container.md) — the two volumes
+- [The DATA container](../../motion16/formats/container.md) — the two volumes
 - [HPPLAY.EXE](../../motion16/engine/hpplay-exe.md) — the player
 - [PSM 2 music](../../motion16/formats/psm-music.md) — what `MUSADL.DRV` plays
 - [Other files (Die Enviro-Kids greifen ein)](../enviro/other-files.md) — the same stack, one game earlier

@@ -34,7 +34,7 @@ impl Engine {
             // order machine's nested call — walking out of any door. Applied
             // immediately, the new location's palette lands on the old
             // location's still-standing picture for the whole closing wipe;
-            // the supermarket flashed pink on the way to the shopping centre.
+            // the supermarket flashed pink on the way to the shopping center.
             // So while a fade is queued, the palette queues with it, onto the
             // one most recently asked for, and the display takes it when that
             // fade finishes — the script's order, kept on the screen.

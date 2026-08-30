@@ -50,7 +50,7 @@ number while 1045 and 7 of them carry bytes. `motionvm-tools info` reports
 and none in Die Enviro-Kids greifen ein. Nothing downstream is affected — what has
 bytes is what is
 there — but it is why presence is read from the offsets and the flag word is
-kept as a diagnostic. See [the DATA container](../../motion16/formats/data-container.md).
+kept as a diagnostic. See [the DATA container](../../motion16/formats/container.md).
 
 ## Sprites (GFX)
 
@@ -121,6 +121,6 @@ on `##`. The numbering is in the [module map](module-map.md).
 
 - [Module map](module-map.md) — what each module does
 - [Game structure](game-structure.md) — what they add up to
-- [The DATA container](../../motion16/formats/data-container.md) — the format, across the three games
+- [The DATA container](../../motion16/formats/container.md) — the format, across the four games
 - [Resource inventory (Jeff Jet - Abenteuer InfoHighway)](../jeffjet/inventory.md) — two volumes, packed
 - [Resource inventory (Die Enviro-Kids greifen ein)](../enviro/inventory.md) — one volume, plain

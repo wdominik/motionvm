@@ -414,6 +414,12 @@ pub struct Screen {
     /// their own and not `view_pos`. What they shift is not established — the
     /// game only ever sets them to zero — so nothing composites with them yet.
     pub origin: (i16, i16),
+    /// `SCRCTRL`: the word id this screen runs every frame, as the handler
+    /// stores it — a raw id, resolved only when a frame comes to run it, and
+    /// negative for none. It belongs to the screen and not to the engine
+    /// because the handler writes it through the current-screen accessor
+    /// (`0104:1663` in `LL.EXE`, `+0x14` of the record).
+    pub controller: i32,
     /// `FREEZESCR` sets bit 2 of the screen's flag byte at +0x13 and
     /// `UNFREEZESCR` clears it again.
     pub frozen: bool,
@@ -547,6 +553,7 @@ impl Screen {
             view_pos: (0, 0),
             pos: (0, 0),
             origin: (0, 0),
+            controller: -1,
             frozen: false,
             active: true,
             buffer: Framebuffer::new(0, 0),

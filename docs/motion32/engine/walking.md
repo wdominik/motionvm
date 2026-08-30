@@ -1,6 +1,6 @@
 [← Documentation index](../../README.md)
 
-# Walking — `DOWALK`, `CROUTE` and the route graph
+# Walking — `DOWALK`, `CROUTE` and the Route Graph
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
@@ -34,7 +34,7 @@ In **module memory**, not engine memory — the scripts reach it with
 ordinary `@`/`+@`. `DEF_KARSTEN` and `KARSTEN_BIG` (module 202) write
 every field below in decimal.
 
-| Offset | Meaning |
+| Offset | Description |
 |---|---|
 | `0x00`…`0x3C` | **Walk-cycle pair per heading**: 3 `(0,4)`, 4 `(8,0xC)`, 2 `(0x10,0x14)`, 1 `(0x18,0x1C)`, 8 `(0x20,0x24)`, 7 `(0x28,0x2C)`, 5 `(0x30,0x34)`, 6 `(0x38,0x3C)` |
 | `0x40`…`0x7C` | **Turn frames per ring transition**, first and last of a run |
@@ -57,7 +57,7 @@ every field below in decimal.
 
 ### The shadow record, `person[0x1AC]`
 
-| Offset | Meaning |
+| Offset | Description |
 |---|---|
 | `+0` | Descriptor handle |
 | `+4` / `+8` | Current / destination route, **1-based** |
@@ -130,14 +130,14 @@ Two blocks per location, and the sizes alone pin the formats: block
 
 **Route record (36 B, after a 4-byte count the original never reads):**
 
-| Offset | Meaning |
+| Offset | Description |
 |---|---|
 | `+0`…`+0xC` | `x0, y0, x1, y1` — a rectangle's corners, or a line's ends |
 | `+0x10`…`+0x20` | Up to five neighboring route indices, the list ending at the first −1 |
 
 **Extended record (24 B, same index):**
 
-| Offset | Meaning |
+| Offset | Description |
 |---|---|
 | `+0` | Z for the whole route (the stepper adds `person[0xAC]` and passes it to `SDZ`) |
 | `+4` | Kind: 0 rectangle, 1 and 2 the two line orientations |
@@ -231,5 +231,5 @@ module.
 ## See also
 
 - [Descriptors](descriptors.md)
-- [Blocks](../formats/block.md) — the per-location route data
+- [Blocks](../formats/blocks.md) — the per-location route data
 - [Module map](../../games/ds2/module-map.md)

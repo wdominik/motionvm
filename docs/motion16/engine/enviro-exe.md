@@ -1,8 +1,8 @@
 [← Documentation index](../../README.md)
 
-# ENVIRO.EXE — The Later Build of the MOTION 16-bit Player
+# ENVIRO.EXE — The Latest Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 `ENVIRO.EXE` (167 430 bytes, dated 1996-08-27) is the 16-bit MOTION
 **player**: the Forth interpreter, the kernel words and the drivers behind
@@ -58,7 +58,7 @@ Strings the player carries, read out of the image:
   resources. None of these files is shipped; the player reads the container.
 - Save files: `#F0R3i.frz`, `#F0R3i.anm`, `#F0R3i.blk` — a slot is three
   files, the same family the 32-bit engine writes (see [boot and frame
-  loop](boot-and-loop.md)).
+  loop](game-loop.md)).
 - Sound: `psmcfg4.dat` and the driver names `DMABLAST.DRV`, `DMASB2P.DRV`,
   `DMASB16M.DRV`, `DMASB16S.DRV`, `DETECTOR.DRV`, `MUSADL.DRV` — the PSM 2
   stack ([other files](../../games/enviro/other-files.md)).
@@ -93,7 +93,7 @@ the screen from `DS:0x5de2` and the descriptor from `DS:0x3058`),
 script word by id** through the interpreter — which is how the order
 machine and `MOUSEINFO` call back into the game. What the reading settled
 is on the pages it belongs to: [execution model](../vm/execution-model.md),
-[boot and frame loop](boot-and-loop.md), [buffers](buffers.md),
+[boot and frame loop](game-loop.md), [buffers](buffers.md),
 [descriptors and screens](descriptors.md).
 
 ## Open questions
@@ -104,7 +104,8 @@ is on the pages it belongs to: [execution model](../vm/execution-model.md),
 ## See also
 
 - [HPPLAY.EXE](hpplay-exe.md) — the earliest build of this player
-- [BMZ.EXE](bmz-exe.md) — the middle build, this table less its last word
+- [BMZ.EXE](bmz-exe.md) — the third build, this table less its last word
+- [LL.EXE](ll-exe.md) — the oldest build, whose domain table binds at 102
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
 - [Execution model](../vm/execution-model.md) — what the interpreter does with a cell
 - [ENGINE.EXE (MOTION 32-bit)](../../motion32/engine/engine-exe.md) — the 32-bit binary

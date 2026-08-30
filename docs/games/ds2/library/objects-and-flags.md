@@ -2,7 +2,7 @@
 
 # Module 11 — Objects, Story Flags, and Dialogue Data
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 Module 11 (405 words) is the game's world state: the inventory-object
 enumeration, the story- and dialogue-flag arrays, ~85 story-progress
@@ -99,7 +99,7 @@ locked.
 | 12… | one small value (1/2/3) per line — speaker or flag codes |
 
 `->DIAL` loads the matching dialogue **block** (ids 450–570) into the
-`_DIALFIELD` workspace — see [Blocks](../../../motion32/formats/block.md). Field
+`_DIALFIELD` workspace — see [Blocks](../../../motion32/formats/blocks.md). Field
 meanings beyond id/count/text-table are unmapped (open question).
 
 ## Module 12 — initialization
@@ -124,4 +124,4 @@ meanings beyond id/count/text-table are unmapped (open question).
 - [Dialogue](dialogue.md) — the code that consumes these flags
 - [Game library](game-library.md) — `->FALL`, `ADDITEM`, the record
   accessors
-- [Blocks](../../../motion32/formats/block.md) — the dialogue blocks
+- [Blocks](../../../motion32/formats/blocks.md) — the dialogue blocks

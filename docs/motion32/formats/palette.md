@@ -1,6 +1,6 @@
 [← Documentation index](../../README.md)
 
-# PALETTE — VGA Palettes
+# Palettes
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
@@ -9,7 +9,7 @@ per channel**, stored in the order they are written to the VGA DAC. The
 standalone file `000.PAL` uses the same format.
 
 `001.RSC` ships 60 palette items. Sprites additionally embed a private
-palette of the same 768-byte form (see [GFX8 sprites](gfx8-sprites.md)).
+palette of the same 768-byte form (see [GFX8 sprites](sprites.md)).
 
 ## 6-bit to 8-bit widening
 
@@ -34,7 +34,7 @@ injective, so an 8-bit value produced this way can be converted back to its
 
 ## See also
 
-- [GFX8 sprites](gfx8-sprites.md) — embedded per-sprite palettes
-- [RSC containers](rsc-container.md)
+- [GFX8 sprites](sprites.md) — embedded per-sprite palettes
+- [RSC containers](container.md)
 - [Transitions](../engine/transitions.md) — palette changes during scene
   transitions

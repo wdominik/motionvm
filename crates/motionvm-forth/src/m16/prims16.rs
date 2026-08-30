@@ -8,7 +8,7 @@
 
 use super::{CELL, Vm};
 use crate::prims::{Prim, flag};
-use crate::{Address, Error, Host, Loop, Result};
+use crate::{Address, Error, Host, Result};
 
 /// Names of the primitives implemented here, for reporting coverage.
 pub const IMPLEMENTED: &[&str] = &[
@@ -43,6 +43,7 @@ pub const IMPLEMENTED: &[&str] = &[
     ">R",
     "R>",
     "I",
+    "I'",
     "RANDOM",
     "EXECUTE",
     "LEAVE",
@@ -156,8 +157,10 @@ impl Vm {
             // IF: jump when the flag is false.
             self.pop("IF")? == 0
         } else if ordinal == inline.check_eif {
-            // =IF: compare-and-branch; taken when the two differ. The 32-bit
-            // engine's measured rule, taken as the hypothesis here.
+            // =IF: compare-and-branch; taken when the two differ, both cells
+            // popped — the handler (`LL.EXE` 0af7:06d5, `ENVIRO.EXE`
+            // 12c8:02e0) pops twice, compares, and skips the operand only on
+            // equality. The same rule as the 32-bit engine's.
             let (b, a) = (self.pop("=IF")?, self.pop("=IF")?);
             a != b
         } else if ordinal == inline.check_else || ordinal == inline.repeat {
@@ -165,40 +168,59 @@ impl Vm {
         } else if ordinal == inline.until {
             self.pop("UNTIL")? == 0
         } else if ordinal == inline.loop_break {
-            // WHILE leaves on **true** — measured on the 32-bit engine,
-            // hypothesis here.
+            // WHILE leaves on **true**: the handler (`LL.EXE` 0af7:0782,
+            // `ENVIRO.EXE` 12c8:03c6) takes the forward jump on a non-zero
+            // flag and stays in the loop body on zero — the same rule as the
+            // 32-bit engine's.
             self.pop("WHILE")? != 0
-        } else if ordinal == inline.loop_end
-            || ordinal == inline.add_loop
-            || ordinal == inline.u_loop_end
-        {
+        } else if ordinal == inline.loop_end || ordinal == inline.add_loop {
+            // `LOOP` and `+LOOP` step the index — the top return-stack cell —
+            // in place and read the limit from the cell under it, where
+            // `_LoopStart` put them. The branch back is not taken once
+            // limit <= index, signed and by the same `jle` whatever the
+            // step's sign (`_LoopEnd` at `LL.EXE` 0af7:0604, `_AddLoop` at
+            // 0af7:0665; the same code in `ENVIRO.EXE` at 12c8:01f3 and
+            // 12c8:025c), and falling out pops both cells.
             let step = if ordinal == inline.loop_end {
                 1
             } else {
                 self.pop("+LOOP")?
             };
-            match self.loops.last().copied() {
-                Some(l) => {
-                    let index = (self.ret[l.slot] as i16) as i32 + step;
-                    self.ret[l.slot] = index as u16;
-                    let done = if step >= 0 {
-                        index >= l.limit
-                    } else {
-                        index <= l.limit
-                    };
-                    if done {
-                        self.loops.pop();
-                        self.ret.truncate(l.slot);
-                    }
-                    !done
-                }
-                None => {
-                    return Err(Error::StackUnderflow {
-                        word: "LOOP",
-                        at: here,
-                    });
-                }
+            let n = self.ret.len();
+            if n < 2 {
+                return Err(Error::StackUnderflow {
+                    word: "LOOP",
+                    at: here,
+                });
             }
+            let index = (self.ret[n - 1] as i16).wrapping_add(step as i16);
+            self.ret[n - 1] = index as u16;
+            let again = (self.ret[n - 2] as i16) > index;
+            if !again {
+                self.ret.truncate(n - 2);
+            }
+            again
+        } else if ordinal == inline.u_loop_end {
+            // `_ULoopEnd` is `_LoopEnd` with the compare **unsigned** in the
+            // three later builds (`ENVIRO.EXE` 12c8:0225, `HPPLAY.EXE`
+            // 12a0:01cd, `BMZ.EXE` 12bb:021b: `incw`, then `jbe`); `LL.EXE`'s
+            // older 0af7:0634 pops a return-stack cell where the others step
+            // the index. No game reaches the word; the machine carries the
+            // later builds' shape.
+            let n = self.ret.len();
+            if n < 2 {
+                return Err(Error::StackUnderflow {
+                    word: "LOOP",
+                    at: here,
+                });
+            }
+            let index = self.ret[n - 1].wrapping_add(1);
+            self.ret[n - 1] = index;
+            let again = self.ret[n - 2] > index;
+            if !again {
+                self.ret.truncate(n - 2);
+            }
+            again
         } else if Some(ordinal) == inline.ch_else_dup {
             // `ELSEDUP`: its runtime is unread and no site in
             // Die Enviro-Kids greifen ein reaches it.
@@ -353,21 +375,41 @@ impl Vm {
                 })?;
                 self.push((v as i16) as i32);
             }
-            Prim::OuterLoopIndex => {
-                let n = self.loops.len();
-                let l = self
-                    .loops
-                    .get(n.wrapping_sub(2))
-                    .ok_or(Error::StackUnderflow {
-                        word: "J",
+            // `I'` reads the cell behind the one `I` reads — the handler is
+            // `I` with the fetch at `+2` instead of `+0` (`0af7:095e` against
+            // `0af7:094a` in `LL.EXE`), and that stack grows downward, so the
+            // cell at `+2` is the one pushed before it. Only Victor Loomes
+            // calls it.
+            Prim::NextLoopIndex => {
+                let n = self.ret.len();
+                let v = *n.checked_sub(2).and_then(|i| self.ret.get(i)).ok_or(
+                    Error::StackUnderflow {
+                        word: "I'",
                         at: here,
-                    })?;
-                let v = self.ret[l.slot];
+                    },
+                )?;
                 self.push((v as i16) as i32);
             }
+            // `J` binds in none of the four 16-bit builds — no kernel table
+            // names it — so this is the layout's answer rather than a
+            // handler's: the outer index sits under the inner loop's pair.
+            Prim::OuterLoopIndex => {
+                let n = self.ret.len();
+                let v = *n.checked_sub(3).and_then(|i| self.ret.get(i)).ok_or(
+                    Error::StackUnderflow {
+                        word: "J",
+                        at: here,
+                    },
+                )?;
+                self.push((v as i16) as i32);
+            }
+            // `LEAVE` copies the index over the limit — `LL.EXE` 0af7:069f,
+            // `ENVIRO.EXE` 12c8:029a — so the next LOOP steps out. Nothing
+            // is popped and the flow does not move.
             Prim::Leave => {
-                if let Some(l) = self.loops.pop() {
-                    self.ret.truncate(l.slot);
+                let n = self.ret.len();
+                if n >= 2 {
+                    self.ret[n - 2] = self.ret[n - 1];
                 }
             }
 
@@ -387,14 +429,19 @@ impl Vm {
                 self.ret.push(self.ip);
                 self.ip = body;
             }
-            // DO: `limit index DO`, as in `706 701 DO I =>EXIST LOOP`.
+            // DO: `limit index DO`, as in `706 701 DO I =>EXIST LOOP`. The
+            // handler (`LL.EXE` 0af7:05d5, the same code in `ENVIRO.EXE` at
+            // 12c8:01b8) makes room for two return-stack cells and pops the
+            // data stack into them: the index into the top one, the limit
+            // under it. Both live on the return stack and nowhere else, and
+            // bytecode edits them there: Victor Loomes' `STOPLOOP` (module
+            // 605) rewrites the index through `R>` and `>R`, and a machine
+            // that kept the limit somewhere of its own turned that early
+            // exit into a loop that never ends.
             Prim::LoopStart => {
                 let (index, limit) = (self.pop("DO")?, self.pop("DO")?);
+                self.ret.push(limit as u16);
                 self.ret.push(index as u16);
-                self.loops.push(Loop {
-                    limit,
-                    slot: self.ret.len() - 1,
-                });
             }
 
             Prim::Host => {

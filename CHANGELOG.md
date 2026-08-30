@@ -6,6 +6,170 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-30
+
+### Added
+
+- **Victor Loomes – Das Spiel plays.** A fifth game, and the first of the
+  16-bit engine's earlier generation: `LL.EXE` is dated 1993, three years
+  before every other build in the tree. `RUN` carries it through the
+  competition slide and the intro into the first room and on through all
+  thirteen locations; its music plays through the rebuilt sequencer, and it
+  saves and loads through its own drop-down panel.
+
+  The container is the earlier framing, and nothing in a file says which
+  framing it is — so the reader works it out by reading the file as the
+  earlier one and asking whether it adds up: the offset table's first entry
+  must be where the tables end and its last must be the file's length. Both
+  hold for this game and for Compaq, and no later container can satisfy the
+  first. What the framing changes: there is no per-segment packing field, so
+  occupancy starts sixteen bytes sooner and which segments are packed is the
+  generation's rather than the header's; packed sprites and fonts carry a
+  ten-byte header where the later games' carry eight; and the word the later
+  games use for a volume count means something else here, because this player
+  has no name former for a second volume.
+
+  The kernel is read the same way. Ordinals are handed out in registration
+  order, and the player registers its core table, then a run of placeholder
+  words, then its domain table — so where the domain table starts is however
+  many placeholders that build registers. It is 21 here and 22 in the three
+  later builds, which is why this one binds at 102 where they bind at 105.
+  That count is now read out of the binary instead of assumed, which is what
+  makes a fifth build cost nothing. `Inline::put_string_adr` became optional
+  along the way: this kernel is two core words short of the later ones.
+
+  Its music is fourteen bare `PLX` sections with no module around them, and
+  its `MUSADL.DRV` is an older build with one entry fewer whose tables sit
+  `0xd0` earlier — byte-identical tables at a different offset, which is the
+  kind of difference that goes unheard rather than caught.
+
+  Its location scheme is its own too: no module 601 and no `NEXTLOC`, but
+  `NAO` and `AO` in module 605, and two modules per location — `N+100` and
+  `N+20` — where the later games have three. Location 3 has neither and
+  shares location 2's pair.
+
+  Eight kernel words no other game calls are implemented from their handlers:
+  `?INSIDE`, `CROUTE`, `GSCRPOS`, `SETSHADE`, `SETCYCLE`, `SYSFC`, `SYSBC` and
+  `_POOR`, along with `REQUEST` and the `I'` primitive. Two of them say something worth
+  writing down: `SETSHADE` stores its two arguments where nothing in either
+  binary ever reads them, and `_POOR` pushes a constant zero. One is taken
+  only as far as its arguments, noted in `docs/departures.md`: `SETCYCLE`'s
+  palette rotation is recorded and not turned.
+
+  `REQUEST` is the game's own message box, and it is the one word in either
+  generation that stops the game to ask something. The original blocks inside
+  its handler until a click; nothing here can block, so the word is asked
+  again every frame until it has an answer — the machine stands on the cell
+  while the frames that draw the box and read the pointer go by. That is what
+  the menu's Save and Load pages are: five buttons, one per slot, laid out to
+  the drawer's own arithmetic. The strings it shows are numbered from one,
+  which the fetcher says outright (`0104:80e2` admits an index the count is
+  not less than). A slot's three files sit under two numbers — `(700+n).blk`
+  beside `n.anm` and `n.FRZ`, which is what `CTRL`'s own
+  `DUP 700 + 2 AO ROT PUT`, `DUP PUTANIM`, `DUP =>PUTAS` asks for — and a
+  slot written from the save box reloads in a later session to the location
+  it was written in, with the same resident modules.
+
+  The rebuilt music is held against a recording of the original for the first
+  time on this generation of the driver: 744 register writes match — the
+  intro's whole jingle and the start of the fade behind it. The two builds' tables being byte-identical is
+  what makes that worth doing, because a reader at the wrong offsets comes
+  back with plausible values rather than none.
+
+  The whole intro is held against a recording of the original as well: all
+  eight pictures it holds — the client's logo, the title card, *featuring
+  Victor Loomes* over the office vignette and five more — are RGB-identical
+  to a lossless capture, 0 of 64 000 pixels differing in any of them, and in
+  the same order. The original needs no input to get there, so both sides
+  are driven the same way and reduced by the same rule — a picture counts
+  once it stands unchanged for forty steps. That is the earlier container
+  framing's first evidence beyond its own files, and why
+  `docs/verification.md` no longer says only this game's music has been
+  compared.
+
+- **Every game has a page that says what it is.** `docs/games/<game>/README.md`
+  opens each game's documentation with what it is about, who commissioned it,
+  who made it and why it exists, and indexes the four technical pages behind
+  it. Each attribution names its evidence — a credits text table, a license
+  file, a launcher's sign-off — and where the shipped files say nothing, as
+  with Die Enviro-Kids greifen ein's client, the published record is named as
+  such under its own heading rather than mixed in. Two credits tables that had
+  been identified and never read are read: Dunkle Schatten 2's and Jeff
+  Jet's. Dunkle Schatten 2's names the engine itself — *Basierend auf: …
+  "Motion"-Präsentations-System von S. Hoffmann* — and is where the
+  attribution of MOTION to DigiTales and Stefan Hoffmann now comes from, the
+  game's own text table rather than an outside source; Victor Loomes remains
+  the only game that gives the engine a version.
+
+### Fixed
+
+- **A screen's frame word belongs to the screen, and a frame runs them
+  all.** `SCRCTRL` stores the id the screen runs into the screen's own
+  record — the handler writes it through the current-screen accessor and
+  never looks at it — and `ANIMPLAY` walks the screen slots once per frame,
+  makes each screen current and runs the word it names, one after another
+  inside one step; the activity test earlier in the same loop skips only the
+  descriptor work, so a screen that is switched off still gets its
+  controller, and a negative id is what it is in the original — no
+  controller — rather than a word that failed to bind. motionvm had kept a
+  single id for the whole engine and run one word per frame, which reads the
+  same for the four games that give exactly one screen a controller and
+  falls apart on Victor Loomes: its menu lives on a screen of its own,
+  switched off, and the word that watches for the pointer reaching the top
+  of the display — and switches the screen back on — runs *on that hidden
+  screen*, so the menu could not appear; and of the three words its three
+  screens name, the last call won under the old reading, so the game ended
+  on the frame it started.
+
+- **A `DO … LOOP` lives on the return stack, as the 16-bit engine keeps
+  it.** `_LoopStart` pushes the index over the limit onto the return stack
+  (`LL.EXE` `0af7:05d5`, the same code in `ENVIRO.EXE` at `12c8:01b8`),
+  `LOOP` steps the index in place and leaves once limit ≤ index, popping
+  both, and `LEAVE` copies the index over the limit. motionvm had kept the
+  limit in a frame of its own beside the machine, which reads the same until
+  bytecode reaches a loop's cells through the return stack — and Victor
+  Loomes does: `STOPLOOP` in its module 605 ends an inventory scan early
+  with `R> R> DROP R> DUP >R >R >R`, which under the split model overwrote
+  the index with a return address and turned the early exit into a loop that
+  never ends. Using the car key on the car stopped the game on its step
+  limit; the four other games reach none of the difference. Along the way,
+  three branch rules carried from the 32-bit engine as hypotheses are read
+  out of the 16-bit handlers and hold: `WHILE` leaves on true, `UNTIL`
+  branches back on zero, `=IF` on inequality.
+
+- **Whether an empty hot area is a hole is the build's answer, not ours.**
+  `?XINSIDE` passes over a hot area whose four corners are all zero in
+  `ENVIRO.EXE` and `BMZ.EXE`, which follow the four corner comparisons with
+  four more; `HPPLAY.EXE` and `LL.EXE` stop after the comparisons — 71
+  instructions against 101 — and take such an entry as a rectangle at the
+  origin. It had been the later pair's behavior for every game. It is now
+  read out of the handler the game was opened with, which puts Jeff Jet on
+  its own build's answer as well.
+
+### Changed
+
+- **`docs/` is laid out the same way throughout.** Where the two engine
+  generations document the same concept the page now has the same filename and
+  the same title in both — containers, sprites, blocks and the frame loop —
+  and the format pages that had four names for the same table column
+  (*Meaning*, *Content*, *Reading of the name*, *Description*) use one. Open
+  state is `## Open questions` everywhere, and a page's own evidence section
+  `## How this is checked`. Dunkle Schatten 2's four game pages, which shared
+  almost no structure with the four 16-bit games', now follow the same
+  skeleton: a file table with sizes and dates, a whole-container section, and
+  the same heading names.
+
+- **The README is written for someone who wants to play a game.** Which games,
+  how to get a build, which files a copy needs, the controls, where savegames
+  go and what to do when something does not start — in that order, with the
+  developer and reverse-engineering material it had grown to carry moved to
+  `docs/tools.md` and `docs/verification.md`.
+
+- `motionvm-tools`' `is_location` accepts the modules 21 to 40. A location
+  has two modules in the earlier generation, `100+N` and `20+N`, against the
+  later one's three, and a location module counted as library teaches its ids
+  to every other listing.
+
 ## [0.5.0] - 2026-08-29
 
 ### Added
@@ -455,7 +619,7 @@ primitives**, against modules the 1996 compiler produced; and **a song's first
 8,000 OPL register writes**, with one mixer envelope. Everything else is
 verified against the original's *files* — its resources, its bytecode, its
 driver binary — which says the readers agree with the data, not that the engine
-behaves as the engine did. See "What is and is not verified" in the README.
+behaves as the engine did. See `docs/verification.md`.
 
 ### Added
 
@@ -502,7 +666,8 @@ behaves as the engine did. See "What is and is not verified" in the README.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/wdominik/motionvm/releases/tag/v0.6.0
 [0.5.0]: https://github.com/wdominik/motionvm/releases/tag/v0.5.0
 [0.4.1]: https://github.com/wdominik/motionvm/releases/tag/v0.4.1
 [0.4.0]: https://github.com/wdominik/motionvm/releases/tag/v0.4.0

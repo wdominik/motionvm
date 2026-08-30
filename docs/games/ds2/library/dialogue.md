@@ -2,7 +2,7 @@
 
 # Module 13 — Dialogue and Global Verb Handlers
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 Module 13 (30 words) holds the game-wide object behaviors: what happens
 when the player examines, combines, or reads things regardless of the

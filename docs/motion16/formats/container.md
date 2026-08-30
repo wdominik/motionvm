@@ -1,8 +1,8 @@
 [← Documentation index](../../README.md)
 
-# The DATA Container
+# Resource Containers — `DATA.-n-`
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The 16-bit engine keeps a whole game in `DATA.-n-`, one volume per floppy it
 took: a header that also names the boot word, an occupancy table, an offset
@@ -11,7 +11,7 @@ single slot space, segment after segment; the id a script uses is the slot
 number minus the segment's base.
 
 **How many volumes there are and whether the items are packed are two
-independent choices**, and the three games make them differently.
+independent choices**, and the games make them differently.
 Die Enviro-Kids greifen ein ships
 one volume of 7 609 296 bytes with its items stored plainly. Jeff Jet ships
 two, 1 404 960 and 1 098 474 bytes, with every item packed — 2 459 890 bytes
@@ -19,36 +19,43 @@ that unfold to 8 412 811, a bigger game than the first on a third of the disc.
 Hilfe für Amajambere ships two, 506 066 and 4 827 543 bytes, and packs
 neither: it is the
 game that shows the two properties apart, and until it was read they had never
-been seen except together. All three are the same format; the header says which
-shape a given game has.
+been seen except together. The header says which shape a given game has.
+
+**There are two framings of that header**, sixteen bytes apart, and the layout
+below is the later one. The earlier one — 1993 and 1994, Victor Loomes and
+Compaq — has no packing field at `0x16`, so its occupancy table begins at 22
+instead of at 38 and everything after it moves with it. See
+[The earlier framing](#the-earlier-framing).
 
 All multi-byte values are little-endian.
 
 ## Header (offset 0)
 
-Nineteen `u16`, of which the last is spare:
+Nineteen `u16`, of which the last is spare. Victor Loomes' header stops after
+the eleventh — the seven packing words and the spare are the later framing's,
+and its column is `—` for them ([the earlier framing](#the-earlier-framing)):
 
-| Offset | Die Enviro-Kids greifen ein | Jeff Jet | Hilfe für Amajambere | Meaning |
-|---:|---:|---:|---:|---|
-| 0 | 100 | 100 | 100 | **Boot module** — the module the engine loads first |
-| 2 | 401 | 401 | 401 | **Boot word id** — the word it runs (`RUN`) |
-| 4 | 2500 | 2500 | 2500 | GFX slots |
-| 6 | 1000 | 1000 | 1000 | BLK slots |
-| 8 | 700 | 700 | 700 | SCR slots |
-| 10 | 25 | 25 | 25 | PAL slots |
-| 12 | 10 | 10 | 10 | FNT slots |
-| 14 | 10 | 10 | 10 | FRT slots |
-| 16 | 100 | 100 | **150** | TXT slots |
-| 18 | 1 | 2 | 2 | **Volumes** the game ships on |
-| 20 | 3 | 7 | 7 | **Spare** `u32` entries after the offset table |
-| 22 | 0 | 1 | 0 | GFX items are packed |
-| 24 | 0 | 1 | 0 | BLK items are packed |
-| 26 | 0 | 1 | 0 | SCR items are packed |
-| 28 | 0 | 1 | 0 | PAL items are packed |
-| 30 | 0 | 1 | 0 | FNT items are packed |
-| 32 | 0 | 1 | 0 | FRT items are packed |
-| 34 | 0 | 1 | 0 | TXT items are packed |
-| 36 | 0 | 0 | 0 | Spare |
+| Offset | Die Enviro-Kids greifen ein | Jeff Jet | Hilfe für Amajambere | Victor Loomes | Description |
+|---:|---:|---:|---:|---:|---|
+| 0 | 100 | 100 | 100 | 100 | **Boot module** — the module the engine loads first |
+| 2 | 401 | 401 | 401 | 449 | **Boot word id** — the word it runs (`RUN`) |
+| 4 | 2500 | 2500 | 2500 | 1200 | GFX slots |
+| 6 | 1000 | 1000 | 1000 | 500 | BLK slots |
+| 8 | 700 | 700 | 700 | 700 | SCR slots |
+| 10 | 25 | 25 | 25 | 21 | PAL slots |
+| 12 | 10 | 10 | 10 | 10 | FNT slots |
+| 14 | 10 | 10 | 10 | 10 | FRT slots |
+| 16 | 100 | 100 | **150** | 30 | TXT slots |
+| 18 | 1 | 2 | 2 | 2 | **Volumes** the game ships on — in the earlier framing it is not that: Victor Loomes says two and ships one, and its player has no name former for a second |
+| 20 | 3 | 7 | 7 | 0 | **Spare** `u32` entries after the offset table |
+| 22 | 0 | 1 | 0 | — | GFX items are packed |
+| 24 | 0 | 1 | 0 | — | BLK items are packed |
+| 26 | 0 | 1 | 0 | — | SCR items are packed |
+| 28 | 0 | 1 | 0 | — | PAL items are packed |
+| 30 | 0 | 1 | 0 | — | FNT items are packed |
+| 32 | 0 | 1 | 0 | — | FRT items are packed |
+| 34 | 0 | 1 | 0 | — | TXT items are packed |
+| 36 | 0 | 0 | 0 | — | Spare |
 
 The boot pair is the 16-bit counterpart of the 32-bit engine's `SYSTEM.RSC`:
 there is no bootstrap file, the container itself says where to start.
@@ -108,9 +115,9 @@ two, so this is where items may begin and not where they must.)
   slot's own volume*, or to the end of that volume for the last slot. A
   volume's offsets run over all 4345 slots, so a slot that lives elsewhere
   simply repeats its neighbour's offset and the arithmetic still lands.
-- Measured over all nine volumes of the four games: every volume's items tile
-  it exactly, from its own table's end to its last byte, with nothing left
-  over.
+- Measured over all eight volumes of the four generation-two games: every
+  volume's items tile it exactly, from its own table's end to its last byte,
+  with nothing left over.
 - A slot can be flagged and still have no bytes. Jeff Jet has two, sprites
   1319 and 1848, whose offsets are degenerate in the volume they name.
   Hilfe für Amajambere has **1534**, because it flags whole segment ranges
@@ -125,7 +132,7 @@ two, so this is where items may begin and not where they must.)
 An item of a packed segment is an eight-byte header and then a GFXCRUNCH LZW
 stream:
 
-| Offset | Meaning |
+| Offset | Description |
 |---:|---|
 | 0 | `u16` unpacked length |
 | 2 | `u16` packed length — the item's size less these eight bytes |
@@ -171,7 +178,7 @@ palettes, 3 fonts, 1 font reference table, 96 text tables — is counted in
 ### Palettes
 
 A PAL item is 768 bytes: 256 entries of `u8 r, g, b`, each 0–63 (6-bit VGA
-DAC values; every byte of the 23, 16 and 24 palettes the three games ship is
+DAC values; every byte of the 23, 16, 24 and 21 palettes the four games ship is
 ≤ 63).
 That is the layout of the 32-bit engine's palette item and of its loose
 `000.PAL`, byte for byte — see
@@ -205,6 +212,49 @@ The engine's strings `#F0R3i.txt`, `#F0R4i.gfx` and the reference to a
 `gfx.inf` that is not shipped are authoring-time file names; the shipped
 game is addressed through the container only.
 
+## The earlier framing
+
+Victor Loomes' container and Compaq's are the same format with one field
+missing. Nothing in either file says which framing it is, so it is worked out
+by reading the file as the earlier one and asking whether it adds up — two
+identities that have to hold at once:
+
+* the offset table's first entry is where the tables end, `22 + 2n + 4(n + spare)`;
+* its last entry is the file's length.
+
+Both hold for Victor Loomes (14 848 and 1 009 597) and for Compaq (14 848 and
+445 972). No later container can satisfy the first, whose table begins sixteen
+bytes further on. Both are needed, not either: Jeff Jet's last offset happens
+to be its file length.
+
+Three things differ once the framing is known.
+
+**There is no packing field**, so which segments are packed is not written
+down. It is the same in both games that use the framing, measured over their
+items: sprites and fonts are packed, the font reference table is packed, and
+blocks, modules, palettes and text tables are stored plainly — 721 of 721
+sprites and 2 of 2 fonts in Victor Loomes, 311 and 6 in Compaq.
+
+**A packed item's header is ten bytes rather than eight**: the unpacked length
+is repeated in front of the later header, so the packed length and the two
+GFXCRUNCH parameters sit two bytes further on. The two copies agree in all 723
+packed items of Victor Loomes and all 318 of Compaq. The font reference table
+is the exception in both games and carries the eight-byte header.
+
+**The occupancy word is a plain flag**, not a volume bitmask, because there is
+only one volume to be on. Both games hold 2 in the word at `0x12` that the
+later framing uses for a volume count, and ship one file; `LL.EXE` has only
+the literal `data.-1-` where the later builds hold the `DATA.-#i-` name former
+(file `0x1462e`), so it could not open a second volume if one existed. What
+that word means here is open.
+
+The generation-one games also ship a `GFX.INF` beside the container, which the
+later ones name and none of them ships: one `u16` width and height per GFX
+slot, `0xFFFF, 0xFFFF` for an empty one. A player that unpacks an item on
+demand cannot read a sprite's size out of a packed item without unpacking it
+first, and this is where it reads it instead. See
+[Other files (Victor Loomes)](../../games/vloomes/other-files.md).
+
 ## Open questions
 
 - What the spare `u32` entries at the end of the offset table are for. Their
@@ -224,4 +274,4 @@ game is addressed through the container only.
 - [GFXCRUNCH LZW](../../motion32/formats/lzw.md) — the codec a packed item's stream is
 - [Resource inventory](../../games/enviro/inventory.md) — what Die Enviro-Kids greifen ein ships in each segment
 - [Resource inventory (Jeff Jet)](../../games/jeffjet/inventory.md) — and what Jeff Jet does
-- [RSC containers (MOTION 32-bit)](../../motion32/formats/rsc-container.md) — the 32-bit engine's counterpart
+- [RSC containers (MOTION 32-bit)](../../motion32/formats/container.md) — the 32-bit engine's counterpart

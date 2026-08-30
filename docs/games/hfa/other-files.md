@@ -25,7 +25,7 @@ Nineteen files, and motionvm opens four of them.
 | `ORIGINAL.SCR` | 173 | 1995-06-07 | The list of files it checks |
 | `CONFIG.DAT` | 9 | 1995-07-05 | Installer output |
 | `INFO.TXT` | 3 212 | 1995-06-06 | German readme (requirements, setup) |
-| `FREEWARE.TXT` | 1 263 | 1995-05-26 | The licence |
+| `FREEWARE.TXT` | 1 263 | 1995-05-26 | The license |
 | `LIESMICH.DOK` | 3 827 | 1995-06-01 | A printable reply card to the ministry |
 
 The dates are coherent and not a re-stamp, unlike Jeff Jet's: the drivers carry
@@ -65,7 +65,7 @@ never reads it, having no sound card to configure.
 ## The sound stack
 
 `SOUND.EXE` and all six `*.DRV` are **byte-identical** to the copies both
-sibling games ship — the same files, from the same PSM 2 licence, with their
+sibling games ship — the same files, from the same PSM 2 license, with their
 own 1993–1994 dates. motionvm opens exactly one of them, `MUSADL.DRV`, and
 rebuilds the Ad Lib player around its tables; see
 [PSM 2 music](../../motion16/formats/psm-music.md). The five digital-output
@@ -109,7 +109,7 @@ about 1 MB of EMS and some 5 MB of disc — with an AdLib card as the minimum fo
 music and a 386/33 with a Sound Blaster as what it runs best on. The same
 figures the binary's own prompts name.
 
-`FREEWARE.TXT` is the licence: the game is a copyright of the **ART DEPARTMENT
+`FREEWARE.TXT` is the license: the game is a copyright of the **ART DEPARTMENT
 WA GmbH** of Bochum, made for the Bundesministerium für wirtschaftliche
 Zusammenarbeit und Entwicklung, and given away as freeware — copyable
 unmodified, at most 5 DM for the disc, and not to be put on CD-ROM

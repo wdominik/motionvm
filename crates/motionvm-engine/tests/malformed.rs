@@ -131,7 +131,14 @@ fn a_directory_holding_none_of_the_games_lists_what_each_would_need() {
     let d = dir("empty");
     assert_eq!(titles::detect(&d), None);
     let text = refused_naming_dir(&d, "an empty directory");
-    for name in ["001.RSC", "DATA.-1-", "HPPLAY.EXE", "ENVIRO.EXE", "BMZ.EXE"] {
+    for name in [
+        "001.RSC",
+        "DATA.-1-",
+        "HPPLAY.EXE",
+        "ENVIRO.EXE",
+        "BMZ.EXE",
+        "LL.EXE",
+    ] {
         assert!(text.contains(name), "should name {name}: {text}");
     }
 }
@@ -257,14 +264,16 @@ fn a_broken_16_bit_container_is_refused_rather_than_indexed_into() {
 #[test]
 fn a_16_bit_engine_binary_that_is_not_mz_is_refused() {
     // The container opens and the game is told apart correctly; the word
-    // table still has to come out of the binary beside it. All three 16-bit
-    // games, because each reads its own — the three builds hold 233, 232 and
-    // 228 words and `HPPLAY.EXE`'s ordinals are shifted besides, so no game's
-    // table can stand in for another's.
+    // table still has to come out of the binary beside it. All four 16-bit
+    // games, because each reads its own — the builds hold 233, 232, 228 and
+    // 204 words, `HPPLAY.EXE`'s ordinals are shifted against ENVIRO's and
+    // `LL.EXE`'s whole domain table binds three lower, so no game's table can
+    // stand in for another's.
     for (exe, title, volumes) in [
         ("ENVIRO.EXE", Title::DieEnviroKidsGreifenEin, 1),
         ("HPPLAY.EXE", Title::JeffJet, 2),
         ("BMZ.EXE", Title::HilfeFuerAmajambere, 2),
+        ("LL.EXE", Title::VictorLoomes, 1),
     ] {
         let d = dir(&format!("mz_{exe}"));
         put(&d, "DATA.-1-", &minimal_dat());
@@ -280,7 +289,7 @@ fn a_16_bit_engine_binary_that_is_not_mz_is_refused() {
 #[test]
 fn jeff_jet_without_its_second_volume_is_refused_by_name() {
     // Volume 2 holds every palette, both fonts and the font reference table,
-    // so a copy without it would find every script and no colour. Saying so
+    // so a copy without it would find every script and no color. Saying so
     // beats starting and drawing nothing.
     let d = dir("jeffjet_one_volume");
     put(&d, "DATA.-1-", &minimal_dat());

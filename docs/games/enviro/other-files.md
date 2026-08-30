@@ -11,7 +11,7 @@ sound.
 | File | Size | Date | What it is |
 |---|---:|---|---|
 | `ENVIRO.EXE` | 167 430 | 1996-08-27 | [The MOTION 16-bit player](../../motion16/engine/enviro-exe.md) |
-| `DATA.-1-` | 7 609 296 | 1996-08-26 | [The container](../../motion16/formats/data-container.md) — the whole game |
+| `DATA.-1-` | 7 609 296 | 1996-08-26 | [The container](../../motion16/formats/container.md) — the whole game |
 | `KIDS.BAT` | 520 | 1996-08-27 | The launcher, below |
 | `README.TXT` | 1 082 | 1996-12-22 | German readme: how to provide EMS (`DEVICE=C:\DOS\EMM386.EXE RAM HIGHSCAN` instead of `NOEMS`) |
 | `SOUND.EXE` | 11 175 | 1995-07-10 | The PSM 2 sound setup (*"A PARSEC Production"*); writes `PSMCFG4.DAT` |
@@ -25,7 +25,7 @@ sound.
 | `32RTM.EXE` | 152 108 | 1996-05-14 | Borland 32-bit runtime manager — not referenced by the player or the launcher |
 | `DPMI32VM.OVL` | 58 376 | 1996-05-14 | Its DPMI server — likewise unreferenced |
 
-## `KIDS.BAT`
+## The launcher
 
 ```
 if "%1" == "SOUND" goto new_sound     (also "sound", "Sound")

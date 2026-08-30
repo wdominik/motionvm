@@ -4,7 +4,7 @@
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
-The music blocks (see [Blocks](block.md)) and the standalone `TEST.HMI` use
+The music blocks (see [Blocks](blocks.md)) and the standalone `TEST.HMI` use
 the song format of Human Machine Interfaces (HMI), the middleware whose
 drivers ship with the game. The game contains 26 songs, block ids 0–25.
 
@@ -167,7 +167,7 @@ numbers: 104 is a program change, 105 a pitch bend (`0x99A1B`, `0x99A38`),
 anything else the controller of that number. Every shipped snapshot is
 `68 <program> 69 40` — a program and a centered pitch bend.
 
-## Verified
+## How this is checked
 
 All 26 shipped songs decode: 186 tracks, every one ending exactly on its
 `FF 2F`, no unknown event, no note-off.
@@ -199,5 +199,5 @@ duplicates: 26 blocks hold about 19 distinct pieces.
 ## See also
 
 - [Audio](../engine/audio.md) — playback words and drivers
-- [Blocks](block.md) — where the songs are stored
+- [Blocks](blocks.md) — where the songs are stored
 - [Other files](../../games/ds2/other-files.md) — the HMI drivers and instrument banks

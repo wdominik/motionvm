@@ -1,6 +1,6 @@
 [← Documentation index](../../README.md)
 
-# GFX8 — 8-Bit Sprites
+# Sprites — GFX8
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
@@ -71,5 +71,5 @@ the two bytes.
 
 - [The GFXCRUNCH LZW codec](lzw.md)
 - [Palettes](palette.md)
-- [RSC containers](rsc-container.md) — where sprites are stored
+- [RSC containers](container.md) — where sprites are stored
 - [Descriptors](../engine/descriptors.md) — how sprites are placed on screen

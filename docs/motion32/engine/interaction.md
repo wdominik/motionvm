@@ -19,7 +19,7 @@ engine. The script side installs callbacks into it (see
 the input snapshot in before every `DOORDER` call; `DOORDER` reads and
 advances it. The engine-side field map:
 
-| Offset | Content |
+| Offset | Description |
 |---|---|
 | +0x00 | Verb (0 = none; 1–8, e.g. 4 = "use item") |
 | +0x04 | The affected item / target (a "leave" order stores the destination here) |
@@ -133,7 +133,7 @@ the plain arrow back through +0xBC, the +0x13C callback, mode 0.
 The per-location click areas (64 bytes each, table at +0x84, count at
 +0xF4):
 
-| Offset | Content |
+| Offset | Description |
 |---|---|
 | +0x00…+0x0C | Rectangle x1 y1 x2 y2, **inclusive** corners |
 | +0x10 | Label text (shown by the pointer-info word) |

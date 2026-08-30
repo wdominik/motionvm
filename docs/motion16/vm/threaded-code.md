@@ -2,7 +2,7 @@
 
 # Threaded Code — Cell Encoding
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 A word body is a sequence of 16-bit cells. Each cell is one of:
 
@@ -68,7 +68,10 @@ lands.
 
 `DO … LOOP` compiles to `_LoopStart` (no operand) and `_LoopEnd` with a
 backward distance; the loop index is `I`. `DO` takes `limit index` in that
-order: the save-slot probe in `RUN` is `706 701 DO I =>EXIST … LOOP`.
+order: the save-slot probe in `RUN` is `706 701 DO I =>EXIST … LOOP`. Both
+cells go onto the **return stack**, index over limit — see the state table
+in [Execution model](execution-model.md#state) for the handlers and for what
+`I'`, `LEAVE` and Victor Loomes' `STOPLOOP` do with them.
 
 ## `VAR`, `CONST`, `ALLOT`
 

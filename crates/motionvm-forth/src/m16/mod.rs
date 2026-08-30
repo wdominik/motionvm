@@ -42,7 +42,7 @@ use motionvm_formats::Binding;
 use motionvm_formats::m16::mz::{KERNEL_BIT, ORDINAL_MASK};
 use motionvm_formats::m16::scr::ScrModule;
 
-use crate::{Address, Error, Host, Loop, Result, Run, prims};
+use crate::{Address, Error, Host, Result, Run, prims};
 
 mod prims16;
 
@@ -368,7 +368,6 @@ impl Memory {
 pub struct Context {
     ip: u16,
     ret: Vec<u16>,
-    loops: Vec<Loop>,
     steps: u64,
 }
 
@@ -381,7 +380,6 @@ pub struct Vm {
     /// The data stack: 16-bit cells, sign-extended. Every push wraps.
     pub data: Vec<i32>,
     ret: Vec<u16>,
-    loops: Vec<Loop>,
     ip: u16,
     steps: u64,
     /// Guards against a runaway program; generous but finite.
@@ -400,7 +398,6 @@ impl Vm {
             binding: binding.clone(),
             data: Vec::new(),
             ret: Vec::new(),
-            loops: Vec::new(),
             ip: 0,
             steps: 0,
             step_limit: 5_000_000,
@@ -462,7 +459,6 @@ impl Vm {
     pub fn start(&mut self, start: Address) -> Result<()> {
         self.ip = self.flat_of(start)?;
         self.ret.clear();
-        self.loops.clear();
         self.steps = 0;
         Ok(())
     }
@@ -479,6 +475,17 @@ impl Vm {
         }
     }
 
+    /// Runs the kernel word that is running again on the next resume.
+    ///
+    /// The interpreter steps past a cell before it hands the word to the
+    /// host, so this steps back. It is what a word needs that cannot finish
+    /// in one go: the original blocks inside its own handler until a click
+    /// answers it, and there is nowhere to block here — the frame has to end
+    /// and the word has to be asked again.
+    pub fn repeat_word(&mut self) {
+        self.ip = self.ip.wrapping_sub(CELL);
+    }
+
     /// Lifts the current execution out of the machine, leaving it free. The
     /// data stack stays, as it does in the re-entrant interpreter call the
     /// original's `ANIMPLAY` makes.
@@ -486,7 +493,6 @@ impl Vm {
         Context {
             ip: self.ip,
             ret: std::mem::take(&mut self.ret),
-            loops: std::mem::take(&mut self.loops),
             steps: self.steps,
         }
     }
@@ -495,7 +501,6 @@ impl Vm {
     pub fn unpark(&mut self, saved: Context) {
         self.ip = saved.ip;
         self.ret = saved.ret;
-        self.loops = saved.loops;
         self.steps = saved.steps;
     }
 
@@ -507,7 +512,6 @@ impl Vm {
         let saved = self.park();
         self.ip = flat;
         self.ret.clear();
-        self.loops.clear();
         self.steps = 0;
         self.nested += 1;
         let outcome = match self.resume(host) {

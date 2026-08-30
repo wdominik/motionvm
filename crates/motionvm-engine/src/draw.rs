@@ -103,6 +103,9 @@ impl Engine {
     /// bands over it.
     pub fn render(&mut self) -> Framebuffer {
         let mut out = self.video.clone();
+        // The request box, over the frame and under the pointer: the drawer
+        // blits it and calls `SHOWMOUSE` after (`0104:7332`).
+        self.draw_request(&mut out);
         // The pointer, last of all. The mouse layer paints it straight onto
         // the video surface (0x2543e: save-under, then the masked blit
         // 0x26594), so it sits above everything. The 8-pixel alignment in
@@ -473,19 +476,19 @@ impl Engine {
             // 20, which is exactly one pixel over and one under. Placing both
             // from a top computed once, out of the text font, dropped the
             // outline a pixel: doubled below, missing above. (The 16-bit run
-            // drawer does the same per-pass centring, per line, with the
+            // drawer does the same per-pass centering, per line, with the
             // gaps the drawer set for the pass — `14ee:1231`, `14ee:1262`.)
             let height = line_height(pass_font, gap);
-            // The gap belongs in the centring height, and this is why.
+            // The gap belongs in the centering height, and this is why.
             //
             // At 0x2588e the output routine computes `font[+2] × lines`
-            // with no gap (0x25897, 0x258a1, 0x258a6), and centring on that
+            // with no gap (0x25897, 0x258a1, 0x258a6), and centering on that
             // looked like the faithful reading. It is not what the engine
             // does: `the_intro_shows_its_two_texts_in_order` measures a line at
             // 166 against a real run, and the gapless height puts it at 167.
             //
             // So either that branch is not the one this path takes, or the
-            // height there serves something other than the centring. Measured
+            // height there serves something other than the centering. Measured
             // beats read — the same way the oracle test threw out a -1 truth
             // flag that had looked just as convincing. (The 16-bit measure is
             // the same sum, read this time: `lines × height + (lines − 1) ×

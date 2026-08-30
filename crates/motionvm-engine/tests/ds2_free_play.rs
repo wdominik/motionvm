@@ -188,7 +188,7 @@ fn escape_opens_the_quit_page() {
 /// then repaints with `CALCINV`.
 ///
 /// `inventory.rs` has a test for this that is ignored, with this test named
-/// as the one that covers the behaviour: the branch does run, and this is
+/// as the one that covers the behavior: the branch does run, and this is
 /// where what happens is settled.
 #[test]
 fn the_inventory_arrows_scroll_the_window() {

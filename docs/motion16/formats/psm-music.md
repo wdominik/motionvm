@@ -2,9 +2,9 @@
 
 # PSM 2 Music
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
-Ten blocks of the [DATA container](data-container.md) are music: PSM 2
+Ten blocks of the [DATA container](container.md) are music: PSM 2
 modules, played on an OPL2 by `MUSADL.DRV`. The driver file is the whole
 player — sequencer, fade engine and register back-end in 4480 bytes behind
 a `MUS\0` header — and `ENVIRO.EXE` keeps only a loader, a call table and
@@ -23,6 +23,13 @@ the shipped modules. Every later section is an `SM8\0` sample for the
 digital-sample driver the game can install beside the Ad Lib one, and an
 `MDH\0` block sits between table and sections at +0x38; the FM path reads
 neither.
+
+**The earliest game has no module at all.** All fourteen of Victor Loomes'
+tunes are a bare `PLX` section stored as the block itself — no tag, no section
+table, no samples, which fits a game that ships no digital drivers and has no
+sample word in its kernel. Both forms reach the same reader, which sniffs the
+tag: a block that opens on `MTCVTS` has its section 0 cut out first, a block
+that opens on `PLX\0` is the section.
 
 ## The song — the `PLX` section
 
@@ -76,7 +83,16 @@ block the octave.
 
 `MUSADL.DRV` opens with `MUS\0`, version 0x0100, fifteen entry offsets at
 +0x18, seven service-pointer cells the installer fills at +0x36, and an
-`NS` trailer at the offset +0x0a names. The manager (`198c:0193`) verifies
+`NS` trailer at the offset +0x0a names.
+
+Two builds ship. The 1995/96 games all carry the same 4480-byte file with
+fifteen entries; Victor Loomes carries a 3915-byte build with **fourteen**,
+and its four data tables sit `0xd0` earlier — `0x4f4`, `0x5f4`, `0x5fd` and
+`0x606` against `0x5c4`, `0x6c4`, `0x6cd` and `0x6d6`. The tables themselves
+are byte-identical between the two, which is what makes reading them at the
+wrong offset a silent wrong answer rather than a loud one: 256 plausible
+defaults and a full note table come back either way, and nothing sounds wrong
+until a note comes out flat. The entry count is what says where to read. The manager (`198c:0193`) verifies
 exactly that, builds fifteen five-byte far-jump stubs, and calls entry 0 —
 which flushes the install state to the chip: one default per register
 (`0x5c4`), `0xFF` marking the untouched ones, written in ascending
@@ -135,6 +151,15 @@ streams are identical to the capture's end, 2 738 writes. That needs a
 recording of the original, so it is a result reported rather than
 something a reader can re-run.
 
+The older driver is held against a recording of its own, and against a
+different question. Victor Loomes' intro runs `0 7 STARTTUNE ANIMPLAY
+ENDTUNE` — block 7, a 552-byte jingle six seconds long, started with a loop
+count of zero — and the two streams agree for 744 writes: the whole tune, first
+note to last, and the start of the fade behind it. Since the two builds' tables
+are byte-identical, that is the check which says the v14 profile reads the
+right bytes rather than plausible ones. What the recording holds past the fade
+is not covered ([open questions](../../open-questions.md#motion-16-bit)).
+
 ## Open questions
 
 - The `SM8` sample sections are the digital renderer's voices — with the
@@ -149,7 +174,7 @@ something a reader can re-run.
 ## See also
 
 - [Blocks](blocks.md) — where the modules live, and the other block families
-- [The DATA container](data-container.md) — the BLK segment
-- [Boot and frame loop](../engine/boot-and-loop.md) — the clock the same driver file feeds
+- [The DATA container](container.md) — the BLK segment
+- [Boot and frame loop](../engine/game-loop.md) — the clock the same driver file feeds
 - [Other files](../../games/enviro/other-files.md) — `MUSADL.DRV` among the shipped drivers
 - [The FM driver (MOTION 32-bit)](../../motion32/engine/fm-driver.md) — the other game's music path

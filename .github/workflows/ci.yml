@@ -72,8 +72,9 @@ jobs:
         run: cargo clippy --workspace --all-targets
 
       # No MOTIONVM_GAMEDATA_DS2, no MOTIONVM_GAMEDATA_ENVIRO, no
-      # MOTIONVM_GAMEDATA_JEFFJET, no MOTIONVM_GAMEDATA_HFA and no
-      # MOTIONVM_SAVES: the data-dependent tests print why they skipped.
+      # MOTIONVM_GAMEDATA_JEFFJET, no MOTIONVM_GAMEDATA_HFA, no
+      # MOTIONVM_GAMEDATA_VLOOMES and no MOTIONVM_SAVES: the data-dependent
+      # tests print why they skipped.
       # `--nocapture` so that those reasons are in the log — a run that skipped
       # everything must not read like a run that passed everything.
       - name: Tests, without the game data

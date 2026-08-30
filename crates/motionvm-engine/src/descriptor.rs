@@ -257,7 +257,7 @@ impl Engine {
 
     /// A screen's surface has been wiped, so nothing owes it a rebuild.
     ///
-    /// `FADEOUT` fills the surface with colour 0 before its bands start
+    /// `FADEOUT` fills the surface with color 0 before its bands start
     /// (0x74d44) and `ERASESCR` calls the same routine (0x74801). Whatever was
     /// waiting to be put back was on that surface.
     pub(crate) fn forget_rebuilds(&mut self, screen: u32) {
@@ -837,8 +837,6 @@ pub struct Descriptor {
     /// values — they are needed to reproduce a frame — without inventing a
     /// meaning for each one before it has been measured.
     pub fields: BTreeMap<&'static str, i32>,
-    /// Which of the three kinds this is, as the type field at offset 2 records.
-
     /// Whether the drawer visits it at all — bit 0x80 of the flag byte at
     /// +0x13, set and cleared only by `SDACTIVE`/`SDINACTIVE`.
     ///
@@ -900,7 +898,7 @@ pub struct Descriptor {
 ///
 /// One word over two id spaces. Bit 15 marks a sprite and the rest is a
 /// graphics id; without it the value is a graphics id too — a block, drawn
-/// opaque where a sprite is drawn through its key colour — unless `SDTXT` has
+/// opaque where a sprite is drawn through its key color — unless `SDTXT` has
 /// made the descriptor a text, in which case the same number is the id of the
 /// text table to read from (`016a:1eea` decides in that order).
 ///
@@ -913,7 +911,7 @@ pub enum Shows {
     /// Nothing chosen yet.
     #[default]
     Nothing,
-    /// `SDSPR`: a sprite, drawn through its key colour.
+    /// `SDSPR`: a sprite, drawn through its key color.
     Sprite(u32),
     /// `SDBL` or `SDTB`: a block when the descriptor is not a text, and the
     /// text's table when it is.

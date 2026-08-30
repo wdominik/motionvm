@@ -2,7 +2,7 @@
 
 # Kernel Words
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The 16-bit kernel registers its words in two arrays in `ENVIRO.EXE`'s data,
 each a list of 8-byte entries
@@ -39,16 +39,29 @@ reimplementation needs the 151; the other 82 can stay stubs for this game.
 
 ## The other builds' tables
 
-Three builds ship, and each is a prefix of the next by deletion alone —
+Four builds ship, and each is a prefix of the next by deletion alone —
 nothing is ever added going forward:
 
-| Build | Core | Domain | Total | Missing against `ENVIRO.EXE` |
-|---|---:|---:|---:|---|
-| `HPPLAY.EXE` | 82 at `0x20236` | 146 at `0x1f42e` | 228 | `SETMOUSEX/Y/LB/RB` (124–127) and `?SAMPLE` (255) |
-| `BMZ.EXE` | 82 at `0x2067a` | 150 at `0x1f7e6` | 232 | `?SAMPLE` (255) |
-| `ENVIRO.EXE` | 82 | 151 | 233 | — |
+| Build | Core | Domain | Total | Domain base | Missing against `ENVIRO.EXE` |
+|---|---:|---:|---:|---:|---|
+| `LL.EXE` | 80 at `0x14feb` | 124 at `0x146ca` | 204 | **102** | 27 domain words, and the core table's last two |
+| `HPPLAY.EXE` | 82 at `0x20236` | 146 at `0x1f42e` | 228 | 105 | `SETMOUSEX/Y/LB/RB` (124–127) and `?SAMPLE` (255) |
+| `BMZ.EXE` | 82 at `0x2067a` | 150 at `0x1f7e6` | 232 | 105 | `?SAMPLE` (255) |
+| `ENVIRO.EXE` | 82 | 151 | 233 | 105 | — |
 
-The core table is name for name and order for order the same in all three.
+The core table is name for name and order for order the same in all four, as
+far as each has it: `LL.EXE` ends two words earlier, at `_PutLit`, where the
+later builds append `_PutStringAdr` and `$->`.
+
+**Where the domain table starts is the build's, not the format's.** The player
+hands ordinals out in the order it registers words, and it registers three
+runs: the core table, then a run of `DUMMY#F0R3i` placeholders, then the
+domain table. So the first domain word binds at `core + placeholders + 1`.
+The three later builds register 22 placeholders behind 82 core words and start
+at 105; `LL.EXE` registers 21 behind 80 and starts at **102** (`0afe:009a`
+against `140e:002f`, `140a:0039` and `13d9:002f`). The gap between the two
+tables is not unused numbering — it is placeholder words. The count is read out
+of the binary rather than assumed; see [LL.EXE](../engine/ll-exe.md).
 
 Where the deletions sit is what decides whether ordinals move. `HPPLAY.EXE`
 lacks four words *inside* the domain table, so **every domain word from ordinal
@@ -64,13 +77,18 @@ loud case is `HPPLAY.EXE`, which would then name the wrong handler from ordinal
 124 on; the quiet one is `BMZ.EXE`, which would be named correctly throughout
 and hold a word at 255 that is not there. Either way the binding is scanned out
 of the binary the game ships with ([HPPLAY.EXE](../engine/hpplay-exe.md),
-[BMZ.EXE](../engine/bmz-exe.md)).
+[BMZ.EXE](../engine/bmz-exe.md), [LL.EXE](../engine/ll-exe.md)). `LL.EXE` is
+the loudest of the three cases, because its whole domain table sits three
+ordinals below the others'.
 
 What each game asks for: the modules of Die Enviro-Kids greifen ein use 151 of its
 233, Jeff Jet's 150 of its 228 — the same set less `-FONT`, `SDBLK` and
 `SDH%SHR`, plus
-`GDOX` and `GDOY` — and Hilfe für Amajambere's 143 of its 232, adding `&` and
-`GFXVFLIP` to what the other two use between them.
+`GDOX` and `GDOY` — Hilfe für Amajambere's 143 of its 232, adding `&` and
+`GFXVFLIP` to what the other two use between them, and Victor Loomes' 100 of
+its 124 domain words, which adds eight the later games never call: `?INSIDE`,
+`CROUTE`, `GSCRPOS`, `SETSHADE`, `SETCYCLE`, `SYSFC`, `SYSBC` and `_POOR`,
+plus the core table's `I'`.
 
 ## Core table — ordinals 1–82
 
@@ -346,7 +364,7 @@ The stack helpers and the calling convention (data stack pointer at
 descriptor through `016a:04ca`, a script address turned into a pointer by
 `1400:0490`, a word run by id through `1400:028f`), the interpreter's arena
 and word table ([execution model](execution-model.md)), the frame loop and
-`DELAY` ([boot and frame loop](../engine/boot-and-loop.md)), the buffers
+`DELAY` ([boot and frame loop](../engine/game-loop.md)), the buffers
 ([off-screen buffers](../engine/buffers.md)), and the walk, the inventory,
 the order machine, `MOUSEINFO`, `?XINSIDE`, `ADDMESSPIPE`, `SCRX`/`SCRPOS`
 and `->SCRX`, `NEWDESC`/`NEWSETDESC`/`ACTDESC`/`KILLNDESC` and the

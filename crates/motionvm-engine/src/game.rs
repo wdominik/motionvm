@@ -41,6 +41,13 @@ pub struct Game<M: Machine> {
     /// Rust allows one `Playable` for one concrete `Game<M>`. The opener knows,
     /// and writes it down here.
     pub(crate) title: crate::titles::Title,
+    /// The screens' controllers still to run this frame, innermost last.
+    ///
+    /// A frame is every screen's controller in turn, not one — see
+    /// [`Game::step`]. The list is built when a frame starts and drained as
+    /// the words run, so a controller that blocks keeps its place and the
+    /// ones behind it wait for the frames it takes.
+    pub(crate) frame_controllers: Vec<i32>,
     /// Whether a word is part-way through and waiting to be resumed.
     pub(crate) running: bool,
     /// Whether the execution now on the machine is the one put back after
@@ -245,6 +252,13 @@ where
         // again until the word it is stuck in has finished.
         if self.running {
             self.pump()?;
+            // A request holds the machine but not the frame. The original
+            // waits inside its own handler with the frame loop still running
+            // under it, so the box has to be read and shown while the word
+            // stands still — otherwise nothing could ever answer it.
+            if self.engine.request.is_some() {
+                self.engine.poll_request();
+            }
             return Ok(());
         }
         // `QUITANIM` has cleared the main-loop flag, so the game is over. The
@@ -273,16 +287,71 @@ where
         // pixel-for-pixel comparison against the original both enter that way.
         // It applies only until `START` sets a controller; removing it would
         // take those entry points with it.
-        let addr = match self.engine.controller {
-            Some(addr) => addr,
-            None => match self.fallback_controller()? {
-                Some(addr) => addr,
-                None => return Ok(()),
-            },
+        //
+        // A frame runs **every** screen's controller, not one. `ANIMPLAY`
+        // walks its three screen slots and for each one whose word id is not
+        // `0xFFFF` makes that screen current and runs it (`0104:55ec` to
+        // `0x561f` in `LL.EXE`, with the id read from the slot the screen's
+        // `+0x14` was copied into). The activity test sits earlier in the same
+        // loop and skips only the descriptor work, so an *inactive* screen
+        // still gets its controller — which is how Victor Loomes' panel comes
+        // back: its screen is hidden, and the controller on it is what watches
+        // the pointer and shows it again.
+        //
+        // The later games give one screen a controller, so their frame is one
+        // word either way.
+        if self.frame_controllers.is_empty() {
+            self.frame_controllers = self
+                .engine
+                .screen_controllers()
+                .into_iter()
+                .filter(|&id| id >= 0)
+                .collect();
+            self.frame_controllers.reverse();
+        }
+        let addr = loop {
+            let Some(id) = self.frame_controllers.pop() else {
+                // The engine-wide controller is the 32-bit game's, which sets
+                // one without naming a screen. The stand-in is asked for only
+                // when there is none, because asking is not free.
+                if let Some(addr) = self.engine.controller {
+                    break addr;
+                }
+                match self.fallback_controller()? {
+                    Some(addr) => break addr,
+                    None => return Ok(()),
+                }
+            };
+            if let Some(addr) = self.vm.callback_target(id) {
+                // The screen whose word this is becomes the current one
+                // before it runs, so a controller that asks about "the
+                // screen" gets its own (`0104:5600`).
+                self.engine.select_screen_of_controller(id);
+                break addr;
+            }
         };
         self.vm.start(addr)?;
         self.running = true;
         self.pump()?;
+        // The rest of the frame's controllers, in the same step. `ANIMPLAY`
+        // runs them one after another inside one frame, and the input a frame
+        // was given has to reach all of them: a click is worth exactly one
+        // step — the window clears the flag as soon as it has handed it over —
+        // so a controller whose turn came a step later would never see one.
+        // That is not a detail of the frontend: it is why the game's own menu
+        // drew and answered nothing until this loop was here.
+        while !self.running
+            && !self.engine.in_transition()
+            && let Some(id) = self.frame_controllers.pop()
+        {
+            let Some(next) = self.vm.callback_target(id) else {
+                continue;
+            };
+            self.engine.select_screen_of_controller(id);
+            self.vm.start(next)?;
+            self.running = true;
+            self.pump()?;
+        }
         // The walk and the drawer belong *after* the controller, and only if it
         // finished. `ANIMPLAY` calls the controller and waits: a fade does not
         // return until its bands have run, so on such a frame neither the walk
@@ -290,6 +359,11 @@ where
         // right after `FADEOUT` had hidden it — with the descriptors the same
         // bytecode had just switched.
         if self.running || self.engine.in_transition() {
+            return Ok(());
+        }
+        // The walk and the drawer close the frame, so they wait until every
+        // screen's controller has had it.
+        if !self.frame_controllers.is_empty() {
             return Ok(());
         }
         self.descriptor_frame()?;

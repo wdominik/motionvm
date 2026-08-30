@@ -196,6 +196,85 @@ impl Engine {
                 let v = self.display.current_mut().map_or(0, |s| s.pos.0 as i32);
                 stack.push(v);
             }
+            // `( -- y x )`: the pair `SCRPOS` sets, read back. The two words
+            // are mirrored rather than matched — `SCRPOS` takes x deepest and
+            // this leaves x on top (`0104:13bf` in `LL.EXE` pushes the cell at
+            // `+2` and then the one at `+0`) — so feeding one into the other
+            // swaps them. Only Victor Loomes calls it.
+            "GSCRPOS" => {
+                let (x, y) = self
+                    .display
+                    .current_mut()
+                    .map_or((0, 0), |s| (s.pos.0 as i32, s.pos.1 as i32));
+                stack.push(y);
+                stack.push(x);
+            }
+            // `( n -- )`: the two colors the system request box is drawn in,
+            // and nothing else in either build reads them — `SYSBC`
+            // (`0104:3597`) writes `ds:0x1b2`, `SYSFC` (`0104:358e`) writes
+            // `ds:0x1b0`, and the only other mention of either is inside
+            // `REQUEST`, which fills its box with the first and draws the
+            // frame, the button outlines and the text in the second. Kept
+            // rather than acted on until `REQUEST` is built.
+            "SYSFC" | "SYSBC" => {
+                let color = pop1(stack, "SYSFC/SYSBC")?;
+                if name == "SYSFC" {
+                    self.system_fg = color;
+                } else {
+                    self.system_bg = color;
+                }
+            }
+            // `( delay last first -- )`: the palette range that cycles, and
+            // how many driver ticks each step takes. `0104:5319` pops the
+            // three, and where `first >= last` it clears the cycling flag at
+            // `ds:0x5a4` and does nothing else; otherwise it sets the flag,
+            // stores delay, first and last, zeroes the tick counter at
+            // `ds:0x66f2`, sets the rotation amount at `ds:0x48f4` to one,
+            // and floors a delay below one at one. It answers nothing.
+            //
+            // The rotation itself is a frame effect — the tick at
+            // `0104:536d` copies the master palette over the working one and
+            // rewrites the entries between first and last each time the
+            // counter runs out. motionvm holds the request and does not turn
+            // it yet; see `docs/departures.md`. Only Victor Loomes calls it,
+            // in location 13.
+            "SETCYCLE" => {
+                let a = pop_n(stack, 3, "SETCYCLE")?;
+                let (delay, last, first) = (a[0], a[1], a[2]);
+                self.palette_cycle = (first < last).then(|| (first, last, delay.max(1)));
+            }
+            // `( a b -- )`: two cells into two globals that nothing in either
+            // build ever reads back — `0104:2824` stores them at `ds:0x150`
+            // and `ds:0x152`, and a search over both binaries finds no other
+            // mention of either address. `RUN` calls it once, `-1 16
+            // SETSHADE`. Taking the two cells is the whole of it; anything
+            // else would be inventing an effect the original does not have.
+            "SETSHADE" => {
+                pop_n(stack, 2, "SETSHADE")?;
+            }
+            // `( room steps shadow routes aux -- )`: the step buffer between
+            // where the walker is and where it is going. The later games
+            // reach the same routine through `DOWALK`, which reads the five
+            // pointers out of a person record; this game has no `DOWALK` and
+            // pops them itself (`0104:4a45` in `LL.EXE`, in this order).
+            //
+            // Two differences from the later builds are not carried yet, and
+            // both are noted in `docs/open-questions.md`: this build does not
+            // default a zero shadow shrink to 1000, and it ends with a pass
+            // that smooths a one- or two-step heading flip out of the buffer.
+            "CROUTE" => {
+                let a = pop_n(stack, 5, "CROUTE")?;
+                // `pop_n` hands them back deepest first, and the handler pops
+                // the aux table first, so the aux table is the top of the
+                // stack and the room is the deepest.
+                let (room, steps, shadow, routes, aux) =
+                    (a[0], a[1] as u32, a[2] as u32, a[3] as u32, a[4] as u32);
+                crate::walk::croute_with(self, _mem, shadow, steps, routes, aux, room)?;
+            }
+            // `( -- 0 )`: the last word of the domain table, four
+            // instructions long, pushing a constant zero (`0104:0002`). A
+            // placeholder in every build; no module calls it.
+            "_POOR" => stack.push(0),
             // The music, with this kernel's own stack effects — they differ
             // from the 32-bit engine's. `STARTTUNE ( loop n -- )` (file
             // `0xbf89`) pops the block number and the loop flag and answers

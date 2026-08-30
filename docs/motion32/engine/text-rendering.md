@@ -4,7 +4,7 @@
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
-Text is drawn through type-4 [descriptors](descriptors.md). The string
+Text is drawn through text [descriptors](descriptors.md). The string
 comes from a [text table](../formats/text-tables.md); the glyphs from a
 [font](../formats/fonts.md) via the shared
 [reference table](../formats/font-reference-table.md). The pipeline has
@@ -206,5 +206,5 @@ measurement rather than the instruction reading.
 - [Descriptors](descriptors.md) — placement modes, stored size, waits
 - [Fonts](../formats/fonts.md), [Text tables](../formats/text-tables.md)
 - [Dialogue machine](dialogue-machine.md) — who shows most of this text
-- [Blocks](../formats/block.md) — the translucency tables
+- [Blocks](../formats/blocks.md) — the translucency tables
 - [Departures](../../departures.md) — vertical centering and `SDBLK`

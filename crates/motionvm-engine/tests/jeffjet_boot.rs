@@ -8,7 +8,7 @@
 //! What they are really for is the two things this game does that the other
 //! cannot: it comes off two volumes, and every item of it is packed. If either
 //! were read wrongly the game would not fail, it would run without artwork or
-//! without colours — so these tests ask for pixels, and for a palette.
+//! without colors — so these tests ask for pixels, and for a palette.
 //!
 //! The game this file drives is Jeff Jet (MOTION 16-bit).
 

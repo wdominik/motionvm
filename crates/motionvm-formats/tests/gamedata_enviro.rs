@@ -323,7 +323,7 @@ fn the_kernel_tables_are_found_where_they_sit_and_bind_as_the_modules_use_them()
         "the handler of ## as the table holds it"
     );
 
-    let b = mz::binding_of(&words).expect("the inline words are all named");
+    let b = mz::binding_of(&img, &words).expect("the inline words are all named");
     assert_eq!(b.len(), 233);
     assert_eq!(b.name(1), Some("##"));
     assert_eq!(b.name(80), Some("_PutLit"));
@@ -342,7 +342,7 @@ fn the_kernel_tables_are_found_where_they_sit_and_bind_as_the_modules_use_them()
             inline.put_string,
             inline.put_string_adr
         ),
-        (80, 37, 38, 78, 81)
+        (80, 37, 38, 78, Some(81))
     );
     assert_eq!(
         (
@@ -368,12 +368,12 @@ fn the_kernel_tables_are_found_where_they_sit_and_bind_as_the_modules_use_them()
 
 #[test]
 fn every_module_disassembles_without_an_unknown_ordinal() {
-    let Some((_, words)) = kernel_or_skip() else {
+    let Some((img, words)) = kernel_or_skip() else {
         eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let c = container_or_skip!();
-    let b = mz::binding_of(&words).unwrap();
+    let b = mz::binding_of(&img, &words).unwrap();
     let mut dis = disasm::Disassembler::new(&b);
     let modules: Vec<scr::ScrModule> = c
         .present(Segment::Scr)
@@ -408,12 +408,12 @@ fn every_module_disassembles_without_an_unknown_ordinal() {
 
 #[test]
 fn run_and_ctrl_decode_as_the_boot_sequence_and_its_branches() {
-    let Some((_, words)) = kernel_or_skip() else {
+    let Some((img, words)) = kernel_or_skip() else {
         eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
     let c = container_or_skip!();
-    let b = mz::binding_of(&words).unwrap();
+    let b = mz::binding_of(&img, &words).unwrap();
     let mut dis = disasm::Disassembler::new(&b);
     let parse =
         |n: usize| scr::ScrModule::parse(c.item(Segment::Scr, n).unwrap().unwrap()).unwrap();

@@ -2,7 +2,7 @@
 
 # Descriptors and Screens
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The 16-bit kernel has the same display vocabulary as the 32-bit one —
 screens with a size, a position and a viewport; descriptors that show a
@@ -305,7 +305,7 @@ the start-up page's teardown both lean on it.
 
 ## See also
 
-- [Boot and frame loop](boot-and-loop.md)
+- [Boot and frame loop](game-loop.md)
 - [Off-screen buffers](buffers.md)
 - [Fonts](../formats/fonts.md), [Text tables](../formats/text-tables.md)
 - [Descriptors (MOTION 32-bit)](../../motion32/engine/descriptors.md) — the 32-bit structures

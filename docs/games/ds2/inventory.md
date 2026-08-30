@@ -2,10 +2,30 @@
 
 # Resource Inventory
 
-*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 A survey of everything the three containers hold. Counts and ids are
 measured from the shipped files.
+
+## The container as a whole
+
+18 186 442 bytes over three files, indexed by type and id rather than by one
+slot space — the 32-bit generation merges the banks it finds, so which file a
+resource lives in is not something a script can see
+([resource containers](../../motion32/formats/container.md)).
+
+| Type | Count | 001.RSC | 002.RSC | 003.RSC |
+|---|---:|---:|---:|---:|
+| GFX8 | 1678 | 2 | 1619 | 57 |
+| TEXT | 133 | 133 | — | — |
+| BLOCK | 250 | 250 | — | — |
+| FONT | 9 | 9 | — | — |
+| SCRIPT | 86 | 86 | — | — |
+| PALETTE | 60 | 60 | — | — |
+
+Unlike the 16-bit containers, these do not tile: `002.RSC` carries 782 780
+bytes and `003.RSC` 1 240 300 bytes of trailing data that no index entry
+reaches.
 
 ## Sprites (GFX8)
 
@@ -77,7 +97,7 @@ font 6. Font 8 (40 px) is the large headline font.
 | 401–423, 430 | 24 | 2240 B each | Per-location item records |
 | 450–570 | 121 | 64 B–2.8 KB | Dialogue definitions |
 
-See [Blocks](../../motion32/formats/block.md) for the record layouts.
+See [Blocks](../../motion32/formats/blocks.md) for the record layouts.
 
 ## Script modules
 
@@ -87,6 +107,6 @@ entirely empty).
 
 ## See also
 
-- [RSC containers](../../motion32/formats/rsc-container.md)
+- [RSC containers](../../motion32/formats/container.md)
 - [Module map](module-map.md)
-- [Blocks](../../motion32/formats/block.md)
+- [Blocks](../../motion32/formats/blocks.md)

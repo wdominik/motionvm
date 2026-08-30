@@ -30,6 +30,9 @@ use crate::{u16le, u32le};
 /// The sixteen bytes every PSM 2 module starts with.
 pub const MAGIC: &[u8; 16] = b"MTCVTS PSM 2.00\0";
 
+/// The tag the Ad Lib section carries, module or not.
+pub const TAG: &[u8; 4] = b"PLX\0";
+
 /// Where the tags of one module sit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tags {
@@ -41,6 +44,11 @@ pub struct Tags {
 }
 
 /// Whether a block begins with the PSM 2 tag.
+pub fn is_song(item: &[u8]) -> bool {
+    is_module(item) || item.starts_with(TAG)
+}
+
+/// Whether the item is an `MTCVTS` module, as opposed to a bare section.
 pub fn is_module(item: &[u8]) -> bool {
     item.starts_with(MAGIC)
 }
@@ -89,13 +97,21 @@ pub struct Plx {
 
 impl Plx {
     /// Cuts section 0 out of a module and reads its head.
+    ///
+    /// A generation-one game stores the section on its own, with no module
+    /// around it: all fourteen songs of Victor Loomes are a bare `PLX` where
+    /// the later games' ten, four and nine are the first section of an
+    /// `MTCVTS` module. Both reach the same reader.
     pub fn parse(item: &[u8]) -> Result<Self> {
+        if item.starts_with(TAG) {
+            return Self::from_section(item.to_vec());
+        }
         let sections = sections(item)?;
         let start = sections[0] as usize;
         let end = sections
             .iter()
-            .map(|&s| s as usize)
-            .filter(|&s| s > start)
+            .map(|&o| o as usize)
+            .filter(|&o| o > start)
             .min()
             .unwrap_or(item.len())
             .min(item.len());
@@ -109,17 +125,27 @@ impl Plx {
                 ),
             })?
             .to_vec();
-        if !bytes.starts_with(b"PLX\0") {
+        Self::from_section(bytes)
+    }
+
+    /// Reads a `PLX` section that has already been cut out, or that was
+    /// never in a module to begin with.
+    pub fn from_section(bytes: Vec<u8>) -> Result<Self> {
+        if !bytes.starts_with(TAG) {
             return Err(Error::Corrupt {
                 what: "PSM 2 module",
                 detail: "section 0 does not carry the PLX tag".into(),
             });
         }
-        let speed = bytes[4];
+        let speed = *bytes.get(4).ok_or(Error::Truncated {
+            off: 4,
+            need: 1,
+            have: bytes.len(),
+        })?;
         let tempo = u16le(&bytes, 5)?;
         let mut channels = [0u16; 9];
-        for (i, slot) in channels.iter_mut().enumerate() {
-            *slot = u16le(&bytes, 7 + 2 * i)?;
+        for (i, c) in channels.iter_mut().enumerate() {
+            *c = u16le(&bytes, 7 + 2 * i)?;
         }
         Ok(Self {
             speed,

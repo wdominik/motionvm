@@ -2,7 +2,7 @@
 
 # Blocks
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 A BLK item is untyped binary data: the engine hands it to the script with
 `GET` or plays it with `STARTTUNE`, and what it means is decided by who asks
@@ -59,7 +59,7 @@ is the inventory, not a block.
 
 Coordinates go past 320 horizontally because rooms are wider than the
 320-pixel viewport — the screens scroll (see
-[Boot and frame loop](../engine/boot-and-loop.md)). The vertical bound of
+[Boot and frame loop](../engine/game-loop.md)). The vertical bound of
 155 matches the world/inventory split the control handler applies at
 y = 165.
 
@@ -83,8 +83,8 @@ occupied block belongs to one of the four families above.
 
 ## See also
 
-- [The DATA container](data-container.md) — the BLK segment (ids 0–999)
+- [The DATA container](container.md) — the BLK segment (ids 0–999)
 - [PSM 2 music](psm-music.md) — the music blocks' format and their driver
-- [Boot and frame loop](../engine/boot-and-loop.md) — `INCLLOC`, which loads the per-location tables
+- [Boot and frame loop](../engine/game-loop.md) — `INCLLOC`, which loads the per-location tables
 - [Game structure](../../games/enviro/game-structure.md) — the id recipes per location
-- [Blocks (MOTION 32-bit)](../../motion32/formats/block.md) — the 32-bit engine's counterpart, where the records are mapped
+- [Blocks (MOTION 32-bit)](../../motion32/formats/blocks.md) — the 32-bit engine's counterpart, where the records are mapped

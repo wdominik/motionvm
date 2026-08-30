@@ -4,12 +4,31 @@ Reverse-engineering documentation for **MOTION**, the DOS adventure authoring
 system by DigiTales (Stefan Hoffmann), and for the games built with it that
 motionvm plays today:
 
-| Game | Directory | Engine generation |
-|---|---|---|
-| *Im Netzwerk gefangen – Dunkle Schatten 2* (1996, Art Department Werbeagentur GmbH, commissioned by the Bundesministerium des Innern) | `DS2` | **MOTION 32-bit** — `ENGINE.EXE` V0.06.06/R109, dated 1996-10-22 |
-| *Die Enviro-Kids greifen ein* (1996, Art Department Werbeagentur GmbH, commissioned by the Ministerium für Umwelt, Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen — the shipped files name no client) | `ENVIRO` | **MOTION 16-bit** — `ENVIRO.EXE`, dated 1996-08-27 |
-| *Jeff Jet - Abenteuer InfoHighway* (Promotion Software GmbH, commissioned by the Hewlett Packard GmbH — the in-game credits name both; `HP.BAT` signs off 1995, the shipped files are re-stamped 1998-04-10) | `JEFFJET` | **MOTION 16-bit** — `HPPLAY.EXE`, an older build of the same player |
-| *Hilfe für Amajambere* (1995, ART DEPARTMENT WA GmbH, commissioned by the Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung — whose acronym names the binary; given away as freeware) | `HFA` | **MOTION 16-bit** — `BMZ.EXE`, dated 1995-06-05: the build between the other two |
+| Game | Year | Commissioned by | Made by | Directory | Engine |
+|---|---|---|---|---|---|
+| [*Im Netzwerk gefangen – Dunkle Schatten 2*](games/ds2/README.md) | 1996 | Bundesministerium des Innern | DigiTales GmbH, Hamburg, produced by Art Department WA GmbH, Bochum | `DS2` | **32-bit** — `ENGINE.EXE` V0.06.06/R109, 1996-10-22 |
+| [*Die Enviro-Kids greifen ein*](games/enviro/README.md) | 1996 | Ministerium für Umwelt, Raumordnung und Landwirtschaft NRW | Art Department Werbeagentur GmbH | `ENVIRO` | **16-bit** — `ENVIRO.EXE`, 1996-08-27: the latest build |
+| [*Jeff Jet - Abenteuer InfoHighway*](games/jeffjet/README.md) | 1995 | Hewlett Packard GmbH | Promotion Software GmbH, Tübingen | `JEFFJET` | **16-bit** — `HPPLAY.EXE`: the second build |
+| [*Hilfe für Amajambere*](games/hfa/README.md) | 1995 | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung | ART DEPARTMENT WA GmbH, Bochum | `HFA` | **16-bit** — `BMZ.EXE`, 1995-06-05: the third build |
+| [*Victor Loomes – Das Spiel*](games/vloomes/README.md) | 1993 | LBS (Landesbausparkasse) | Promotion Software GmbH, Reutlingen | `VLOOMES` | **16-bit** — `LL.EXE`, 1993-05-20: the oldest build, and the earlier framing of the container |
+
+Each game's own page carries what it is about, who made it and how each of
+those entries is evidenced — a credits table, a license file, a launcher's
+sign-off, or, where the files say nothing, the published record named as such.
+Jeff Jet's year is its launcher's sign-off; its shipped files are re-stamped
+1998-04-10.
+
+**Two of the five name the engine**, at the two ends of the corpus. Victor
+Loomes' credits close on *Erstellt unter · Motion 1.0 · Michel "Babe" Stigler
+· EGO Software* (text table 8), and Dunkle Schatten 2 names it in its
+programming entry: *Basierend auf: … "Motion"-Präsentations-System von
+S. Hoffmann* (text table 6, entry 67), on the same page that gives
+*Entwicklung und Gestaltung / DigiTales GmbH, Hamburg*. The later game therefore names the engine, its
+author and his company outright, which is where the attribution above comes
+from; the earlier one names a **version**, `1.0`, three years before the
+builds this documentation is written from. What Victor Loomes' last two
+entries belong to is not settled — the same table gives `Graphik` two names,
+so a label there can take more than one value.
 
 The directory is the name the original was installed into, and it is a key
 rather than a name: everything kept per game is filed under it —
@@ -24,14 +43,16 @@ binary. A game made with it is *data* — compiled Forth script modules plus
 sprites, palettes, fonts, texts and music in resource containers. The engine
 binary reads that data and runs it.
 
-Those four were built with two generations of that system, and so were the
-MOTION games this documentation cites but does not describe. The generations
+Those five were built with two generations of that system, and so were the
+MOTION games this documentation cites but does not describe — *Compaq* and
+*Eddy M.*, whose containers the format pages measure over and whose games no
+page here describes. The generations
 share the *language* and most of the *vocabulary*; they do not share the
 *machine*:
 
 | | MOTION 16-bit | MOTION 32-bit |
 |---|---|---|
-| Binary | `ENVIRO.EXE`, `BMZ.EXE` and `HPPLAY.EXE`: 16-bit real-mode MZ, Turbo-C, needs EMS; player only, no compiler | `ENGINE.EXE`: 32-bit LE for DOS/4GW, Watcom C/C++32; IDE, compiler, debugger and player |
+| Binary | `ENVIRO.EXE`, `BMZ.EXE`, `HPPLAY.EXE` and `LL.EXE`: 16-bit real-mode MZ, Turbo-C, needs EMS; player only, no compiler | `ENGINE.EXE`: 32-bit LE for DOS/4GW, Watcom C/C++32; IDE, compiler, debugger and player |
 | Container | `DATA.-n-`, one volume per floppy, seven segments in one id space, items packed or plain | `NNN.RSC` files, merged by type and id |
 | Cell | 16 bits | 32 bits |
 | Kernel call | `0x8000 \| ordinal`, ordinals 1-based in two tables | `0x4000xxxx`, ordinals in steps of five |
@@ -71,8 +92,8 @@ exercises.
 - **Provenance.** A page under `motion32/` describes the 32-bit engine as
   measured on the files of Dunkle Schatten 2; a page under `motion16/`
   describes the 16-bit engine
-  as measured on the files of Die Enviro-Kids greifen ein, and on Jeff Jet's or
-  Hilfe für Amajambere's where the builds differ.
+  as measured on the files of Die Enviro-Kids greifen ein, and on Jeff Jet's,
+  Hilfe für Amajambere's or Victor Loomes' where the builds differ.
   Pages under `games/` describe one game's own data and script library. A
   sentence that names no game holds for the whole generation; a count ("all 86
   modules", "all 1586 sprites") is always a count over one game's corpus, and
@@ -84,12 +105,12 @@ exercises.
 
 | Page | Covers |
 |---|---|
-| [RSC containers](motion32/formats/rsc-container.md) | The resource archives `001.RSC`–`003.RSC` |
-| [GFX8 sprites](motion32/formats/gfx8-sprites.md) | 8-bit paletted graphics |
+| [Resource containers](motion32/formats/container.md) | `NNN.RSC`: the resource archives `001.RSC`–`003.RSC` |
+| [Sprites](motion32/formats/sprites.md) | GFX8: 8-bit paletted graphics |
 | [The GFXCRUNCH LZW codec](motion32/formats/lzw.md) | Compression shared by sprites and fonts |
 | [Palettes](motion32/formats/palette.md) | 6-bit VGA palettes, `000.PAL` |
 | [Text tables](motion32/formats/text-tables.md) | String tables |
-| [Blocks](motion32/formats/block.md) | Mixed binary data: HMI music and game data |
+| [Blocks](motion32/formats/blocks.md) | Mixed binary data: HMI music and game data |
 | [Script modules](motion32/formats/script-modules.md) | Compiled Forth modules (`.SCR`) |
 | [HMI songs](motion32/formats/hmi.md) | The music format inside the blocks |
 | [Ad Lib banks](motion32/formats/adlib-bank.md) | The FM patches the music is played with |
@@ -117,7 +138,7 @@ exercises.
 
 | Page | Covers |
 |---|---|
-| [The DATA container](motion16/formats/data-container.md) | `DATA.-n-`: header, volumes, the occupancy bitmask, the offset tables, packed items, the seven segments |
+| [Resource containers](motion16/formats/container.md) | `DATA.-n-`: header, volumes, the occupancy bitmask, the offset tables, packed items, the seven segments |
 | [Sprites](motion16/formats/sprites.md) | Raw 8-bit graphics without a palette of their own |
 | [Fonts](motion16/formats/fonts.md) | Raw bitmap fonts and the font reference table |
 | [Text tables](motion16/formats/text-tables.md) | String tables with relative offsets |
@@ -126,11 +147,12 @@ exercises.
 | [Script modules](motion16/formats/script-modules.md) | Compiled Forth modules with 16-bit cells and global word ids |
 | [Execution model](motion16/vm/execution-model.md) | Interpreter, stacks, the flat address space, the word table |
 | [Threaded code](motion16/vm/threaded-code.md) | Cell encoding, ordinals, inline operands, branches |
-| [Kernel words](motion16/vm/kernel-words.md) | The 16-bit kernel — 233 words in `ENVIRO.EXE`, 232 in `BMZ.EXE`, 228 in the oldest `HPPLAY.EXE` — its two tables, what the games use |
-| [ENVIRO.EXE](motion16/engine/enviro-exe.md) | The later build of the player: the MZ binary, what lives where |
-| [HPPLAY.EXE](motion16/engine/hpplay-exe.md) | The earliest build: five words fewer, every ordinal from 124 up shifted |
-| [BMZ.EXE](motion16/engine/bmz-exe.md) | The middle build: one word fewer, and no ordinal moved |
-| [Boot and frame loop](motion16/engine/boot-and-loop.md) | `RUN`, `SCRCTRL`, `ANIMPLAY`, location changes, shutdown |
+| [Kernel words](motion16/vm/kernel-words.md) | The 16-bit kernel — 233 words in `ENVIRO.EXE`, 232 in `BMZ.EXE`, 228 in `HPPLAY.EXE`, 204 in the oldest `LL.EXE` — its two tables, what the games use |
+| [ENVIRO.EXE](motion16/engine/enviro-exe.md) | The latest build of the player: the MZ binary, what lives where |
+| [HPPLAY.EXE](motion16/engine/hpplay-exe.md) | The second build: five words fewer, every ordinal from 124 up shifted |
+| [BMZ.EXE](motion16/engine/bmz-exe.md) | The third build: one word fewer, and no ordinal moved |
+| [LL.EXE](motion16/engine/ll-exe.md) | The oldest build: a load image that starts elsewhere, and a domain table that binds at 102 |
+| [Game loop](motion16/engine/game-loop.md) | Boot and the frame loop: `RUN`, `SCRCTRL`, `ANIMPLAY`, location changes, shutdown |
 | [Descriptors and screens](motion16/engine/descriptors.md) | What the scripts' call sites establish about the kernel's display words |
 | [Text rendering](motion16/engine/text-rendering.md) | The drawer's two passes, the gaps, justification |
 | [Off-screen buffers](motion16/engine/buffers.md) | `BUFON`, `SETBUF`, `SDBUF`, `KILLNBUF` — load-bearing here |
@@ -139,6 +161,7 @@ exercises.
 
 | Page | Covers |
 |---|---|
+| [The game](games/ds2/README.md) | What it is about, who made it, and why it exists |
 | [Game structure](games/ds2/game-structure.md) | Startup, locations, story flags, saving |
 | [Module map](games/ds2/module-map.md) | What each of the 86 script modules does |
 | [Resource inventory](games/ds2/inventory.md) | What the containers hold, by the numbers |
@@ -156,6 +179,7 @@ exercises.
 
 | Page | Covers |
 |---|---|
+| [The game](games/enviro/README.md) | What it is about, who made it, and why it exists |
 | [Game structure](games/enviro/game-structure.md) | Setting, the location scheme, the three module series, verbs, saving |
 | [Module map](games/enviro/module-map.md) | What each of the 65 script modules does |
 | [Resource inventory](games/enviro/inventory.md) | What `DATA.-1-` holds, by the numbers |
@@ -165,6 +189,7 @@ exercises.
 
 | Page | Covers |
 |---|---|
+| [The game](games/jeffjet/README.md) | What it is about, who made it, and why it exists |
 | [Game structure](games/jeffjet/game-structure.md) | Setting, the thirteen locations, the three module series, verbs, saving |
 | [Module map](games/jeffjet/module-map.md) | What each of the 55 script modules does |
 | [Resource inventory](games/jeffjet/inventory.md) | What the two `DATA.-n-` volumes hold, by the numbers |
@@ -174,10 +199,21 @@ exercises.
 
 | Page | Covers |
 |---|---|
+| [The game](games/hfa/README.md) | What it is about, who made it, and why it exists |
 | [Game structure](games/hfa/game-structure.md) | Setting, the twenty locations, the three module series, verbs, saving |
 | [Module map](games/hfa/module-map.md) | What each of the 76 script modules does |
 | [Resource inventory](games/hfa/inventory.md) | What the two `DATA.-n-` volumes hold, by the numbers |
 | [Other files](games/hfa/other-files.md) | The launcher, the sound stack, the integrity chain, the readmes |
+
+### Victor Loomes – Das Spiel
+
+| Page | Covers |
+|---|---|
+| [The game](games/vloomes/README.md) | What it is about, who made it, and why it exists |
+| [Game structure](games/vloomes/game-structure.md) | Setting, the thirteen locations, the two module series, verbs, saving |
+| [Module map](games/vloomes/module-map.md) | What each of the 36 script modules does |
+| [Resource inventory](games/vloomes/inventory.md) | What the one `DATA.-1-` holds, by the numbers |
+| [Other files](games/vloomes/other-files.md) | The four-program launcher chain, `GFX.INF`, the older sound setup |
 
 ### Reference
 
@@ -185,6 +221,8 @@ exercises.
 |---|---|
 | [Open questions](open-questions.md) | Everything unknown, unverified, or hypothetical, in one place — for both generations |
 | [Departures](departures.md) | Every place motionvm knowingly does something else, and why |
+| [Verification](verification.md) | What is held against the original engine's own output, and what only against the games' files |
+| [motionvm-tools](tools.md) | The shipped command line: what it reads out of a game's containers and what it writes |
 
 ## The shipped files
 
@@ -192,7 +230,7 @@ exercises.
 
 | File(s) | Format |
 |---|---|
-| `001.RSC`, `002.RSC`, `003.RSC` | [Resource containers](motion32/formats/rsc-container.md) |
+| `001.RSC`, `002.RSC`, `003.RSC` | [Resource containers](motion32/formats/container.md) |
 | `SYSTEM.RSC` | Plain-text Forth bootstrap ([other files](games/ds2/other-files.md)) |
 | `ENGINE.EXE` | [The MOTION 32-bit engine](motion32/engine/engine-exe.md) |
 | `DOS4GW.EXE`, `_RUNVM.VMC` | DOS extender and its memory config |
@@ -210,7 +248,7 @@ exercises.
 
 | File(s) | Format |
 |---|---|
-| `DATA.-1-` | [The DATA container](motion16/formats/data-container.md) — the whole game |
+| `DATA.-1-` | [Resource container](motion16/formats/container.md) — the whole game |
 | `ENVIRO.EXE` | [The MOTION 16-bit engine](motion16/engine/enviro-exe.md) |
 | `KIDS.BAT` | Launcher ([other files](games/enviro/other-files.md)) |
 | `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers ([other files](games/enviro/other-files.md)) |
@@ -221,7 +259,7 @@ exercises.
 
 | File(s) | Format |
 |---|---|
-| `DATA.-1-`, `DATA.-2-` | [The DATA container](motion16/formats/data-container.md) — the whole game, on two volumes, packed |
+| `DATA.-1-`, `DATA.-2-` | [Resource container](motion16/formats/container.md) — the whole game, on two volumes, packed |
 | `HPPLAY.EXE` | [The older build of the MOTION 16-bit player](motion16/engine/hpplay-exe.md) |
 | `HP.BAT` | Launcher ([other files](games/jeffjet/other-files.md)) |
 | `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers, byte-identical to the other 16-bit game's ([other files](games/jeffjet/other-files.md)) |
@@ -231,10 +269,20 @@ exercises.
 
 | File(s) | Format |
 |---|---|
-| `DATA.-1-`, `DATA.-2-` | [The DATA container](motion16/formats/data-container.md) — the whole game, on two volumes, stored plainly |
+| `DATA.-1-`, `DATA.-2-` | [Resource container](motion16/formats/container.md) — the whole game, on two volumes, stored plainly |
 | `BMZ.EXE` | [The middle build of the MOTION 16-bit player](motion16/engine/bmz-exe.md) |
 | `AFRIKA.BAT` | Launcher ([other files](games/hfa/other-files.md)) |
 | `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers, byte-identical to the other 16-bit games' ([other files](games/hfa/other-files.md)) |
 | `VRCHKSUM.EXE`, `ORIGINAL.BIN`, `ORIGINAL.REP`, `ORIGINAL.SCR` | The installation's integrity chain, never run here ([other files](games/hfa/other-files.md)) |
 | `CONFIG.DAT` | Installer output ([other files](games/hfa/other-files.md)) |
-| `INFO.TXT`, `FREEWARE.TXT`, `LIESMICH.DOK` | German readme, licence, ministry reply card |
+| `INFO.TXT`, `FREEWARE.TXT`, `LIESMICH.DOK` | German readme, license, ministry reply card |
+
+### Victor Loomes – Das Spiel
+
+| File(s) | Format |
+|---|---|
+| `DATA.-1-` | [Resource container](motion16/formats/container.md) — the whole game, on one volume, in the earlier framing |
+| `LL.EXE` | [The oldest build of the MOTION 16-bit player](motion16/engine/ll-exe.md) |
+| `GFX.INF` | The sprite-dimension side table, which this game ships and the later ones only name ([other files](games/vloomes/other-files.md)) |
+| `LBS.BAT`, `LQ.EXE`, `LP.EXE`, `LC.EXE`, `LOGOMSFX.CMF` | The four-program launcher chain and the jingle the last of them plays ([other files](games/vloomes/other-files.md)) |
+| `PSMCFG.EXE`, `MUSADL.DRV`, `DETECTOR.DRV` | The older PSM 2 sound setup and its drivers ([other files](games/vloomes/other-files.md)) |

@@ -2,21 +2,48 @@
 
 # Other Shipped Files
 
-*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
-Everything in the game directory that is not an RSC container or one of the
-formats with its own page.
+Thirty files, 20.5 MB, and motionvm opens five of them — eight with sound.
 
-## Boot and engine
+| File | Size | Date | What it is |
+|---|---:|---|---|
+| `001.RSC` | 3 799 821 | 1996-10-25 | [Resource container](../../motion32/formats/container.md) — scripts, texts, blocks, fonts, palettes |
+| `002.RSC` | 12 296 112 | 1996-10-13 | [Resource container](../../motion32/formats/container.md) — nearly all the artwork |
+| `003.RSC` | 2 090 509 | 1996-10-13 | [Resource container](../../motion32/formats/container.md) — 57 more sprites |
+| `ENGINE.EXE` | 845 467 | 1996-10-24 | [The MOTION 32-bit engine](../../motion32/engine/engine-exe.md) |
+| `000.FRT` | 516 | 1996-10-01 | [Font reference table](../../motion32/formats/font-reference-table.md) — character to glyph |
+| `HMIMDRV.386` | 117 852 | 1996-09-20 | [Driver archive](../../motion32/formats/driver-archive.md): the OPL3 driver whose tables the rebuilt FM driver reads |
+| `MELODIC.BNK` | 5 404 | 1995-09-15 | [Ad Lib bank](../../motion32/formats/adlib-bank.md) — melodic patches |
+| `DRUM.BNK` | 5 404 | 1995-09-14 | [Ad Lib bank](../../motion32/formats/adlib-bank.md) — percussion patches |
+| `DS2.BAT` | 102 | 1996-10-28 | The launcher, below |
+| `_RUNVM.VMC` | 87 | 1996-10-28 | DOS/4GW virtual-memory configuration, below |
+| `SYSTEM.RSC` | 16 | 1996-10-13 | The plain-text Forth bootstrap, below |
+| `DOS4GW.EXE` | 265 396 | 1996-10-01 | The DOS/4GW 32-bit extender the engine runs on |
+| `DS2.ICO` | 766 | 1996-10-11 | Program icon |
+| `SNDSETUP.EXE` | 166 649 | 1996-10-16 | Sound-card setup; writes `HMISET.CFG` |
+| `SNDSETUP.INI` | 3 129 | 1996-10-14 | Its configuration, below |
+| `HMIDRV.386` | 317 317 | 1996-09-20 | [Driver archive](../../motion32/formats/driver-archive.md) — the digital drivers |
+| `HMIDET.386` | 83 774 | 1996-09-20 | [Driver archive](../../motion32/formats/driver-archive.md) — card detection |
+| `LOADPATS.EXE` | 49 194 | 1995-11-30 | Patch loader for wavetable cards |
+| `PATCHES.INI` | 6 988 | 1995-11-30 | Its patch list |
+| `TEST.HMI` | 13 125 | 1996-09-20 | Sound-setup test song — [HMI](../../motion32/formats/hmi.md) |
+| `TEST.MID` | 14 571 | 1996-09-20 | The same song as standard MIDI |
+| `TEST.WAV` | 80 684 | 1996-09-20 | Sound-setup test sample |
+| `TEST.RAW` | 40 320 | 1996-09-20 | The same sample, headerless |
+| `000.PAL` | 768 | 1996-10-01 | [Palette](../../motion32/formats/palette.md) |
+| `000.FNT` | 1 082 | 1996-10-01 | [System font](../../motion32/formats/fonts.md) |
+| `002.SCR` | 40 136 | 1996-09-30 | Standalone [script module](../../motion32/formats/script-modules.md) |
+| `011.SCR` | 36 908 | 1996-09-25 | Standalone [script module](../../motion32/formats/script-modules.md) |
+| `RSC.INF` | 249 592 | 1996-10-25 | Resource-manager configuration, below |
+| `LIESMICH.TXT` | 2 434 | 1996-10-17 | German readme, below |
+| `LIESMICH.DOK` | 1 975 | 1996-10-17 | The competition reply form the game's ending points at |
 
-| File | Contents |
-|---|---|
-| `DS2.BAT` | Launcher — see below |
-| `ENGINE.EXE` | The MOTION engine — see [ENGINE.EXE](../../motion32/engine/engine-exe.md) |
-| `DOS4GW.EXE` | The DOS/4GW 32-bit DOS extender the engine runs on |
-| `_RUNVM.VMC` | DOS/4GW virtual-memory configuration — see below |
-| `SYSTEM.RSC` | Plain-text Forth bootstrap — see below |
-| `DS2.ICO` | Program icon |
+The five the player needs are the three containers, `ENGINE.EXE` and
+`000.FRT`; `HMIMDRV.386`, `MELODIC.BNK` and `DRUM.BNK` add sound. The rest are
+never opened. What each of the interesting ones is follows.
+
+## The launcher
 
 ### DS2.BAT
 
@@ -64,7 +91,7 @@ START
 the engine boots into its authoring environment instead (see
 [ENGINE.EXE](../../motion32/engine/engine-exe.md)).
 
-## Sound
+## The sound stack
 
 | File | Contents |
 |---|---|
@@ -127,16 +154,16 @@ technically relevant:
 
 ### RSC.INF
 
-A 249,592-byte binary configuration/index for the resource manager. The
+A 249 592-byte binary configuration/index for the resource manager. The
 header begins:
 
-| Offset | Value | Reading |
+| Offset | Value | Description |
 |---|---|---|
 | `+0x00` | 31 | Unknown |
-| `+0x04` | 4,000,000 | Cache size in bytes (presumed) |
-| `+0x08` | 1,323,520 | Second cache/arena size (presumed) |
+| `+0x04` | 4 000 000 | Cache size in bytes (presumed) |
+| `+0x08` | 1 323 520 | Second cache/arena size (presumed) |
 | `+0x0c` | 400 | Unknown |
-| `+0x10`.. | 5000, 300, 900, 20, 900, 200 | The six slot counts of the [RSC containers](../../motion32/formats/rsc-container.md) |
+| `+0x10`.. | 5000, 300, 900, 20, 900, 200 | The six slot counts of the [RSC containers](../../motion32/formats/container.md) |
 | after | pointer-like values | Addresses in the engine's data segment |
 
 The bulk of the file is a run of **22-byte records**, most carrying an

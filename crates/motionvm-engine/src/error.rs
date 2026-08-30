@@ -23,7 +23,7 @@
 //! read by a person who has just copied a 1996 CD and has no way to guess
 //! which of its thirty files mattered, and several of them are asserted on by
 //! the test suite. The enum exists so that a caller can *also* branch on the
-//! case; it is not a licence to reword the cases.
+//! case; it is not a license to reword the cases.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -157,7 +157,7 @@ impl fmt::Display for Error {
                 f,
                 "{} is not a complete {title} directory\n  missing: {}\n  \
                  This needs the files of an original installation; \
-                 see \"Game data\" in the README.",
+                 see \"What a game needs\" in the README.",
                 dir.display(),
                 missing.join(", "),
             ),
@@ -166,7 +166,7 @@ impl fmt::Display for Error {
                 "{} does not hold {title}'s script\n  \
                  module 2 has no {word}, a variable this game's own compiler named\n  \
                  This is another MOTION 32-bit game, or an incomplete copy of this one; \
-                 see \"Game data\" in the README for the files a copy needs.",
+                 see \"What a game needs\" in the README for the files a copy needs.",
                 dir.display(),
             ),
             Error::Unrecognized { dir } => {
@@ -177,7 +177,7 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "  Another MOTION game, or an incomplete copy of one of these; \
-                     see \"Game data\" in the README."
+                     see \"What a game needs\" in the README."
                 )
             }
             Error::MissingFile { dir, name } => write!(f, "{}: no {name}", dir.display()),

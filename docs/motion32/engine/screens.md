@@ -134,7 +134,7 @@ A fresh descriptor arrives ready: `NEWSETDESC` writes the flag word `0xD000` at
   `0x6b0fe` (`0x74af1`) before its single draw, which is how a full picture
   comes back after a fade.
 - **A surface is wiped by a fill, not by a draw.** `FADEOUT` fills the screen's
-  rectangle with colour 0 before its first band (`0x74d44` → `0x188fd`) and
+  rectangle with color 0 before its first band (`0x74d44` → `0x188fd`) and
   `ERASESCR` calls the same routine (`0x74801`).
 - **Between draws, the buffer holds the last drawn frame.** `FADEOUT`
   never draws; it fades out whatever was last rendered, even if
@@ -177,7 +177,7 @@ gives every pixel one pass over it and no arithmetic to repeat.
 
 Known fields of the engine's screen structure:
 
-| Offset | Meaning |
+| Offset | Description |
 |---|---|
 | `+0x12` | Flag word; `NEWSCREEN` initializes it to `0xD000` (bit 7 of the flag byte set — a fresh screen is active) |
 | `+0x13` | Flag byte; bit `0x80` = active (read by `GSCRACT`, cleared by `FADEOUT`, set by `FADEIN`); bit 2 = frozen |

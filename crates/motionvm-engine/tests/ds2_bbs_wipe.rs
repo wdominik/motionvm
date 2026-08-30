@@ -28,7 +28,7 @@ use motionvm_testutil::gamedata_ds2;
 /// *n* at `n * 8 + 59` (module 216, `0x05db0`).
 const TOP: i32 = 59;
 const ROW: i32 = 8;
-/// The bars run from x 65 and are 509 pixels of colour wide, and the rows start
+/// The bars run from x 65 and are 509 pixels of color wide, and the rows start
 /// one pixel further in — but the measurement below starts past the cursor.
 ///
 /// `CLSCR` parks the terminal's cursor at x 66 on the row it is about to reach
@@ -75,7 +75,7 @@ fn terminal(dir: &std::path::Path) -> Game<Vm> {
 /// the cursor's own eight while the wipe walks past it. Whole rows going dark
 /// from the top is what the effect *is*, and it does not wobble.
 ///
-/// Index 9 counts as nothing: that is the colour the monitor's screen area
+/// Index 9 counts as nothing: that is the color the monitor's screen area
 /// carries in background sprite 4009, and the one the bars paint in.
 fn dark_rows(game: &mut Game<Vm>, rows: i32) -> i32 {
     let frame = game.render();

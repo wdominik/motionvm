@@ -2,7 +2,7 @@
 
 # Script-Side Animation
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 Two animation systems live in script code: module 6's general **sprite
 animation runtime** (the largest coherent subsystem outside the game
@@ -23,7 +23,7 @@ Animations are allocated from a pool at run time; nothing is static.
 `SADESC ( n -- )` selects animation *n* as current (`_AKTANI`);
 `?AN ( off -- v )` / `->AN ( v off -- )` access its fields:
 
-| Offset | Meaning |
+| Offset | Description |
 |---|---|
 | +0 | descriptor handle |
 | +4 | pointer to the frame array (a −1-terminated list of sprite ids) |

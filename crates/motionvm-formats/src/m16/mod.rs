@@ -20,11 +20,13 @@ pub mod dat;
 pub mod disasm;
 pub mod font;
 pub mod gfx;
+pub mod gfxinf;
 pub mod mz;
 pub mod psm;
 pub mod scr;
 pub mod text;
 
-pub use dat::{Boot, Container, Segment};
+pub use dat::{Boot, Container, Generation, Segment};
 pub use gfx::Sprite;
+pub use gfxinf::GfxInf;
 pub use scr::{Entry, ScrModule};

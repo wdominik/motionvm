@@ -2,7 +2,7 @@
 
 # Text and Speech Words
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 The script-side text machinery (module 5, plus `SAYKARSTEN` from module
 13). The underlying descriptor mechanics are in

@@ -2,7 +2,7 @@
 
 # The Virtual Machine — Execution Model
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The 16-bit engine runs the same threaded-code design as the 32-bit one — a
 cell is either a kernel word or a call, literals and branches carry an
@@ -16,7 +16,7 @@ ids instead of packed addresses, and a kernel word as the return.
 |---|---|
 | Cell | 16 bits |
 | Data stack | 16-bit cells; the scripts do signed arithmetic on them |
-| Return stack | return addresses and whatever `>R` pushes |
+| Return stack | return addresses, whatever `>R` pushes, and every `DO … LOOP`'s two cells — the index on top of the limit (`_LoopStart`, `ENVIRO.EXE` `12c8:01b8`, `LL.EXE` `0af7:05d5`). `I` reads the top cell, `I'` the one under it, `LEAVE` copies the index over the limit (`12c8:029a`), and `LOOP` steps the index in place and leaves once limit ≤ index, signed, popping both (`12c8:01f3`). Nothing about a loop lives anywhere else, and bytecode counts on that: Victor Loomes' `STOPLOOP` (module 605) ends a loop early by rewriting those cells through `R>` and `>R` |
 | Instruction pointer | a cell address in the flat memory |
 | Word table | `table[word id] → address of the word's body`, filled by `=>GET`, cleared by `=>ERASE` |
 
@@ -86,7 +86,7 @@ SCRCTRL` installs `ICTRL`, and `NEWSETDESC`'s sixth argument is a word id or
 
 `ANIMPLAY` runs the frame loop inside its handler and does not return until
 the game is over: the boot word calls it once, and everything after it is
-teardown ([boot and frame loop](../engine/boot-and-loop.md)). `FADEIN` and
+teardown ([boot and frame loop](../engine/game-loop.md)). `FADEIN` and
 `FADEOUT` also hold it: both spin their ring loops inside the handler
 ([descriptors and screens](../engine/descriptors.md#transitions)).
 

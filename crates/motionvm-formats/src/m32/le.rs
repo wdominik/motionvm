@@ -402,7 +402,7 @@ pub const INLINE: Inline = Inline {
     put_adr: inline::PUT_ADR,
     put_const: inline::PUT_CONST,
     put_string: inline::PUT_STRING,
-    put_string_adr: inline::PUT_STRING_ADR,
+    put_string_adr: Some(inline::PUT_STRING_ADR),
     check_if: inline::CHECK_IF,
     check_eif: inline::CHECK_EIF,
     // `ELSEDUP` compiles to `_ChElseDup`; its ordinal was never measured, and

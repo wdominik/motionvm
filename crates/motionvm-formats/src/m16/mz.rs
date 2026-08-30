@@ -22,15 +22,24 @@
 //! inside the image is a table. No other run in the file passes that test.
 //!
 //! **Ordinals.** A kernel cell is `0x8000 | ordinal`, and the ordinal is the
-//! entry's index plus a per-table base: 1 for the core table, 105 for the
-//! domain table — in file order the domain table comes first, so table 0
-//! is 105-based and table 1 is 1-based. The bases are measured from the
-//! modules, not read from the binary: every one of the 24 282 kernel cells in
-//! the 65 modules of Die Enviro-Kids greifen ein names an entry under this rule,
-//! `##` is cell `0x8001`
-//! at the end of every colon definition, and `TOGFX` is `0x8069` where `RUN`
-//! enters graphics mode. Ordinals 83–104 fall between the tables and occur
-//! in no module.
+//! entry's index plus a per-table base. The core table is 1-based: `##` is
+//! cell `0x8001` at the end of every colon definition. The domain table's
+//! base is the build's, and it is read from the build — see
+//! [`placeholder_count`]. The player hands ordinals out in registration
+//! order, and it registers three runs: the core table, then a run of
+//! `DUMMY#F0R3i` placeholders, then the domain table. So the first domain
+//! word binds at `core + placeholders + 1` — 105 in `ENVIRO.EXE`,
+//! `HPPLAY.EXE` and `BMZ.EXE`, whose core tables hold 82 words and which
+//! register 22 placeholders, and 102 in `LL.EXE`, whose core table holds 80
+//! and which registers 21.
+//!
+//! The bases are confirmed against the modules: every one of the 24 282
+//! kernel cells in the 65 modules of Die Enviro-Kids greifen ein names an
+//! entry under this rule, `TOGFX` is `0x8069` where its `RUN` enters graphics
+//! mode, and all 18 911 cells of Victor Loomes' 36 modules name one under its
+//! own base — where the 105 of the later builds would leave three cells
+//! naming nothing and would put `SDTXT`, `FADEIN` and `FADEOUT` out of reach
+//! of a game that calls them 149, 11 and 15 times.
 
 use crate::error::{Error, Result};
 use crate::kernel::{Binding, Inline, KernelWord};
@@ -43,9 +52,11 @@ pub const ORDINAL_MASK: u16 = 0x7fff;
 /// The ordinal of `##`, the word that returns from a colon definition.
 pub const RETURN_ORDINAL: u32 = 1;
 
-/// Ordinal of the first entry of each table, indexed by table number in
-/// file order: the domain table first, the core table second.
-const TABLE_BASE: [u32; 2] = [105, 1];
+/// Ordinal of the core table's first entry, `##`.
+const CORE_BASE: u32 = 1;
+
+/// The name the player registers its ordinal placeholders under.
+const PLACEHOLDER_NAME: &[u8] = b"DUMMY#F0R3i";
 
 /// The executable, read whole.
 pub struct Image {
@@ -174,20 +185,126 @@ pub fn kernel_words(img: &Image) -> Vec<KernelWord> {
     words
 }
 
+/// How many `DUMMY#F0R3i` placeholders the build registers between its two
+/// tables, or `None` where the run that registers them is not found.
+///
+/// The placeholders are what separates the core table's last ordinal from the
+/// domain table's first, so this number decides the domain base. It is read
+/// rather than assumed: the loop that registers them loads the name's data
+/// offset and is bounded by a `cmp %si, imm8` (`0afe:009a` in `LL.EXE`,
+/// `140e:002f` in `ENVIRO.EXE`, `13d9:002f` in `HPPLAY.EXE`, `140a:0039` in
+/// `BMZ.EXE`), so this looks for that comparison behind the one place in the
+/// image that mentions the name's offset. Exactly one place does, in each of
+/// the four builds.
+///
+/// `ds` is the data segment, which is the segment every kernel word's *name*
+/// pointer is relative to — the scan takes it from the words it already found.
+pub fn placeholder_count(img: &Image, ds: u16) -> Option<u8> {
+    // `cmp %si, imm8`, the bound of the loop that does the registering.
+    const CMP_SI: [u8; 2] = [0x83, 0xfe];
+    // Far enough to cover the loop body, which registers one placeholder.
+    const REACH: usize = 96;
+
+    let data = img.bytes();
+    let name = data
+        .windows(PLACEHOLDER_NAME.len())
+        .position(|w| w == PLACEHOLDER_NAME)?;
+    let offset = u16::try_from(name.checked_sub(img.header_len() + ds as usize * 16)?).ok()?;
+    let mentions = offset.to_le_bytes();
+
+    let mut found = None;
+    let mut at = img.header_len();
+    while let Some(hit) = data
+        .get(at..)
+        .and_then(|d| d.windows(2).position(|w| w == mentions).map(|p| at + p))
+    {
+        at = hit + 1;
+        let window = &data[hit..data.len().min(hit + REACH)];
+        if let Some(p) = window.windows(2).position(|w| w == CMP_SI) {
+            // Two mentions with a bound behind them would leave which loop is
+            // meant to a guess, and a guessed ordinal base is a wrong one.
+            if found.is_some() {
+                return None;
+            }
+            found = window.get(p + 2).copied();
+        }
+    }
+    found
+}
+
+/// Whether this build's `?XINSIDE` passes over a hot area whose four corners
+/// are all zero, or takes it as a rectangle at the origin like any other.
+///
+/// A property of the build and not of the format, and the two are three years
+/// apart rather than one generation apart: `ENVIRO.EXE` (`0a40:1b37`) and
+/// `BMZ.EXE` follow the four corner comparisons with four more asking whether
+/// each corner is zero, and pass over the entry when they all are.
+/// `HPPLAY.EXE` and `LL.EXE` stop after the comparisons — 71 instructions
+/// against 101. So this reads the handler rather than the game: the later
+/// pair holds four `cmpw $0, %es:(%bx)` in the 300 bytes behind its entry
+/// point and the older pair none.
+///
+/// A build with no `?XINSIDE` at all answers `false`, which is what a handler
+/// with no such test does.
+pub fn skips_empty_areas(img: &Image, words: &[KernelWord]) -> bool {
+    // `cmpw $0, %es:(%bx)`: the segment override, the group-1 opcode with an
+    // 8-bit immediate, the `[bx]` mode with `/7` for `cmp`, and the zero.
+    const HOLE_TEST: [u8; 4] = [0x26, 0x83, 0x3f, 0x00];
+    // Past the end of the longer of the two handlers, and short of anything
+    // that could hold a second one.
+    const REACH: usize = 300;
+
+    let Some(w) = words.iter().find(|w| w.name == "?XINSIDE") else {
+        return false;
+    };
+    let at = w.handler as usize;
+    let data = img.bytes();
+    data.get(at..data.len().min(at + REACH))
+        .is_some_and(|body| body.windows(HOLE_TEST.len()).any(|w| w == HOLE_TEST))
+}
+
 /// The bytecode ordinal for a kernel word: its index plus its table's base.
-pub fn ordinal_of(word: &KernelWord) -> Option<u32> {
-    TABLE_BASE
-        .get(word.table)
-        .map(|base| base + word.index as u32)
+///
+/// `domain_base` is what [`placeholder_count`] settles; the core table is
+/// always 1-based. In file order the domain table comes first, so table 0 is
+/// the domain one and table 1 the core one.
+pub fn ordinal_of(word: &KernelWord, domain_base: u32) -> Option<u32> {
+    match word.table {
+        0 => Some(domain_base + word.index as u32),
+        1 => Some(CORE_BASE + word.index as u32),
+        _ => None,
+    }
 }
 
 /// The binding of a 16-bit kernel: every word at its ordinal, and the inline
 /// set read off the names. Fails if the tables do not name one of the inline
-/// words — which is what a scan that found the wrong runs looks like.
-pub fn binding_of(words: &[KernelWord]) -> Result<Binding> {
+/// words — which is what a scan that found the wrong runs looks like — or if
+/// the build does not say how many placeholders it registers, because the
+/// domain base then cannot be told from a guess.
+pub fn binding_of(img: &Image, words: &[KernelWord]) -> Result<Binding> {
+    // The data segment, which every entry's name pointer is relative to: the
+    // segment half of the first entry's, at `+2` of the entry it was read from.
+    let ds = match words.first() {
+        Some(w) => u16le(img.bytes(), w.entry as usize + 2)?,
+        None => {
+            return Err(Error::Corrupt {
+                what: "kernel table",
+                detail: "no kernel words at all".into(),
+            });
+        }
+    };
+    let placeholders = placeholder_count(img, ds).ok_or_else(|| Error::Corrupt {
+        what: "kernel table",
+        detail: "the run of DUMMY#F0R3i placeholders that sets the domain \
+                 table's ordinal base is not in this build"
+            .into(),
+    })?;
+    let core = words.iter().filter(|w| w.table == 1).count() as u32;
+    let domain_base = CORE_BASE + core + placeholders as u32;
+
     let mut bound: Vec<(u32, String)> = words
         .iter()
-        .filter_map(|w| ordinal_of(w).map(|o| (o, w.name.clone())))
+        .filter_map(|w| ordinal_of(w, domain_base).map(|o| (o, w.name.clone())))
         .collect();
     bound.sort_by_key(|&(o, _)| o);
     let inline = Inline::by_name(&bound).ok_or_else(|| Error::Corrupt {

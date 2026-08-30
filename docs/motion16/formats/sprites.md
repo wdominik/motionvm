@@ -2,11 +2,11 @@
 
 # Sprites
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 A GFX item is a raw, uncompressed 8-bit picture. There is no magic, no
 compression and no palette of its own — three things the 32-bit engine's
-[GFX8 format](../../motion32/formats/gfx8-sprites.md) adds.
+[GFX8 format](../../motion32/formats/sprites.md) adds.
 
 ```
 u16 width
@@ -32,10 +32,27 @@ every one, and every item's length is exactly `6 + width × height`.
   399 (the pointer, 16×15), 2050 (80×155), 2482–2486 (the intro's 160×77 to
   168×83 motifs) and 2493 (304×117).
 
+## `GFX.INF`, and who needs it
+
+The two generation-one games ship a `GFX.INF` beside the container: one `u16`
+width and height per GFX slot, `0xFFFF, 0xFFFF` where the slot is empty, and
+nothing else — 4800 bytes for the 1200 slots both declare. It exists because
+of how they store their sprites. Theirs are packed, so a player that wants a
+sprite's size before it draws cannot read one out of the item without
+unpacking it first; the later games store sprites plainly, where the width is
+the item's first word, and ship no such file although all four binaries still
+name one.
+
+Over Victor Loomes' 721 filled slots the file and the container agree entry
+for entry, and every unpacked length is `width * height + 6`. motionvm does
+not read it at run time — see [departures](../../departures.md) — because its
+container unpacks as it opens, so the sizes are in the sprites by the time
+anything asks.
+
 ## Colors
 
 The pixel byte is an index into whatever palette `SETPAL` last installed
-(see [the DATA container](data-container.md#palettes)). How index 0 is
+(see [the DATA container](container.md#palettes)). How index 0 is
 drawn depends on what the picture is to the descriptor: the drawer
 (`ENVIRO.EXE` `016a:0aac`) sends a **sprite** (`SDSPR`) through one blit
 and a **block** (`SDBL`) through a plain copy that paints every index, 0
@@ -67,6 +84,6 @@ top is clipped is left open below.
 
 ## See also
 
-- [The DATA container](data-container.md) — where the GFX segment sits
+- [The DATA container](container.md) — where the GFX segment sits
 - [Descriptors and screens](../engine/descriptors.md) — how a sprite reaches the screen (`SDSPR`)
-- [GFX8 sprites (MOTION 32-bit)](../../motion32/formats/gfx8-sprites.md) — the compressed, palette-carrying successor
+- [GFX8 sprites (MOTION 32-bit)](../../motion32/formats/sprites.md) — the compressed, palette-carrying successor

@@ -2,12 +2,21 @@
 
 # Game Structure
 
-*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 How the game's 86 script modules organize into a running adventure: the
 startup sequence, locations and the location loader, the story-flag
 system, and the save mechanism. For what each module contains, see the
 [module map](module-map.md).
+
+## Setting
+
+The player is **Karsten Wegner**, and the town is one he already knows: the
+opening text has him a little older than in the first game, working in a litho
+shop and going to vocational school, until a memorial stone turns up daubed.
+The *network* of the title is the in-game bulletin board module 216 implements
+([the BBS](library/bbs.md)). What the game is about, who made it and the
+campaign it belongs to are on [the game's own page](README.md).
 
 ## Startup
 
@@ -34,7 +43,7 @@ module 3 again once initialization is done. In order, `STARTUP`:
 - Builds the **main screen** (640×400 at (0, 0)) and the off-display
   dialogue surface, and creates the info/text descriptors on them.
 - Loads the location table: `200 _LOCTABLE 99 GET` (see
-  [Blocks](../../motion32/formats/block.md)).
+  [Blocks](../../motion32/formats/blocks.md)).
 - Installs the script callbacks into the `_ORDER` interface record — the
   addresses through which the native engine calls back into the game
   library (see [Game library](library/game-library.md)).
@@ -61,7 +70,7 @@ Locations are numbered from 1. Location *N* owns modules *100+N*
 (descriptions), *200+N* (scenes/animation/task handler), *300+N* (the
 scene macro) — see the [module map](module-map.md) — and four data blocks
 (routes, extended routes, click areas, items) — see
-[Blocks](../../motion32/formats/block.md).
+[Blocks](../../motion32/formats/blocks.md).
 
 `INCLLOC`, the location switch in module 5, performs:
 
@@ -182,7 +191,7 @@ blocking transition/animation words, not from scripted delays. See
   known: `8 2 2 -1 -1 -1 -1 <font>`).
 - The full story-flag assignment (which flag means which plot event).
 - The stale location-table entries (location 12; module 330) — see
-  [Blocks](../../motion32/formats/block.md).
+  [Blocks](../../motion32/formats/blocks.md).
 - The exact semantics of `=>PUTAS`/`=>GETAS`.
 
 ## See also
@@ -190,4 +199,4 @@ blocking transition/animation words, not from scripted delays. See
 - [Module map](module-map.md)
 - [Game loop](../../motion32/engine/game-loop.md)
 - [Screens](../../motion32/engine/screens.md), [Descriptors](../../motion32/engine/descriptors.md)
-- [Blocks](../../motion32/formats/block.md) — the location table and data records
+- [Blocks](../../motion32/formats/blocks.md) — the location table and data records

@@ -79,12 +79,12 @@ number, for locations 1–15 and 17.
 65 modules, 167 302 bytes, defining 1774 words: 672 colon definitions, 792
 variables and 310 constants. The biggest are 607 (13 688 bytes, 259 words —
 the item constants and documents), 606 (11 256 bytes — speech), 107
-(10 786 bytes, 125 words — the shopping centre), 111 (10 046) and 113
+(10 786 bytes, 125 words — the shopping center), 111 (10 046) and 113
 (9 956). Sixteen of the modules are one word each: the location macros
 301–315 and 317. What each module holds is in the
 [module map](module-map.md).
 
 ## See also
 
-- [The DATA container](../../motion16/formats/data-container.md) — how the segments are laid out
+- [The DATA container](../../motion16/formats/container.md) — how the segments are laid out
 - [Module map](module-map.md), [Game structure](game-structure.md)

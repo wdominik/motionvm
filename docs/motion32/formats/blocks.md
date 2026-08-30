@@ -1,6 +1,6 @@
 [← Documentation index](../../README.md)
 
-# BLOCK — Mixed Binary Data
+# Blocks — Mixed Binary Data
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
@@ -99,7 +99,7 @@ The game library defines a paired accessor per field
 layout. Field meanings follow from the accessor names; entries are 32-bit
 cells:
 
-| Offset | Field | Reading of the name |
+| Offset | Field | Description |
 |---|---|---|
 | `+0` | `X1` | Click rectangle, left |
 | `+4` | `Y1` | top |
@@ -141,6 +141,6 @@ time; the size is taken from the text-table status). The records contain
 ## See also
 
 - [HMI songs](hmi.md)
-- [RSC containers](rsc-container.md)
+- [RSC containers](container.md)
 - [Game structure](../../games/ds2/game-structure.md) — the location loader
 - [Module map](../../games/ds2/module-map.md)

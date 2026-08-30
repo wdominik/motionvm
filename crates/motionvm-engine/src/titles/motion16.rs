@@ -69,7 +69,12 @@ pub(super) fn open(
     let container = Container::open_dir(dir).map_err(|e| Error::data(dir, e))?;
     let exe = motionvm_formats::find_ci(dir, exe).ok_or_else(|| Error::missing_file(dir, exe))?;
     let img = mz::Image::open(&exe).map_err(|e| Error::data(&exe, e))?;
-    let binding = mz::binding_of(&mz::kernel_words(&img)).map_err(|e| Error::data(&exe, e))?;
+    let words = mz::kernel_words(&img);
+    // Read from this build's own `?XINSIDE`, because the four builds do not
+    // agree: the two later ones pass over an all-zero hot area, the two older
+    // ones take it as a rectangle at the origin.
+    let skips_holes = mz::skips_empty_areas(&img, &words);
+    let binding = mz::binding_of(&img, &words).map_err(|e| Error::data(&exe, e))?;
     let mut vm = Vm::new(&binding);
     let boot = container.boot();
     let item = container
@@ -83,12 +88,14 @@ pub(super) fn open(
     vm.load(item, &parsed)?;
     // 320×200: the mode `TOGFX` enters in this engine, which has no
     // `SETRES` to ask for another.
-    let engine = Engine::with_display(320, 200).with_container(dir, container);
+    let mut engine = Engine::with_display(320, 200).with_container(dir, container);
+    engine.skips_holes = skips_holes;
     Ok(Game {
         vm,
         engine,
         title,
         running: false,
+        frame_controllers: Vec::new(),
         ending: false,
         over: false,
         parked: None,
@@ -196,29 +203,52 @@ impl Playable for Game<Vm> {
         Game::<Vm>::finished(self)
     }
 
-    /// Through `NEXTLOC` in module 601, the way the game itself moves
-    /// between locations: `CTRL` (module 100, word 400) runs
+    /// Through the variable the game polls, the way it moves between
+    /// locations itself.
+    ///
+    /// The later builds keep a `NEXTLOC` in module 601 and their `CTRL`
+    /// (module 100, word 400) runs
     /// `NEXTLOC @ -1 != IF NEXTLOC @ INCLLOC -1 NEXTLOC ! THEN` every frame,
-    /// and the scripts store their exits there — `13 NEXTLOC !` in module
-    /// 609, for one. There is no way around `RUN`'s own first location: it
-    /// enters whatever `STARTLOC` holds before `CTRL` gets a frame, so the
-    /// request is honored one frame later, from inside that location.
+    /// with the scripts storing their exits there — `13 NEXTLOC !` in module
+    /// 609, for one. Victor Loomes has no module 601: its pending location is
+    /// `NAO` in module 605, and its `CTRL` (word 432) ends on
+    /// `NAO @ IF NAO @ INCLORT NAO 0! THEN`. The same mechanism under the
+    /// game's own names, which is why this is the game's and not the
+    /// generation's.
+    ///
+    /// There is no way around `RUN`'s own first location: it enters one
+    /// before `CTRL` gets a frame, so the request is honored one frame later,
+    /// from inside that location.
     fn request_location(&mut self, n: i32) -> Result<()> {
-        self.set_var(601, "NEXTLOC", n)
+        match self.title {
+            Title::VictorLoomes => self.set_var(super::vloomes::LOCATION_MODULE, "NAO", n),
+            _ => self.set_var(601, "NEXTLOC", n),
+        }
     }
 
-    /// The pending `NEXTLOC` if one is set, else the location `RUN` entered
+    /// The pending location if one is set, else the location `RUN` entered
     /// itself — and `None` while it has entered none.
     ///
-    /// Read rather than assumed, because the location is the game's and not the
-    /// generation's: `RUN` writes `1 STARTLOC !` in Die Enviro-Kids greifen ein
-    /// and `20 STARTLOC !` in Hilfe für Amajambere, while Jeff Jet's leaves the
-    /// 13 its module 601 declares. It writes it on the way out of the intro,
-    /// though, and until then `STARTLOC` holds only what the module declares —
-    /// 13 in Die Enviro-Kids greifen ein, which starts at 1. `ACTLOC` is -1
-    /// until a location is entered, so it is what says whether `STARTLOC`
-    /// means anything yet.
+    /// Read rather than assumed, because the location is the game's and not
+    /// the generation's: `RUN` writes `1 STARTLOC !` in Die Enviro-Kids
+    /// greifen ein and `20 STARTLOC !` in Hilfe für Amajambere, while Jeff
+    /// Jet's leaves the 13 its module 601 declares. It writes it on the way
+    /// out of the intro, though, and until then `STARTLOC` holds only what the
+    /// module declares — 13 in Die Enviro-Kids greifen ein, which starts at 1.
+    /// `ACTLOC` is -1 until a location is entered, so it is what says whether
+    /// `STARTLOC` means anything yet.
+    ///
+    /// Victor Loomes has no `STARTLOC` to write: its `RUN` zeroes `AO` and
+    /// then enters its first location itself with `1 INCLORT`, so `AO` is the
+    /// answer once it is set, and 0 means the intro has not left it yet.
     fn start_location(&self) -> Option<i32> {
+        if self.title == Title::VictorLoomes {
+            let m = super::vloomes::LOCATION_MODULE;
+            return match self.get_var(m, "NAO") {
+                Some(n) if n > 0 => Some(n),
+                _ => self.get_var(m, "AO").filter(|&n| n > 0),
+            };
+        }
         match self.get_var(601, "NEXTLOC") {
             Some(n) if n >= 0 => Some(n),
             _ => self

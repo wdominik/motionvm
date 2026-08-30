@@ -1,6 +1,6 @@
 [← Documentation index](../../README.md)
 
-# The `.386` driver archives
+# The `.386` Driver Archives
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
@@ -62,7 +62,7 @@ else expects an instrument set the hardware brings along.
 in the same format — neither is reachable from the game, because the digital
 side of the sound layer is never called. See [Audio](../engine/audio.md).
 
-## Verified
+## How this is checked
 
 All three shipped archives walk to their last byte, with the driver chain
 ending exactly at the end of the file and every driver reserving at least as

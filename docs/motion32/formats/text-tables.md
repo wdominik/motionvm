@@ -1,6 +1,6 @@
 [← Documentation index](../../README.md)
 
-# TEXT — String Tables
+# Text Tables
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
@@ -46,4 +46,4 @@ Scripts select a string with two descriptor words: `SDTB` picks the table
 ## See also
 
 - [Text rendering](../engine/text-rendering.md)
-- [RSC containers](rsc-container.md)
+- [RSC containers](container.md)

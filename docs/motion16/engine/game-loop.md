@@ -2,7 +2,7 @@
 
 # Boot and Frame Loop
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The engine starts the VM at the module and word the container header names
 — module 100, word id 401, `RUN` in Die Enviro-Kids greifen ein — and everything
@@ -91,6 +91,17 @@ to the display, steps a running palette fade, and goes round again while
 still shown. `FREEZESCR` stops the callbacks and keeps the controllers.
 Nothing in the loop polls input: the controller reads the mouse words
 itself.
+
+**Every screen's controller runs, including a screen that is switched off.**
+The same loop in `LL.EXE` walks three slots (`0104:5528`, `cmp $3,%si`) and
+for each one whose word id is not `0xFFFF` makes that screen current and runs
+it (`0104:55ec` to `0x561f`). The activity test sits earlier in the loop
+(`0104:5543`) and jumps to exactly that point, so what an inactive screen
+loses is the descriptor work and not its controller. Victor Loomes is the game
+that shows why it matters: its menu is a screen of its own, switched off while
+the game plays, and the word that watches for the pointer reaching the top of
+the display and switches the screen back on — `PANCTRL`, module 602 id 1852 —
+is the controller *of that hidden screen*.
 
 `CTRL` reads `?KEY` (stored in `_AKTKEY`) and the mouse, tracks `_MX`/`_MY`
 against the previous frame, and splits the display at **y = 165**: above it

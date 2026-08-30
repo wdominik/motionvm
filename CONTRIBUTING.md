@@ -1,22 +1,24 @@
 # Contributing to motionvm
 
 motionvm is a from-scratch Rust reimplementation of MOTION, the DOS adventure
-authoring system. MOTION made a series of German advergames; four of them are
+authoring system. MOTION made a series of German advergames; five of them are
 in this tree: *Im Netzwerk gefangen – Dunkle Schatten 2* (on the 32-bit
 engine `ENGINE.EXE` V0.06.06/R109, 1996-10-22),
 *Die Enviro-Kids greifen ein* (on the 16-bit engine
 `ENVIRO.EXE`, 1996-08-27), *Jeff Jet - Abenteuer InfoHighway* (on
-`HPPLAY.EXE`) and *Hilfe für Amajambere* (on `BMZ.EXE`, 1995-06-05) —
-the last two on older builds of that same 16-bit engine. It runs the
+`HPPLAY.EXE`), *Hilfe für Amajambere* (on `BMZ.EXE`, 1995-06-05) and
+*Victor Loomes – Das Spiel* (on `LL.EXE`, 1993-05-20) — the last three on
+older builds of that same 16-bit engine, the last of them three years older
+than the first and in an earlier framing of the container. It runs the
 originals' compiled Forth bytecode natively, and its single hard constraint
 shapes every convention in this document: **the original binary a game ships
 with is the authority on what that engine does.** Code here is not merely
 correct or incorrect; it is faithful or unfaithful, and fidelity is
-established by evidence, not by plausibility. The code runs all four today:
+established by evidence, not by plausibility. The code runs all five today:
 Dunkle Schatten 2 end to end on the 32-bit engine, and Die Enviro-Kids greifen
-ein — intro, locations, walk, conversations, music, saves — with Jeff Jet and
-Hilfe für Amajambere on the 16-bit one. It is written for the engine rather
-than for those four: what
+ein — intro, locations, walk, conversations, music, saves — with Jeff Jet,
+Hilfe für Amajambere and Victor Loomes on the 16-bit one. It is written for the
+engine rather than for those five: what
 a further MOTION game would need is its own file under `titles/`, and the
 naming rules below are what keeps that cost down.
 
@@ -55,20 +57,22 @@ cargo doc --workspace --no-deps --document-private-items
 ```
 
 **Game data.** The games' files are not in the repository and cannot be; they
-are copyrighted. The `justfile` reads five locations and one switch:
+are copyrighted. The `justfile` reads six locations and one switch:
 
 - `GAMEDATA_DS2` — a copy of Dunkle Schatten 2's game directory (`001.RSC`
   and friends); `GAMEDATA_ENVIRO` — a copy of Die Enviro-Kids greifen ein's
   (`DATA.-1-`, `ENVIRO.EXE`); `GAMEDATA_JEFFJET` — a copy of Jeff Jet -
   Abenteuer InfoHighway's (`DATA.-1-`, `DATA.-2-`, `HPPLAY.EXE`);
   `GAMEDATA_HFA` — a copy of Hilfe für Amajambere's (`DATA.-1-`, `DATA.-2-`,
-  `BMZ.EXE`). Each
+  `BMZ.EXE`); `GAMEDATA_VLOOMES` — a copy of Victor Loomes' (`DATA.-1-`,
+  `LL.EXE`). Each
   defaults to a sibling directory of this checkout (`../games/DS2`,
-  `../games/ENVIRO`, `../games/JEFFJET`, `../games/HFA`), and that default is only passed on
+  `../games/ENVIRO`, `../games/JEFFJET`, `../games/HFA`, `../games/VLOOMES`),
+  and that default is only passed on
   when the data is really there — so `just check` is green on a machine with
   no copy of a game, with that game's data-dependent tests skipping. A path
   you name yourself is always passed on, so a typo panics instead of quietly
-  skipping the suite. The three 16-bit games are recognised by their engine
+  skipping the suite. The four 16-bit games are recognized by their engine
   binary, not by their container: they all ship a `DATA.-1-`.
 - `SAVES` — a directory holding a savegame, for the savegame tests. Savegames
   cannot be reconstructed, only played to, so there is no default that could
@@ -87,7 +91,7 @@ from a run that passes everything, so a mistyped path would otherwise report
 green without executing a line.
 
 **Running.** `just run-ds2`, `just run-enviro`, `just run-jeffjet`,
-`just run-hfa` — one per game, and no game is the one you get for saying `just run`. This builds in
+`just run-hfa`, `just run-vloomes` — one per game, and no game is the one you get for saying `just run`. This builds in
 release mode, and that is not
 optional ceremony: the frontend is a software renderer that walks every
 physical window pixel on the CPU, and at opt-level 0 the result is a
@@ -291,7 +295,8 @@ still lives under that generation's module, so that the unqualified level
 stays honest. What belongs to **one game** — its bootstrap words and
 module numbers, the names of its script variables, its module map and
 location scheme, its title strings, tests that drive its data — is tagged
-by **game**: code under `titles/ds2`, `titles/enviro`, `titles/hfa` and `titles/jeffjet`,
+by **game**: code under `titles/ds2`, `titles/enviro`, `titles/hfa`, `titles/jeffjet` and
+`titles/vloomes`,
 documentation under `docs/games/<game>/`, and a sentence that names the game.
 Where the games of one generation share something — the 16-bit opener, the
 frame handler, the location mechanism — it belongs to the generation and lives
@@ -313,14 +318,14 @@ machines behind one `Game<M>` driver, keeps each game's bootstrap under
 `titles/`, and keeps the word groups that exist for one machine only —
 the 32-bit savegame words, `DOWALK`, the inventory, the dialogue queue;
 the 16-bit buffer words — in files of their own. The renderer, the
-window and the audio serve all four: the HMI sequencer plays the 32-bit
+window and the audio serve all five: the HMI sequencer plays the 32-bit
 game's music, the PSM 2 sequencer the 16-bit games', on the one OPL3.
 
 ## Fidelity and accepted divergences
 
 Behavior is matched to the original binary of the generation in question —
 `ENGINE.EXE` V0.06.06/R109 for the 32-bit engine, `ENVIRO.EXE` and its older
-builds `BMZ.EXE` and `HPPLAY.EXE` for the 16-bit one. When motionvm and the original
+builds `BMZ.EXE`, `HPPLAY.EXE` and `LL.EXE` for the 16-bit one. When motionvm and the original
 disagree, motionvm is wrong —
 unless the divergence is on the list below, which exists precisely so that
 nobody "fixes" a deliberate decision. Every entry below concerns the 32-bit
@@ -367,7 +372,8 @@ record it here.
   missing data skips loudly, a wrong path panics.
 - **A test that needs a game's files says which game.** It asks
   `motionvm-testutil` for that game — `gamedata_ds2()`, `gamedata_enviro()`,
-  `gamedata_jeffjet()` or `gamedata_hfa()` — and closes its `//!` with the one
+  `gamedata_jeffjet()`, `gamedata_hfa()` or `gamedata_vloomes()` — and closes
+   its `//!` with the one
   line every such file carries: *The game this file drives is `<title>`
   (MOTION 16-bit).* The title is the game's short form, the one prose uses.
   It is spelled out because the module numbers, word names and ids the file
@@ -375,7 +381,7 @@ record it here.
 - **A test save directory carries its game's slug.** `saves_dir` wipes what it
   hands back and one directory under `target/` serves the whole suite, so two
   files asking for the same bare name would delete each other's slots mid-run.
-  `ds2-`, `enviro-`, `jeffjet-`, `hfa-` — the prefix is what makes that
+  `ds2-`, `enviro-`, `jeffjet-`, `hfa-`, `vloomes-` — the prefix is what makes that
   impossible rather than merely unlikely.
 - **There are no golden frames, and their absence is a real loss.** A
   pinned rendered scene is the one kind of check that catches a change

@@ -21,6 +21,7 @@ mod geometry;
 mod menu;
 mod order;
 mod persist;
+mod request;
 mod resources;
 mod save;
 mod screen;
@@ -136,6 +137,17 @@ pub struct Engine {
     /// the read 16-bit behavior. The 32-bit pair is unread and keeps the
     /// plain on/off it always had here.
     pub(crate) pointer_counted: bool,
+    /// The palette range `SETCYCLE` asked to cycle and the tick delay per
+    /// step, or `None` where it asked for none. Held, not turned.
+    pub(crate) palette_cycle: Option<(i32, i32, i32)>,
+    /// The message box the game is waiting on, if it is waiting on one.
+    pub(crate) request: Option<crate::request::Request>,
+    /// Whether `?XINSIDE` passes over a hot area whose four corners are all
+    /// zero. This is the build's and not the format's: `ENVIRO.EXE`
+    /// (`0a40:1b37`) and `BMZ.EXE` test for it, `HPPLAY.EXE` and `LL.EXE` do
+    /// not — 101 instructions against 71, and the older two have no `cmpw $0`
+    /// in the handler at all. Set from the binary the game was opened with.
+    pub(crate) skips_holes: bool,
     /// Set when the game asks for a redraw. A still frame is composed on
     /// demand, so this only records that it was asked for.
     pub(crate) dirty: bool,
@@ -158,12 +170,22 @@ pub struct Engine {
     /// keyed let the previous location show through. The 32-bit drawer's
     /// block path is not read on this point; the 32-bit game keeps the keyed
     /// blit it has always had.
+    ///
+    /// Read on the latest build and set for the whole 16-bit generation,
+    /// which the earlier framing confirms rather than assumes: Victor Loomes'
+    /// intro is eight full-screen block pictures, and all eight match a
+    /// recording of the original pixel for pixel. A keyed block path would
+    /// have shown the picture before through every index 0 in them.
     pub(crate) opaque_blocks: bool,
     /// Whether the text drawer follows the 16-bit engine's reading
     /// (`ENVIRO.EXE` `016a:0aac` and `14ee:11cf`): the shadow pass shifted by
     /// the template's x/y offsets on an axis that is not centered, `#` eaten
     /// by the run drawer, `SDBLK` justifying a block, and the `GD*` sizes
     /// measured bare — where the 32-bit engine stores them padded by 4.
+    ///
+    /// Confirmed on the earlier framing the same way as
+    /// [`Engine::opaque_blocks`]: three of the eight intro pictures Victor
+    /// Loomes holds are text over a picture, and they match to the pixel.
     pub(crate) text16: bool,
     /// Whether `SDLEV` re-inserts into the level chain even when the level
     /// does not change — the 16-bit engine's read behavior; see
@@ -310,6 +332,12 @@ pub struct Engine {
     /// The mode `MOUSEINFO` last saw, in the global the handler keeps at
     /// 0xdbd5c. A mode switch counts as a change even if nothing moved.
     last_info_mode: Option<i32>,
+    /// The two colors `SYSFC` and `SYSBC` set, which only the request box is
+    /// drawn in: the frame, the button outlines and the text in the first,
+    /// the fill in the second. `LL.EXE` starts them at 0 and 2 (`ds:0x1b0`,
+    /// `ds:0x1b2`) and only Victor Loomes sets them.
+    pub(crate) system_fg: i32,
+    pub(crate) system_bg: i32,
     /// A bytecode word a primitive asked to have called after it. See
     /// [`motionvm_forth::Host::pending_call`].
     pending_call: Option<(i32, Vec<i32>)>,
@@ -393,7 +421,7 @@ pub struct Engine {
 ///   0x73099). That bit makes the output routine center the whole text block on
 ///   one width rather than each line on its own (0x25833). Nothing on the paths
 ///   walked so far calls it, so the behavior is unobserved; when something
-///   does, this entry has to go and the two centring modes have to be built.
+///   does, this entry has to go and the two centering modes have to be built.
 /// * `ERRORLEVEL` — sets the exit code DOS would report. There is no DOS here,
 ///   and nothing in the game reads it back.
 /// * `DREQUEST` — hands three values to the diagnostic call at `0x5294d`
@@ -598,6 +626,31 @@ impl Engine {
         &self.fades
     }
 
+    /// Every screen's controller word id, in screen order, `-1` for a screen
+    /// that runs none — what `ANIMPLAY` walks.
+    pub fn screen_controllers(&self) -> Vec<i32> {
+        self.display.screens.iter().map(|s| s.controller).collect()
+    }
+
+    /// Makes the screen that runs `id` the current one, the way `ANIMPLAY`
+    /// does before it runs a controller (`0104:5600` in `LL.EXE`).
+    pub(crate) fn select_screen_of_controller(&mut self, id: i32) {
+        if let Some(h) = self
+            .display
+            .screens
+            .iter()
+            .find(|s| s.controller == id)
+            .map(|s| s.handle)
+        {
+            self.select_screen(h);
+        }
+    }
+
+    /// Whether a request box is up and waiting to be answered.
+    pub fn has_request(&self) -> bool {
+        self.request.is_some()
+    }
+
     /// Words that were reached but do nothing yet, with how often.
     ///
     /// The other half of the instrumentation. A run can be asked afterwards
@@ -721,6 +774,11 @@ impl Engine {
             pointer_visible: true,
             pointer_shows: 0,
             pointer_counted: false,
+            // The 32-bit handler's own walk tests for it; the 16-bit opener
+            // overrides this from the build it read.
+            palette_cycle: None,
+            request: None,
+            skips_holes: true,
             dirty: false,
             rebuild: Vec::new(),
             controller: None,
@@ -732,6 +790,8 @@ impl Engine {
             frame_ticks: 8,
             dir: None,
             last_info_mode: None,
+            system_fg: 0,
+            system_bg: 2,
             pending_call: None,
             opaque_blocks: false,
             text16: false,
@@ -948,7 +1008,10 @@ impl Host<m16::Vm> for Engine {
     }
 
     fn wants_pause(&mut self) -> bool {
-        self.in_transition() || self.entering_loop || self.poll_yield()
+        // A request that has not been answered holds the machine where the
+        // original's own handler holds it: inside the word, until a click.
+        let asking = self.request.as_ref().is_some_and(|r| r.answer.is_none());
+        asking || self.in_transition() || self.entering_loop || self.poll_yield()
     }
 
     /// The 16-bit machine's words. Three need the machine itself — the two
@@ -990,8 +1053,79 @@ impl Host<m16::Vm> for Engine {
             // The interaction machine runs bytecode of its own and needs the
             // machine, as on the 32-bit side.
             "DOORDER" => self.do_order(vm, order::M16_RULES),
+            // `( x y w h block string n default cap[n] -- answer )`: the
+            // system's message box. The handler (`0104:35a0`) pops eight and
+            // then `n` captions — `n` is the seventh, the eighth is the
+            // button Enter answers — fetches the strings out of the text
+            // block, and blocks inside the drawer until something answers.
+            //
+            // Nothing can block here, so the word is asked again every frame
+            // until it has an answer: the first ask puts the box up, and
+            // [`Engine::wants_pause`] holds the machine on the word while the
+            // frames that draw it and read the pointer go by. See
+            // [`crate::request`] for the geometry, all of it read from the
+            // drawer.
+            "REQUEST" => {
+                if let Some(answer) = self.request.as_ref().and_then(|r| r.answer) {
+                    self.request = None;
+                    vm.data.push(answer);
+                    return Ok(true);
+                }
+                if self.request.is_some() {
+                    // Still asking: come back to this cell next frame.
+                    vm.repeat_word();
+                    return Ok(true);
+                }
+                let mut pop = || crate::stack::pop1(&mut vm.data, "REQUEST");
+                let (x, y, w, h) = (pop()?, pop()?, pop()?, pop()?);
+                let (block, string, buttons, default) = (pop()?, pop()?, pop()?, pop()?);
+                let mut captions = Vec::new();
+                for _ in 0..buttons.clamp(0, 5) {
+                    captions.push(pop()?);
+                }
+                // The string number is **one-based**: the fetcher at
+                // `0104:80ac` admits an index the table's own count is not
+                // less than (`0104:80e2`, `jge`) and reaches the first string
+                // at index 1 (`0104:8103`, the offset is the index doubled).
+                let text = |eng: &mut Engine, n: i32| {
+                    eng.text_table(block)
+                        .and_then(|t| t.get(n.max(1) as usize - 1))
+                        .unwrap_or_default()
+                        .to_string()
+                };
+                let message = text(self, string);
+                let captions = captions.into_iter().map(|n| text(self, n)).collect();
+                self.request = Some(crate::request::Request {
+                    x,
+                    y,
+                    w,
+                    h,
+                    message,
+                    captions,
+                    default,
+                    fg: self.system_fg,
+                    bg: self.system_bg,
+                    answer: None,
+                    was_down: true,
+                });
+                vm.repeat_word();
+                Ok(true)
+            }
             "SCRCTRL" => {
                 let id = crate::stack::pop1(&mut vm.data, "SCRCTRL")?;
+                // The handler is a store and nothing else — `0104:165d` in
+                // `LL.EXE` pops the id and writes it to the screen's `+0x14`
+                // without looking at it, and the id is only resolved when a
+                // frame comes to run it. So a negative id is not a word that
+                // failed to bind, it is the absence of a controller: Victor
+                // Loomes' `RUN` clears the field with `-1 SCRCTRL` before its
+                // intro and installs `CTRL` with `432 SCRCTRL` after.
+                if let Some(s) = self.display.current_mut() {
+                    s.controller = id;
+                }
+                if id < 0 {
+                    return Ok(true);
+                }
                 let Some(target) = vm.callback_target(id) else {
                     return Err(motionvm_forth::Error::UnboundWord {
                         id: id as u16,
@@ -1255,7 +1389,7 @@ mod tests {
     ///
     /// The distinction is bit 15 of `+0x10` and nothing else — the same
     /// graphics pool, the same id space, two blits (`016a:0fe8`, keyed at
-    /// `14ee:0d1e` and opaque at `14ee:0d47`). Colour 0 is the key, so a
+    /// `14ee:0d1e` and opaque at `14ee:0d47`). Color 0 is the key, so a
     /// picture of nothing but zeroes lets the picture under it through as a
     /// sprite and blacks it out as a block.
     #[test]
@@ -1280,7 +1414,7 @@ mod tests {
                     },
                 );
             }
-            // Underneath, a block of solid colour 9; on top, the picture under
+            // Underneath, a block of solid color 9; on top, the picture under
             // test, all key pixels.
             for (handle, level, id) in [(1u32, 0i32, 8u32), (2, 1, 7)] {
                 let h = e.add_descriptor(Descriptor {
@@ -1773,7 +1907,7 @@ mod tests {
     /// call. Halving the bare measurement on one side only had every spoken
     /// line drift two pixels left and two up each time `TSC` ran.
     #[test]
-    fn centring_a_text_round_trips_through_gdcx() {
+    fn centering_a_text_round_trips_through_gdcx() {
         let mut mem = mem();
         let mut e = Engine::new();
         let mut stack = vec![0, 0, 0, 0, 0, 0];

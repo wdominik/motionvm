@@ -2,7 +2,7 @@
 
 # Module Map
 
-*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes the game's own data and script library. The engine it runs on is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The game ships 86 script modules. Their numbering is systematic: fixed
 infrastructure lives below 100, and each location *N* owns up to three
@@ -33,7 +33,7 @@ Every word of the infrastructure modules is documented in the
 [script library reference](library/game-library.md) and its sibling
 pages.
 
-## Per-location modules
+## Location modules
 
 For location *N* (see [Game structure](game-structure.md) for the location
 list):
@@ -78,4 +78,4 @@ order. See [Savegames](../../motion32/engine/savegames.md) and [Shell](library/s
   documentation of modules 2, 4, 5, 6, 11, 12, 13, 216
 - [Game structure](game-structure.md)
 - [Script modules](../../motion32/formats/script-modules.md)
-- [Blocks](../../motion32/formats/block.md) — the parallel per-location data blocks
+- [Blocks](../../motion32/formats/blocks.md) — the parallel per-location data blocks

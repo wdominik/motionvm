@@ -8,7 +8,7 @@ How the game's 65 script modules organize into a running adventure: the
 setting, the location scheme and its three module series, the verb table,
 the characters, and saving. For what each module contains, see the
 [module map](module-map.md); for the boot sequence and the location loader
-word by word, [boot and frame loop](../../motion16/engine/boot-and-loop.md).
+word by word, [boot and frame loop](../../motion16/engine/game-loop.md).
 
 ## Setting
 
@@ -24,6 +24,9 @@ clock of days (`DAY2`–`DAY4`, `_TAG`) structure the plot.
 The game is played with the mouse on a 320×200 picture whose lower part,
 from y = 165, is the inventory and verb bar; the control handler splits the
 pointer's coordinates there.
+
+What the game is about, who made it and why it exists are on
+[the game's own page](README.md).
 
 ## Startup
 
@@ -61,7 +64,7 @@ word per module, always with word id 549, and its name is the room's:
 | 4 | `WILDB` | The Wildbach stream |
 | 5 | `VISALUX` | The VISALUX factory |
 | 6 | `RAFFKE` | Raffke's |
-| 7 | `EINKAUFSZEN` | The shopping centre |
+| 7 | `EINKAUFSZEN` | The shopping center |
 | 8 | `STADTZ` | The town, first view |
 | 9 | `STADTV` | The town, second view |
 | 10 | `PINIEN` | The pines |
@@ -138,5 +141,5 @@ on hand; what a save keeps, byte for byte, is open.
 
 - [Module map](module-map.md) — every module
 - [Resource inventory](inventory.md) — the counts
-- [Boot and frame loop](../../motion16/engine/boot-and-loop.md) — `RUN`, `CTRL`, `INCLLOC`
+- [Boot and frame loop](../../motion16/engine/game-loop.md) — `RUN`, `CTRL`, `INCLLOC`
 - [Game structure (Dunkle Schatten 2)](../ds2/game-structure.md) — the 32-bit game's scheme for comparison

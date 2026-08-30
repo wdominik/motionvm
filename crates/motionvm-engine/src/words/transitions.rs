@@ -110,7 +110,7 @@ impl Engine {
                     self.draw_screen(screen);
                 } else {
                     // `0x74d44`: `FADEOUT` fills the screen's rectangle with
-                    // colour 0 before the first band moves. It matters because
+                    // color 0 before the first band moves. It matters because
                     // the surface persists — leave it and the old picture is
                     // still there when the next scene is composed over it.
                     // Everything saved under a descriptor goes with it: those

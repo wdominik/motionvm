@@ -80,5 +80,5 @@ hotspots are all ordinary furniture. The other twelve are inside the machine.
 
 - [Game structure](game-structure.md) — how the three module series are used
 - [Resource inventory](inventory.md) — the counts behind this page
-- [Boot and frame loop](../../motion16/engine/boot-and-loop.md) — `RUN`, `CTRL`, `INCLLOC`
+- [Boot and frame loop](../../motion16/engine/game-loop.md) — `RUN`, `CTRL`, `INCLLOC`
 - [Module map (Die Enviro-Kids greifen ein)](../enviro/module-map.md) — the same template, sixteen locations

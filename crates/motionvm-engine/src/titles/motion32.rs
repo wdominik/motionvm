@@ -171,6 +171,7 @@ pub(super) fn open(
         engine,
         title,
         running: false,
+        frame_controllers: Vec::new(),
         ending: false,
         over: false,
         parked: None,

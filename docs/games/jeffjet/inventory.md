@@ -24,7 +24,7 @@ byte.
 | Slots | 1187 | 543 |
 
 Every segment is flagged packed, so every item is an eight-byte GFXCRUNCH
-header and a stream — see [the DATA container](../../motion16/formats/data-container.md).
+header and a stream — see [the DATA container](../../motion16/formats/container.md).
 
 | Segment | Occupied / slots | Bytes, unpacked |
 |---|---:|---:|
@@ -44,7 +44,7 @@ middle of a run of occupied slots. What that means is
 **What is on which volume matters.** Volume 2 holds 523 of the sprites and
 **all sixteen palettes, both fonts and the font reference table**; volume 1
 holds the scripts, the texts, the music and the other 947 sprites. A reader
-that opened only the first volume would find every script and no colour.
+that opened only the first volume would find every script and no color.
 
 ## Sprites (GFX)
 
@@ -108,6 +108,6 @@ named `ZEIT` and all under id 549. What each module holds is in the
 
 ## See also
 
-- [The DATA container](../../motion16/formats/data-container.md) — how the segments and volumes are laid out
+- [The DATA container](../../motion16/formats/container.md) — how the segments and volumes are laid out
 - [Module map](module-map.md), [Game structure](game-structure.md)
 - [Resource inventory (Die Enviro-Kids greifen ein)](../enviro/inventory.md) — the other 16-bit game's, for comparison

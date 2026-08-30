@@ -171,8 +171,10 @@ pub fn open_motion32(dir: &Path) -> Result<(Sound, Music), String> {
 ///
 /// `dir` is the game directory: `MUSADL.DRV` comes from there, the same file
 /// the 16-bit player loads whole and installs — motionvm reads its tables and
-/// rebuilds the code around them. All three 16-bit games ship that driver, and
-/// the copies are byte-identical, so one opener serves them.
+/// rebuilds the code around them. All four 16-bit games ship that driver: the
+/// three later ones carry byte-identical copies, Victor Loomes an older build
+/// with one entry fewer, and `psm::Driver` reads either — so one opener serves
+/// them.
 pub fn open_motion16(dir: &Path) -> Result<(Sound, PsmMusic), String> {
     let path = motionvm_formats::find_ci(dir, "MUSADL.DRV").ok_or("MUSADL.DRV: not found")?;
     let driver = std::fs::read(path).map_err(|e| format!("MUSADL.DRV: {e}"))?;

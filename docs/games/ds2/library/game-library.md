@@ -2,7 +2,7 @@
 
 # Module 5 — The Game Library
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 Module 5 (178 words) is the shared game logic: verb dispatch, hit
 testing, inventory, the task machine, location switching, and the
@@ -103,7 +103,7 @@ talk-only items get the hotspot bit added, everything else defaults to
 records; `.FITEM. ( n -- addr )` = `n × 20 + _FITEM` — the object
 records. Around them sit paired setters/getters per field
 (`->LDX1`/`LDX1->` etc. — the field table is in
-[Blocks](../../../motion32/formats/block.md)) and two bulk setters:
+[Blocks](../../../motion32/formats/blocks.md)) and two bulk setters:
 
 - `->LDALL ( text x1 y1 x2 y2 dr dx dy n -- )` — fill a location item
   (does **not** set the info text; callers follow with `->LDITEXT`).
@@ -218,7 +218,7 @@ pinning here:
 - `DOINV2` — an older menu hit-tester superseded by the
   [control handler](shell.md); dead code.
 
-## Quirks and open points
+## Open questions
 
 - `FOLLOWMAN`'s entire body is `SDINACTIVE` — and that is not vestigial:
   its **address** is the expiry callback of the `_TI1` caption

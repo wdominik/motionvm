@@ -45,12 +45,11 @@ mechanism by which a caption hides itself when its time expires.
 
 ## The descriptor structure
 
-A descriptor is a **0x3E-byte structure** plus a type-dependent payload.
-Known fields:
+A descriptor is a **0x3E-byte structure** plus a payload. Known fields:
 
-| Offset | Type | Meaning |
+| Offset | Type | Description |
 |---|---|---|
-| +0x02 | `u16` | Descriptor type: 1 group, 2 sprite, 3 image, 4 text |
+| +0x02 | `u16` | Descriptor type: 1 group, 2 sprite, 3 image, 4 text — **unverified**, see [Open questions](#open-questions) |
 | +0x04 / +0x06 | `i16` | X / Y position (interpreted per placement mode) |
 | +0x08 | `i16` | Level (draw order) |
 | +0x0E | | Group: sibling-list head/tail; text: the layout record |
@@ -112,9 +111,10 @@ pages are black, since `SHOW_DOC` contains no `SDCOL` and `XYLTITEM.`,
 which builds its descriptors, contains none either (see
 [Text rendering](text-rendering.md) and [Shell](../../games/ds2/library/shell.md)).
 
-## The three payload types
+## The payload
 
-A descriptor is exactly one type, set by the word that gives it content:
+A descriptor carries exactly one payload, set by the word that gives it
+content:
 
 | Type | Set by | Payload | Meaning |
 |---|---|---|---|
@@ -208,7 +208,7 @@ does nothing.
 Setters whose fields are identified but whose runtime effect is not yet
 established: `SDBUF`, `SDSTARTLINE`, `SDALINES`, `SDINSERT`
 (3 arguments). `SDTRANS`/`SDSHADE` select palette-lookup effects whose
-tables are known (see [Blocks](../formats/block.md)) but whose
+tables are known (see [Blocks](../formats/blocks.md)) but whose
 per-descriptor semantics are not. `SDNORM`/`SDPOS` switch animation
 modes (unmapped). `GDCOL` returns the color **undivided** — a backed
 text answers 421, not 165 (see [Text rendering](text-rendering.md)).
@@ -217,7 +217,17 @@ text answers 421, not 165 (see [Text rendering](text-rendering.md)).
 
 - The meaning of `NEWSETDESC`'s fifth argument.
 - The third callback-address check (`0x68367`).
-- The animation state inside the type-2 payload.
+- **Whether a descriptor's type is stored at all.** The table above reads
+  `+0x02` as a type field, and no handler on this page cites writing or
+  reading it. The same reading of the 16-bit engine did not survive contact
+  with its handlers: there the pair `+0x10`/`+0x12` says what a descriptor is,
+  it is worked out on every ask rather than stored, and the earlier
+  three-field model was an artifact of reading the two fields the other way
+  round ([16-bit descriptors](../../motion16/engine/descriptors.md)). Whether
+  the 32-bit engine keeps a discriminant that the 16-bit one does not is open
+  until `SDSPR` (`0x71715`), `SDBL`, `SDTXT` (`0x71b4f`) and `SDTB`
+  (`0x71d45`) are read for what they write there.
+- The animation state inside the sprite payload.
 - `SDBUF`, `SDSTARTLINE`, `SDALINES`, `SDTRANS`, `SDSHADE`, `SDINSERT`
   semantics.
 - What flag `0x10` picks between — see [Screens](screens.md#open-questions).
@@ -226,5 +236,5 @@ text answers 421, not 165 (see [Text rendering](text-rendering.md)).
 
 - [Screens](screens.md), [Text rendering](text-rendering.md)
 - [Interaction machine](interaction.md) — who clicks on all this
-- [GFX8 sprites](../formats/gfx8-sprites.md)
+- [GFX8 sprites](../formats/sprites.md)
 - [Kernel words](../vm/kernel-words.md)

@@ -2,7 +2,7 @@
 
 # Module 4 — Boot, Control Handler, and Menus
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 Module 4 (9 words) is the game's shell: the bootstrap `START`, the
 per-frame control handler `ICTRL` (the de-facto main loop — see

@@ -1,6 +1,6 @@
 [← Documentation index](../../README.md)
 
-# RSC Resource Containers
+# Resource Containers — `NNN.RSC`
 
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
@@ -98,7 +98,7 @@ compacted away.
 
 ## See also
 
-- [GFX8 sprites](gfx8-sprites.md) — the graphics item format
-- [Text tables](text-tables.md), [Blocks](block.md), [Fonts](fonts.md),
+- [GFX8 sprites](sprites.md) — the graphics item format
+- [Text tables](text-tables.md), [Blocks](blocks.md), [Fonts](fonts.md),
   [Script modules](script-modules.md), [Palettes](palette.md) — the other
   item formats

@@ -8,7 +8,7 @@ How the game's 76 script modules organize into a running adventure: the
 setting, the location scheme and its three module series, the verbs, the
 characters, and saving. For what each module contains, see the
 [module map](module-map.md); for the boot sequence and the location loader
-word by word, [boot and frame loop](../../motion16/engine/boot-and-loop.md).
+word by word, [boot and frame loop](../../motion16/engine/game-loop.md).
 
 ## Setting
 
@@ -31,6 +31,9 @@ concrete ford instead of a bridge — as the cheaper thing that lasts.
 The dialogue is German in CP437. The engine's own prompts are formal *Sie*, as
 in Jeff Jet and unlike Die Enviro-Kids greifen ein, whose build was edited to
 *Du*.
+
+What the game is about, who made it and why it exists are on
+[the game's own page](README.md).
 
 ## Startup
 
@@ -78,7 +81,7 @@ two constants module 601 declares.
 Moving between them goes through one variable. `CTRL` runs
 `NEXTLOC @ -1 != IF NEXTLOC @ INCLLOC -1 NEXTLOC ! THEN` every frame, and the
 scripts store their exits there; `INCLLOC` does the rest. That is also the only
-way in from outside: motionvm's `--loc N` writes `NEXTLOC` and the game honours
+way in from outside: motionvm's `--loc N` writes `NEXTLOC` and the game honors
 it on the next frame the menu is not up for.
 
 The room is drawn on a screen larger than the display and scrolled — 960×544
@@ -143,6 +146,6 @@ drive them are module 650's, reached from the menu at `_INVMODE` 3 (load) and 4
 - [Module map](module-map.md) — every module
 - [Resource inventory](inventory.md) — the counts
 - [Other shipped files](other-files.md) — the launcher, the sound stack, the integrity chain
-- [Boot and frame loop](../../motion16/engine/boot-and-loop.md) — `RUN`, `CTRL`, `INCLLOC`
+- [Boot and frame loop](../../motion16/engine/game-loop.md) — `RUN`, `CTRL`, `INCLLOC`
 - [Game structure (Jeff Jet - Abenteuer InfoHighway)](../jeffjet/game-structure.md) — the same template, one game later
 - [Game structure (Die Enviro-Kids greifen ein)](../enviro/game-structure.md) — and the build this one's kernel is one word short of

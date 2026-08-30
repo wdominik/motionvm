@@ -2,7 +2,7 @@
 
 # Text Rendering
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The 16-bit text drawer is one branch of the descriptor drawer (`016a:0aac`)
 feeding a run drawer in the blitter segment (`14ee:11cf`), with the
@@ -124,5 +124,5 @@ caller: its texts mark headings and paragraph ends with `#`.
 
 - [Fonts](../formats/fonts.md) — the three faces and the reference table
 - [Descriptors and screens](descriptors.md) — the fields around the text
-- [Boot and frame loop](boot-and-loop.md) — `XDEFTDT` at start-up
+- [Boot and frame loop](game-loop.md) — `XDEFTDT` at start-up
 - [Text rendering (MOTION 32-bit)](../../motion32/engine/text-rendering.md) — the successor's drawer, read the same way

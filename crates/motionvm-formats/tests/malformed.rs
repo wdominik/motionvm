@@ -411,5 +411,173 @@ fn an_executable_with_no_kernel_tables_binds_nothing() {
     let img = m16::mz::Image::parse(v).unwrap();
     assert_eq!(img.header_len(), 32);
     assert!(m16::mz::kernel_words(&img).is_empty());
-    assert!(m16::mz::binding_of(&[]).is_err(), "no inline words to bind");
+    assert!(
+        m16::mz::binding_of(&img, &[]).is_err(),
+        "no inline words to bind"
+    );
+}
+
+/// A generation-one container: a 22-byte header, one boolean occupancy word
+/// per slot, then `total + spare` offsets and the items.
+///
+/// The framing is told from the file rather than from a field, by two
+/// identities that have to hold at once — the first offset is where the
+/// tables end, and the last slot's offset is the file's length — so a fixture
+/// is only generation one if both are built to hold.
+fn dat_gen1(counts: [u16; 7], spare: u16, items: &[&[u8]]) -> Vec<u8> {
+    let total: usize = counts.iter().map(|&c| c as usize).sum();
+    assert_eq!(total, items.len(), "one item per slot, empty ones included");
+    let mut v = vec![0u8; 22];
+    v[0..2].copy_from_slice(&100u16.to_le_bytes());
+    v[2..4].copy_from_slice(&449u16.to_le_bytes());
+    for (i, c) in counts.iter().enumerate() {
+        v[4 + 2 * i..6 + 2 * i].copy_from_slice(&c.to_le_bytes());
+    }
+    // Victor Loomes and Compaq both hold 2 here and ship one volume: in this
+    // framing the word is not a count of volumes, and the reader does not
+    // read it as one.
+    v[18..20].copy_from_slice(&2u16.to_le_bytes());
+    v[20..22].copy_from_slice(&spare.to_le_bytes());
+    for item in items {
+        v.extend_from_slice(&u16::from(!item.is_empty()).to_le_bytes());
+    }
+    let ends = 22 + total * 2 + (total + spare as usize) * 4;
+    let mut at = ends;
+    let mut offsets = Vec::new();
+    for item in items {
+        offsets.push(at as u32);
+        at += item.len();
+    }
+    // The last slot's offset is the file's length, and the spares repeat it.
+    let last = offsets.len() - 1;
+    offsets[last] = at as u32;
+    for _ in 0..spare {
+        offsets.push(at as u32);
+    }
+    for o in &offsets {
+        v.extend_from_slice(&o.to_le_bytes());
+    }
+    for item in items {
+        v.extend_from_slice(item);
+    }
+    v
+}
+
+/// A generation-one packed item: the eight-byte header with the unpacked
+/// length repeated ahead of it, then a GFXCRUNCH stream.
+fn gen1_packed_item(repeat: u16) -> Vec<u8> {
+    let stream = [0x00u8, 0x80, 0x80, 0x60];
+    let mut v = Vec::new();
+    v.extend_from_slice(&repeat.to_le_bytes());
+    v.extend_from_slice(&3u16.to_le_bytes());
+    v.extend_from_slice(&(stream.len() as u16).to_le_bytes());
+    v.extend_from_slice(&2048u16.to_le_bytes());
+    v.extend_from_slice(&9u16.to_le_bytes());
+    v.extend_from_slice(&stream);
+    v
+}
+
+#[test]
+fn a_truncated_generation_one_container_is_refused_as_one() {
+    // BLK is the one segment the earlier framing does not pack, so the only
+    // thing wrong with these is their length.
+    let whole = dat_gen1([0, 2, 0, 0, 0, 0, 0], 1, &[b"abcd", b""]);
+    assert!(
+        m16::Container::from_volumes(vec![whole.clone()], "gen1".into()).is_ok(),
+        "the fixture itself is a readable generation-one container"
+    );
+
+    // Cutting it breaks the second identity — the last slot's offset is no
+    // longer the file's length — while the first still holds, because the
+    // tables sit ahead of the cut. Without a word for that case the reader
+    // fell through to generation two and then blamed the word at 0x12, which
+    // in this framing is not a volume count: both games that use it say two
+    // and ship one file.
+    for cut in [whole.len() - 1, whole.len() - 4] {
+        let err = m16::Container::from_volumes(vec![whole[..cut].to_vec()], "gen1".into())
+            .err()
+            .expect("a cut container is refused")
+            .to_string();
+        assert!(
+            err.contains("last slot's offset is not the file's length"),
+            "cut to {cut} was refused as something else: {err}"
+        );
+        assert!(
+            !err.contains("volume(s)"),
+            "cut to {cut} blamed a volume: {err}"
+        );
+    }
+
+    // Cut back past the tables there is nothing left to recognise, and the
+    // reader says so as it does for any other short file.
+    let err = m16::Container::from_volumes(vec![whole[..30].to_vec()], "gen1".into())
+        .err()
+        .expect("a container cut into its tables is refused")
+        .to_string();
+    assert!(err.contains("only 30 bytes"), "{err}");
+}
+
+#[test]
+fn a_generation_one_packed_item_whose_repeated_length_disagrees_is_refused() {
+    // GFX is packed in this framing, and its header repeats the unpacked
+    // length ahead of the eight-byte one. The repeat is what says the item is
+    // in the earlier framing at all — it agrees in all 723 packed items of
+    // Victor Loomes and all 318 of Compaq — so a disagreement is the one
+    // thing that distinguishes a generation-one header from eight bytes of
+    // something else.
+    let good = dat_gen1([2, 0, 0, 0, 0, 0, 0], 1, &[&gen1_packed_item(3), b""]);
+    assert!(
+        m16::Container::from_volumes(vec![good], "gen1".into()).is_ok(),
+        "a header whose two lengths agree is read"
+    );
+
+    let bad = dat_gen1([2, 0, 0, 0, 0, 0, 0], 1, &[&gen1_packed_item(4), b""]);
+    let err = m16::Container::from_volumes(vec![bad], "gen1".into())
+        .err()
+        .expect("a header whose two lengths disagree is refused")
+        .to_string();
+    assert!(
+        err.contains("do not open") && err.contains("GFXCRUNCH"),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_short_gfx_inf_answers_for_the_slots_it_does_describe() {
+    // Four bytes an entry and no header, so the file's length is the only
+    // thing that says how many slots there are. A trailing partial entry is
+    // therefore not an error to report but a slot to leave unanswered — there
+    // is nothing else it could mean, and refusing the file would throw away
+    // the entries that are whole.
+    let mut bytes = Vec::new();
+    for (w, h) in [(64u16, 48u16), (0xffff, 0xffff), (16, 8)] {
+        bytes.extend_from_slice(&w.to_le_bytes());
+        bytes.extend_from_slice(&h.to_le_bytes());
+    }
+    let whole = m16::GfxInf::parse(&bytes).expect("a whole file parses");
+    assert_eq!(whole.len(), 3);
+    assert_eq!(whole.size(0), Some((64, 48)));
+    assert_eq!(
+        whole.size(1),
+        None,
+        "0xFFFF in both halves is an empty slot"
+    );
+    assert_eq!(whole.size(2), Some((16, 8)));
+    assert_eq!(whole.present(), [0, 2]);
+    assert_eq!(whole.size(3), None, "past the end is not a panic");
+
+    for cut in [1, 2, 3] {
+        let short = m16::GfxInf::parse(&bytes[..bytes.len() - cut]).expect("a short file parses");
+        assert_eq!(short.len(), 2, "the partial entry is not counted");
+        assert_eq!(
+            short.size(0),
+            Some((64, 48)),
+            "the whole entries still answer"
+        );
+        assert_eq!(short.size(2), None, "and the partial one does not");
+    }
+
+    let empty = m16::GfxInf::parse(&[]).expect("an empty file parses");
+    assert!(empty.is_empty());
+    assert_eq!(empty.size(0), None);
 }

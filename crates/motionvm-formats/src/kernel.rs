@@ -8,7 +8,8 @@
 //! ([`crate::m16::mz`]). A [`KernelWord`] is one such entry. How an ordinal
 //! in threaded code maps onto an entry differs per generation — five per
 //! table index from a measured base in the 32-bit engine, one per index from
-//! 1 and from 105 in the 16-bit one — and a [`Binding`] is that answer made
+//! 1 and from a per-build base in the 16-bit one, 105 in the three later
+//! builds and 102 in `LL.EXE` — and a [`Binding`] is that answer made
 //! concrete: the ordinal-to-name map, plus the ordinals of the words that
 //! carry an operand in the cell after them, which is what a machine or a
 //! disassembler has to know before it can walk a body.
@@ -33,9 +34,12 @@ pub struct KernelWord {
 /// The ordinals of the kernel words whose operand follows them inline, for
 /// one generation's kernel.
 ///
-/// Every field is an ordinal in that kernel's numbering. `ch_else_dup` — the
-/// `ELSEDUP` runtime — is `None` where its ordinal is not known: the 32-bit
-/// kernel's was never measured, and no 32-bit module uses it.
+/// Every field is an ordinal in that kernel's numbering. Two are `Option`,
+/// for the two ways a field can have no ordinal: `ch_else_dup` — the
+/// `ELSEDUP` runtime — is `None` where its ordinal is not known, as the
+/// 32-bit kernel's never was and no 32-bit module uses it; `put_string_adr`
+/// is `None` where the kernel does not have the word at all, as Victor
+/// Loomes' 1993 build does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inline {
     /// `_PutLit`: one cell, the literal; pushes it and continues.
@@ -47,7 +51,9 @@ pub struct Inline {
     /// `_PutString`: a NUL-terminated string padded to a cell boundary.
     pub put_string: u32,
     /// `_PutStringAdr`: the same payload; pushes its address and continues.
-    pub put_string_adr: u32,
+    /// `None` where the kernel does not have the word — the 1993 build's
+    /// core table ends two words earlier than the later ones'.
+    pub put_string_adr: Option<u32>,
     /// `_CheckIf` — `IF`, a forward distance.
     pub check_if: u32,
     /// `_CheckEIf` — `=IF`, forward.
@@ -78,7 +84,7 @@ impl Inline {
             ("_PutAdr", Some(self.put_adr)),
             ("_PutConst", Some(self.put_const)),
             ("_PutString", Some(self.put_string)),
-            ("_PutStringAdr", Some(self.put_string_adr)),
+            ("_PutStringAdr", self.put_string_adr),
             ("_CheckIf", Some(self.check_if)),
             ("_CheckEIf", Some(self.check_eif)),
             ("_ChElseDup", self.ch_else_dup),
@@ -129,11 +135,12 @@ impl Inline {
 
     /// Whether the word is followed by a NUL-terminated string.
     pub fn takes_string(&self, ordinal: u32) -> bool {
-        ordinal == self.put_string || ordinal == self.put_string_adr
+        ordinal == self.put_string || Some(ordinal) == self.put_string_adr
     }
 
     /// The inline set read off a kernel's names: every field from the word
-    /// of that name, or `None` if any name but `_ChElseDup` is missing.
+    /// of that name, or `None` if any name but `_ChElseDup` and
+    /// `_PutStringAdr` is missing.
     ///
     /// This is how the 16-bit kernel's set is bound. It is a derivation, not
     /// a measurement — the measurement is that walking all 65 modules of
@@ -148,7 +155,7 @@ impl Inline {
             put_adr: find("_PutAdr")?,
             put_const: find("_PutConst")?,
             put_string: find("_PutString")?,
-            put_string_adr: find("_PutStringAdr")?,
+            put_string_adr: find("_PutStringAdr"),
             check_if: find("_CheckIf")?,
             check_eif: find("_CheckEIf")?,
             ch_else_dup: find("_ChElseDup"),

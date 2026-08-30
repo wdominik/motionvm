@@ -604,13 +604,31 @@ struct Plan {
 }
 
 /// `CROUTE` (0x7780c): fills the step buffer between here and the destination.
+///
+/// The 32-bit games and the later 16-bit ones reach it through `DOWALK`,
+/// which hands over a person record; Victor Loomes has no `DOWALK` and calls
+/// the kernel word itself with the same five pointers on the stack
+/// (`0104:4a45` in `LL.EXE` pops aux, routes, shadow, steps and room in that
+/// order). Both go through [`croute_with`].
 pub(crate) fn croute(eng: &mut Engine, mem: &mut dyn AddressSpace, person: u32) -> Result<()> {
     let shadow = get(mem, person, P_SHADOW)? as u32;
     let steps = get(mem, person, P_STEPS)? as u32;
     let routes = get(mem, person, P_ROUTES)? as u32;
     let extra = get(mem, person, P_AUX)? as u32;
     let room = get(mem, person, P_ROOM)?;
+    croute_with(eng, mem, shadow, steps, routes, extra, room)
+}
 
+/// The same, with the five pointers the person record would have held.
+pub(crate) fn croute_with(
+    eng: &mut Engine,
+    mem: &mut dyn AddressSpace,
+    shadow: u32,
+    steps: u32,
+    routes: u32,
+    extra: u32,
+    room: i32,
+) -> Result<()> {
     let at = get(mem, shadow, S_ROUTE)? - 1;
     let (x, y) = (get(mem, shadow, S_X)?, get(mem, shadow, S_Y)?);
     set_step(mem, steps, 0, T_X, x)?;

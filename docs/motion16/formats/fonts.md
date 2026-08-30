@@ -2,7 +2,7 @@
 
 # Fonts
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 Two item kinds carry text rendering: FNT items hold the glyph bitmaps, and
 the single FRT item maps a character code to a glyph number. Both have the
@@ -79,5 +79,5 @@ the last glyph of a 116-glyph font, so one table serves all three.
 
 ## See also
 
-- [The DATA container](data-container.md) — the FNT and FRT segments
+- [The DATA container](container.md) — the FNT and FRT segments
 - [Fonts (MOTION 32-bit)](../../motion32/formats/fonts.md) — the compressed successor with the same decoded layout

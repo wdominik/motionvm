@@ -2,7 +2,7 @@
 
 # Module 216 — The In-Game BBS
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 Module 216 (286 words) implements the bulletin-board terminal — the
 "network" of the title — and is the most elaborate location module in the

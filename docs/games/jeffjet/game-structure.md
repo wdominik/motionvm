@@ -8,7 +8,7 @@ How the game's 55 script modules organize into a running adventure: the
 setting, the location scheme and its three module series, the verbs, the
 characters, and saving. For what each module contains, see the
 [module map](module-map.md); for the boot sequence and the location loader
-word by word, [boot and frame loop](../../motion16/engine/boot-and-loop.md).
+word by word, [boot and frame loop](../../motion16/engine/game-loop.md).
 
 ## Setting
 
@@ -24,6 +24,9 @@ nine times, *Drucker* twenty-two and *Modem* eighteen.
 The dialogue is informal *Du*. The player's own text — the engine's prompts —
 is formal *Sie*, which is one of the few places where this build's DGROUP was
 edited away from the other game's.
+
+What the game is about, who made it and why it exists are on
+[the game's own page](README.md).
 
 ## Startup
 
@@ -60,7 +63,7 @@ Moving between them goes through one variable. `CTRL` runs
 `NEXTLOC @ -1 != IF NEXTLOC @ INCLLOC -1 NEXTLOC ! THEN` every frame, and the
 scripts store their exits there; `INCLLOC` (module 605) does the rest. That is
 also the only way in from outside: motionvm's `--loc N` writes `NEXTLOC` and
-the game honours it on the next frame.
+the game honors it on the next frame.
 
 The room is drawn on a screen larger than the display and scrolled — 960×544
 seen through a 320×165 window in location 13 — with the verb and inventory
@@ -126,5 +129,5 @@ refused ([departures](../../departures.md)).
 - [Module map](module-map.md) — every module
 - [Resource inventory](inventory.md) — the counts
 - [Other shipped files](other-files.md) — the launcher, the sound stack, the two splash pictures
-- [Boot and frame loop](../../motion16/engine/boot-and-loop.md) — `RUN`, `CTRL`, `INCLLOC`
+- [Boot and frame loop](../../motion16/engine/game-loop.md) — `RUN`, `CTRL`, `INCLLOC`
 - [Game structure (Die Enviro-Kids greifen ein)](../enviro/game-structure.md) — the same template, one game earlier

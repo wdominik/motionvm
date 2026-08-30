@@ -1,12 +1,13 @@
 [← Documentation index](../../README.md)
 
-# HPPLAY.EXE — The Older Build of the MOTION 16-bit Player
+# HPPLAY.EXE — The Second Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 `HPPLAY.EXE` (165 702 bytes) is the same player as
 [`ENVIRO.EXE`](enviro-exe.md), built earlier — and earlier than
-[`BMZ.EXE`](bmz-exe.md) too, which makes it the oldest of the three. Everything the other page says
+[`BMZ.EXE`](bmz-exe.md) too, which puts it second of the four, behind
+[`LL.EXE`](ll-exe.md) alone. Everything the other page says
 about the binary holds here — Turbo C real mode, an 800-paragraph header, two
 kernel tables of far function pointers, a data stack behind a far pointer in
 DGROUP — and this page is only what differs. Where a subsystem page cites an
@@ -32,7 +33,7 @@ to the 1995-07-10 copies Die Enviro-Kids greifen ein ships. `HP.BAT` ends
 
 Twice the expanded memory for a container a fifth the size, because it is
 packed: 2 459 890 bytes of `DATA.-1-` and `DATA.-2-` unfold to 8 412 811 (see
-[the DATA container](../formats/data-container.md)).
+[the DATA container](../formats/container.md)).
 
 ## Which build is older
 
@@ -77,7 +78,7 @@ engine follows: scan the table out of the binary that ships with the game.
 |---|---|
 | `0x1f42e` | Kernel table 2 — 146 domain words, ordinals 105–250 ([kernel words](../vm/kernel-words.md)) |
 | `0x20236` | Kernel table 1 — 82 core words, ordinals 1–82, name for name and order for order the other build's |
-| `0x400c` | The container item loader: the per-segment packed flag, the volume bitmask, the read ([the DATA container](../formats/data-container.md)) |
+| `0x400c` | The container item loader: the per-segment packed flag, the volume bitmask, the read ([the DATA container](../formats/container.md)) |
 | `0x1934d` | The GFXCRUNCH decoder (`1614:000d`) |
 | `0x1951d` | The unpacked length of an item, from its header (`1614:01dd`) |
 | `0x1ffce` | The eleven interpreter error messages, by far pointer |
@@ -94,8 +95,9 @@ them.
 ## See also
 
 - [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the three share
-- [BMZ.EXE](bmz-exe.md) — the middle build, whose ordinals are those of
+- [BMZ.EXE](bmz-exe.md) — the third build, whose ordinals are those of
+- [LL.EXE](ll-exe.md) — the oldest build, whose domain table binds at 102
   Die Enviro-Kids greifen ein
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
-- [The DATA container](../formats/data-container.md) — the volumes and the packing this build reads
+- [The DATA container](../formats/container.md) — the volumes and the packing this build reads
 - [Other files (Jeff Jet)](../../games/jeffjet/other-files.md) — what else the installation holds

@@ -1,17 +1,17 @@
 [← Documentation index](../../README.md)
 
-# BMZ.EXE — The Middle Build of the MOTION 16-bit Player
+# BMZ.EXE — The Third Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 `BMZ.EXE` (166 806 bytes) is the same player as
 [`ENVIRO.EXE`](enviro-exe.md), built earlier — and later than
-[`HPPLAY.EXE`](hpplay-exe.md), which makes it the middle of the three.
+[`HPPLAY.EXE`](hpplay-exe.md), which puts it third of the four.
 Everything the `ENVIRO.EXE` page says about the binary holds here — Turbo C real
 mode, an 800-paragraph header, two kernel tables of far function pointers, a
 data stack behind a far pointer in DGROUP — and this page is only what differs.
 Where a subsystem page cites an `ENVIRO.EXE` address, the same code is in this
-image at its own address; the three are not interchangeable.
+image at its own address; the four are not interchangeable.
 
 The name is the client's: the game was made for the Bundesministerium für
 wirtschaftliche Zusammenarbeit und Entwicklung.
@@ -30,7 +30,8 @@ wirtschaftliche Zusammenarbeit und Entwicklung.
 
 The dates are the build's own and not a re-stamp: 1995-06-05 for the binary,
 1995-06-06 for the containers, against Jeff Jet's blanket 1998-04-10. This is
-the oldest-dated player of the three, and the memory it asks for is
+the oldest-dated of the three later builds — only `LL.EXE`, two years earlier,
+predates it — and the memory it asks for is
 `ENVIRO.EXE`'s — Jeff Jet needs twice the expanded memory because its container
 is packed, and this game's is not.
 
@@ -100,7 +101,8 @@ after this build, does not exist here to be called.
 
 ## See also
 
-- [ENVIRO.EXE](enviro-exe.md) — the later build, and everything the three share
+- [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the four share
 - [HPPLAY.EXE](hpplay-exe.md) — the earlier build, whose ordinals are shifted
+- [LL.EXE](ll-exe.md) — the oldest build, whose domain table binds at 102
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
 - [Other files (Hilfe für Amajambere)](../../games/hfa/other-files.md) — what else the installation holds

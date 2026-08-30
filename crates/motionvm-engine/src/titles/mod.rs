@@ -17,6 +17,7 @@ pub mod hfa;
 pub mod jeffjet;
 pub mod motion16;
 pub mod motion32;
+pub mod vloomes;
 
 /// The games motionvm knows, by the files they ship.
 ///
@@ -43,6 +44,9 @@ pub enum Title {
     /// *Jeff Jet - Abenteuer InfoHighway*, on the 16-bit engine as well:
     /// `DATA.-1-` and `DATA.-2-` beside `HPPLAY.EXE`.
     JeffJet,
+    /// *Victor Loomes – Das Spiel*, on the oldest build of the 16-bit engine:
+    /// one `DATA.-1-` beside `LL.EXE`, in the earlier container framing.
+    VictorLoomes,
 }
 
 impl Title {
@@ -53,13 +57,14 @@ impl Title {
             Title::DunkleSchatten2 => "Im Netzwerk gefangen – Dunkle Schatten 2",
             Title::HilfeFuerAmajambere => "Hilfe für Amajambere",
             Title::JeffJet => "Jeff Jet - Abenteuer InfoHighway",
+            Title::VictorLoomes => "Victor Loomes – Das Spiel",
         }
     }
 
     /// The game's title without its subtitle — what prose calls it.
     ///
-    /// Two of the four titles carry a second half after a dash; those lose it.
-    /// The other two are already as short as they get and answer the same as
+    /// Two of the five titles carry a second half after a dash; those lose it.
+    /// The other three are already as short as they get and answer the same as
     /// [`Title::name`].
     pub fn short(self) -> &'static str {
         match self {
@@ -67,6 +72,7 @@ impl Title {
             Title::DunkleSchatten2 => "Dunkle Schatten 2",
             Title::HilfeFuerAmajambere => "Hilfe für Amajambere",
             Title::JeffJet => "Jeff Jet",
+            Title::VictorLoomes => "Victor Loomes",
         }
     }
 
@@ -83,6 +89,7 @@ impl Title {
             Title::DunkleSchatten2 => "ds2",
             Title::HilfeFuerAmajambere => "hfa",
             Title::JeffJet => "jeffjet",
+            Title::VictorLoomes => "vloomes",
         }
     }
 
@@ -97,23 +104,25 @@ impl Title {
             Title::DunkleSchatten2 => "001.RSC and ENGINE.EXE",
             Title::HilfeFuerAmajambere => "DATA.-1-, DATA.-2- and BMZ.EXE",
             Title::JeffJet => "DATA.-1-, DATA.-2- and HPPLAY.EXE",
+            Title::VictorLoomes => "DATA.-1- and LL.EXE",
         }
     }
 
     /// Every game, in the order the documentation lists them: the 32-bit game
     /// first, then the 16-bit ones as they were taken on.
-    pub const ALL: [Title; 4] = [
+    pub const ALL: [Title; 5] = [
         Title::DunkleSchatten2,
         Title::DieEnviroKidsGreifenEin,
         Title::JeffJet,
         Title::HilfeFuerAmajambere,
+        Title::VictorLoomes,
     ];
 }
 
 /// Which game a directory holds, told by its files — or `None` for none of
 /// them.
 ///
-/// A `DATA.-1-` is one of the three 16-bit games, and which one is the
+/// A `DATA.-1-` is one of the four 16-bit games, and which one is the
 /// **engine binary** beside it: all of them ship a container of that name, and
 /// none ships another's binary. A `DATA.-1-` with none of them is not a game
 /// this can open, and saying so beats naming one of them and then failing on
@@ -121,7 +130,7 @@ impl Title {
 /// case-insensitive, because a copied install is often lower-cased.
 ///
 /// This reads file names and nothing else, and file names are as far as they
-/// go on the 32-bit side: MOTION made more games than the four here, and
+/// go on the 32-bit side: MOTION made more games than the five here, and
 /// Checker 2000 ships `NNN.RSC` beside an `ENGINE.EXE` exactly as Dunkle
 /// Schatten 2 does, so this answers `DunkleSchatten2` for it. What settles
 /// that case is the container's own script, which the opener asks for with
@@ -136,6 +145,9 @@ pub fn detect(dir: &Path) -> Option<Title> {
         }
         if motionvm_formats::find_ci(dir, hfa::ENGINE).is_some() {
             return Some(Title::HilfeFuerAmajambere);
+        }
+        if motionvm_formats::find_ci(dir, vloomes::ENGINE).is_some() {
+            return Some(Title::VictorLoomes);
         }
         return None;
     }
@@ -205,6 +217,7 @@ pub fn open(dir: &Path) -> Result<Box<dyn Playable>> {
         }
         Some(Title::DieEnviroKidsGreifenEin) => Ok(Box::new(enviro::open(dir)?)),
         Some(Title::JeffJet) => Ok(Box::new(jeffjet::open(dir)?)),
+        Some(Title::VictorLoomes) => Ok(Box::new(vloomes::open(dir)?)),
         None => {
             if !dir.is_dir() {
                 return Err(crate::Error::NoSuchDirectory {

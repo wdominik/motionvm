@@ -274,7 +274,7 @@ fn the_early_locations_load_and_run_under_ctrl() {
 /// clamp (`0d34:2517`: `[sx+28h, sx+w-28h]` with `sx = GSCRX`),
 /// `MOUSEINFO` and the 16-bit conversation all ask the native
 /// `screen_origin_x`; answering `origin` alone dropped the scroll term
-/// and the strip drew shifted — off the view at the shopping centre's
+/// and the strip drew shifted — off the view at the shopping center's
 /// 304. The fix answers `origin + pos`, the sum the damage map already
 /// bases on.
 ///
@@ -511,7 +511,7 @@ fn the_start_up_page_waits_for_a_click_when_a_save_exists() {
 /// spins inside the word (`FADEOUT` `05f1:2827`), so `SETPAL`
 /// (`05f1:01ff`, the DAC programmed on the spot) always lands on a
 /// blacked view. Applied immediately here, the supermarket stood
-/// recolored in the shopping centre's palette for the whole closing
+/// recolored in the shopping center's palette for the whole closing
 /// wipe; queued with the wipe (`Wipe::palette_after`), the switch waits
 /// its turn — which is what this pins, on the played route it was seen
 /// on: the supermarket's exit is item 0 of its table (block 215,

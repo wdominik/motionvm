@@ -88,6 +88,8 @@ pub(crate) enum Prim {
     ToR,
     FromR,
     LoopIndex,
+    /// `I'`: the return-stack cell behind the one `I` answers.
+    NextLoopIndex,
     OuterLoopIndex,
     Leave,
     LoopStart,
@@ -146,6 +148,7 @@ pub(crate) fn prim_of(name: &str) -> Prim {
         ">R" => Prim::ToR,
         "R>" => Prim::FromR,
         "I" => Prim::LoopIndex,
+        "I'" => Prim::NextLoopIndex,
         "J" => Prim::OuterLoopIndex,
         "LEAVE" => Prim::Leave,
         "_LoopStart" => Prim::LoopStart,
@@ -186,7 +189,7 @@ pub(crate) fn dispatch_table(binding: &Binding) -> Vec<Prim> {
             Prim::PutConst
         } else if ordinal == inline.put_string {
             Prim::PutString
-        } else if ordinal == inline.put_string_adr {
+        } else if Some(ordinal) == inline.put_string_adr {
             Prim::PutStringAdr
         } else {
             prim_of(name)

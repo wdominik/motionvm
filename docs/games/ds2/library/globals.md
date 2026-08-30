@@ -2,7 +2,7 @@
 
 # Module 2 — Globals and Core Helpers
 
-*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit-ds2).*
+*Dunkle Schatten 2 — this page describes one of the game's own script modules. The engine it runs on is documented under [MOTION 32-bit](../../../README.md#motion-32-bit).*
 
 Module 2 is loaded first and stays resident. Of its 263 words, 205 are
 plain variables and 29 are constants; the remaining 29 have code bodies.
@@ -40,7 +40,7 @@ object slot holds the destination location), `O.AktObj2`, `O.MenStatus`,
 ## Constants
 
 **Table geometry** (the record sizes behind the per-location data —
-see [Blocks](../../../motion32/formats/block.md)):
+see [Blocks](../../../motion32/formats/blocks.md)):
 
 ```
 SIZE_SPEAKER=12  A_SPEAKER=10        A_ROUTES=25  S_ROUTES=36  S_XROUTES=24

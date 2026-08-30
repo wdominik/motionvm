@@ -19,10 +19,10 @@ type Res = Result<(), Box<dyn std::error::Error>>;
 
 /// The 16-bit engine binaries a game directory may hold, in probe order.
 ///
-/// A second list of the same three names as the engine crate's, on purpose:
+/// A second list of the same four names as the engine crate's, on purpose:
 /// this tool reads a game's files without opening the game, and does not depend
 /// on the engine.
-const ENGINES: [&str; 3] = ["ENVIRO.EXE", "HPPLAY.EXE", "BMZ.EXE"];
+const ENGINES: [&str; 4] = ["ENVIRO.EXE", "HPPLAY.EXE", "BMZ.EXE", "LL.EXE"];
 
 /// The kernel of the game in `dir`: its engine binary read and its tables
 /// bound. The binary is read, never run — the word table is what is wanted.
@@ -32,7 +32,7 @@ fn binding(dir: &Path) -> Result<Binding, Box<dyn std::error::Error>> {
         .find_map(|name| motionvm_formats::find_ci(dir, name))
         .ok_or_else(|| format!("{}: no {}", dir.display(), ENGINES.join(" and no ")))?;
     let img = mz::Image::open(exe)?;
-    Ok(mz::binding_of(&mz::kernel_words(&img))?)
+    Ok(mz::binding_of(&img, &mz::kernel_words(&img))?)
 }
 
 /// The palette a sprite is written through when the caller names none.
@@ -75,7 +75,7 @@ pub(crate) fn info(dir: &Path) -> Res {
             c.item(Segment::Blk, id)
                 .ok()
                 .flatten()
-                .is_some_and(psm::is_module)
+                .is_some_and(psm::is_song)
         })
         .count();
     println!("{:>10}  {songs} of the blocks are PSM 2 songs", "");
@@ -217,6 +217,12 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
                     tags.sm8.map_or("-".into(), |o| o.to_string())
                 )
             }
+            // The earlier games store the Ad Lib section on its own, with no
+            // module around it and no sample sections to point at.
+            None if psm::is_song(item) => {
+                n_songs += 1;
+                "PSM 2 song (a bare PLX section)".into()
+            }
             None => String::new(),
         };
         Ok(writeln!(index, "{id:<6} {:>8}  {what}", item.len())?)
@@ -316,16 +322,19 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
     Ok(())
 }
 
-/// Whether a module number is one of a location's three — 100+N, 300+N,
-/// 500+N — as opposed to the resident library, which starts at 600.
+/// Whether a module number belongs to a location rather than to the resident
+/// library, which starts at 600.
 ///
-/// The bound is 20, the most locations any of the games has: Hilfe für
-/// Amajambere numbers to 120/320/520, Die Enviro-Kids greifen ein to 117 and
-/// Jeff Jet to 113. Too low a bound is silent rather than loud — a location
-/// module counted as library teaches its ids to every other listing, and the
-/// names come out wrong with nothing said.
+/// The later games give a location three modules — 100+N, 300+N, 500+N — and
+/// the bound is 20, the most any of them has: Hilfe für Amajambere numbers to
+/// 120/320/520, Die Enviro-Kids greifen ein to 117 and Jeff Jet to 113.
+/// Victor Loomes gives a location two, 100+N and **20+N**, and numbers to 13,
+/// so its macro modules run 21 to 33 — under every window the later games
+/// need. Too low a bound is silent rather than loud — a location module
+/// counted as library teaches its ids to every other listing, and the names
+/// come out wrong with nothing said.
 fn is_location(module: u16) -> bool {
-    matches!(module, 101..=120 | 301..=320 | 501..=520)
+    matches!(module, 21..=40 | 101..=120 | 301..=320 | 501..=520)
 }
 
 pub(crate) fn one_sprite(dir: &Path, id: usize, out: &Path, pal: usize) -> Res {
@@ -424,13 +433,17 @@ mod tests {
     /// names come out wrong with nothing said. Twenty is the most locations
     /// any of the games has.
     #[test]
-    fn a_locations_three_modules_are_told_from_the_library() {
+    fn a_locations_modules_are_told_from_the_library() {
         for n in 1..=20 {
             for base in [100, 300, 500] {
                 assert!(is_location(base + n), "module {}", base + n);
             }
         }
-        for module in [100, 300, 500, 121, 321, 521, 600, 607, 650, 651] {
+        // Victor Loomes' second module per location, which no later game has.
+        for n in 1..=13 {
+            assert!(is_location(20 + n), "module {}", 20 + n);
+        }
+        for module in [100, 300, 500, 20, 41, 121, 321, 521, 600, 607, 650, 651] {
             assert!(!is_location(module), "module {module} is not a location's");
         }
     }

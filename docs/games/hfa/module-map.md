@@ -9,7 +9,7 @@ and fifteen of shared library. The numbering is the authoring template both
 sibling games follow, for more locations than either has. What each location
 owns besides its modules — its four blocks — is in the
 [resource inventory](inventory.md); how they are loaded and dropped is in
-[boot and frame loop](../../motion16/engine/boot-and-loop.md).
+[boot and frame loop](../../motion16/engine/game-loop.md).
 
 ## Infrastructure modules
 
@@ -85,5 +85,5 @@ Location 7 is the one the game ships no item table for; see
 
 - [Game structure](game-structure.md) — what these modules add up to
 - [Resource inventory](inventory.md) — the blocks each location owns
-- [Boot and frame loop](../../motion16/engine/boot-and-loop.md) — `RUN`, `CTRL`, `INCLLOC`
+- [Boot and frame loop](../../motion16/engine/game-loop.md) — `RUN`, `CTRL`, `INCLLOC`
 - [Module map (Jeff Jet - Abenteuer InfoHighway)](../jeffjet/module-map.md) — the same template, thirteen locations

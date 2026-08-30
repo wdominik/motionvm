@@ -95,7 +95,7 @@ count minus two, and that count is one short of the truth — so instruments 125
 126 and 127 are played from raw Ad Lib fields sitting at the register offsets.
 See [The FM driver](../engine/fm-driver.md) for the rest.
 
-## Verified
+## How this is checked
 
 Both shipped banks — `MELODIC.BNK` and `DRUM.BNK` — are 5404 bytes and hold
 **128 name entries and 128 instrument records**, not the 127 their headers

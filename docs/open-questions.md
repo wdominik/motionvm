@@ -2,12 +2,14 @@
 
 # Open Questions
 
+*Both generations of the engine, and every game motionvm plays — the one ledger of what is not yet known about the original. Each entry names the generation and, where it is one game's, the game. Deliberate divergences are a different record and live in [departures](departures.md).*
+
 A consolidated list of everything that is documented as unknown, unverified,
 or hypothetical, for both generations of the engine. Each topic page carries
 its own short "Open questions" section; this page collects them with links.
 The sections down to *The music's clock* concern the **32-bit engine** and
 Dunkle Schatten 2; [MOTION 16-bit](#motion-16-bit) collects the 16-bit
-engine's and its three games'. An entry that names a game is that game's.
+engine's and its four games'. An entry that names a game is that game's.
 
 ## Remaining unmapped kernel words and handler regions
 
@@ -68,6 +70,14 @@ See [Kernel words](motion32/vm/kernel-words.md).
   ([Transitions](motion32/engine/transitions.md))
 - **`NEWSETDESC`'s fifth argument** — popped and discarded everywhere
   observed. ([Descriptors](motion32/engine/descriptors.md))
+- **Whether a 32-bit descriptor stores its type.** `+0x02` is read as a type
+  field — 1 group, 2 sprite, 3 image, 4 text — and no handler is cited for
+  writing or reading it. The equivalent reading of the 16-bit engine turned
+  out to be backwards: there the pair `+0x10`/`+0x12` says what a descriptor
+  is, worked out on every ask rather than stored. Settling it means reading
+  `SDSPR` (`0x71715`), `SDBL`, `SDTXT` (`0x71b4f`) and `SDTB` (`0x71d45`) for
+  what they write at `+0x02`.
+  ([Descriptors](motion32/engine/descriptors.md))
 - **Descriptor fields still known by name only** — `SDBUF`,
   `SDSTARTLINE`, `SDALINES`, `SDTRANS`, `SDSHADE`, `SDINSERT`; modes
   `SDNORM`/`SDPOS`. ([Descriptors](motion32/engine/descriptors.md))
@@ -97,12 +107,12 @@ See [Kernel words](motion32/vm/kernel-words.md).
   ([Game structure](games/ds2/game-structure.md))
 - **The click-area record** beyond its `+16` route number. The route and
   extended-route layouts are mapped off `CROUTE`, as are the 64-byte item
-  record and the dialogue records. ([Blocks](motion32/formats/block.md))
+  record and the dialogue records. ([Blocks](motion32/formats/blocks.md))
 - **Who installs the translucency/shade blocks 50–54** — no script calls
-  `SETTRANS`/`SETSHADE`. ([Blocks](motion32/formats/block.md))
+  `SETTRANS`/`SETSHADE`. ([Blocks](motion32/formats/blocks.md))
 - **Stale location-table entries** — location 12's entry is garbage though
   module 312 exists; module 330's scene macro is unreferenced; entry 30
-  duplicates the title. ([Blocks](motion32/formats/block.md))
+  duplicates the title. ([Blocks](motion32/formats/blocks.md))
 - **`TI1`–`TI50` story-event numbering** and the duplicated Karsten walk
   modules (9, 19, 212). ([Module map](games/ds2/module-map.md))
 
@@ -110,16 +120,16 @@ See [Kernel words](motion32/vm/kernel-words.md).
 
 - **GFX8 leading bytes** — they duplicate color 0's red and green
   channels (verified on all 1678 Dunkle Schatten 2 sprites); *why* is unknown.
-  ([GFX8 sprites](motion32/formats/gfx8-sprites.md))
+  ([GFX8 sprites](motion32/formats/sprites.md))
 - **The packed-length field** at sprite offset `+782` (correct only for
-  single-block streams). ([GFX8 sprites](motion32/formats/gfx8-sprites.md))
+  single-block streams). ([GFX8 sprites](motion32/formats/sprites.md))
 - **GFX16** — a format slot with zero instances; layout unknown.
-  ([RSC containers](motion32/formats/rsc-container.md))
+  ([RSC containers](motion32/formats/container.md))
 - **SCR fields** `0x14`/`0x18` (authoring addresses), `0x24`/`0x28`
   (high-water marks), and the word-header link field `+12`.
   ([Script modules](motion32/formats/script-modules.md))
 - **RSC reserved bytes** at `0x18`.
-  ([RSC containers](motion32/formats/rsc-container.md))
+  ([RSC containers](motion32/formats/container.md))
 - **FNT fields** `+2` (duplicate size) and `+4` (packed size) — redundant;
   read by the engine? ([Fonts](motion32/formats/fonts.md))
 - **HMI internals** — the four pad bytes in the tempo and time-signature
@@ -160,7 +170,49 @@ The 16-bit engine is documented from its shipped files and from its
 handlers as far as the intro, the locations and the conversations needed
 them read. Almost all of that reading was done on `ENVIRO.EXE` with Die
 Enviro-Kids greifen ein; `HPPLAY.EXE` and `BMZ.EXE` are the same player in
-older builds and have been read only where they differ. What is open:
+older builds and have been read only where they differ; `LL.EXE`, three
+years older again, has been read only where the game it ships with reaches
+something the others do not. What is open:
+
+- **Two differences in `CROUTE`** between `LL.EXE` (`0104:4a45`) and
+  `ENVIRO.EXE` (`0a40:10d0`), neither carried yet. The older build does not
+  default a zero shadow shrink to 1000, where the later one does
+  (`0a40:1176`); and it ends with a pass the later one has no counterpart to
+  (`0104:516d`–`0x5315`), which rewrites the heading of a run of one or two
+  steps that sits between two longer runs heading the same way — a
+  direction-flip suppressor. Both change how a walk looks, not where it goes.
+  ([LL.EXE](motion16/engine/ll-exe.md))
+- **What *Motion 1.0* is, and who Michel "Babe" Stigler and EGO Software
+  are.** Victor Loomes' credits close on *Erstellt unter · Motion 1.0 ·
+  Michel "Babe" Stigler · EGO Software*. Two of the five games name the
+  engine — Dunkle Schatten 2's credits carry *"Motion"-Präsentations-System
+  von S. Hoffmann* — but only this one gives it a version, and `1.0` sits
+  three years before the builds this documentation is written from. Whether
+  the two names after the version belong to the engine or to the game is not
+  something the flat credits list says: the same table gives `Graphik` two
+  values. One thing is no longer open — a *Michael Stigler* is credited in
+  Jeff Jet, the same studio's next game, for the bulk of its dialogue and for
+  support, so the name is one Promotion Software worked with rather than an
+  outside attribution of the tool. That does not say which of the two the
+  Victor Loomes entry means.
+
+- **Why the hole case was added.** `?XINSIDE` passes over an all-zero hot
+  area in `ENVIRO.EXE` and `BMZ.EXE` and not in `HPPLAY.EXE` or `LL.EXE`, and
+  the two that do are not the two later ones by date — Amajambere's build
+  has it and Jeff Jet's does not. What the tables looked like that made it
+  worth adding is not established.
+  ([LL.EXE](motion16/engine/ll-exe.md))
+- **What the fade after the intro's jingle runs into.** The rebuilt player
+  matches the original's register stream for 744 writes — block 7 from first
+  note to last, and the start of the fade `ENDTUNE` asks for — and the
+  recording taken under DOSBox-X carries 33 seconds more. What plays there is
+  not established; covering it needs the session modelled past `ENDTUNE`.
+- **What `SETSHADE` was for.** It pops two and stores them at `ds:0x150` and
+  `ds:0x152` (`0104:2824`), and no other instruction in `LL.EXE` or
+  `ENVIRO.EXE` mentions either address. `RUN` calls it once.
+- **The 32-byte `PSMCFG.DAT`** the older sound setup writes, which `LL.EXE`
+  reads (the name is at file `0x14ee9`). The later games' 36-byte
+  `PSMCFG4.DAT` layout is known and does not apply.
 
 - **The interpreter loop** at file `0x174f7` and the nested-run sentinel
   `0xfffd` — from a first reading.
@@ -170,7 +222,7 @@ older builds and have been read only where they differ. What is open:
   `SDBLK`.
   ([Off-screen buffers](motion16/engine/buffers.md))
 - **The clock's speed class** (`DS:0x10ce`) and who fills the mouse
-  record. ([Boot and frame loop](motion16/engine/boot-and-loop.md))
+  record. ([Boot and frame loop](motion16/engine/game-loop.md))
 - **The rest of the descriptor and screen structures**, `NEWSETDESC`'s
   fifth argument (always 15). `XGFXVFLIP`'s third argument is read
   (a count, `05f1:221b`); its mirror axis is still assumed left-right.
@@ -192,7 +244,7 @@ older builds and have been read only where they differ. What is open:
 - **The original's save bytes** — `PUTANIM`/`GETANIM` (file `0xc46d`,
   `0xcb1e`) are unread and no save of the original is on hand; the rebuild
   writes a layout of its own, as for the 32-bit game.
-  ([Boot and frame loop](motion16/engine/boot-and-loop.md#saves))
+  ([Boot and frame loop](motion16/engine/game-loop.md#saves))
 - **The sprite blit's clipped odd widths** — the blit is read (index 0
   is the key, skipped per pixel), but its row-start arithmetic on a
   top-clipped sprite of non-eightfold width reads as a shear.
@@ -202,7 +254,7 @@ older builds and have been read only where they differ. What is open:
   ([Text rendering](motion16/engine/text-rendering.md)).
 - **The spare `u32` entries** at the end of a container's offset table —
   their count is in the header at 20 and they are zero in every shipped
-  container. ([The DATA container](motion16/formats/data-container.md))
+  container. ([The DATA container](motion16/formats/container.md))
 - **Jeff Jet's two contradictory GFX slots** — 1319 and 1848 carry an
   occupancy word naming a volume whose offset table gives them a length of
   zero: the container saying a sprite is there and then not having one. One
@@ -213,14 +265,14 @@ older builds and have been read only where they differ. What is open:
   its flag being cleared, or a meaning nobody has read is unread; the loader
   is not affected, because what has bytes is what is there. Die Enviro-Kids
   greifen ein's container has none, and `motionvm-tools info` reports the
-  count. ([The DATA container](motion16/formats/data-container.md),
+  count. ([The DATA container](motion16/formats/container.md),
   [Resource inventory](games/jeffjet/inventory.md))
 - **The volume-change path** — the player carries *"Bitte Diskette #d
   einlegen!"* and *"Datenblock <#s> nicht gefunden."* and what it does with
   a volume that is not in the drive has not been read; motionvm opens every
   volume at once and never reaches it
   ([Departures](departures.md#the-16-bit-machine)).
-  ([The DATA container](motion16/formats/data-container.md))
+  ([The DATA container](motion16/formats/container.md))
 - **The animation catalogs' first field** — `0xFFFF` in several of Jeff
   Jet's catalogs 125–182 where Die Enviro-Kids greifen ein's hold small
   integers. ([Blocks](motion16/formats/blocks.md))
@@ -250,7 +302,7 @@ older builds and have been read only where they differ. What is open:
   none. It looks like an authoring habit — reserve the segment, fill what there
   is — but nothing has been read that says so, and the loader is unaffected
   because what has bytes is what is there.
-  ([The DATA container](motion16/formats/data-container.md),
+  ([The DATA container](motion16/formats/container.md),
   [Resource inventory](games/hfa/inventory.md))
 - **What Hilfe für Amajambere's 70 animation catalogs hold** — blocks 125–212,
   unclassified, where the sibling games' have been mapped.

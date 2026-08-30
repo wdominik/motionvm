@@ -2,7 +2,10 @@
 
 # Departures from the Original
 
-The rest of this documentation describes the 1996 engine. This page is the
+*Both generations of the engine, and every game motionvm plays — the one ledger of where motionvm knowingly does something else, and why. Each entry names the generation and, where it is one game's, the game. What is not yet known about the original is a different record and lives in [open questions](open-questions.md).*
+
+The rest of this documentation describes the original engine, in both of its
+generations. This page is the
 single ledger of the places where **motionvm knowingly does something else**,
 and why — the counterpart to [Open questions](open-questions.md), which records
 what is not yet known about the original.
@@ -14,8 +17,8 @@ signed exception to that.
 The sections down to *The FM driver* concern the **32-bit engine** as it
 runs Dunkle Schatten 2; [The 16-bit machine](#the-16-bit-machine) holds the
 entries about the 16-bit engine as it runs Die Enviro-Kids greifen ein,
-Jeff Jet - Abenteuer InfoHighway and Hilfe für Amajambere. An entry that names
-one of them is that game's.
+Jeff Jet - Abenteuer InfoHighway, Hilfe für Amajambere and
+Victor Loomes – Das Spiel. An entry that names one of them is that game's.
 
 ## The virtual machine
 
@@ -142,13 +145,16 @@ same case with a different cause: its `=>PUTAS` (`ENVIRO.EXE` file `0x16fe9`)
 writes one run of its arena, addresses and all, and the rebuild's arena is
 laid out differently ([the 16-bit machine](#the-16-bit-machine)) — so its
 `.FRZ` and `.anm` are motionvm's own as well, under magics of their own
-(`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. All four games name
-their slots alike — `701` through `705` — and each asks at start-up whether a
-slot exists, so each keeps its saves in a directory of its own. For the two
-16-bit games that is not merely tidiness: the magics are the generation's and
+(`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. Four of the five games
+name their slots alike — `701` through `705` — and each asks at start-up
+whether a slot exists, so each keeps its saves in a directory of its own.
+Victor Loomes numbers its own from one and puts only the block at `700 + n`,
+which its `CTRL` does openly (`DUP 700 + … PUT`, the bare slot for the other
+two). For the 16-bit games that is not merely tidiness: the magics are the
+generation's and
 not the game's, so a slot of one would be *opened* by the other rather than
 refused, and what came back would be another game's module image
-([boot and frame loop](motion16/engine/boot-and-loop.md#saves)).
+([boot and frame loop](motion16/engine/game-loop.md#saves)).
 
 Handing one of motionvm's to the original is not merely useless, it is loud:
 `GETANIM` reads the first two bytes of the `DS2ANM` magic as an item number and
@@ -247,6 +253,21 @@ a measured difference from the original.
 
 ## The 16-bit machine
 
+**The cycling palette does not turn.** `SETCYCLE` names a range of palette
+entries and a tick delay, and the driver's own tick rewrites those entries
+each time the delay runs out, walking the range by one and pushing the result
+to the DAC (`0104:536d` in `LL.EXE`). motionvm records what was asked for and
+leaves the palette as it stands. Only Victor Loomes calls the word, and only
+in location 13, so what is lost is one room's animated color rather than
+anything a game depends on.
+
+**A generation-one game's `GFX.INF` is not read.** It says how big every
+sprite is without unpacking it, which is what a player that unpacks on demand
+needs; the container here unpacks everything as it opens, so the sizes are in
+the sprites by the time anything asks. The file is read in the tests instead
+and checked against them — over Victor Loomes' 721 sprites the two agree
+entry for entry.
+
 **A `DATA.-n-` volume is never asked for; they are all open.** The player
 carries the prompts for a disk change — *"Bitte Diskette #d einlegen!"*,
 *"Disketten-Fehler. Falsche Disk im Laufwerk?"*, *"Datenblock <#s> nicht
@@ -272,9 +293,8 @@ with one has not been measured
 **A descriptor keeps its measured size nowhere, and its type not at all.** The
 original stores the last box it drew at `+8`/`+0xa` and works out what a
 descriptor is — text, sprite or block — from `+0x10` and `+0x12` every time it
-is asked. motionvm measures on demand instead ([geometry](#the-picture)), and
-derives the type the same way the original does, from the same two fields in
-the same order. What it does not reproduce is the *reachable-but-unused* corner
+is asked. motionvm measures on demand instead, and derives the type the same
+way the original does, from the same two fields in the same order. What it does not reproduce is the *reachable-but-unused* corner
 of that pair: in the original `SDCEN`, `SDVCEN` or `SDBLK` on a picture
 descriptor put a bit in `+0x12` and thereby turn it into a text whose string
 number is 0, so it draws nothing at all. No shipped script does that, and
@@ -364,7 +384,7 @@ frame, with that frame's input, and the screen is presented in between,
 which the original's loop does not do either way. A frame of `CTRL` polls
 a handful of times and never comes near the budget. The rule is the
 engine's and holds for every game; only the 16-bit ones have a loop that
-exercises it. ([Boot and frame loop](motion16/engine/boot-and-loop.md))
+exercises it. ([Boot and frame loop](motion16/engine/game-loop.md))
 
 **Four kernel words of the 16-bit engine answer by reading, not by
 measurement.** `SFT` with 0 resets a font stack that starts out reset and is

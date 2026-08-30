@@ -89,7 +89,7 @@ fn a_click_advances_the_intro() {
 /// the damage map (0x69248) and repaints what that map names, nothing more.
 ///
 /// What does clear a surface is `FADEOUT`, which fills the screen's rectangle
-/// with colour 0 before its first band (0x74d44) — and that is why the intro's
+/// with color 0 before its first band (0x74d44) — and that is why the intro's
 /// `FADEOUT … SDINACTIVE … FADEIN` leaves nothing of the old picture behind
 /// while a bare `SDINACTIVE` leaves all of it.
 #[test]

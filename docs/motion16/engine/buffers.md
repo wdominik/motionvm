@@ -2,7 +2,7 @@
 
 # Off-Screen Buffers
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway and in `BMZ.EXE` with Hilfe für Amajambere, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit-ds2).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The kernel has a family of buffer words — `BUFON`, `SETBUF`, `SDBUF`,
 `RESETBUF`, `KILLNBUF`, and the descriptor mode `SDBLK` beside them — that
@@ -70,7 +70,7 @@ buffered descriptor as a save-under by recomposing the place it leaves; how
 that differs from the original's paste-back, and when it could show, is a
 [departure](../../departures.md#the-16-bit-machine).
 
-## What is not established
+## Open questions
 
 - **The descriptor drawer**, `016a:0aac`: the save step itself, and how it
   clips and keys a sprite.
@@ -83,6 +83,6 @@ that differs from the original's paste-back, and when it could show, is a
 
 ## See also
 
-- [Boot and frame loop](boot-and-loop.md) — where the calls sit
+- [Boot and frame loop](game-loop.md) — where the calls sit
 - [Descriptors and screens](descriptors.md) — the descriptor words around them
 - [Kernel words](../vm/kernel-words.md) — ordinals 210–214

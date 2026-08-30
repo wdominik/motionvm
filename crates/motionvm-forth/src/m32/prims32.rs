@@ -377,6 +377,13 @@ impl Vm {
                 self.push(v.0 as i32);
             }
             // The enclosing loop's counter, which is its own slot.
+            // `I'` is the 16-bit kernel's, and no 32-bit module names it.
+            Prim::NextLoopIndex => {
+                return Err(Error::Unread {
+                    what: "I', which this kernel does not have".into(),
+                    at: "the 32-bit kernel names no such word",
+                });
+            }
             Prim::OuterLoopIndex => {
                 let n = self.loops.len();
                 let l = self

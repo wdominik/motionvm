@@ -44,13 +44,13 @@ length declared by the enclosing format.
 - Because there is no end marker, the declared output length is the only
   termination condition. Reading must stop exactly there; the packed length
   fields in the enclosing formats are not reliable (see
-  [GFX8 sprites](gfx8-sprites.md)).
+  [GFX8 sprites](sprites.md)).
 
 ## Where it is used
 
 | Format | Maximum width | Where the parameters come from |
 |---|---|---|
-| [GFX8 sprites](gfx8-sprites.md) | 11 or 12 | Declared in the sprite header |
+| [GFX8 sprites](sprites.md) | 11 or 12 | Declared in the sprite header |
 | [Fonts](fonts.md) | 11 | Declared explicitly in the font header (dictionary limit 2048, start width 9) |
 
 All 1678 sprites in Dunkle Schatten 2's containers decode to exactly the output
@@ -58,5 +58,5 @@ length their headers declare.
 
 ## See also
 
-- [GFX8 sprites](gfx8-sprites.md)
+- [GFX8 sprites](sprites.md)
 - [Fonts](fonts.md)

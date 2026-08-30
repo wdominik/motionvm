@@ -20,6 +20,8 @@ DEFAULT_GAMEDATA_JEFFJET := justfile_directory() / ".." / "games" / "JEFFJET"
 GAMEDATA_JEFFJET := DEFAULT_GAMEDATA_JEFFJET
 DEFAULT_GAMEDATA_HFA := justfile_directory() / ".." / "games" / "HFA"
 GAMEDATA_HFA := DEFAULT_GAMEDATA_HFA
+DEFAULT_GAMEDATA_VLOOMES := justfile_directory() / ".." / "games" / "VLOOMES"
+GAMEDATA_VLOOMES := DEFAULT_GAMEDATA_VLOOMES
 
 # What actually reaches the suite.
 #
@@ -42,6 +44,9 @@ _DATA_JEFFJET := if GAMEDATA_JEFFJET != DEFAULT_GAMEDATA_JEFFJET { GAMEDATA_JEFF
 _DATA_HFA := if GAMEDATA_HFA != DEFAULT_GAMEDATA_HFA { GAMEDATA_HFA } \
     else if path_exists(GAMEDATA_HFA / "BMZ.EXE") == "true" { GAMEDATA_HFA } \
     else { "" }
+_DATA_VLOOMES := if GAMEDATA_VLOOMES != DEFAULT_GAMEDATA_VLOOMES { GAMEDATA_VLOOMES } \
+    else if path_exists(GAMEDATA_VLOOMES / "LL.EXE") == "true" { GAMEDATA_VLOOMES } \
+    else { "" }
 
 # Savegames cannot be reconstructed, only played to, so there is no default that
 # could work. Set it to a directory holding one — `just test SAVES=…` — and the
@@ -58,6 +63,7 @@ check: fmt-check clippy test doc
 test:
     MOTIONVM_GAMEDATA_DS2="{{ _DATA_DS2 }}" MOTIONVM_GAMEDATA_ENVIRO="{{ _DATA_ENVIRO }}" \
         MOTIONVM_GAMEDATA_JEFFJET="{{ _DATA_JEFFJET }}" MOTIONVM_GAMEDATA_HFA="{{ _DATA_HFA }}" \
+        MOTIONVM_GAMEDATA_VLOOMES="{{ _DATA_VLOOMES }}" \
         MOTIONVM_SAVES="{{ SAVES }}" RUSTFLAGS="-D warnings" cargo test --workspace
 
 # `just test` above cannot do this. The per-game variables fall back to
@@ -78,6 +84,7 @@ check-nodata:
 test-one target:
     MOTIONVM_GAMEDATA_DS2="{{ _DATA_DS2 }}" MOTIONVM_GAMEDATA_ENVIRO="{{ _DATA_ENVIRO }}" \
         MOTIONVM_GAMEDATA_JEFFJET="{{ _DATA_JEFFJET }}" MOTIONVM_GAMEDATA_HFA="{{ _DATA_HFA }}" \
+        MOTIONVM_GAMEDATA_VLOOMES="{{ _DATA_VLOOMES }}" \
         MOTIONVM_SAVES="{{ SAVES }}" cargo test --workspace --test {{ target }} -- --nocapture
 
 fmt:
@@ -123,3 +130,6 @@ run-jeffjet *ARGS:
 
 run-hfa *ARGS:
     cargo run --release -p motionvm-app -- "{{ GAMEDATA_HFA }}" {{ ARGS }}
+
+run-vloomes *ARGS:
+    cargo run --release -p motionvm-app -- "{{ GAMEDATA_VLOOMES }}" {{ ARGS }}

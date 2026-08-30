@@ -267,7 +267,7 @@ The extracted songs end with their original DOS file names (e.g.
 ## See also
 
 - [HMI songs](../formats/hmi.md)
-- [Blocks](../formats/block.md) — where songs live
+- [Blocks](../formats/blocks.md) — where songs live
 - [Other files](../../games/ds2/other-files.md) — drivers, banks, SNDSETUP
 - [Game loop](game-loop.md)
 - [Departures](../../departures.md) — the OPL3 core and the playback clock

@@ -1,9 +1,14 @@
 //! The `DATA.-n-` container: a whole 16-bit MOTION game, on as many volumes
 //! as it took floppies.
 //!
+//! Two framings ship, sixteen bytes apart; [`Generation`] tells them apart and
+//! the layout below is the later one. The earlier one has no packing field at
+//! `0x16`, so everything from the occupancy table on begins at 22 instead of
+//! `0x26` — see [`Generation::One`].
+//!
 //! ```text
 //! volume 1
-//! 0x00  u16      boot module number            (100 in all three games)
+//! 0x00  u16      boot module number            (100 in every game)
 //! 0x02  u16      boot word id                  (401, `RUN`)
 //! 0x04  u16[7]   slot counts: gfx, blk, scr, pal, fnt, frt, txt
 //! 0x12  u16      volumes the game ships on     (1, 2 or 3)
@@ -20,7 +25,7 @@
 //! ```
 //!
 //! `n` is the sum of the seven counts — 4345 in Die Enviro-Kids greifen ein and in
-//! Jeff Jet, 4395 in Hilfe für Amajambere. The
+//! Jeff Jet, 4395 in Hilfe für Amajambere, 2471 in Victor Loomes. The
 //! seven segments share one slot space in the order above, so a script's
 //! sprite id is the slot itself, a block id is the slot minus the GFX count, a
 //! module number is the slot minus the GFX and BLK counts, and so on;
@@ -34,13 +39,18 @@
 //! volumes. A slot's item ends at the next slot's offset *in its own volume*
 //! — the offsets of a volume are cumulative over all slots, so a slot living
 //! elsewhere repeats its neighbour's offset — or at the end of that volume for
-//! the last slot. Measured over the nine volumes of Die Enviro-Kids greifen ein,
+//! the last slot. Measured over the eight volumes of Die Enviro-Kids greifen ein,
 //! Jeff Jet, Hilfe für Amajambere and Eddy M.: every volume's items tile it
 //! exactly, from its own table's end
 //! to its last byte.
 //!
 //! **Whether items are packed** is the seven words at `0x16`, one per segment
-//! in slot order. The loader reads the word for the segment it is loading
+//! in slot order — in the later framing. The earlier one has no such words and
+//! is packed the same way in both games that use it — sprites and fonts under
+//! a ten-byte header, the font reference table under the eight-byte one, and
+//! nothing else at all, which [`Container::packed`] answers from the
+//! generation. The ten-byte header is the eight-byte one with the unpacked
+//! length repeated in front of it. The loader reads the word for the segment it is loading
 //! (`+0x16` for `.gfx` through `+0x22` for `.txt`) and branches on it: zero
 //! reads the item straight into place, non-zero reads it aside and runs it
 //! through the GFXCRUNCH decoder (`00e0:04eb`, decoder at `1614:000d` = file
@@ -49,7 +59,7 @@
 //! reads the packed length at `+2`, skips the eight bytes, and starts at
 //! 9-bit codes with a 2048-entry dictionary, which is [`crate::lzw`] with
 //! `max_bits` 11. It never reads the 2048 and the 9 back, so they are the
-//! format writing down what the code assumes. Over the four games above the
+//! format writing down what the code assumes. Over the four later games the
 //! flag and the item shape agree in all 28 segments, without exception.
 //!
 //! The container's header also names the word the engine runs first: the
@@ -63,7 +73,10 @@
 //! spare zeros, the first item of volume 1 at 26136 and of volume 2 at 17408 —
 //! which is that table's own length, `4 * (4345 + 7)` — 1730 slots flagged,
 //! 1728 of them with bytes, all packed, 2 459 890 bytes unfolding to
-//! 8 412 811.
+//! 8 412 811. And on the one volume of Victor Loomes, in the earlier framing:
+//! the occupancy table runs from 22 to 4964, the offset table from there to
+//! 14 848 with no spare entries, and its 1032 items account for every byte to
+//! the end of the 1 009 597-byte file.
 
 use crate::error::{Error, Result};
 use crate::{find_ci, lzw, reserve, u16le, u32le};
@@ -126,8 +139,55 @@ pub struct Boot {
     pub word: u16,
 }
 
+/// Which framing a container uses.
+///
+/// The two differ by one field. The later one keeps seven "this segment is
+/// packed" words and a spare at `0x16`; the earlier one has no such field, so
+/// its occupancy table starts sixteen bytes sooner and which segments are
+/// packed is not written down at all — it is the same in both games that use
+/// this framing (see [`Container::packed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Generation {
+    /// 1993/94: Victor Loomes and Compaq. No packing field, occupancy at 22,
+    /// one volume — the player has no name former for a second.
+    One,
+    /// 1995 onward: Die Enviro-Kids greifen ein, Jeff Jet, Hilfe für
+    /// Amajambere, Eddy M. Packing field at `0x16`, occupancy at `0x26` as a
+    /// volume bitmask, up to three volumes.
+    Two,
+}
+
+impl Generation {
+    /// Bytes of fixed header before the occupancy table.
+    fn header_len(self) -> usize {
+        match self {
+            Generation::One => GEN1_HEADER_LEN,
+            Generation::Two => HEADER_LEN,
+        }
+    }
+
+    /// Whether that segment's items carry a packed header, and how long it is.
+    ///
+    /// Generation one does not say, so this is measured over the two games
+    /// that use it: every one of Victor Loomes' 721 sprites and both its fonts
+    /// open on a ten-byte header, its one font reference table on the
+    /// eight-byte one the later games use, and its blocks, modules, palettes
+    /// and text tables are stored plainly. Compaq is the same, over 311
+    /// sprites and six fonts.
+    fn gen1_pack_header(segment: Segment) -> Option<usize> {
+        match segment {
+            Segment::Gfx | Segment::Fnt => Some(GEN1_PACK_HEADER_LEN),
+            Segment::Frt => Some(PACK_HEADER_LEN),
+            _ => None,
+        }
+    }
+}
+
 /// Bytes of fixed header before the occupancy table.
 pub const HEADER_LEN: usize = 0x26;
+
+/// The same for a generation-one container, which has no packing field.
+const GEN1_HEADER_LEN: usize = 22;
 /// Bytes of packed-item header before the LZW stream.
 const PACK_HEADER_LEN: usize = 8;
 /// The dictionary size a packed item's header records — 2048 entries, which is
@@ -136,6 +196,9 @@ const PACK_DICTIONARY: u16 = 2048;
 /// The code width a packed item's header records, and the only one the decoder
 /// starts at.
 const PACK_INITIAL_WIDTH: u16 = 9;
+/// Bytes of a generation-one packed-item header: the eight-byte one with the
+/// unpacked length repeated ahead of it.
+const GEN1_PACK_HEADER_LEN: usize = 10;
 
 /// Where one slot's bytes are: which store, and the range inside it. An empty
 /// range is a slot with no bytes, whatever its occupancy word says.
@@ -175,6 +238,7 @@ pub struct Container {
     bases: [usize; 7],
     flags: Vec<u16>,
     packed: [bool; 7],
+    generation: Generation,
     spare: usize,
     spans: Vec<Span>,
     tables: Vec<Vec<u32>>,
@@ -197,7 +261,13 @@ impl Container {
             detail: format!("no DATA.-1- in {}", dir.display()),
         })?;
         let head = std::fs::read(&first)?;
-        let declared = Self::declared_volumes(&head)?;
+        // A generation-one game is on one volume whatever its `0x12` word
+        // says, and both games that use that framing say 2 — see
+        // [`Container::from_volumes`].
+        let declared = match Self::generation_of(&head) {
+            Generation::One => 1,
+            Generation::Two => Self::declared_volumes(&head)?,
+        };
         let mut stores = Vec::with_capacity(declared);
         stores.push(head);
         for n in 2..=declared {
@@ -221,6 +291,49 @@ impl Container {
         Self::from_volumes(vec![data], source)
     }
 
+    /// Which framing this volume uses, told by reading it as the earlier one
+    /// and asking whether it adds up.
+    ///
+    /// Two identities have to hold at once: the offset table's first entry is
+    /// where the tables end, `22 + 2n + 4(n + spare)`, and its last entry is
+    /// the file's length. Both hold for Victor Loomes (14 848 and 1 009 597)
+    /// and for Compaq (14 848 and 445 972). Neither generation-two container
+    /// can satisfy the first — its table begins sixteen bytes later, so the
+    /// cursor lands inside the occupancy words. Both are needed: Jeff Jet's
+    /// last offset happens to be its file length.
+    fn generation_of(head: &[u8]) -> Generation {
+        if Self::gen1_tables_add_up(head) == Some(true) {
+            Generation::One
+        } else {
+            Generation::Two
+        }
+    }
+
+    /// Whether this volume's tables are laid out as generation one lays them
+    /// out, and if so whether its length agrees.
+    ///
+    /// `Some(true)` means both identities hold, `Some(false)` that the first
+    /// holds and the second does not — a generation-one container whose bytes
+    /// have been cut — and `None` that it is not this framing at all. The
+    /// first identity alone is what separates the framings, because a
+    /// generation-two container's table begins sixteen bytes later and the
+    /// cursor lands inside its occupancy words.
+    fn gen1_tables_add_up(head: &[u8]) -> Option<bool> {
+        let mut total = 0usize;
+        for i in 0..7 {
+            total += u16le(head, 4 + i * 2).ok()? as usize;
+        }
+        if total == 0 {
+            return None;
+        }
+        let spare = u16le(head, 20).ok()? as usize;
+        let table = GEN1_HEADER_LEN + total * 2;
+        let first = u32le(head, table).ok()? as usize;
+        let last = u32le(head, table + (total - 1) * 4).ok()? as usize;
+        let ends = table + (total + spare) * 4;
+        (first == ends).then_some(last == head.len())
+    }
+
     /// The same from memory, volume by volume, volume 1 first.
     pub fn from_volumes(volumes: Vec<Vec<u8>>, source: String) -> Result<Self> {
         let Some(head) = volumes.first() else {
@@ -229,7 +342,32 @@ impl Container {
                 detail: "no volumes at all".into(),
             });
         };
-        let declared = Self::declared_volumes(head)?;
+        let generation = Self::generation_of(head);
+        // A generation-one container that has been cut short fails only the
+        // second identity, so it would otherwise fall through to generation
+        // two — and then its `0x12` word, which is not a volume count in this
+        // framing, is read as one and the reader blames a volume that never
+        // existed. Say what is actually wrong.
+        if generation == Generation::Two && Self::gen1_tables_add_up(head) == Some(false) {
+            return Err(Error::Corrupt {
+                what: "DATA container",
+                detail: format!(
+                    "the earlier framing's tables end where its first item begins, but the \
+                     last slot's offset is not the file's length — {} bytes of a container \
+                     that says it is longer",
+                    head.len()
+                ),
+            });
+        }
+        // Generation one has no name former for a second volume — `LL.EXE`
+        // holds the literal `data.-1-` where the later builds hold
+        // `DATA.-#i-` — so whatever its `0x12` word means, it is not a count
+        // of volumes. Both games that use this framing hold 2 there and ship
+        // one file.
+        let declared = match generation {
+            Generation::One => 1,
+            Generation::Two => Self::declared_volumes(head)?,
+        };
         if declared != volumes.len() {
             return Err(Error::Corrupt {
                 what: "DATA container",
@@ -249,7 +387,10 @@ impl Container {
         }
         let mut packed = [false; 7];
         for (i, p) in packed.iter_mut().enumerate() {
-            *p = u16le(head, 0x16 + i * 2)? != 0;
+            *p = match generation {
+                Generation::One => Generation::gen1_pack_header(Segment::ALL[i]).is_some(),
+                Generation::Two => u16le(head, 0x16 + i * 2)? != 0,
+            };
         }
         let spare = u16le(head, 20)? as usize;
         let total: usize = counts.iter().sum();
@@ -268,10 +409,11 @@ impl Container {
             *base = cursor;
             cursor += n;
         }
-        let flags_end = HEADER_LEN + total * 2;
+        let header_len = generation.header_len();
+        let flags_end = header_len + total * 2;
         let mut flags = reserve(total, head.len(), 2);
         for i in 0..total {
-            flags.push(u16le(head, HEADER_LEN + i * 2)?);
+            flags.push(u16le(head, header_len + i * 2)?);
         }
         // Volume 1 keeps its table behind the header and the occupancy words;
         // the others are nothing but a table of the same shape and their items.
@@ -292,7 +434,13 @@ impl Container {
             if flag == 0 {
                 continue;
             }
-            let volume = flag.trailing_zeros() as usize;
+            // Generation two writes which volume holds the item, as
+            // `1 << (volume - 1)`; generation one has one volume and writes a
+            // plain 1.
+            let volume = match generation {
+                Generation::One => 0,
+                Generation::Two => flag.trailing_zeros() as usize,
+            };
             // A word naming a volume the header does not declare is a
             // contradiction the container reports rather than reads past;
             // `occupancy_mismatches` is where it surfaces.
@@ -344,10 +492,24 @@ impl Container {
                 have: bytes.len(),
             })?;
             if packed[segment as usize] {
-                let shaped = item.len() > PACK_HEADER_LEN
-                    && u16le(item, 2)? as usize == item.len() - PACK_HEADER_LEN
-                    && u16le(item, 4)? == PACK_DICTIONARY
-                    && u16le(item, 6)? == PACK_INITIAL_WIDTH;
+                // The two framings differ by one leading word. Generation
+                // two's header is unpacked length, packed length, 2048, 9;
+                // generation one repeats the unpacked length ahead of it, so
+                // its packed length and parameters sit two bytes later. Both
+                // repeats agree in all 723 packed items of Victor Loomes and
+                // all 318 of Compaq.
+                let head_len = match generation {
+                    Generation::One => {
+                        Generation::gen1_pack_header(segment).unwrap_or(GEN1_PACK_HEADER_LEN)
+                    }
+                    Generation::Two => PACK_HEADER_LEN,
+                };
+                let at = head_len - PACK_HEADER_LEN;
+                let shaped = item.len() > head_len
+                    && u16le(item, at + 2)? as usize == item.len() - head_len
+                    && u16le(item, at + 4)? == PACK_DICTIONARY
+                    && u16le(item, at + 6)? == PACK_INITIAL_WIDTH
+                    && (at == 0 || u16le(item, 0)? == u16le(item, 2)?);
                 if !shaped {
                     return Err(Error::Corrupt {
                         what: "DATA container",
@@ -359,12 +521,8 @@ impl Container {
                         ),
                     });
                 }
-                let want = u16le(item, 0)? as usize;
-                let raw = lzw::decode(
-                    &item[PACK_HEADER_LEN..],
-                    PACK_DICTIONARY.max(2).ilog2(),
-                    want,
-                )?;
+                let want = u16le(item, at)? as usize;
+                let raw = lzw::decode(&item[head_len..], PACK_DICTIONARY.max(2).ilog2(), want)?;
                 let at = unpacked.len();
                 unpacked.extend_from_slice(&raw);
                 spans[idx] = Span {
@@ -398,6 +556,7 @@ impl Container {
             bases,
             flags,
             packed,
+            generation,
             spare,
             spans,
             tables,
@@ -457,6 +616,11 @@ impl Container {
     /// tool kept them for is open.
     pub fn spare_offsets(&self) -> usize {
         self.spare
+    }
+
+    /// Which of the two framings this container uses.
+    pub fn generation(&self) -> Generation {
+        self.generation
     }
 
     /// Whether this segment's items are stored packed. Reading them does not
@@ -531,7 +695,7 @@ impl Container {
     /// second and third volumes leave 24 bytes between the two, so this is
     /// where items may begin rather than where they do.
     pub fn first_item_offset(&self) -> usize {
-        HEADER_LEN + self.spans.len() * 2 + (self.spans.len() + self.spare) * 4
+        self.generation.header_len() + self.spans.len() * 2 + (self.spans.len() + self.spare) * 4
     }
 
     /// Bytes after the last item, summed over the volumes. Zero in every

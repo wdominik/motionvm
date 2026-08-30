@@ -6,7 +6,7 @@
 //! drift, and a copy that reaches one directory too few answers "no data" on a
 //! machine that has it — which reads exactly like a clean skip.
 //!
-//! Six environment variables are read:
+//! Seven environment variables are read:
 //!
 //! - `MOTIONVM_GAMEDATA_DS2` — the directory holding Dunkle Schatten 2:
 //!   `001.RSC` and friends. Falls back to `../games/DS2` beside the
@@ -21,6 +21,9 @@
 //! - `MOTIONVM_GAMEDATA_HFA` — the directory holding Hilfe für Amajambere:
 //!   `DATA.-1-`, `DATA.-2-` and `BMZ.EXE`. Falls back to `../games/HFA`
 //!   beside the workspace.
+//! - `MOTIONVM_GAMEDATA_VLOOMES` — the directory holding Victor Loomes:
+//!   `DATA.-1-` and `LL.EXE`. Falls back to `../games/VLOOMES` beside the
+//!   workspace.
 //! - `MOTIONVM_NO_GAMEDATA` — set to anything non-empty, every lookup here
 //!   answers `None` before any of the others is consulted, so the suite runs
 //!   the way CI runs it. Without it that cannot be reproduced on a machine
@@ -35,12 +38,12 @@
 //!   *this* engine's: the layouts are not interchangeable with the original's,
 //!   which stores raw heap pointers where this stores handles.
 //!
-//! Four games, four variables, four functions — rather than one variable and
+//! Five games, five variables, five functions — rather than one variable and
 //! a guess from the files it points at — because a test is written against one
 //! game's modules and ids, and says which by the function it calls.
 //!
 //! Each game is probed for its **engine binary**, not for its container: the
-//! three 16-bit games all ship a `DATA.-1-`, so a container probe would let
+//! four 16-bit games all ship a `DATA.-1-`, so a container probe would let
 //! `MOTIONVM_GAMEDATA_ENVIRO` accept a Jeff Jet directory and then fail deep
 //! inside a suite instead of at the variable.
 
@@ -95,6 +98,17 @@ pub fn gamedata_hfa() -> Option<PathBuf> {
     game("MOTIONVM_GAMEDATA_HFA", "../../../games/HFA", "BMZ.EXE")
 }
 
+/// Victor Loomes' game directory, or `None` when there is nothing to test
+/// against. The same rules as [`gamedata_ds2`], probing for `LL.EXE` and
+/// falling back to `../games/VLOOMES`.
+pub fn gamedata_vloomes() -> Option<PathBuf> {
+    game(
+        "MOTIONVM_GAMEDATA_VLOOMES",
+        "../../../games/VLOOMES",
+        "LL.EXE",
+    )
+}
+
 /// Whether the caller asked for CI's floor: no game data, whatever is on
 /// this machine.
 ///
@@ -106,7 +120,7 @@ fn no_gamedata() -> bool {
     std::env::var("MOTIONVM_NO_GAMEDATA").is_ok_and(|v| !v.is_empty())
 }
 
-/// The lookup the four games share: nothing at all when
+/// The lookup the five games share: nothing at all when
 /// [`no_gamedata`] says so, else the variable, else the fallback beside the
 /// workspace; a set-but-wrong path panics, a missing fallback skips.
 fn game(var: &str, fallback: &str, probe: &str) -> Option<PathBuf> {

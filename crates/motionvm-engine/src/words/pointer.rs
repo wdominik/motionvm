@@ -91,8 +91,28 @@ impl Engine {
             // "matches" it.
             "?XINSIDE" => {
                 let a = pop_n(stack, 5, "?XINSIDE")?;
-                let hit = area_containing(mem, a[0], a[1], a[2], a[3], a[4]);
+                let hit = area_containing(mem, a[0], a[1], a[2], a[3], a[4], self.skips_holes);
                 stack.push(hit);
+            }
+            // `( a b rect -- flag )`: whether the point is inside that one
+            // rectangle. `?XINSIDE` over a single record, answering yes or no
+            // instead of an index — and with no hole test in any build, not
+            // even the two whose `?XINSIDE` has one: `0104:2b0f` in `LL.EXE`
+            // is four comparisons and nothing else.
+            //
+            // The record's four cells pair up with the arguments the way the
+            // handler reads them: the cells at `+0` and `+4` bound the value
+            // popped last, the ones at `+2` and `+6` the value popped before
+            // it, all four inclusive. Only Victor Loomes calls it.
+            "?INSIDE" => {
+                let a = pop_n(stack, 3, "?INSIDE")?;
+                let (first, second, rect) = (a[0], a[1], a[2]);
+                let cell = mem.cell_size();
+                let c: Vec<i32> = (0..4)
+                    .map(|k| mem.fetch_cell(mem.offset(rect, k * cell)).unwrap_or(0))
+                    .collect();
+                let inside = first >= c[0] && first <= c[2] && second >= c[1] && second <= c[3];
+                stack.push(i32::from(inside));
             }
             // The status line under the pointer, and the pointer's own shape.
             //
@@ -147,7 +167,15 @@ impl Engine {
                 if over_scene {
                     self.select_screen(screen as u32);
                     self.select_descriptor(minfo as u32);
-                    result = area_containing(mem, mmx, mmy, lditem, s_lditem, a_lditem);
+                    result = area_containing(
+                        mem,
+                        mmx,
+                        mmy,
+                        lditem,
+                        s_lditem,
+                        a_lditem,
+                        self.skips_holes,
+                    );
                     let tb = self.descriptor_table();
                     let txt = self.descriptor_text_entry();
 
@@ -316,9 +344,15 @@ impl Engine {
 /// `?XINSIDE`: which of a location's hot areas a point is in, or -1.
 ///
 /// The table is `count` entries of `stride` bytes; the first four cells of each
-/// are the corners, and the test takes them as inclusive. An entry that is four
-/// zeroes is a hole, not a rectangle at the origin, and is skipped even when the
-/// point "matches" it.
+/// are the corners, and the test takes them as inclusive.
+///
+/// `skip_holes` is the build's, not the format's. `ENVIRO.EXE` (`0a40:1b37`)
+/// and `BMZ.EXE` follow the four comparisons with four more that ask whether
+/// every corner is zero, and pass over the entry when they all are — an entry
+/// of four zeroes is a hole rather than a rectangle at the origin. The two
+/// older builds, `HPPLAY.EXE` and `LL.EXE`, stop after the comparisons: 71
+/// instructions against 101, with no `cmpw $0` among them. So a hole in their
+/// tables is a rectangle at the origin, and a point at 0,0 is inside it.
 ///
 /// Takes the machine's memory rather than the engine because the table is
 /// the game's, not ours; the corners are one cell each, whatever the machine's
@@ -331,6 +365,7 @@ pub(crate) fn area_containing(
     table: i32,
     stride: i32,
     count: i32,
+    skip_holes: bool,
 ) -> i32 {
     let cell = mem.cell_size();
     let at = |i: i32, c: i32| mem.offset(table, i * stride + c * cell);
@@ -338,7 +373,7 @@ pub(crate) fn area_containing(
         let c: Vec<i32> = (0..4)
             .map(|k| mem.fetch_cell(at(i, k)).unwrap_or(0))
             .collect();
-        if x >= c[0] && x <= c[2] && y >= c[1] && y <= c[3] && c != [0, 0, 0, 0] {
+        if x >= c[0] && x <= c[2] && y >= c[1] && y <= c[3] && !(skip_holes && c == [0, 0, 0, 0]) {
             return i;
         }
     }
