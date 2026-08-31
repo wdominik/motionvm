@@ -13,7 +13,8 @@
 //! answers.
 
 use crate::order::block::*;
-use crate::{Address, Engine, Placement, Vm};
+use crate::{Address, Engine, Placement};
+use motionvm_motion_forth::m32;
 use motionvm_motion_forth::{Error, Result};
 
 impl Engine {
@@ -33,7 +34,7 @@ impl Engine {
     /// ```
     pub(crate) fn dialogue_changes(
         &mut self,
-        vm: &mut Vm,
+        vm: &mut m32::Vm,
         order: u32,
         record: u32,
         fields: u32,
@@ -105,7 +106,12 @@ impl Engine {
     /// and the descriptor's own callback switches it off on the next frame.
     /// Same mechanism as `SETT1`, which is why it needed the `SDWAIT` callback
     /// before any of this could work.
-    pub(crate) fn dialog_waiting(&mut self, vm: &mut Vm, order: u32, named: bool) -> Result<bool> {
+    pub(crate) fn dialog_waiting(
+        &mut self,
+        vm: &mut m32::Vm,
+        order: u32,
+        named: bool,
+    ) -> Result<bool> {
         let o = |off: u32| Self::field(order, off);
         let table = vm.mem.fetch(o(SPEAKERS))?;
         let count = Self::speakers(vm, table)?;
@@ -178,7 +184,7 @@ impl Engine {
     /// The right click on the inventory bar (0x7e52e) opens the verb menu
     /// mid-conversation through `GMSHOWMENU`. That path is unread, and says so
     /// when it is taken.
-    pub(crate) fn dialog_picking(&mut self, vm: &mut Vm, order: u32) -> Result<bool> {
+    pub(crate) fn dialog_picking(&mut self, vm: &mut m32::Vm, order: u32) -> Result<bool> {
         let o = |off: u32| Self::field(order, off);
         let (left, right) = (vm.mem.fetch(o(MLK))? as i32, vm.mem.fetch(o(MRK))? as i32);
         let pressed = vm.mem.fetch(o(PRESSED))? as i32;
@@ -246,7 +252,7 @@ impl Engine {
     /// `EXECORDER` asked for a line, now told there will not be another — the
     /// pointer comes back, and the block drops to mode 0 so `?DIALON` reports
     /// the conversation as over.
-    pub(crate) fn dialog_over(&mut self, vm: &mut Vm, order: u32) -> Result<bool> {
+    pub(crate) fn dialog_over(&mut self, vm: &mut m32::Vm, order: u32) -> Result<bool> {
         self.order_callback(vm, order, 0x50, &[-1])?;
         self.pointer_visible = true;
         vm.mem.store(Self::field(order, 0x0c), 0)?;
@@ -278,7 +284,7 @@ impl Engine {
     /// 2000 to 3000 a branch. Those thresholds are 0x3e8/0x7d0/0xbb8 at
     /// 0x7b52a, 0x7b559 and 0x7b58c — they separate *kinds*, not values, which
     /// is the one thing to get wrong here.
-    pub(crate) fn calc_dialog(&mut self, vm: &mut Vm, order: u32, mode: i32) -> Result<()> {
+    pub(crate) fn calc_dialog(&mut self, vm: &mut m32::Vm, order: u32, mode: i32) -> Result<()> {
         let o = |off: u32| Self::field(order, off);
         let record = vm.mem.fetch(o(RECORD))?;
         let fields = vm.mem.fetch(o(FIELDS))?;
@@ -328,7 +334,7 @@ impl Engine {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn dialog_choose(
         &mut self,
-        vm: &mut Vm,
+        vm: &mut m32::Vm,
         order: u32,
         record: u32,
         answers: u32,
@@ -425,7 +431,7 @@ impl Engine {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn dialog_branch(
         &mut self,
-        vm: &mut Vm,
+        vm: &mut m32::Vm,
         order: u32,
         record: u32,
         _answers: u32,
@@ -527,7 +533,7 @@ impl Engine {
     /// the node 4000 can mean "back to where the player was".
     pub(crate) fn dialog_advance(
         &mut self,
-        vm: &mut Vm,
+        vm: &mut m32::Vm,
         order: u32,
         answers: u32,
         lines: u32,
@@ -583,7 +589,7 @@ impl Engine {
     /// corner and the stored size.
     pub(crate) fn dialog_speak(
         &mut self,
-        vm: &mut Vm,
+        vm: &mut m32::Vm,
         order: u32,
         lines: u32,
         node: u32,
@@ -654,7 +660,7 @@ impl Engine {
 
     /// The end of a conversation, 0x7b6c4: every speaker gets a last call with
     /// a 3, and the block goes into mode 16 for `DOORDER` to finish off.
-    pub(crate) fn dialog_finish(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    pub(crate) fn dialog_finish(&mut self, vm: &mut m32::Vm, order: u32) -> Result<()> {
         let table = Self::cell(&vm.mem, order, 0x16c)?;
         for i in 0..Self::speakers(vm, table)? {
             let word = Self::cell(&vm.mem, table, i * 0x28)?;
@@ -668,7 +674,7 @@ impl Engine {
 
     /// How many speakers the table holds. Ten is only where the search stops
     /// (0x7b6e8); what ends it is an entry whose +4 is −1.
-    pub(crate) fn speakers(vm: &Vm, table: u32) -> Result<u32> {
+    pub(crate) fn speakers(vm: &m32::Vm, table: u32) -> Result<u32> {
         for i in 0..10u32 {
             if Self::cell(&vm.mem, table, i * 0x28 + 4)? as i32 == -1 {
                 return Ok(i);

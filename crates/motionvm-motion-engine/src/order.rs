@@ -3,7 +3,7 @@
 //! Everything the player does with the picture arrives here. `ICTRL` copies the
 //! input snapshot into the `_ORDER` block and calls `DOORDER` (`0x7cd61`),
 //! which is a state machine on the mode cell at `+0x0c`: idle routes go to the
-//! verb menu or a walk, the twelves and up belong to [`crate::dialogue`], and
+//! verb menu or a walk, the twelves and up belong to [`crate::dialogue32`], and
 //! the nineties are the forced orders a script hands in.
 //!
 //! Every route joins again at [`Engine::order_tail`] (`0x7eae2`), which is
@@ -16,7 +16,8 @@
 
 use crate::menu;
 use crate::stack::pop1;
-use crate::{Address, Engine, Memory, Vm};
+use crate::{Address, Engine};
+use motionvm_motion_forth::m32;
 use motionvm_motion_forth::{AddressSpace, Host, Machine};
 use motionvm_motion_forth::{Error, Result};
 
@@ -214,7 +215,7 @@ pub(crate) fn put<M: Machine>(vm: &mut M, base: u32, off: u32, v: i32) -> Result
 /// answer menus and their colors.
 ///
 /// Read from `ENGINE.EXE` for the 32-bit machine and built in
-/// [`crate::dialogue`]; read from `ENVIRO.EXE` for the 16-bit machine and
+/// [`crate::dialogue32`]; read from `ENVIRO.EXE` for the 16-bit machine and
 /// built in [`crate::dialogue16`] — an older layout on a smaller screen,
 /// which is why the two are not one reading with rules.
 pub(crate) trait Conversation<M: Machine> {
@@ -228,8 +229,8 @@ pub(crate) trait Conversation<M: Machine> {
     fn conversation_tail(&mut self, vm: &mut M, order: u32) -> Result<()>;
 }
 
-impl Conversation<Vm> for Engine {
-    fn conversation_mode(&mut self, vm: &mut Vm, order: u32, mode: i32) -> Result<bool> {
+impl Conversation<m32::Vm> for Engine {
+    fn conversation_mode(&mut self, vm: &mut m32::Vm, order: u32, mode: i32) -> Result<bool> {
         match mode {
             // A conversation is running: 12 and 13 are a line standing on
             // screen, 16 is the end of it. `?DIALON` reports exactly this
@@ -249,11 +250,11 @@ impl Conversation<Vm> for Engine {
         }
     }
 
-    fn conversation_talk(&mut self, vm: &mut Vm, order: u32, target: i32) -> Result<()> {
+    fn conversation_talk(&mut self, vm: &mut m32::Vm, order: u32, target: i32) -> Result<()> {
         self.exec_talk(vm, order, target)
     }
 
-    fn conversation_enter(&mut self, vm: &mut Vm, order: u32, flag: i32) -> Result<()> {
+    fn conversation_enter(&mut self, vm: &mut m32::Vm, order: u32, flag: i32) -> Result<()> {
         self.calc_dialog(vm, order, flag)
     }
 
@@ -262,7 +263,7 @@ impl Conversation<Vm> for Engine {
     /// outside it wants +0x18, and `SDCOL` only runs when it is not already
     /// that (0x7ec71-0x7ecd6) — the compare is there so a text is not
     /// re-measured for nothing.
-    fn conversation_tail(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn conversation_tail(&mut self, vm: &mut m32::Vm, order: u32) -> Result<()> {
         let at = |off: u32| Self::field(order, off);
         let table = vm.mem.fetch(at(SPEAKERS))?;
         let slots = vm.mem.fetch(at(ANSWER_DESCS))? as i32;
@@ -517,7 +518,7 @@ impl Engine {
     /// `GSCRX` and `GSCRY` (0x7c702, 0x7c714) are left out on purpose: their
     /// results go into locals that only the unread part uses, and neither reads
     /// anything this does not already know.
-    pub(crate) fn exec_talk(&mut self, vm: &mut Vm, order: u32, target: i32) -> Result<()> {
+    pub(crate) fn exec_talk(&mut self, vm: &mut m32::Vm, order: u32, target: i32) -> Result<()> {
         let at = |off: u32| Self::field(order, off);
         // The four the handler sets before it says anything: which screen and
         // which descriptor, then the color and the template to say it in.
@@ -560,16 +561,16 @@ impl Engine {
     /// Conversation records are packed at strides the interpreter never uses —
     /// 0x12 for an answer, 0x22 for a branch — so every other one begins
     /// mid-cell. The native handlers read them straight off a pointer and do
-    /// not care; `Memory::fetch` addresses cells and would quietly hand back
+    /// not care; `m32::Memory::fetch` addresses cells and would quietly hand back
     /// the neighbors, which is how the answer menu came to show a spoken line.
-    pub(crate) fn cell(mem: &Memory, base: u32, off: u32) -> Result<u32> {
+    pub(crate) fn cell(mem: &m32::Memory, base: u32, off: u32) -> Result<u32> {
         mem.fetch_unaligned(Self::field(base, off))
     }
 
     /// Two NUL-terminated strings in module memory, compared as `CompareString`
     /// at 0x11950 does — which is `strcmp` with both null pointers counting as
     /// equal.
-    pub(crate) fn same_name(vm: &Vm, a: u32, b: u32) -> Result<bool> {
+    pub(crate) fn same_name(vm: &m32::Vm, a: u32, b: u32) -> Result<bool> {
         for i in 0..64u32 {
             let (x, y) = (
                 vm.mem.fetch_byte(Self::field(a, i))?,

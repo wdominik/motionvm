@@ -1,6 +1,6 @@
 //! Queueing a change for a later conversation.
 //!
-//! One of the groups `plain_word` hands a word to, in the order the
+//! One of the groups `plain_word32` hands a word to, in the order the
 //! original's own match had them — **an order that is load-bearing**: two of
 //! the arms match on table membership rather than on a literal, so a group
 //! that moves across one of them changes which words it catches. A group that

@@ -3,7 +3,7 @@
 //! These need the original files; point `MOTIONVM_GAMEDATA_VLOOMES` at the
 //! directory with `DATA.-1-` and `MUSADL.DRV`, or they skip themselves.
 //!
-//! Two things here are the earlier generation's, and both would go unnoticed
+//! Two things here are the earlier build's, and both would go unnoticed
 //! if only the later games were tested. The songs are stored as a **bare
 //! `PLX` section** with no `MTCVTS` module around them, so a reader that
 //! insisted on the module tag would find no music in a game that ships

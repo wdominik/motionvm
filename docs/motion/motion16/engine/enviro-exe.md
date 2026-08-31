@@ -12,9 +12,9 @@ the 32-bit `ENGINE.EXE` still carries are absent. The game it plays is
 entirely in `DATA.-1-`.
 
 Every address on this page and on the pages it links to is this image's. The
-same player shipped twice more, earlier and under other names, as
-`HPPLAY.EXE` and `BMZ.EXE` — see [those](hpplay-exe.md)
-[pages](bmz-exe.md) for what differs, ordinals first.
+same player shipped three times more, earlier and under other names, as
+`HPPLAY.EXE`, `BMZ.EXE` and `LL.EXE` — see [their](hpplay-exe.md)
+[own](bmz-exe.md) [pages](ll-exe.md) for what differs, ordinals first.
 
 ## The binary
 

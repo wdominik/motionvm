@@ -125,7 +125,13 @@ behind three traits at that crate's root:
   implementation serves both cell widths.
 
 The same split runs through the format readers (`m16`/`m32`), the music stacks,
-the CLI, and the documentation trees `docs/motion/motion16/` and `docs/motion/motion32/`.
+the CLI, and the documentation trees — where the code module `mNN` and the
+directory `motionNN/` name the same generation, module-short and
+directory-readable. In the engine's own files the rule is total: an
+unqualified name — `text.rs`, a bare word group — holds for both generations,
+and anything that holds for one carries its number, `dialogue32.rs` beside
+`dialogue16.rs`, `plain_word32` beside `plain_word16`, `m32::Vm` beside
+`m16::Vm` at every signature.
 
 ### Build is probed from the binary
 
@@ -189,12 +195,14 @@ in `motionvm-motion-engine` names a title.
 ## Behavior differences are named capabilities
 
 Where the two generations really do behave differently, the engine carries
-about nine named booleans and a savegame layout — `opaque_blocks`, `text16`,
+eleven named booleans and a savegame layout — `opaque_blocks`, `text_runs`,
 `per_screen_descriptors`, `skips_holes` and the rest — each documented with the
 disassembly address it was measured at. They default to the 32-bit reading and
-are flipped in exactly one place.
+are flipped in one place, `Engine::with_container`, with a single exception:
+`skips_holes` is probed from the shipped binary, so the 16-bit opener writes
+what it read.
 
-Eight of them are, today, two-valued functions of "is this the 16-bit engine",
+Ten of them are, today, two-valued functions of "is this the 16-bit engine",
 and collapsing them into a generation enum would lose nothing that is currently
 true. It is deliberately not done. Each was *measured separately*, each names a
 behavior rather than a version, and `skips_holes` already varies within a
@@ -210,7 +218,7 @@ right follows from what differs:
   The order machine and the inventory bar read the same way on both machines
   over different offsets and coordinates, so there is one implementation and
   two tables of measurements, each field citing where it was read.
-- **When the *reading* differs, write twin files.** `dialogue.rs` and
+- **When the *reading* differs, write twin files.** `dialogue32.rs` and
   `dialogue16.rs` are the same conversation machine read twice, about 680 lines
   each, and they stay twins: the 16-bit engine has two speaker words instead of
   a speaker table, two talking-head descriptors, the answers stacked downward,

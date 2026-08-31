@@ -1,6 +1,6 @@
 //! The kernel words, one file per group.
 //!
-//! `Engine::plain_word` is a single match of ninety-odd arms; the groups here
+//! `Engine::plain_word32` is a single match of ninety-odd arms; the groups here
 //! are that match cut into files, nothing more. How many there are is the
 //! `mod` list below and nowhere else — fifteen of them are asked on the
 //! 32-bit machine and seventeen on the 16-bit one, and a count written into
@@ -8,8 +8,9 @@
 //!
 //! **The order of the groups is the order of the original's match, and it is
 //! load-bearing.** Two arms match on table membership rather than on a literal,
-//! so an arm that moves across one of them changes which words it catches; see
-//! the note on [`Engine::plain_word`](crate::Engine::plain_word). The match
+//! so an arm that moves across one of them changes which words it catches — and
+//! a duplicate name in two groups is resolved by nothing but this order; see
+//! the note on [`Engine::plain_word32`](crate::Engine::plain_word32). The match
 //! itself — both `Host` impls and the two dispatchers — stands at the end of
 //! this file, beside the rule it has to keep.
 //!
@@ -48,10 +49,10 @@ mod transitions;
 use crate::Engine;
 use crate::order;
 use motionvm_motion_forth as forth;
-use motionvm_motion_forth::m32::{Memory, Vm};
+use motionvm_motion_forth::m32;
 use motionvm_motion_forth::{Address, Host, Machine};
 
-impl Host<Vm> for Engine {
+impl Host<m32::Vm> for Engine {
     /// Stops the interpreter while a transition plays, which is what the
     /// original does by never returning from `FADEOUT` until it is finished.
     fn pending_call(&mut self) -> Option<(i32, Vec<i32>)> {
@@ -62,14 +63,14 @@ impl Host<Vm> for Engine {
         self.in_transition() || self.entering_loop || self.poll_yield()
     }
 
-    fn word(&mut self, name: &str, vm: &mut Vm) -> motionvm_motion_forth::Result<bool> {
+    fn word(&mut self, name: &str, vm: &mut m32::Vm) -> motionvm_motion_forth::Result<bool> {
         // The interaction machine runs bytecode of its own and therefore needs
         // the machine, not just its stack and memory.
         if name == "DOORDER" {
             return self.do_order(vm, order::M32_RULES);
         }
-        let Vm { data, mem, .. } = vm;
-        self.plain_word(name, data, mem)
+        let m32::Vm { data, mem, .. } = vm;
+        self.plain_word32(name, data, mem)
     }
 }
 
@@ -77,7 +78,7 @@ impl Engine {
     /// Runs one kernel word by name, with its arguments on `stack`.
     ///
     /// Every word that does not need the machine itself — which is all of them
-    /// so far. A word that has to run bytecode of its own gets `&mut Vm` in
+    /// so far. A word that has to run bytecode of its own gets `&mut m32::Vm` in
     /// [`Host::word`] above and is handled there instead.
     ///
     /// Public so a test can drive the same words the bytecode does — loading a
@@ -89,9 +90,9 @@ impl Engine {
     /// it has to stay that way.** Two of the arms match on table membership
     /// rather than on a literal — the descriptor setters and the resource
     /// status hints — so where they sit decides what reaches them. A
-    /// duplicate sitting earlier in the match wins silently and faults debug
-    /// builds. Splitting the match into files is exactly the change that
-    /// invites one in.
+    /// duplicate sitting earlier in the match wins silently — nothing
+    /// detects one; the sequence below is the whole defense. Splitting the
+    /// match into files is exactly the change that invites one in.
     ///
     /// Which is why the fifteen near-identical `if` blocks below — seventeen
     /// in [`Engine::plain_word16`] — are written out rather than folded. The
@@ -102,11 +103,11 @@ impl Engine {
     /// must check is the sequence of group names against the original's match,
     /// and a macro puts a layer between them for no gain but height. Thirty-two
     /// lines of the same shape are what a hand-checkable order looks like.
-    pub fn plain_word(
+    pub fn plain_word32(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
-        mem: &mut Memory,
+        mem: &mut m32::Memory,
     ) -> motionvm_motion_forth::Result<bool> {
         if self.words_state(name, stack, mem)?.is_some() {
             return Ok(true);
@@ -311,11 +312,15 @@ impl Engine {
     ///
     /// The 16-bit-only words go first — they include the buffer words the
     /// 32-bit path treats as inert — and then the groups both generations
-    /// share, in the order [`Engine::plain_word`] asks them in — the walk
-    /// with its offsets scaled to 2-byte cells, the inventory with the rules
-    /// read from `ENVIRO.EXE`, the savegame words over the 16-bit arena.
+    /// share: the walk with its offsets scaled to 2-byte cells, the
+    /// inventory with the rules read from `ENVIRO.EXE`, the savegame words
+    /// over the 16-bit arena. Their order is *almost*
+    /// [`Engine::plain_word32`]'s — the saves, input and walk groups sit
+    /// later here — and the difference is safe to hold: none of the moved
+    /// groups shares a word with anything it moved across, which is the one
+    /// thing the ordering rule protects.
     ///
-    /// Written out one call per line for the reason [`Engine::plain_word`]
+    /// Written out one call per line for the reason [`Engine::plain_word32`]
     /// gives: the sequence is the thing to be checked, and it has to be
     /// readable without expanding anything.
     pub fn plain_word16(

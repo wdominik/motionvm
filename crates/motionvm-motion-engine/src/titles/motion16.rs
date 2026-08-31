@@ -10,14 +10,14 @@
 //! A game's own module — [`super::enviro`], [`super::hfa`], [`super::jeffjet`],
 //! [`super::vloomes`] — says which files it ships, which binary the kernel
 //! comes out of and where it keeps its location, and nothing more. Rust allows
-//! one [`Driven`] for one concrete `Game<Vm>`, so the games share this one
+//! one [`Driven`] for one concrete `Game<m16::Vm>`, so the games share this one
 //! and answer [`Driven::name`] out of the field the opener set.
 
 use motionvm_playable::KeyPress;
 use std::path::Path;
 
 use motionvm_motion_formats::m16::{Container, Segment, mz, scr::ScrModule};
-use motionvm_motion_forth::m16::Vm;
+use motionvm_motion_forth::m16;
 use motionvm_motion_forth::{Address, Machine};
 
 use crate::Result;
@@ -84,7 +84,7 @@ pub(super) const MODULE_601: LocationScheme = LocationScheme {
 /// loads modules as the scripts ask for them with `=>GET`, because their word
 /// ids only resolve against what is resident.
 ///
-/// A free function rather than `Game::<Vm>::open`, because an associated
+/// A free function rather than `Game::<m16::Vm>::open`, because an associated
 /// function of that name on both machines' `Game` cannot be called by path
 /// without naming the machine, and every caller of the 32-bit `Game::open`
 /// would have to.
@@ -94,7 +94,7 @@ pub(super) fn open(
     exe: &str,
     required: &[(&'static str, &'static str)],
     location: LocationScheme,
-) -> Result<Game<Vm>> {
+) -> Result<Game<m16::Vm>> {
     if !dir.is_dir() {
         return Err(Error::NoSuchDirectory {
             dir: dir.to_path_buf(),
@@ -114,11 +114,12 @@ pub(super) fn open(
     let img = mz::Image::open(&exe).map_err(|e| Error::data(&exe, e))?;
     let words = mz::kernel_words(&img);
     // Read from this build's own `?XINSIDE`, because the four builds do not
-    // agree: the two later ones pass over an all-zero hot area, the two older
-    // ones take it as a rectangle at the origin.
+    // agree — and not by date: `ENVIRO.EXE` and `BMZ.EXE` pass over an
+    // all-zero hot area, `HPPLAY.EXE` and `LL.EXE` take it as a rectangle at
+    // the origin, and Jeff Jet's build is the younger of its pair.
     let skips_holes = mz::skips_empty_areas(&img, &words);
     let binding = mz::binding_of(&img, &words).map_err(|e| Error::data(&exe, e))?;
-    let mut vm = Vm::new(&binding);
+    let mut vm = m16::Vm::new(&binding);
     let boot = container.boot();
     let item = container
         .item(Segment::Scr, boot.module as usize)
@@ -148,7 +149,7 @@ pub(super) fn open(
     })
 }
 
-impl Game<Vm> {
+impl Game<m16::Vm> {
     /// Begins the game the way it begins itself: at the word the container's
     /// header names — module 100's `RUN`, word id 401 — which loads the
     /// library, plays the intro, enters its first location and runs
@@ -201,7 +202,7 @@ impl Game<Vm> {
     }
 }
 
-impl Hooks for Game<Vm> {
+impl Hooks for Game<m16::Vm> {
     /// Nothing stands in: `RUN` installs `CTRL` with `400 SCRCTRL` before it
     /// enters `ANIMPLAY`, and the intro installs `ICTRL` before its own, so a
     /// frame without a controller has nothing to run.
@@ -210,9 +211,9 @@ impl Hooks for Game<Vm> {
     }
 }
 
-impl Driven for Game<Vm> {
+impl Driven for Game<m16::Vm> {
     /// Out of the field, not out of the type: the 16-bit games are all the same
-    /// `Game<Vm>`, and only the opener knows which of them it opened.
+    /// `Game<m16::Vm>`, and only the opener knows which of them it opened.
     fn name(&self) -> &str {
         self.title.name()
     }
@@ -234,8 +235,8 @@ impl Driven for Game<Vm> {
     /// [`Game::park`]'s budget: the window does not exist yet, so a startup
     /// that never parks has to answer instead of spin.
     fn start(&mut self) -> Result<()> {
-        Game::<Vm>::start(self)?;
-        Game::<Vm>::park(self)
+        Game::<m16::Vm>::start(self)?;
+        Game::<m16::Vm>::park(self)
     }
 
     /// One keystroke per step: the 16-bit engine's `CTRL` likewise reads
@@ -247,8 +248,8 @@ impl Driven for Game<Vm> {
         let key = self.engine.pop_key();
         self.deliver_key(key)?;
         let (left, right) = self.buttons_this_frame();
-        Game::<Vm>::pointer_buttons(self, left, right)?;
-        Game::<Vm>::step(self)
+        Game::<m16::Vm>::pointer_buttons(self, left, right)?;
+        Game::<m16::Vm>::step(self)
     }
 
     fn pointer(&mut self, x: i32, y: i32) {
@@ -268,38 +269,38 @@ impl Driven for Game<Vm> {
     }
 
     fn render(&mut self) -> motionvm_render::Framebuffer {
-        Game::<Vm>::render(self)
+        Game::<m16::Vm>::render(self)
     }
 
     fn palette(&self) -> &motionvm_render::Palette {
-        Game::<Vm>::palette(self)
+        Game::<m16::Vm>::palette(self)
     }
 
     fn frame_duration(&self) -> Option<std::time::Duration> {
-        Game::<Vm>::frame_duration(self)
+        Game::<m16::Vm>::frame_duration(self)
     }
 
     fn set_music(&mut self, sink: Box<dyn crate::MusicSink>) {
-        Game::<Vm>::set_music(self, sink)
+        Game::<m16::Vm>::set_music(self, sink)
     }
 
     fn set_saves(&mut self, dir: &Path) -> Result<()> {
-        Game::<Vm>::set_saves(self, dir)
+        Game::<m16::Vm>::set_saves(self, dir)
     }
 
     fn saves(&self) -> Option<&Path> {
-        Game::<Vm>::saves(self)
+        Game::<m16::Vm>::saves(self)
     }
 
     fn finished(&self) -> bool {
-        Game::<Vm>::finished(self)
+        Game::<m16::Vm>::finished(self)
     }
 
     fn request_location(&mut self, n: i32) -> Result<()> {
-        Game::<Vm>::request_location(self, n)
+        Game::<m16::Vm>::request_location(self, n)
     }
 
     fn start_location(&self) -> Option<i32> {
-        Game::<Vm>::start_location(self)
+        Game::<m16::Vm>::start_location(self)
     }
 }

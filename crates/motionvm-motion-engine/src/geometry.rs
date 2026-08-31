@@ -127,7 +127,7 @@ impl Engine {
     /// with `GDX`, so the error moved the sentence as well as its backing.
     pub(crate) fn stored_extent(&mut self, d: &Descriptor) -> (i32, i32) {
         let (w, h) = self.extent(d);
-        if d.is_text() && !self.text16 {
+        if d.is_text() && !self.text_runs {
             (w + 4, h + 4)
         } else {
             // The 16-bit `GDWIDTH`/`GDHEIGHT` (`05f1:1705`, `05f1:177b`)

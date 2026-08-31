@@ -1,6 +1,6 @@
 //! Setting the game up and stepping it, without a screen attached.
 //!
-//! [`Game<Vm>`] is the whole machine assembled and ready to step: the containers
+//! [`Game<M>`] is the whole machine assembled and ready to step: the containers
 //! opened, the kernel table lifted out of the engine binary, the modules
 //! loaded, the VM wired to the engine as its host. It is generic over the
 //! machine, and named with it — `Game<m32::Vm>` or `Game<m16::Vm>`, neither
@@ -119,10 +119,12 @@ pub(crate) struct LocationScheme {
     pub(crate) unset_below: Option<i32>,
 }
 
-/// What one game does that the driver cannot know: the frame to run while no
-/// controller is installed. Implemented once per game in `titles/`, and
-/// public only because the generic driver is bounded on it — nothing outside
-/// this crate implements it.
+/// What a generation's stand-in frame does that the driver cannot know: the
+/// frame to run while no controller is installed. Implemented once per
+/// machine type in `titles/` — Rust's coherence allows no more than that,
+/// which is why the impl is the generation's even where one game's variable
+/// names appear in it — and public only because the generic driver is
+/// bounded on it; nothing outside this crate implements it.
 pub trait Hooks {
     /// The word to run this frame when `CTRL`/`SCRCTRL` has not installed a
     /// controller yet — or `None` when the frame is spent or there is nothing
@@ -591,9 +593,10 @@ where
 
     /// How long to wait before the next frame, as `DELAY` asked.
     ///
-    /// `None` until the game has asked — `START` runs `25 DELAY` before it
-    /// enters its loop, so a frontend needs a value of its own for the first
-    /// few frames.
+    /// `None` only for a game that asked not to wait at all: every game asks
+    /// for its real pace during its own startup — `25 DELAY` in the 32-bit
+    /// bootstrap, `15 DELAY` in the 16-bit one — and startup runs before a
+    /// window ever asks.
     pub fn frame_duration(&self) -> Option<std::time::Duration> {
         self.engine.frame_duration()
     }

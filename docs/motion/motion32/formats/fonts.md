@@ -5,7 +5,7 @@
 *MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 Fonts are proportional 1-bit bitmap fonts, compressed with the same
-[GFXCRUNCH LZW codec](lzw.md) as sprites — but unlike the sprite header, the
+[GFXCRUNCH LZW codec](../../formats/lzw.md) as sprites — but unlike the sprite header, the
 font header states the codec parameters explicitly instead of assuming them.
 
 Dunkle Schatten 2 ships nine fonts (`001.RSC` font slots), 968 glyphs in total, with
@@ -65,6 +65,6 @@ glyph 0.
 
 ## See also
 
-- [The GFXCRUNCH LZW codec](lzw.md)
+- [The GFXCRUNCH LZW codec](../../formats/lzw.md)
 - [Font reference table (000.FRT)](font-reference-table.md)
 - [Text rendering](../engine/text-rendering.md)

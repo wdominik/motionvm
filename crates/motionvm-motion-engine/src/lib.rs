@@ -12,8 +12,8 @@ mod buffer;
 mod clock;
 mod curtain;
 mod descriptor;
-mod dialogue;
 mod dialogue16;
+mod dialogue32;
 mod display;
 mod draw;
 mod error;
@@ -58,7 +58,6 @@ use std::collections::BTreeMap;
 
 use motionvm_motion_formats::TextTable;
 use motionvm_motion_formats::font::{Font, FontRefTable};
-use motionvm_motion_forth::m32::{Memory, Vm};
 use motionvm_render::Picture;
 // The machine's own `Error` and `Result` are *not* imported here, and this
 // crate's `Error` and `Result` — re-exported just above — are what the bare
@@ -84,7 +83,7 @@ pub(crate) struct Scroll {
 /// One value holds the whole of it — screens, descriptors, fonts, palettes,
 /// texts, sprites, the conversation cursor, the transition queue, the pointer,
 /// the clock. There is **no global mutable state anywhere in this workspace**;
-/// state is threaded through `&mut Engine` and `&mut Vm`, which is what makes
+/// state is threaded through `&mut Engine` and `&mut m32::Vm`, which is what makes
 /// two games in one process, or a test that builds a scene by hand, ordinary
 /// rather than delicate.
 ///
@@ -144,7 +143,10 @@ pub struct Engine {
     /// zero. This is the build's and not the format's: `ENVIRO.EXE`
     /// (`0a40:1b37`) and `BMZ.EXE` test for it, `HPPLAY.EXE` and `LL.EXE` do
     /// not — 101 instructions against 71, and the older two have no `cmpw $0`
-    /// in the handler at all. Set from the binary the game was opened with.
+    /// in the handler at all. Set from the binary the game was opened with;
+    /// the default is the 32-bit reading, where the area search treats a
+    /// record of four zeros as a hole and `?XINSIDE` applies the same rule
+    /// (the click dispatch at `0x7ce73` and its area walk).
     pub(crate) skips_holes: bool,
     /// Set when the game asks for a redraw. A still frame is composed on
     /// demand, so this only records that it was asked for.
@@ -175,7 +177,7 @@ pub struct Engine {
     /// recording of the original pixel for pixel. A keyed block path would
     /// have shown the picture before through every index 0 in them.
     pub(crate) opaque_blocks: bool,
-    /// Whether the text drawer follows the 16-bit engine's reading
+    /// Whether text is drawn and measured the run drawer's way
     /// (`ENVIRO.EXE` `016a:0aac` and `14ee:11cf`): the shadow pass shifted by
     /// the template's x/y offsets on an axis that is not centered, `#` eaten
     /// by the run drawer, `SDBLK` justifying a block, and the `GD*` sizes
@@ -184,7 +186,20 @@ pub struct Engine {
     /// Confirmed on the earlier framing the same way as
     /// [`Engine::opaque_blocks`]: three of the eight intro pictures Victor
     /// Loomes holds are text over a picture, and they match to the pixel.
-    pub(crate) text16: bool,
+    pub(crate) text_runs: bool,
+    /// Whether `SDTB` allocates the text record itself, marking the
+    /// descriptor as `SDTXT` would (`0x71d45`). Where it does not, the value
+    /// is read as a block until `SDTXT` runs (`05f1:0d7b`).
+    pub(crate) sdtb_allocates_text: bool,
+    /// Whether `SDTDT` takes only templates 1..=20 (`05f1:0c78`: `cmp $1` /
+    /// `jl`, `cmp $0x14` / `jg` skip the store and the dirty mark alike), so
+    /// `0 SDTDT` cannot clear a template. The 32-bit handler has no such
+    /// gate.
+    pub(crate) templates_gated: bool,
+    /// Whether `GDTB` answers a sprite with its bit 15 still on
+    /// (`05f1:0d5c` reads `+0x10` and masks nothing). Only that machine
+    /// keeps the marker in the value; the other has a type field of its own.
+    pub(crate) table_marks_sprites: bool,
     /// Whether `SDLEV` re-inserts into the level chain even when the level
     /// does not change — the 16-bit engine's read behavior; see
     /// [`Descriptor::stamp`].
@@ -272,8 +287,10 @@ pub struct Engine {
     ///
     /// `ANIMPLAY` waits out this many before each frame: it resets a timer and
     /// spins until the elapsed count reaches the value, or skips the wait when
-    /// it is -1 (0x68fbd to 0x68fd4). `DELAY n` puts `200/n` here, and `START`
-    /// asks for `25 DELAY`, so eight.
+    /// it is -1 (0x68fbd to 0x68fd4). `DELAY n` puts `200/n` here; the 32-bit
+    /// `START` asks for `25 DELAY` — so eight, the default below — and the
+    /// 16-bit `RUN` for `15 DELAY`, which overwrites it before a window ever
+    /// asks.
     pub(crate) frame_ticks: i32,
     /// Where the game data is, for the few words that touch files directly.
     dir: Option<std::path::PathBuf>,
@@ -367,7 +384,7 @@ pub struct Engine {
     /// full before the phase is over. `DO_INVSEL` does it three deep: its
     /// documents branch fades the bar in, the picture out and the picture in
     /// again (module 4, 0x01c44–0x01ca8), and it can, because it runs as a
-    /// descriptor callback through `Vm::call_nested`, where the interpreter
+    /// descriptor callback through `m32::Vm::call_nested`, where the interpreter
     /// does not pause.
     pub(crate) curtains: std::collections::VecDeque<Curtain>,
     /// The 16-bit engine's transitions, queued the same way — box wipes,
@@ -786,10 +803,10 @@ impl Engine {
             pointer_visible: true,
             pointer_shows: 0,
             pointer_counted: false,
-            // The 32-bit handler's own walk tests for it; the 16-bit opener
-            // overrides this from the build it read.
             palette_cycle: None,
             request: None,
+            // The 32-bit handler's own walk tests for it; the 16-bit opener
+            // overrides this from the build it read.
             skips_holes: true,
             dirty: false,
             rebuild: Vec::new(),
@@ -798,7 +815,8 @@ impl Engine {
             entering_loop: false,
             polls: 0,
             polling: false,
-            // What `START` asks for: `25 DELAY`, so 200/25 = 8.
+            // The 32-bit `START`'s `25 DELAY`; a 16-bit game's own `DELAY`
+            // overwrites it during startup.
             frame_ticks: 8,
             dir: None,
             last_info_mode: None,
@@ -806,7 +824,10 @@ impl Engine {
             system_bg: 2,
             pending_call: None,
             opaque_blocks: false,
-            text16: false,
+            text_runs: false,
+            sdtb_allocates_text: true,
+            templates_gated: false,
+            table_marks_sprites: false,
             level_chain: false,
             level_stamp: 0,
             sd_marks_always: false,
@@ -904,6 +925,7 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::descriptor::{DESCRIPTOR_FIELDS, DESCRIPTOR_SETTERS};
+    use motionvm_motion_forth::m32;
 
     /// Every one-argument setter is also a field a savegame may carry.
     ///
@@ -920,8 +942,8 @@ mod tests {
     }
 
     /// Module memory the tests can hand to the host; none of them write to it.
-    fn mem() -> Memory {
-        Memory::default()
+    fn mem() -> m32::Memory {
+        m32::Memory::default()
     }
 
     #[test]
@@ -930,7 +952,7 @@ mod tests {
         let mut e = Engine::with_display(640, 480);
         // x y lev spr 0 0 — the shape XYLSITEM. builds.
         let mut stack = vec![10, 20, 3, 99, 0, 0];
-        assert!(e.plain_word("NEWSETDESC", &mut stack, &mut mem).unwrap());
+        assert!(e.plain_word32("NEWSETDESC", &mut stack, &mut mem).unwrap());
         assert_eq!(stack, vec![1], "should leave just the handle");
         let d = &e.descriptors[0];
         assert_eq!((d.x, d.y, d.level), (10, 20, 3));
@@ -941,13 +963,13 @@ mod tests {
         let mut mem = mem();
         let mut e = Engine::with_display(640, 480);
         let mut stack = vec![0, 0, 0, 0, 0, 0];
-        e.plain_word("NEWSETDESC", &mut stack, &mut mem).unwrap();
+        e.plain_word32("NEWSETDESC", &mut stack, &mut mem).unwrap();
         stack.clear();
 
         stack.push(42);
-        e.plain_word("SDX", &mut stack, &mut mem).unwrap();
+        e.plain_word32("SDX", &mut stack, &mut mem).unwrap();
         assert!(stack.is_empty(), "SDX takes exactly one value");
-        e.plain_word("GDX", &mut stack, &mut mem).unwrap();
+        e.plain_word32("GDX", &mut stack, &mut mem).unwrap();
         assert_eq!(stack, vec![42]);
     }
 
@@ -1274,7 +1296,7 @@ mod tests {
             let (w, h) = s.view;
             s.set_view(w, h);
         }
-        e.text16 = true;
+        e.templates_gated = true;
         e.selected = e.descriptors.iter().position(|d| d.handle == 1);
         e.set_template(2).expect("SDTDT");
         for outside in [0, -1, 21] {
@@ -1295,10 +1317,10 @@ mod tests {
         sprite.pixels.fill(color);
     }
 
-    fn fade(e: &mut Engine, mem: &mut Memory, name: &str, screen: u32) {
+    fn fade(e: &mut Engine, mem: &mut m32::Memory, name: &str, screen: u32) {
         e.display.set_current(screen);
         let mut stack = vec![1, 50, 8];
-        e.plain_word(name, &mut stack, mem).unwrap();
+        e.plain_word32(name, &mut stack, mem).unwrap();
     }
 
     /// A fade in reveals its picture *over* what is on the screen.
@@ -1481,7 +1503,7 @@ mod tests {
         let mut e = two_screens(3, 7);
         e.display.set_current(1);
         let mut stack = vec![2, 50, 8];
-        e.plain_word("FADEIN", &mut stack, &mut mem).unwrap();
+        e.plain_word32("FADEIN", &mut stack, &mut mem).unwrap();
         assert!(!e.in_transition(), "mode 2 is not the curtain");
         assert_eq!(
             e.stubbed.get("FADEIN (mode 2)"),
@@ -1521,7 +1543,7 @@ mod tests {
             e.display.set_current(1);
 
             let mut stack = vec![1, 50, 8];
-            e.plain_word("FADEOUT", &mut stack, &mut mem).unwrap();
+            e.plain_word32("FADEOUT", &mut stack, &mut mem).unwrap();
             let c = e.curtains.front().expect("a curtain").clone();
             assert_eq!(c.ticks_per_band, per, "{height} rows: 50 / ({height}/16)");
             assert_eq!(e.step_ticks(), per, "and a step is one band's worth");
@@ -1544,12 +1566,12 @@ mod tests {
         let mut e = Engine::with_display(640, 480);
         for x in [1, 2] {
             let mut s = vec![x, 0, 0, 0, 0, 0];
-            e.plain_word("NEWSETDESC", &mut s, &mut mem).unwrap();
+            e.plain_word32("NEWSETDESC", &mut s, &mut mem).unwrap();
         }
         let mut stack = vec![1]; // the first descriptor's handle
-        e.plain_word("ACTDESC", &mut stack, &mut mem).unwrap();
+        e.plain_word32("ACTDESC", &mut stack, &mut mem).unwrap();
         let mut out = Vec::new();
-        e.plain_word("GDX", &mut out, &mut mem).unwrap();
+        e.plain_word32("GDX", &mut out, &mut mem).unwrap();
         assert_eq!(out, vec![1], "should have selected the first descriptor");
 
         // A handle that names nothing leaves the selection alone. The original
@@ -1557,9 +1579,9 @@ mod tests {
         // (0x71618 → 0x71624 → 0x71636), so the descriptor that was selected
         // stays selected and the `SD…` words that follow still land.
         let mut stack = vec![999];
-        e.plain_word("ACTDESC", &mut stack, &mut mem).unwrap();
+        e.plain_word32("ACTDESC", &mut stack, &mut mem).unwrap();
         let mut out = Vec::new();
-        e.plain_word("GDX", &mut out, &mut mem).unwrap();
+        e.plain_word32("GDX", &mut out, &mut mem).unwrap();
         assert_eq!(
             out,
             vec![1],
@@ -1582,7 +1604,7 @@ mod tests {
         let mut mem = mem();
         let mut e = Engine::with_display(640, 480);
         let mut stack = vec![0, 0, 0, 0, 0, 0];
-        e.plain_word("NEWSETDESC", &mut stack, &mut mem).unwrap();
+        e.plain_word32("NEWSETDESC", &mut stack, &mut mem).unwrap();
         stack.clear();
 
         // A text descriptor, centered on a point, with a measurable extent. No
@@ -1590,20 +1612,20 @@ mod tests {
         // empty text — the identity has to hold for any width, not a lucky one.
         for (word, v) in [("SDTB", 8), ("SDTXT", 1), ("SDCEN", 200), ("SDVCEN", 100)] {
             stack.push(v);
-            e.plain_word(word, &mut stack, &mut mem).unwrap();
+            e.plain_word32(word, &mut stack, &mut mem).unwrap();
         }
 
         for (get, set, want) in [("GDCX", "SDCEN", 200), ("GDCY", "SDVCEN", 100)] {
             let mut out = Vec::new();
-            e.plain_word(get, &mut out, &mut mem).unwrap();
+            e.plain_word32(get, &mut out, &mut mem).unwrap();
             assert_eq!(
                 out,
                 vec![want],
                 "{get} must answer with the point it was centered on"
             );
-            e.plain_word(set, &mut out, &mut mem).unwrap();
+            e.plain_word32(set, &mut out, &mut mem).unwrap();
             let mut again = Vec::new();
-            e.plain_word(get, &mut again, &mut mem).unwrap();
+            e.plain_word32(get, &mut again, &mut mem).unwrap();
             assert_eq!(again, vec![want], "{get} {set} moved the text");
         }
     }
@@ -1613,14 +1635,14 @@ mod tests {
         let mut mem = mem();
         let mut e = Engine::with_display(640, 480);
         let mut stack = Vec::new();
-        e.plain_word("NEWSCREEN", &mut stack, &mut mem).unwrap();
+        e.plain_word32("NEWSCREEN", &mut stack, &mut mem).unwrap();
         assert_eq!(stack, vec![1]);
         stack.clear();
 
         stack.extend([640, 400]);
-        e.plain_word("SCRSIZE", &mut stack, &mut mem).unwrap();
+        e.plain_word32("SCRSIZE", &mut stack, &mut mem).unwrap();
         stack.extend([0, 400]);
-        e.plain_word("SCRVPOS", &mut stack, &mut mem).unwrap();
+        e.plain_word32("SCRVPOS", &mut stack, &mut mem).unwrap();
 
         let s = &e.display.screens[0];
         assert_eq!(s.size, (640, 400));

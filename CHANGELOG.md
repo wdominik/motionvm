@@ -6,6 +6,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-01
+
+### Changed
+
+- **The engine names its generation everywhere.** A crate-root import made
+  bare `Vm` and `Memory` mean the 32-bit machine, so the same impl header
+  meant different machines in different files. Every signature now says
+  `m32` or `m16`, `dialogue32.rs` stands beside `dialogue16.rs` and
+  `plain_word32` beside `plain_word16`, and the rule is total: an
+  unqualified name holds for both generations, anything that holds for one
+  carries its number. The one version-named capability went the same way —
+  `text16` had pooled four separately measured behaviors under "is this the
+  16-bit engine" and is now the four flags it was hiding, each carrying its
+  own address.
+
+- **Dunkle Schatten 2's module holds names, not behavior.** Its bootstrap
+  words come from the authoring template — another MOTION 32-bit game
+  exports `STARTUP`, `START` and `INCLLOC` from the same modules — so the
+  functions that run them, and the one `Hooks` impl the machine can have at
+  all, live with the generation in `titles/motion32.rs`, beside their
+  16-bit twins. The game's file keeps what is genuinely its own: the
+  module-2 variable names its compiler chose, as a `Shell` constant beside
+  `LOCATION`.
+
+- **The record says which machine a shared reading came from.** The `?KEY`
+  translation is measured out of `ENGINE.EXE` and serves all five games;
+  the 16-bit handler is unread, and the departures ledger and the open
+  questions now carry that instead of nobody saying it. The `?XINSIDE`
+  hole test is marked as the build split it is on both pages it touches,
+  and the GFXCRUNCH LZW page sits at the documentation tree's shared level,
+  where the codec's code has lived since the crate root took it.
+
 ## [0.7.0] - 2026-08-31
 
 ### Added
@@ -796,7 +828,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/wdominik/motionvm/releases/tag/v0.7.1
 [0.7.0]: https://github.com/wdominik/motionvm/releases/tag/v0.7.0
 [0.6.0]: https://github.com/wdominik/motionvm/releases/tag/v0.6.0
 [0.5.0]: https://github.com/wdominik/motionvm/releases/tag/v0.5.0

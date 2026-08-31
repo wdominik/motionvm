@@ -1,7 +1,7 @@
 //! Conversations on the 16-bit machine: the modes of the interaction machine
 //! from 12 to 18, as `ENVIRO.EXE` has them.
 //!
-//! The same design as the 32-bit engine's ([`crate::dialogue`]) — a record
+//! The same design as the 32-bit engine's ([`crate::dialogue32`]) — a record
 //! in a location's module with a table of answers, a table of lines and a
 //! graph of branch nodes, driven by the mode cell of the `_ORDER` block and
 //! a node number whose range says what kind of node it is — but an older
@@ -29,7 +29,7 @@ use crate::menu;
 use crate::order::{Conversation, M16_RULES};
 use crate::{Engine, Placement};
 use motionvm_motion_forth::Machine;
-use motionvm_motion_forth::m16::Vm;
+use motionvm_motion_forth::m16;
 use motionvm_motion_forth::{Error, Result};
 
 /// The block's conversation fields, 16-bit offsets.
@@ -103,29 +103,29 @@ struct Tables {
     branches: i32,
 }
 
-fn fetch(vm: &Vm, at: i32) -> Result<i32> {
+fn fetch(vm: &m16::Vm, at: i32) -> Result<i32> {
     vm.space().fetch_cell(at)
 }
 
-fn store(vm: &mut Vm, at: i32, v: i32) -> Result<()> {
+fn store(vm: &mut m16::Vm, at: i32, v: i32) -> Result<()> {
     vm.space_mut().store_cell(at, v)
 }
 
-fn field(vm: &Vm, base: i32, off: i32) -> i32 {
+fn field(vm: &m16::Vm, base: i32, off: i32) -> i32 {
     vm.space().offset(base, off)
 }
 
-fn block(vm: &Vm, order: u32, off: i32) -> Result<i32> {
+fn block(vm: &m16::Vm, order: u32, off: i32) -> Result<i32> {
     fetch(vm, field(vm, order as i32, off))
 }
 
-fn set_block(vm: &mut Vm, order: u32, off: i32, v: i32) -> Result<()> {
+fn set_block(vm: &mut m16::Vm, order: u32, off: i32, v: i32) -> Result<()> {
     let at = field(vm, order as i32, off);
     store(vm, at, v)
 }
 
 /// The NUL-terminated name at an address, as `1251:000f` compares one.
-fn name_at(vm: &Vm, at: i32) -> Result<Vec<u8>> {
+fn name_at(vm: &m16::Vm, at: i32) -> Result<Vec<u8>> {
     let mem = vm.space();
     let mut name = Vec::new();
     for i in 0..64 {
@@ -137,7 +137,7 @@ fn name_at(vm: &Vm, at: i32) -> Result<Vec<u8>> {
     Ok(name)
 }
 
-fn tables(vm: &Vm, order: u32) -> Result<Tables> {
+fn tables(vm: &m16::Vm, order: u32) -> Result<Tables> {
     let record = block(vm, order, g::RECORD)?;
     let answers = block(vm, order, g::FIELDS)?;
     let lines = field(vm, answers, fetch(vm, field(vm, record, 4))? * ANSWER);
@@ -153,7 +153,7 @@ fn tables(vm: &Vm, order: u32) -> Result<Tables> {
 impl Engine {
     /// Runs the word whose id the block holds at `off`, with `args` — if the
     /// cell is not zero, which is how every caller guards it.
-    fn run16(&mut self, vm: &mut Vm, order: u32, off: i32, args: &[i32]) -> Result<()> {
+    fn run16(&mut self, vm: &mut m16::Vm, order: u32, off: i32, args: &[i32]) -> Result<()> {
         let id = block(vm, order, off)?;
         if id == 0 {
             return Ok(());
@@ -171,7 +171,7 @@ impl Engine {
     /// The change drain, `0d34:0d42`: every queued change whose names match
     /// this conversation and one of its answers is applied and taken off
     /// the queue.
-    fn changes16(&mut self, vm: &mut Vm, order: u32, record: i32, answers: i32) -> Result<()> {
+    fn changes16(&mut self, vm: &mut m16::Vm, order: u32, record: i32, answers: i32) -> Result<()> {
         let queue = block(vm, order, g::CHANGE_QUEUE)?;
         let perms = field(vm, record, 0x1c);
         let mine = name_at(vm, field(vm, record, 0x12))?;
@@ -220,7 +220,7 @@ impl Engine {
 
     /// `calc_dialog`, `0d34:0ed9`. Mode 1 steps to the next node first; both
     /// modes then show whatever node the block now stands on.
-    fn calc16(&mut self, vm: &mut Vm, order: u32, mode: i32) -> Result<()> {
+    fn calc16(&mut self, vm: &mut m16::Vm, order: u32, mode: i32) -> Result<()> {
         let t = tables(vm, order)?;
         if mode == 1 {
             self.advance16(vm, order, &t)?;
@@ -247,7 +247,7 @@ impl Engine {
     /// `0d34:0f6a`–`0d34:1062`: which node comes after this one. A branch's
     /// successor is numbered in another scheme and mapped back; 4000 means
     /// the answer the player was last on, kept in one global (`DS:0x107a`).
-    fn advance16(&mut self, vm: &mut Vm, order: u32, t: &Tables) -> Result<()> {
+    fn advance16(&mut self, vm: &mut m16::Vm, order: u32, t: &Tables) -> Result<()> {
         let node = block(vm, order, g::NODE)?;
         let mut next = if node < 1000 {
             fetch(vm, field(vm, t.lines, node * LINE + 4))?
@@ -273,7 +273,7 @@ impl Engine {
 
     /// `0d34:0d04`: the talking heads go, and mode 16 ends the conversation
     /// in `DOORDER`.
-    fn finish16(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn finish16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         self.select_screen(block(vm, order, g::SCREEN)? as u32);
         for head in [g::HEAD_L, g::HEAD_R] {
             self.select_descriptor(block(vm, order, head)? as u32);
@@ -286,7 +286,7 @@ impl Engine {
     /// speaker's color and template, centered at (160, 80) of the view, on
     /// level 0x73; mode 12 for the left speaker, 13 for the right; then the
     /// block's "a line went up" word.
-    fn speak16(&mut self, vm: &mut Vm, order: u32, t: &Tables, node: i32) -> Result<()> {
+    fn speak16(&mut self, vm: &mut m16::Vm, order: u32, t: &Tables, node: i32) -> Result<()> {
         self.select_screen(block(vm, order, g::SCREEN)? as u32);
         let sx = self.screen_origin_x();
         let sy = self.screen_origin_y();
@@ -315,7 +315,7 @@ impl Engine {
     /// is clear, stacked downward from 20 below the view's top at x 70,
     /// each the next one's height plus 7 lower; the quiet line at 130. All
     /// in the answers' color and the left template. Ends in mode 14.
-    fn choose16(&mut self, vm: &mut Vm, order: u32, t: &Tables, first: i32) -> Result<()> {
+    fn choose16(&mut self, vm: &mut m16::Vm, order: u32, t: &Tables, first: i32) -> Result<()> {
         self.pointer_visible = true;
         self.run16(vm, order, g::FINISHED, &[])?;
         let arrow = block(vm, order, g::ARROW)?;
@@ -378,7 +378,7 @@ impl Engine {
     /// the queue knows, plus kind 5, which runs a word by name and then
     /// drains the queue; named, it is copied onto the queue for another
     /// conversation, with no room check. Either way the node steps on.
-    fn branch16(&mut self, vm: &mut Vm, order: u32, t: &Tables, index: i32) -> Result<()> {
+    fn branch16(&mut self, vm: &mut m16::Vm, order: u32, t: &Tables, index: i32) -> Result<()> {
         let entry = field(vm, t.branches, index * BRANCH);
         if vm.space().fetch_byte(entry)? == 0 {
             let target = fetch(vm, field(vm, entry, 0x14))?;
@@ -426,7 +426,7 @@ impl Engine {
     }
 
     /// A fresh press of either button, as the modes test it.
-    fn pressed16(&self, vm: &Vm, order: u32) -> Result<bool> {
+    fn pressed16(&self, vm: &m16::Vm, order: u32) -> Result<bool> {
         Ok(
             (block(vm, order, g::MLK)? != 0 || block(vm, order, g::MRK)? != 0)
                 && block(vm, order, g::PRESSED)? == 0,
@@ -437,7 +437,7 @@ impl Engine {
     /// descriptor shows, the speaking side hears 2 each frame — or the
     /// press cuts the line short with `SDWAIT 0`; once it is gone, 1, and
     /// the next node. The other side hears 4 every frame.
-    fn standing16(&mut self, vm: &mut Vm, order: u32, right: bool) -> Result<()> {
+    fn standing16(&mut self, vm: &mut m16::Vm, order: u32, right: bool) -> Result<()> {
         let (speaking, listening) = if right {
             (g::SPEAK_R, g::SPEAK_L)
         } else {
@@ -462,7 +462,7 @@ impl Engine {
     /// answer with permission bit 1 loses bit 0, and `calc_dialog` shows the
     /// next node. A fresh right press over the bar opens the give/info menu
     /// on the item there, mode 17.
-    fn picking16(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn picking16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         let fresh = block(vm, order, g::PRESSED)? == 0;
         let left = block(vm, order, g::MLK)? != 0;
         let right = block(vm, order, g::MRK)? != 0;
@@ -541,7 +541,7 @@ impl Engine {
 
     /// Mode 15, `0d34:315d`: a last line stands; when it is gone both sides
     /// hear 3 and the heads go.
-    fn last_line16(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn last_line16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         self.select_screen(block(vm, order, g::SCREEN)? as u32);
         self.select_descriptor(block(vm, order, g::ANSWER_DESCS)? as u32);
         if self.descriptor_active() == 0 {
@@ -557,7 +557,7 @@ impl Engine {
     /// Mode 16, `0d34:3232`: over. The talk word hears -1, the pointer comes
     /// back, the block drops to mode 0, the finished word runs, and the
     /// exit word if there is one.
-    fn over16(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn over16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         self.run16(vm, order, g::TALK, &[-1])?;
         self.pointer_visible = true;
         set_block(vm, order, g::MODE, 0)?;
@@ -566,7 +566,7 @@ impl Engine {
     }
 
     /// Mode 17, `0d34:3286`: the give/info strip over the bar, mid-talk.
-    fn bar_menu16(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn bar_menu16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         let (screen, base) = (
             block(vm, order, g::BAR_SCREEN)?,
             block(vm, order, g::BAR_MENU)?,
@@ -585,7 +585,7 @@ impl Engine {
 
     /// Mode 18, `0d34:32f8`: a give or an info picked from that strip runs
     /// once the figure is free, in mode 98.
-    fn give16(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn give16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         if !menu::figure_free(vm, order, M16_RULES)? {
             return Ok(());
         }
@@ -600,8 +600,8 @@ impl Engine {
     }
 }
 
-impl Conversation<Vm> for Engine {
-    fn conversation_mode(&mut self, vm: &mut Vm, order: u32, mode: i32) -> Result<bool> {
+impl Conversation<m16::Vm> for Engine {
+    fn conversation_mode(&mut self, vm: &mut m16::Vm, order: u32, mode: i32) -> Result<bool> {
         match mode {
             0xc => self.standing16(vm, order, false)?,
             0xd => self.standing16(vm, order, true)?,
@@ -620,7 +620,7 @@ impl Conversation<Vm> for Engine {
     /// or -1 for nothing to say — the queued changes are applied, the two
     /// heads go up with the record's sprites, both speakers hear 0, and
     /// `calc_dialog` shows the entry node.
-    fn conversation_talk(&mut self, vm: &mut Vm, order: u32, target: i32) -> Result<()> {
+    fn conversation_talk(&mut self, vm: &mut m16::Vm, order: u32, target: i32) -> Result<()> {
         self.select_screen(block(vm, order, g::SCREEN)? as u32);
         self.select_descriptor(block(vm, order, g::INFO_DESC)? as u32);
         self.set_color(block(vm, order, g::INFO_COLOR)?)?;
@@ -658,13 +658,13 @@ impl Conversation<Vm> for Engine {
         self.calc16(vm, order, 0)
     }
 
-    fn conversation_enter(&mut self, vm: &mut Vm, order: u32, flag: i32) -> Result<()> {
+    fn conversation_enter(&mut self, vm: &mut m16::Vm, order: u32, flag: i32) -> Result<()> {
         self.calc16(vm, order, flag)
     }
 
     /// The tail's work in mode 14 (`0d34:3432`): the answer under the
     /// pointer takes the left speaker's color, the others the answers'.
-    fn conversation_tail(&mut self, vm: &mut Vm, order: u32) -> Result<()> {
+    fn conversation_tail(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         let slots = block(vm, order, g::ANSWER_DESCS)?;
         let (px, py) = (block(vm, order, g::MMX)?, block(vm, order, g::MMY)?);
         let (hover, normal) = (

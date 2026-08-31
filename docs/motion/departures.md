@@ -277,6 +277,15 @@ a measured difference from the original.
 
 ## The 16-bit machine
 
+**`?KEY` translates through the 32-bit engine's tables.** The 16-bit
+handler (`12c8:063c`) has not been read; what its games are fed is the
+translation measured out of `ENGINE.EXE` — the `0x100` scan-code marker,
+the modifier bits, the Alt table with its `Z`-that-is-`O` mistake. No
+16-bit module is known to test a scan code, so what reaches those games is
+in practice the plain character byte, which both engines agree on; the day
+one of them turns out to dispatch on a cursor code, the 16-bit handler has
+to be read first. The open questions carry it.
+
 **The cycling palette does not turn.** `SETCYCLE` names a range of palette
 entries and a tick delay, and the driver's own tick rewrites those entries
 each time the delay runs out, walking the range by one and pushing the result

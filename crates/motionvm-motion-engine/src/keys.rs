@@ -31,6 +31,12 @@
 //! What arrives here is the contract's [`KeyPress`] — the physical key, the
 //! layout's character, the modifiers — which is exactly what the translation
 //! consumes, delivered in a type a test can build.
+//!
+//! **One reading serves both machines.** Everything above is `ENGINE.EXE`'s;
+//! the 16-bit `?KEY` handler (`12c8:063c`) has not been read, and the four
+//! 16-bit games are fed this table anyway — no 16-bit module is known to
+//! test a scan code, so what reaches them is in practice the character byte.
+//! The departure ledger and the open questions both carry this.
 
 use motionvm_playable::{Key, KeyPress};
 

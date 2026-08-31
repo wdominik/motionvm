@@ -20,7 +20,7 @@ All multi-byte values are little-endian.
 | `+778` | `u32` | Unpacked length (`6 + width*height`) |
 | `+782` | `u32` | Packed length of the first block — unreliable, see below |
 | `+786` | `u32` | Maximum LZW code width (11 or 12) |
-| `+790` | … | LZW stream ([GFXCRUNCH codec](lzw.md)) |
+| `+790` | … | LZW stream ([GFXCRUNCH codec](../../formats/lzw.md)) |
 
 ## The decompressed stream
 
@@ -69,7 +69,7 @@ the two bytes.
 
 ## See also
 
-- [The GFXCRUNCH LZW codec](lzw.md)
+- [The GFXCRUNCH LZW codec](../../formats/lzw.md)
 - [Palettes](palette.md)
 - [RSC containers](container.md) — where sprites are stored
 - [Descriptors](../engine/descriptors.md) — how sprites are placed on screen

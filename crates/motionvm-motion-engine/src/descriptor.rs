@@ -460,15 +460,15 @@ impl Engine {
     /// so there it marks the descriptor as `SDTXT` would.
     pub(crate) fn set_text_table(&mut self, v: i32) -> Result<()> {
         let always = self.sd_marks_always;
-        let text16 = self.text16;
+        let allocates = self.sdtb_allocates_text;
         let d = self.require_descriptor("SDTB")?;
-        let settled = d.shows == Shows::Picture(v) && (text16 || d.text.is_some());
+        let settled = d.shows == Shows::Picture(v) && (!allocates || d.text.is_some());
         if !always && settled {
             return Ok(());
         }
         self.changing("SDTB", |d| {
             d.shows = Shows::Picture(v);
-            if !text16 && d.text.is_none() {
+            if allocates && d.text.is_none() {
                 // The 32-bit engine allocates the text record here (0x71d45),
                 // so a descriptor is a text from `SDTB` on even before
                 // `SDTXT` names an entry. Entry 0 is what that record holds.
@@ -507,7 +507,7 @@ impl Engine {
     /// simply makes the drawer skip the outline pass (`cmpl $0,8(%eax)`,
     /// `jle` at `0x6a0c6`), which storing an unmatched id reproduces.
     pub(crate) fn set_template(&mut self, v: i32) -> Result<()> {
-        if self.text16 && !(1..=20).contains(&v) {
+        if self.templates_gated && !(1..=20).contains(&v) {
             return Ok(());
         }
         if !self.sd_marks_always && self.require_descriptor("SDTDT")?.template == Some(v) {
@@ -630,10 +630,10 @@ impl Engine {
     /// with its bit 15 still on. Only the 16-bit machine keeps the marker in
     /// the value; the 32-bit one has a type field of its own.
     pub(crate) fn descriptor_table(&mut self) -> i32 {
-        let text16 = self.text16;
+        let marks = self.table_marks_sprites;
         match self.selected_with_corner().0.shows {
             Shows::Picture(id) => id,
-            Shows::Sprite(id) if text16 => id as i32 | 0x8000,
+            Shows::Sprite(id) if marks => id as i32 | 0x8000,
             Shows::Sprite(id) => id as i32,
             Shows::Nothing => 0,
         }

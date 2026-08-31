@@ -140,7 +140,7 @@ stream:
 | 6 | `u16` 9, the initial code width |
 
 The stream is the codec the 32-bit engine packs its sprites and fonts with,
-bit for bit — see [GFXCRUNCH LZW](../../motion32/formats/lzw.md) — with a
+bit for bit — see [GFXCRUNCH LZW](../../formats/lzw.md) — with a
 2048-entry dictionary, which is an 11-bit ceiling.
 
 The decoder (`1614:000d` in `HPPLAY.EXE`, file `0x1934d`) reads the packed
@@ -271,7 +271,7 @@ first, and this is where it reads it instead. See
 
 - [Sprites](sprites.md), [Fonts](fonts.md), [Text tables](text-tables.md),
   [Blocks](blocks.md), [Script modules](script-modules.md) — the item formats
-- [GFXCRUNCH LZW](../../motion32/formats/lzw.md) — the codec a packed item's stream is
+- [GFXCRUNCH LZW](../../formats/lzw.md) — the codec a packed item's stream is
 - [Resource inventory](../../games/enviro/inventory.md) — what Die Enviro-Kids greifen ein ships in each segment
 - [Resource inventory (Jeff Jet)](../../games/jeffjet/inventory.md) — and what Jeff Jet does
 - [RSC containers (MOTION 32-bit)](../../motion32/formats/container.md) — the 32-bit engine's counterpart

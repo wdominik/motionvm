@@ -9,6 +9,11 @@
 //! **No game data.** Everything runs on bytecode built in memory, so this file
 //! is the one part of the suite that works on any machine.
 //!
+//! There is deliberately no `ds2_modules.rs` beside the four 16-bit
+//! `*_modules.rs` suites: the 32-bit machine's runs against the real game's
+//! bytecode go through the engine's `ds2_*` suites, which drive the same
+//! modules with the kernel words answered rather than stubbed.
+//!
 //! Four things are deliberately *not* asserted as original behavior, because
 //! they have never been measured: what `/LOOP` does at its limit, where `LEAVE`
 //! continues, what the original makes of a negative `/` or `MOD`, and what it

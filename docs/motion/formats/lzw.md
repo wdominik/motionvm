@@ -1,8 +1,12 @@
-[← Documentation index](../../README.md)
+[← Documentation index](../README.md)
 
 # The GFXCRUNCH LZW Codec
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*Both generations of MOTION — the codec was measured on Dunkle Schatten 2's
+`ENGINE.EXE` V0.06.06/R109 and its files, and the 16-bit container packs its
+items with the same scheme bit for bit (see
+[The DATA container](../motion16/formats/container.md)); the sprite and font
+pages this page links sit under [MOTION 32-bit](../README.md#motion-32-bit).*
 
 Sprites and fonts share one compression scheme, called GFXCRUNCH inside the
 engine. It is ordinary LZW over an 8-bit alphabet with one unusual property:
@@ -44,19 +48,19 @@ length declared by the enclosing format.
 - Because there is no end marker, the declared output length is the only
   termination condition. Reading must stop exactly there; the packed length
   fields in the enclosing formats are not reliable (see
-  [GFX8 sprites](sprites.md)).
+  [GFX8 sprites](../motion32/formats/sprites.md)).
 
 ## Where it is used
 
 | Format | Maximum width | Where the parameters come from |
 |---|---|---|
-| [GFX8 sprites](sprites.md) | 11 or 12 | Declared in the sprite header |
-| [Fonts](fonts.md) | 11 | Declared explicitly in the font header (dictionary limit 2048, start width 9) |
+| [GFX8 sprites](../motion32/formats/sprites.md) | 11 or 12 | Declared in the sprite header |
+| [Fonts](../motion32/formats/fonts.md) | 11 | Declared explicitly in the font header (dictionary limit 2048, start width 9) |
 
 All 1678 sprites in Dunkle Schatten 2's containers decode to exactly the output
 length their headers declare.
 
 ## See also
 
-- [GFX8 sprites](sprites.md)
-- [Fonts](fonts.md)
+- [GFX8 sprites](../motion32/formats/sprites.md)
+- [Fonts](../motion32/formats/fonts.md)

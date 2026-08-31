@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use motionvm_motion_forth::m16::Vm;
+use motionvm_motion_forth::m16;
 
 use crate::Result;
 use crate::game::{Game, LocationScheme};
@@ -38,7 +38,8 @@ pub(super) const ENGINE: &str = "HPPLAY.EXE";
 
 /// Where it keeps the location it is in and the one it is going to.
 ///
-/// The scheme its build's games share, named here rather than assumed: this
+/// The scheme the three 1995/96 builds' games share, named here rather than
+/// assumed: this
 /// game's module 601 declares all three variables.
 pub(super) const LOCATION: LocationScheme = motion16::MODULE_601;
 
@@ -48,6 +49,6 @@ pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
 }
 
 /// Opens the game in `dir`.
-pub fn open(dir: &Path) -> Result<Game<Vm>> {
+pub fn open(dir: &Path) -> Result<Game<m16::Vm>> {
     motion16::open(dir, Title::JeffJet, ENGINE, REQUIRED, LOCATION)
 }

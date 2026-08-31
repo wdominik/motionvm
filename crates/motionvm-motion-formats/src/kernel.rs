@@ -38,8 +38,8 @@ pub struct KernelWord {
 /// for the two ways a field can have no ordinal: `ch_else_dup` — the
 /// `ELSEDUP` runtime — is `None` where its ordinal is not known, as the
 /// 32-bit kernel's never was and no 32-bit module uses it; `put_string_adr`
-/// is `None` where the kernel does not have the word at all, as Victor
-/// Loomes' 1993 build does not.
+/// is `None` where the kernel does not have the word at all, as the 1993
+/// build (`LL.EXE`) does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inline {
     /// `_PutLit`: one cell, the literal; pushes it and continues.

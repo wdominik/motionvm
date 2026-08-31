@@ -92,6 +92,16 @@ which it does. `PLAYSAMPLE` and `XGFXSAMPLE` are in the table and called zero
 times — the game ships the four `DMA*.DRV` digital drivers and never reaches
 them.
 
+## The hole `?XINSIDE` does not skip
+
+This build's `?XINSIDE` takes a hot area whose four corners are all zero as
+a rectangle at the origin, where `ENVIRO.EXE` and `BMZ.EXE` pass over it —
+71 instructions against their 101, with no `cmpw $0` in the handler at all.
+`LL.EXE` sides with this build; the split is two against two, and it does
+not follow build order. It is the one behavior read out of each binary
+separately and wired as its own capability rather than assumed from the
+generation.
+
 ## See also
 
 - [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the four share

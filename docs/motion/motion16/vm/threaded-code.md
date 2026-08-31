@@ -39,7 +39,7 @@ begins:
 | `_AddLoop` | 47 | backward (`+LOOP`); unused by Die Enviro-Kids greifen ein |
 | `_ULoopEnd` | 48 | backward (`/LOOP`); unused by Die Enviro-Kids greifen ein |
 | `_PutString` | 78 | a NUL-terminated CP437 string padded to a cell boundary; 2 sites |
-| `_PutStringAdr` | 81 | the same payload; pushes the string's address and continues; 162 sites |
+| `_PutStringAdr` | 81 | the same payload; pushes the string's address and continues; 162 sites — `LL.EXE`'s kernel does not have the word at all |
 
 `_LoopStart` (39, `DO`) takes no operand.
 

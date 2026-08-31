@@ -32,4 +32,5 @@ pub mod text;
 pub use dat::{Boot, Container, Framing, Segment};
 pub use gfx::Sprite;
 pub use gfxinf::GfxInf;
+pub use mz::Image;
 pub use scr::{Entry, ScrModule};

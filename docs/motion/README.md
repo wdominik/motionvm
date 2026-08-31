@@ -32,7 +32,7 @@ so a label there can take more than one value.
 
 The directory is the name the original was installed into, and it is a key
 rather than a name: everything kept per game is filed under it —
-`MOTIONVM_GAMEDATA_<DIR>`, `saves/<dir>/`, `docs/games/<dir>/` — while prose
+`MOTIONVM_GAMEDATA_<SLUG>`, `saves/<slug>/`, `docs/motion/games/<slug>/` — while prose
 calls a game by its title.
 
 ## The engine and its two generations
@@ -107,7 +107,7 @@ exercises.
 |---|---|
 | [Resource containers](motion32/formats/container.md) | `NNN.RSC`: the resource archives `001.RSC`–`003.RSC` |
 | [Sprites](motion32/formats/sprites.md) | GFX8: 8-bit paletted graphics |
-| [The GFXCRUNCH LZW codec](motion32/formats/lzw.md) | Compression shared by sprites and fonts |
+| [The GFXCRUNCH LZW codec](formats/lzw.md) | Compression shared by both generations' sprites, fonts and packed containers |
 | [Palettes](motion32/formats/palette.md) | 6-bit VGA palettes, `000.PAL` |
 | [Text tables](motion32/formats/text-tables.md) | String tables |
 | [Blocks](motion32/formats/blocks.md) | Mixed binary data: HMI music and game data |
@@ -264,7 +264,7 @@ exercises.
 | File(s) | Format |
 |---|---|
 | `DATA.-1-`, `DATA.-2-` | [Resource container](motion16/formats/container.md) — the whole game, on two volumes, packed |
-| `HPPLAY.EXE` | [The older build of the MOTION 16-bit player](motion16/engine/hpplay-exe.md) |
+| `HPPLAY.EXE` | [The second build of the MOTION 16-bit player](motion16/engine/hpplay-exe.md) |
 | `HP.BAT` | Launcher ([other files](games/jeffjet/other-files.md)) |
 | `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers, byte-identical to the other 1995/96 games' ([other files](games/jeffjet/other-files.md)) |
 | `HPLOGO.EXE`, `PROMSOFT.EXE` | Graphic Workshop splash pictures, not MOTION ([other files](games/jeffjet/other-files.md)) |
@@ -274,7 +274,7 @@ exercises.
 | File(s) | Format |
 |---|---|
 | `DATA.-1-`, `DATA.-2-` | [Resource container](motion16/formats/container.md) — the whole game, on two volumes, stored plainly |
-| `BMZ.EXE` | [The middle build of the MOTION 16-bit player](motion16/engine/bmz-exe.md) |
+| `BMZ.EXE` | [The third build of the MOTION 16-bit player](motion16/engine/bmz-exe.md) |
 | `AFRIKA.BAT` | Launcher ([other files](games/hfa/other-files.md)) |
 | `SOUND.EXE`, `MUSADL.DRV`, `DMABLAST.DRV`, `DMASB16M.DRV`, `DMASB16S.DRV`, `DMASB2P.DRV`, `DETECTOR.DRV` | PSM 2 sound setup and drivers, byte-identical to the other 1995/96 games' ([other files](games/hfa/other-files.md)) |
 | `VRCHKSUM.EXE`, `ORIGINAL.BIN`, `ORIGINAL.REP`, `ORIGINAL.SCR` | The installation's integrity chain, never run here ([other files](games/hfa/other-files.md)) |

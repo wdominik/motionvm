@@ -91,12 +91,12 @@ pub mod vloomes;
 /// files. Everything else driving a game is the same for both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Generation {
-    /// The 16-bit engine: `ENVIRO.EXE` and its older builds, 16-bit cells, a
-    /// `DATA.-n-` container, PSM 2 music.
-    Motion16,
     /// The 32-bit engine: `ENGINE.EXE`, 32-bit cells, `NNN.RSC` containers,
     /// HMI music.
     Motion32,
+    /// The 16-bit engine: `ENVIRO.EXE` and its older builds, 16-bit cells, a
+    /// `DATA.-n-` container, PSM 2 music.
+    Motion16,
 }
 
 /// The games motionvm knows, by the files they ship.

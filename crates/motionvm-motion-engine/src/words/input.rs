@@ -1,10 +1,17 @@
 //! Input, timers, the inventory bar, and what did not fit elsewhere.
 //!
-//! One of the groups `plain_word` hands a word to, in the order the
+//! One of the groups `plain_word32` hands a word to, in the order the
 //! original's own match had them — **an order that is load-bearing**: two of
 //! the arms match on table membership rather than on a literal, so a group
 //! that moves across one of them changes which words it catches. A group that
 //! does not know the word answers `None` and the next one is asked.
+//!
+//! A shared group: both dispatchers ask it, and the addresses cited below
+//! are the 32-bit engine's. Where the 16-bit engine was read independently —
+//! `DELAY`'s 200 Hz rule at file `0xa901`, the loop in its own game-loop
+//! pages — the docs tree carries that reading; the rest is the 32-bit
+//! evidence applied to both, as the word list under `docs/motion/motion16/`
+//! marks.
 
 use crate::Engine;
 use crate::stack::pop1;

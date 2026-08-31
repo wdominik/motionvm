@@ -335,7 +335,7 @@ fn a_savegame_says_what_the_bar_is_showing() {
     let word = |g: &mut Game<Vm>, name: &'static str, args: &[i32]| {
         let mut st = args.to_vec();
         g.engine
-            .plain_word(name, &mut st, &mut g.vm.mem)
+            .plain_word32(name, &mut st, &mut g.vm.mem)
             .unwrap_or_else(|e| panic!("{name}: {e}"));
     };
 

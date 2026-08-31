@@ -335,9 +335,10 @@ states its generation in the line under its title, every page under
 shared things at their roots; `motionvm-motion-tools` dispatches on the game's
 files to an `m32` and an `m16` command set; `motionvm-motion-engine` hosts both
 machines behind one `Game<M>` driver, keeps each game's bootstrap under
-`titles/`, and keeps the word groups that exist for one machine only —
-the 32-bit savegame words, `DOWALK`, the inventory, the dialogue queue;
-the 16-bit buffer words — in files of their own. `motionvm-motion-audio` carries
+`titles/`, and keeps the one word group that exists for one machine only —
+the 16-bit words in `words/m16.rs`, buffer words among them — in a file of
+its own; the walk, the inventory, the savegame words and the dialogue queue
+each serve both machines over `AddressSpace` and a `Rules` table. `motionvm-motion-audio` carries
 the two music stacks the same way, `m32` for the HMI sequencer and the FM
 driver and `m16` for PSM 2, with the OPL3 they both end at at its root.
 Text drawing lives in the engine as the pair `text.rs` and `text16.rs`:
@@ -420,12 +421,16 @@ code comments, test headers, the `justfile`, both READMEs and half the
 documentation tree, and not one of them is caught by anything else in the
 gate.
 
-**If it is the second game on the 32-bit engine**, two things that are
+**If it is the second game on the 32-bit engine**, three things that are
 simplifications today stop being any: `motion32::detect` answers from the
-container shape alone because its table has one entry, and the signature check
-that would tell two 32-bit games apart happens later, in `open`. Move the
-check into `detect` and the shape becomes what it already is on the 16-bit
-side — a narrowing, with the game's own data settling it.
+container shape alone because its table has one entry (the compile-time guard
+beside the table refuses a second entry until this moves); the signature
+check that would tell two 32-bit games apart happens later, in `open`; and
+`motion32`'s shell and boot functions reach the one manifest's `SHELL`
+constant directly — a second game moves that constant into the opener's
+plumbing, beside `LOCATION`. Move the check into `detect` and the shape
+becomes what it already is on the 16-bit side — a narrowing, with the game's
+own data settling it.
 
 ## Adding an engine build
 

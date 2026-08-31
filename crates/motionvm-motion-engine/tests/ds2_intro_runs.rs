@@ -127,10 +127,10 @@ fn hiding_a_descriptor_leaves_its_picture_standing() {
         .collect::<Vec<_>>()
     {
         game.engine
-            .plain_word("ACTDESC", &mut vec![handle as i32], &mut mem)
+            .plain_word32("ACTDESC", &mut vec![handle as i32], &mut mem)
             .expect("ACTDESC");
         game.engine
-            .plain_word("SDINACTIVE", &mut vec![], &mut mem)
+            .plain_word32("SDINACTIVE", &mut vec![], &mut mem)
             .expect("SDINACTIVE");
     }
     game.engine.draw();
@@ -148,10 +148,10 @@ fn hiding_a_descriptor_leaves_its_picture_standing() {
 
     // The fade is what takes it away, and it takes it away wholesale.
     game.engine
-        .plain_word("ACTSCR", &mut vec![2], &mut mem)
+        .plain_word32("ACTSCR", &mut vec![2], &mut mem)
         .expect("ACTSCR");
     game.engine
-        .plain_word("FADEOUT", &mut vec![1, 50, 8], &mut mem)
+        .plain_word32("FADEOUT", &mut vec![1, 50, 8], &mut mem)
         .expect("FADEOUT");
     let held = game
         .engine
@@ -611,9 +611,9 @@ fn a_fade_in_draws_only_its_own_screen() {
     // runs 0x6ab6e either side of the store (0x7112f, 0x7114e), and the
     // save-under restore that clears the old spot hangs off it.
     let mut mem = motionvm_motion_forth::m32::Memory::default();
-    e.plain_word("ACTDESC", &mut vec![2], &mut mem)
+    e.plain_word32("ACTDESC", &mut vec![2], &mut mem)
         .expect("ACTDESC");
-    e.plain_word("SDX", &mut vec![2], &mut mem).expect("SDX");
+    e.plain_word32("SDX", &mut vec![2], &mut mem).expect("SDX");
     e.draw_screen(1);
     assert_eq!(
         two(&e, 0),

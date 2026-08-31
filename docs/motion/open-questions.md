@@ -174,6 +174,12 @@ older builds and have been read only where they differ; `LL.EXE`, three
 years older again, has been read only where the game it ships with reaches
 something the others do not. What is open:
 
+- **`?KEY`'s own translation.** The handler at `12c8:063c` is listed by
+  name and address only; the extended-key marker, the modifier bits and any
+  Alt table are unread, and the 32-bit engine's translation is applied in
+  its place (the ledger records the departure). Reading it settles whether
+  the two engines' keyboards really agree past the plain character byte.
+
 - **Two differences in `CROUTE`** between `LL.EXE` (`0104:4a45`) and
   `ENVIRO.EXE` (`0a40:10d0`), neither carried yet. The older build does not
   default a zero shadow shrink to 1000, where the later one does

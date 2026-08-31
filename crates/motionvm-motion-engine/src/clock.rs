@@ -79,10 +79,11 @@ impl Engine {
     ///
     /// A frame is the game's own unit of time — `!LTWAIT` is a single
     /// decrement of `_LOCTASKWAI` per call of the task manager, so a task
-    /// asking to wait fifty waits fifty of these. And the game asks for its
-    /// pace early: `START` runs `25 DELAY` before entering its loop, which is
-    /// also the value `frame_ticks` starts at, so the answer is real from the
-    /// first frame on.
+    /// asking to wait fifty waits fifty of these. And a game asks for its
+    /// pace early — the 32-bit `START` runs `25 DELAY` before entering its
+    /// loop, the 16-bit `RUN` runs `15 DELAY` — and startup parks past that
+    /// ask before a window ever calls, so the answer is real from the first
+    /// frame on for both machines.
     ///
     /// [`Engine::step_ticks`] rendered through `quantized_raw` at the master
     /// rate. `None` when the count is not positive — `DELAY -1` is

@@ -179,15 +179,18 @@ impl Engine {
         // [`Engine::per_screen_descriptors`].
         self.opaque_blocks = true;
         self.per_screen_descriptors = true;
-        self.text16 = true;
+        self.text_runs = true;
+        self.sdtb_allocates_text = false;
+        self.templates_gated = true;
+        self.table_marks_sprites = true;
         self.level_chain = true;
-        // The pointer starts unshown on this machine — see
-        // [`Engine::pointer_shows`].
         self.sd_marks_always = true;
         self.callbacks_need_active = true;
         self.pointer_counted = true;
-        self.pointer_visible = false;
         self.save_layout = crate::save::Layout::Motion16;
+        // Initial state rather than a capability: the pointer starts unshown
+        // on this machine — see [`Engine::pointer_shows`].
+        self.pointer_visible = false;
         self.with_resources(dir, Resources::Motion16(Box::new(container)))
     }
 

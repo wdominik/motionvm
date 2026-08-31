@@ -432,8 +432,8 @@ impl Engine {
         let outline_color = template.and_then(|t| t.args.first().copied()).unwrap_or(0) as u8;
         let shadow_dx = template.and_then(|t| t.args.get(4).copied()).unwrap_or(0);
         let shadow_dy = template.and_then(|t| t.args.get(3).copied()).unwrap_or(0);
-        let justify = self.text16 && d.fields.get("SDBLK").copied().unwrap_or(0) != 0;
-        let text16 = self.text16;
+        let justify = self.text_runs && d.fields.get("SDBLK").copied().unwrap_or(0) != 0;
+        let runs = self.text_runs;
 
         let lines: Vec<&str> = text.split('\n').collect();
         // The backing goes down first, under the whole block, on the rectangle
@@ -504,7 +504,7 @@ impl Engine {
             // the same sum, read this time: `lines × height + (lines − 1) ×
             // gap` at `14ee:1711`–`14ee:172b`.)
             let block = (lines.len() as i32 * height - gap).max(0);
-            let off = |v: i32| if text16 && is_shadow { v } else { 0 };
+            let off = |v: i32| if runs && is_shadow { v } else { 0 };
             let top = match d.y_mode {
                 Placement::Edge => d.y + off(shadow_dy),
                 Placement::Center => d.y - block / 2,
@@ -528,7 +528,7 @@ impl Engine {
                     },
                     Placement::FarEdge => d.x - width + off(shadow_dx),
                 };
-                if text16 {
+                if runs {
                     let pads = match block_width {
                         Some(bw) => justify_pads(line, bw - width),
                         None => Vec::new(),
