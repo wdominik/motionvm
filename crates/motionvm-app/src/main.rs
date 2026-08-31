@@ -16,11 +16,11 @@
 //! palette. So the picture is scaled by whole numbers and centered in
 //! whatever space is left, with black around it. The two axes carry their own
 //! whole number, because the pixels themselves were not square everywhere:
-//! the 16-bit games' 320×200 filled a 4:3 monitor, each pixel 6/5 as tall as
-//! wide ([`Playable::pixel_aspect`]), so their picture is drawn in
-//! sx×sy blocks with sy/sx as close to 6/5 as whole numbers allow — exact at
-//! ×5/×6 and its multiples. Dunkle Schatten 2's 640×480 is square-pixel 4:3
-//! and keeps sx = sy.
+//! a game whose mode filled a 4:3 monitor with a grid that is not 4:3 had
+//! pixels taller than wide ([`Playable::pixel_aspect`]), so its picture is
+//! drawn in sx×sy blocks with sy/sx as close to that ratio as whole numbers
+//! allow — exact once the window is big enough. A square-pixel game keeps
+//! sx = sy.
 
 // On Windows the release build is a windowed program, not a console one, so a
 // double-clicked `motionvm.exe` opens the game and not a black console behind
@@ -31,30 +31,20 @@
 // developer still sees the messages. The attribute means nothing anywhere else.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use motionvm_engine::{Playable, Title, titles};
+use motionvm_playable::{Button, Playable};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
-/// How many keystrokes wait for the game.
-///
-/// The original does not hold one key, it reads a queue: `0x83e9c` is INT 16h
-/// AH=00, which takes the oldest keystroke out of the BIOS buffer, and that
-/// buffer holds fifteen. A single slot loses the second of two presses inside
-/// one 40 ms frame — visible when paging through the mailbox quickly, and in
-/// the debug input line at module 4 `0x051a0`, which takes one character per
-/// frame. A full buffer drops what arrives, as the BIOS does.
-const KEYS: usize = 15;
-
 mod keys;
+mod roster;
 mod scale;
 mod sound;
 
@@ -117,25 +107,55 @@ fn data_path(name: &str) -> PathBuf {
     data_dir().map_or_else(|| PathBuf::from(name), |d| d.join(name))
 }
 
-const USAGE: &str = "\
-motionvm — the MOTION engine, for the games built with it
+/// The usage text, with the game list built from the roster so the two
+/// cannot drift apart: what the program plays is what its help names.
+fn usage() -> String {
+    let games = roster::FAMILIES
+        .iter()
+        .flat_map(|f| f.games())
+        .map(|g| format!("{} ({})", g.needs, g.short))
+        .collect::<Vec<_>>()
+        .join(", or ");
+    let gamedir = wrapped(
+        &format!(
+            "the directory a game is installed in: {games}. \
+             Without one, a folder dialog asks for it."
+        ),
+        60,
+        "\n                  ",
+    );
+    format!(
+        "\
+motionvm — rebuilt game engines, for the games built with them
 
 usage: motionvm [GAMEDIR] [options]
 
-  GAMEDIR         the directory a game is installed in: 001.RSC and
-                  ENGINE.EXE (Dunkle Schatten 2), DATA.-1- and ENVIRO.EXE
-                  (Die Enviro-Kids greifen ein), DATA.-1-, DATA.-2- and
-                  HPPLAY.EXE (Jeff Jet), or DATA.-1-,
-                  DATA.-2- and BMZ.EXE (Hilfe für Amajambere), or DATA.-1-
-                  and LL.EXE (Victor Loomes). Without one, a folder dialog
-                  asks for it.
+  GAMEDIR         {gamedir}
 
 options:
-  --loc N         start in location N: instead of the intro (Dunkle
-                  Schatten 2), or right after it (the 16-bit games).
+  --loc N         start in location N — the game's own numbering of its
+                  places — instead of where the game would begin.
   --no-sound      do not open an audio device.
   -h, --help      this text.
-";
+"
+    )
+}
+
+/// Greedy word wrap for the help's second column: lines of at most `width`
+/// characters, joined by `newline` — which carries the column's indent.
+fn wrapped(text: &str, width: usize, newline: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(line) if line.chars().count() + 1 + word.chars().count() <= width => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines.join(newline)
+}
 
 /// Everything the command line can say.
 #[derive(Debug)]
@@ -193,7 +213,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             // dropped looks exactly like one that did nothing, and the two are
             // worth telling apart.
             _ if a.starts_with('-') && a.len() > 1 => {
-                return Err(format!("unknown option {a}\n\n{USAGE}"));
+                return Err(format!("unknown option {a}\n\n{}", usage()));
             }
             _ if positional.is_some() => return Err(format!("more than one game directory: {a}")),
             _ => positional = Some(a.clone()),
@@ -209,10 +229,10 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
 /// `None` when the dialog is dismissed — that is the player deciding not to
 /// play, not an error — or when a wrong directory's complaint is answered with
 /// Cancel. A wrong directory is reported where the player is looking: the
-/// message [`titles::open`] writes for exactly this case, in a message box, with
-/// OK opening the dialog again. `Game::open` checks for the required files
-/// before it reads anything, so a wrong answer costs nothing and the loop is
-/// cheap to go round.
+/// message the family's opener writes for exactly this case, in a message
+/// box, with OK opening the dialog again. An opener checks for its required
+/// files before it reads anything, so a wrong answer costs nothing and the
+/// loop is cheap to go round.
 ///
 /// Called before the event loop exists, on the main thread, which is where
 /// rfd's synchronous dialogs belong in a program that has no window yet. On
@@ -220,34 +240,33 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
 /// time — and a desktop with neither the portal service nor `zenity` answers
 /// `None` here, the same as a dismissal, which is why the caller's message
 /// says how to name the directory without the dialog.
-fn choose_game() -> Option<(PathBuf, Box<dyn Playable>)> {
+fn choose_game() -> Option<Box<dyn Playable>> {
     loop {
         let dir = rfd::FileDialog::new()
-            .set_title(
-                "Choose the game directory (it holds 001.RSC and ENGINE.EXE, \
-                 or DATA.-1- and the 16-bit player)",
-            )
+            .set_title("Choose the game directory — the folder the game's own files are in")
             .pick_folder()?;
-        match titles::open(&dir) {
-            Ok(game) => return Some((dir, game)),
-            Err(e) => {
-                let again = rfd::MessageDialog::new()
-                    .set_level(rfd::MessageLevel::Error)
-                    .set_title("motionvm")
-                    .set_description(format!(
-                        "{e}\n\nOK chooses another directory; Cancel quits."
-                    ))
-                    .set_buttons(rfd::MessageButtons::OkCancel)
-                    .show();
-                if !matches!(again, rfd::MessageDialogResult::Ok) {
-                    return None;
-                }
-            }
+        let complaint = match roster::find(&dir) {
+            Some(family) => match family.open(&dir) {
+                Ok(game) => return Some(game),
+                Err(e) => e.to_string(),
+            },
+            None => roster::nobodys(&dir),
+        };
+        let again = rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("motionvm")
+            .set_description(format!(
+                "{complaint}\n\nOK chooses another directory; Cancel quits."
+            ))
+            .set_buttons(rfd::MessageButtons::OkCancel)
+            .show();
+        if !matches!(again, rfd::MessageDialogResult::Ok) {
+            return None;
         }
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<(), motionvm_playable::Error> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Options {
         dir,
@@ -256,7 +275,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         help,
     } = parse_args(&args)?;
     if help {
-        print!("{USAGE}");
+        print!("{}", usage());
         return Ok(());
     }
 
@@ -265,10 +284,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // program ask — and then the answer, and any complaint about it, goes
     // through a window, because whoever double-clicked the binary has no
     // stderr to read.
-    let (dir, mut game) = match dir {
+    // Once the game is open the window forgets the directory: everything
+    // that still needs it — the music's driver files — lives behind the
+    // contract.
+    let mut game = match dir {
         Some(dir) => {
-            let game = titles::open(&dir)?;
-            (dir, game)
+            let Some(family) = roster::find(&dir) else {
+                return Err(roster::nobodys(&dir).into());
+            };
+            family.open(&dir)?
         }
         None => match choose_game() {
             Some(chosen) => chosen,
@@ -283,28 +307,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     // Before `start()`: the very first location is entered during startup and
-    // its `STARTTUNE` has to find a sink already in place. Each generation
-    // brings its own stack — Dunkle Schatten 2's HMI songs through the rebuilt
-    // MIDI driver, the 16-bit games' PSM 2 tunes through the rebuilt
-    // `MUSADL.DRV` sequencer, whose driver file is byte-identical in all three.
+    // the game's first song has to find its way out already open. How music
+    // happens is the game's own affair behind the contract: the window opens
+    // the device, hands the game the device's rate, and takes back a source
+    // for the audio thread — or nothing, for a game with nothing to play.
     let audio = if quiet {
         None
     } else {
-        let opened = match game.title() {
-            Title::DunkleSchatten2 => sound::open_motion32(&dir).map(|(stream, music)| {
-                game.set_music(Box::new(music));
-                stream
-            }),
-            Title::HilfeFuerAmajambere
-            | Title::DieEnviroKidsGreifenEin
-            | Title::JeffJet
-            | Title::VictorLoomes => sound::open_motion16(&dir).map(|(stream, music)| {
-                game.set_music(Box::new(music));
-                stream
-            }),
-        };
+        let opened = sound::output().and_then(|out| {
+            let Some(source) = game.open_music(out.rate()).map_err(|e| e.to_string())? else {
+                // A game with nothing to play: silence by design, no line.
+                return Ok(None);
+            };
+            Ok(Some(sound::spawn(&out, source)?))
+        });
         match opened {
-            Ok(stream) => Some(stream),
+            Ok(stream) => stream,
             // Silence is not a reason to stop: the game is playable without it.
             Err(e) => {
                 eprintln!("sound is off: {e}");
@@ -314,47 +332,37 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     // Where the program writes — savegames and the F12 picture — is the
     // platform data directory, and nothing on the command line moves it. The
-    // original keeps its five save slots beside `ENGINE.EXE`, among the
+    // originals keep their save slots beside their own binaries, among the
     // shipped data; that is not a place to write to here, because the game
     // directory may well be a read-only copy of the discs, which is also why
-    // the engine refuses a save directory inside it. And a flag that points the
+    // a game refuses a save directory inside it. And a flag that points the
     // slots elsewhere is mostly a way to point them at something that is not a
     // save directory; the one place they belong is the one `data_dir` names.
-    // All five games name their slots alike — `701.blk`, `701.anm`, `701.FRZ`
-    // and so on up to 705 — and each asks at start-up whether a slot exists,
-    // so they cannot share a directory: one would find another's saves and
-    // open its load page on them. The four 16-bit games would go further and
-    // load one, because the savegame magic is the generation's and not the
-    // game's. Each therefore gets a subdirectory of `saves/` named for it, and
-    // none is the special case: `saves/ds2/`, `saves/enviro/`, `saves/jeffjet/`,
-    // `saves/hfa/`, `saves/vloomes/`.
-    let saves = data_path("saves").join(game.title().slug());
+    // Every game gets a subdirectory of `saves/` named for it, and none is
+    // the special case. The game puts the name on, so what goes in is
+    // `saves/` itself and what comes back out is where the slots really are.
+    let saves = data_path("saves");
     let shot = data_path("shot.png");
     if let Err(e) = game.set_saves(&saves) {
         // Not fatal: the game runs, the slot row simply stays empty and a click
         // on one stops by name rather than writing somewhere it should not.
         eprintln!("savegames are off: {e}");
-    } else {
+    } else if let Some(saves) = game.saves() {
         // Printed because the default is no longer somewhere the player is
         // standing. A directory they cannot find is a directory they will
         // think is empty.
         eprintln!("savegames in {}", saves.display());
     }
-    // `4:START` loads the modules, initializes, registers `ICTRL` as the
-    // controller and then enters `ANIMPLAY`, the game's own frame loop. It
-    // parks there; from that point every frame belongs to the controller, and
-    // the controller is what enters the first location.
-    //
-    // Nothing may follow this with an `INCLLOC` of its own: an entry here
-    // overwrites the execution `START` has just parked, and the machine runs
-    // off to address 0.
+    // `start()` returns with the game parked in its native frame loop; from
+    // that point every frame belongs to the game, and the game is what
+    // enters its first location.
     game.start()?;
-    while game.pump()? {}
 
-    // `--loc` is for looking at some other location without playing to it. It
-    // is set after the run above because `STARTUP` assigns `_STARTLOC` itself,
-    // and it goes through that variable rather than around it: `ICTRL` enters
-    // whatever stands there once no location is active.
+    // `--loc` is for looking at some other location without playing to it.
+    // It is asked for after the run above because startup assigns the start
+    // location itself, and the request goes through the game's own mechanism
+    // rather than around it — the game enters what was requested once no
+    // location is active.
     if let Some(loc) = wanted {
         game.request_location(loc)?;
         // Said only when asked for: a plain start is not a diagnostic.
@@ -373,13 +381,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         window: None,
         surface: None,
         next_frame: Instant::now(),
-        click: false,
-        right_click: false,
-        pending: VecDeque::with_capacity(KEYS),
         mods: ModifiersState::empty(),
         cursor: (0, 0),
         paused: false,
-        told_input_error: false,
         frames: 0,
         shot,
         colors: [0; 256],
@@ -391,18 +395,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The pace to fall back on before the game has asked for one.
+/// The pace to fall back on for a frame the game wants no wait after.
 ///
-/// A frame is the game's own unit of time — `!LTWAIT` is a single decrement of
-/// `_LOCTASKWAI` per call of the task manager, so a task asking to wait fifty
-/// waits fifty of these.
-///
-/// The game asks early — `START` runs `25 DELAY` before entering its loop — so
-/// this only covers the first few frames. Everything after comes from the game,
-/// through [`Game::frame_duration`](motionvm_engine::Game::frame_duration).
-/// A fixed 60 here runs the whole game at two and a half times its speed,
-/// dialogue and animation alike. 25 is what `START` asks for, so it is what a
-/// frame costs until the game says otherwise.
+/// `frame_duration` answering `None` is the game's "do not wait at all", and
+/// free-running the loop on it would burn a core for pictures no display
+/// shows. Every game this tree ships asks for a real duration from its first
+/// frame on, so the value only matters as a guard — and it matches the pace
+/// those games ask for anyway, which keeps the guard invisible if it is ever
+/// reached.
 const FRAME: Duration = Duration::from_nanos(1_000_000_000 / 25);
 
 /// The shortest a presented picture is allowed to last.
@@ -419,39 +419,24 @@ const MIN_PRESENT: Duration = Duration::from_nanos(1_000_000_000 / 120);
 
 struct App {
     game: Box<dyn Playable>,
-    /// The game's picture size — 640×480 for Dunkle Schatten 2, 320×200 for
-    /// the two 16-bit games — which the window is a whole multiple of,
+    /// The game's picture size, which the window is a whole multiple of,
     /// axis by axis.
     size: (u32, u32),
     /// The shape of one game pixel on the original's monitor, height:width —
     /// [`Playable::pixel_aspect`]. Everything that maps between window and
     /// game — [`blit`], the pointer, the opening size — scales its two axes
     /// through this.
-    aspect: (u32, u32),
+    aspect: motionvm_playable::PixelAspect,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     next_frame: Instant,
-    /// Set by a press, cleared once the game has seen it. The task manager
-    /// advances a phase whenever a button is down, so a held button would race
-    /// through the intro; one frame per press is what a click means here.
-    click: bool,
-    right_click: bool,
-    /// The keystrokes the game has not taken yet, oldest first — the BIOS
-    /// buffer [`KEYS`] stands for, drained one per frame the way `?KEY` drains
-    /// it.
-    pending: VecDeque<i32>,
-    /// Which modifiers are down. `0x2379b` asks the BIOS separately
-    /// (`0x83eb8`, AH=02) rather than reading them off the keystroke, and so
-    /// does this: winit reports them in their own event.
+    /// Which modifiers are down, kept from winit's own modifiers event and
+    /// handed to the game on each press inside its [`motionvm_playable::KeyPress`].
     mods: ModifiersState,
     /// The pointer in game coordinates, not window ones.
     cursor: (i32, i32),
     /// Whether the frame clock is held, so a shot can be compared at leisure.
     paused: bool,
-    /// Whether an input error has been reported. `set_input` runs every
-    /// frame; a persisting failure said once is a report, said 25 times a
-    /// second it is a torrent that buries the report.
-    told_input_error: bool,
     /// How many frames have been stepped, printed with a shot so two captures
     /// can be shown to be the same moment.
     frames: u64,
@@ -464,7 +449,7 @@ struct App {
     /// The palette [`App::colors`] was built from. A frame with an unchanged
     /// palette — almost all of them — pays a 768-byte compare instead of a
     /// rebuild.
-    lut_palette: Option<motionvm_formats::Palette>,
+    lut_palette: Option<motionvm_playable::Palette>,
     /// Where a frame's time goes, when `MOTIONVM_PERF` asks to be told.
     perf: Option<Perf>,
     /// Holds the audio stream open. Dropping it stops the music, so it lives
@@ -535,7 +520,7 @@ impl ApplicationHandler for App {
         let (width, height) = self.size;
         let (bx, by) = base_pair(self.aspect);
         let attrs = Window::default_attributes()
-            .with_title(self.game.title().name())
+            .with_title(self.game.name())
             .with_inner_size(winit::dpi::LogicalSize::new(width * bx, height * by));
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Rc::new(w),
@@ -585,15 +570,20 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            // Which modifiers are down arrives on its own, not on the
-            // keystroke — the same split the original works with, where
-            // `0x2379b` asks INT 16h AH=02 for the shift state after it has
-            // taken the key.
-            WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
+            // Which modifiers are down arrives on its own event, not on the
+            // keystroke, so the current state is kept and rides along on each
+            // press.
+            WindowEvent::ModifiersChanged(mods) => {
+                self.mods = mods.state();
+                let m = self.mods;
+                self.game
+                    .modifiers(m.shift_key(), m.control_key(), m.alt_key());
+            }
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.state != ElementState::Pressed {
-                    return;
-                }
+                // Releases cross too, like the mouse's: what a key means —
+                // and whether its release means anything — is the game's own
+                // reading. The window's two keys below act on presses only.
+                let down = event.state == ElementState::Pressed;
                 // Alt+Enter is the window's too: borderless fullscreen, on and
                 // off. Borderless, so the display keeps its mode; the picture
                 // takes the largest whole multiple that fits and black fills
@@ -602,15 +592,12 @@ impl ApplicationHandler for App {
                 // way out. On macOS this is the same native fullscreen the
                 // green button gives.
                 //
-                // Keeping the key costs the game nothing. The translator would
-                // answer `0x91c` for it — Alt `0x800`, scan code `0x100`,
-                // Enter's `0x1c` — and the keystroke dispatches read out of the
-                // disassembly do not include it: module 216 tests 328, 336,
-                // 331 and 333 at `0x0c21c`, module 4 tests 315, 316 and 323 at
-                // `0x027a0` and `0x052e0`, and `ICTRL` compares against 27 at
-                // `0x02c40`. Not on repeat: a held key would flip in and out
-                // for as long as it is down.
-                if self.mods.alt_key()
+                // Keeping the key costs the games nothing — none of them
+                // dispatches on Alt+Enter, which their own keyboard module
+                // documents. Not on repeat: a held key would flip in and out
+                // of fullscreen for as long as it is down.
+                if down
+                    && self.mods.alt_key()
                     && !event.repeat
                     && matches!(
                         event.physical_key,
@@ -638,10 +625,10 @@ impl ApplicationHandler for App {
                 // step of an animation, which reads as a displacement and is
                 // none.
                 //
-                // It is the one key the window keeps for itself, and it costs
-                // the game nothing: the debug layer reads F9 (module 4,
-                // `0x052e0`), never F12.
-                if event.physical_key == PhysicalKey::Code(KeyCode::F12) {
+                // It is the one key the window keeps for itself, and it
+                // costs the games nothing: their keyboard module documents
+                // that none of them reads F12.
+                if down && event.physical_key == PhysicalKey::Code(KeyCode::F12) {
                     self.paused = !self.paused;
                     let frame = self.game.render();
                     let path = self.shot.as_path();
@@ -661,22 +648,26 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                // Everything else goes through the translator, Escape included.
-                // Escape belongs to the game, not to the window: `ICTRL`
-                // compares `_AKTKEY` against 27 and opens the quit page on it
-                // (module 4, `0x02c40`: `_AKTKEY @ _PutLit 27 =`), which is how
-                // the original is left — through its own confirmation page,
-                // `QUITANIM`, and `ENDGAME`. Exiting the event loop here
-                // instead skipped all three, and there was no way to reach the
-                // quit page at all.
+                // Everything else goes through to the game, Escape included.
+                // Escape belongs to the game, not to the window: these games
+                // open their own quit confirmation on it, which is how their
+                // originals are left. Exiting the event loop here instead
+                // would skip that page entirely.
                 //
-                // Repeats are kept. The BIOS buffer fills from the keyboard's
-                // own typematic repeat too, which is what lets a held cursor key
-                // walk down the mailbox's list.
-                if let Some(code) = keys::code(event.physical_key, &event.logical_key, self.mods)
-                    && self.pending.len() < KEYS
-                {
-                    self.pending.push_back(code);
+                // Repeats are kept. The original's keyboard buffer fills from
+                // the keyboard's own typematic repeat too, which is what lets a
+                // held cursor key walk down a list. What the press means, and
+                // whether the buffer still has room for it, are the game's own
+                // affairs behind the contract.
+                self.game.key(
+                    &keys::press(event.physical_key, &event.logical_key, self.mods),
+                    down,
+                );
+                // The typed stream rides beside the keystroke: the whole
+                // string the layout and input method produced, where the
+                // press carries only its first character for the translator.
+                if down && let Some(text) = &event.text {
+                    self.game.text(text);
                 }
             }
             // The window is scaled by a whole number and centered, so the
@@ -704,38 +695,38 @@ impl ApplicationHandler for App {
                     // picture is drawn — and waiting for the next frame put up
                     // to 40 ms between the hand and the pointer, which reads
                     // as lag even when nothing is slow. So the position goes
-                    // to the game at once and a repaint is asked for. Safe
-                    // between steps: the interpreter reads input only inside
-                    // `step`, and `tick` writes all of this again immediately
-                    // before it. The pending click and key ride along so this
-                    // cannot clobber an edge the game has not seen yet — the
-                    // key is only *looked* at, because taking it here would
-                    // spend a keystroke no step has run on. winit coalesces the
-                    // requests, so a fast hand costs at most the display's own
-                    // rate in repaints.
+                    // to the game at once and a repaint is asked for; buttons
+                    // and keystrokes are untouched — both wait in the game's
+                    // own latches for the step that spends them. winit
+                    // coalesces the requests, so a fast hand costs at most
+                    // the display's own rate in repaints.
                     let (mx, my) = self.cursor;
-                    let waiting = self.pending.front().copied().unwrap_or(0);
-                    if let Err(e) =
-                        self.game
-                            .set_input(mx, my, self.click, self.right_click, waiting)
-                    {
-                        // Field-wise: `w` above still borrows the window.
-                        if !self.told_input_error {
-                            self.told_input_error = true;
-                            eprintln!("input: {e}");
-                        }
-                    }
+                    self.game.pointer(mx, my);
                     w.request_redraw();
                 }
             }
+            // Both transitions cross, releases included: what a press means
+            // — and how long it lasts — is the game's own reading, made at
+            // its own pace.
             WindowEvent::MouseInput { state, button, .. } => {
-                if state == ElementState::Pressed {
-                    match button {
-                        winit::event::MouseButton::Left => self.click = true,
-                        winit::event::MouseButton::Right => self.right_click = true,
-                        _ => {}
-                    }
+                let down = state == ElementState::Pressed;
+                match button {
+                    winit::event::MouseButton::Left => self.game.button(Button::Left, down),
+                    winit::event::MouseButton::Right => self.game.button(Button::Right, down),
+                    _ => {}
                 }
+            }
+            // The wheel, in lines. A pixel-scrolling device is folded at
+            // sixteen pixels to the line — a middling choice with nothing to
+            // measure it against, which a game that cares can rescale.
+            WindowEvent::MouseWheel { delta, .. } => {
+                let (dx, dy) = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => (x, y),
+                    winit::event::MouseScrollDelta::PixelDelta(p) => {
+                        ((p.x / 16.0) as f32, (p.y / 16.0) as f32)
+                    }
+                };
+                self.game.wheel(dx, dy);
             }
             WindowEvent::RedrawRequested => self.draw(),
             _ => {}
@@ -755,14 +746,6 @@ impl ApplicationHandler for App {
 }
 
 impl App {
-    /// Says what `set_input` refused — once. See [`App::told_input_error`].
-    fn tell_input_error(&mut self, e: &dyn std::fmt::Display) {
-        if !self.told_input_error {
-            self.told_input_error = true;
-            eprintln!("input: {e}");
-        }
-    }
-
     /// One picture: hand the game its input, let it step — sometimes more than
     /// once — ask for a repaint, and say how long what was stepped should last
     /// on screen.
@@ -777,29 +760,13 @@ impl App {
     /// batching. Outside a curtain a step lasts 40 ms and the loop runs once,
     /// so the batching costs nothing there.
     fn tick(&mut self, event_loop: &ActiveEventLoop) -> Duration {
-        let (mx, my) = self.cursor;
-        // One keystroke per step, because a step is one round of `ICTRL` and
-        // `ICTRL` opens with a single `?KEY` (module 4, `0x022a0`) — which
-        // takes one keystroke out of the buffer and no more. Held by F12
-        // nothing steps, so nothing is taken: the buffer keeps what was struck
-        // for the picture that runs next.
-        let key = if self.paused {
-            0
-        } else {
-            self.pending.pop_front().unwrap_or(0)
-        };
-        if let Err(e) = self
-            .game
-            .set_input(mx, my, self.click, self.right_click, key)
-        {
-            self.tell_input_error(&e);
-        }
-        self.click = false;
-        self.right_click = false;
+        // No input is touched here: keystrokes and presses wait in the
+        // game's own latches, and each step takes its own — so held by F12,
+        // when nothing steps, both keep what was struck for the picture that
+        // runs next.
 
-        // Held by F12: the picture stays put so it can be compared against the
-        // original at the same moment. Input still reaches the game, so a click
-        // releases nothing by accident.
+        // Held by F12: the picture stays put so it can be compared against
+        // the original at the same moment.
         if self.paused {
             self.draw();
             return self.game.frame_duration().unwrap_or(FRAME);
@@ -832,14 +799,9 @@ impl App {
             if spent >= MIN_PRESENT {
                 break;
             }
-            // A further step in the same picture gets what its own frame would
-            // have given it: the pointer where it is, the edge-triggered click
-            // already delivered above, and the next keystroke waiting — it is a
-            // round of `ICTRL` like any other, so it drains one.
-            let key = self.pending.pop_front().unwrap_or(0);
-            if let Err(e) = self.game.set_input(mx, my, false, false, key) {
-                self.tell_input_error(&e);
-            }
+            // A further step in the same picture is a round of the game's
+            // loop like any other: the keystroke and the button pulse it
+            // gets, it takes itself.
         }
         if let Some(window) = &self.window {
             window.request_redraw();

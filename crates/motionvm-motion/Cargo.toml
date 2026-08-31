@@ -1,0 +1,21 @@
+[package]
+name = "motionvm-motion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The MOTION family's front door: its games behind the window's contract"
+
+[dependencies]
+motionvm-playable.workspace = true
+motionvm-motion-engine.workspace = true
+motionvm-motion-audio.workspace = true
+motionvm-motion-formats.workspace = true
+
+[dev-dependencies]
+motionvm-motion-testutil.workspace = true
+
+[lints]
+workspace = true

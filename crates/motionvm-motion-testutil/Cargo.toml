@@ -1,0 +1,15 @@
+[package]
+name = "motionvm-motion-testutil"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Where the test suites find the MOTION games' files. A development dependency; nothing ships with it"
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

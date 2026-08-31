@@ -1,191 +1,22 @@
-//! Sound output: the audio thread, and the engine's way onto it.
+//! Sound output: the device, the audio thread, and the seam they meet at.
 //!
-//! ```text
-//! game thread                            audio thread (cpal)
-//!   Engine ─ MusicSink ──── mpsc ────▶  Player::fill
-//!            Song::parse here             nothing but arithmetic
-//! ```
-//!
-//! The split is where it is on purpose. Parsing a song means reading, checking
-//! and allocating, and none of that belongs in an audio callback — so
-//! [`Music::start`] does it on the game thread and sends the finished song
-//! across. What is left in the callback is a `try_recv` and the synthesis.
-//!
-//! (The old song is dropped on the audio thread when a new one replaces it.
-//! Handing it back over a second channel would avoid even that, but a location
-//! change happens every few minutes, and a returning channel is more machinery
-//! than the problem is worth.)
+//! The window owns exactly the platform half: pick the default output device,
+//! build a stream for whatever sample format it settled on, and fan the
+//! source's interleaved stereo out to however many channels the device has.
+//! What plays into the stream is an [`AudioSource`] the game's family built —
+//! file reading, codecs and synthesis all live behind its `fill`, on the far
+//! side of the contract.
 //!
 //! **Nothing here is allowed to stop the game.** No device, no supported
 //! format, no driver: a line on stderr and play on in silence.
-//!
-//! Every game comes through here with the same shape and its generation's
-//! player: Dunkle Schatten 2's HMI songs through the rebuilt MIDI driver
-//! ([`open_motion32`]), the 16-bit games' PSM 2 tunes through the rebuilt
-//! `MUSADL.DRV` sequencer ([`open_motion16`]).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use motionvm_audio::{Player, psm};
-use motionvm_engine::MusicSink;
-use motionvm_formats::m16::psm::Plx;
-use motionvm_formats::m32::DriverArchive;
-use motionvm_formats::m32::bnk::Bank as InstrumentBank;
-use motionvm_formats::m32::hmi::Song;
-use std::path::Path;
-use std::sync::mpsc::{Receiver, Sender, channel};
-
-enum Command {
-    Start(Box<Song>),
-    Stop,
-}
-
-enum PsmCommand {
-    Start(Box<Plx>, i16),
-    Stop,
-}
-
-/// One side of the audio callback: drain the command channel, then render.
-/// The two games differ only in what stands behind this.
-trait Backend: Send + 'static {
-    fn pump(&mut self, out: &mut [i16]);
-}
-
-struct HmiBackend {
-    player: Player,
-    rx: Receiver<Command>,
-}
-
-impl Backend for HmiBackend {
-    fn pump(&mut self, out: &mut [i16]) {
-        while let Ok(command) = self.rx.try_recv() {
-            match command {
-                Command::Start(song) => self.player.start(*song),
-                Command::Stop => self.player.stop(),
-            }
-        }
-        self.player.fill(out);
-    }
-}
-
-struct PsmBackend {
-    player: psm::Player,
-    rx: Receiver<PsmCommand>,
-}
-
-impl Backend for PsmBackend {
-    fn pump(&mut self, out: &mut [i16]) {
-        while let Ok(command) = self.rx.try_recv() {
-            match command {
-                PsmCommand::Start(song, loops) => self.player.start(*song, loops),
-                PsmCommand::Stop => self.player.stop(),
-            }
-        }
-        self.player.fill(out);
-    }
-}
+use motionvm_playable::AudioSource;
 
 /// Holds the stream open. Dropping it stops the music, so it has to live as
 /// long as the game does.
 pub struct Sound {
     _stream: cpal::Stream,
-}
-
-/// What the engine talks to. Everything it is handed goes over the channel.
-pub struct Music {
-    tx: Sender<Command>,
-}
-
-impl MusicSink for Music {
-    fn start(&mut self, _handle: i32, tune: i32, _looping: bool, song: &[u8]) {
-        match Song::parse(song) {
-            Ok(song) => {
-                let _ = self.tx.send(Command::Start(Box::new(song)));
-            }
-            // A song that will not parse is worth saying out loud — it means a
-            // block the decoder does not understand — but not worth stopping
-            // for.
-            Err(e) => eprintln!("tune {tune} did not parse: {e}"),
-        }
-    }
-
-    fn stop(&mut self, _handle: i32) {
-        let _ = self.tx.send(Command::Stop);
-    }
-}
-
-/// The 16-bit game's sink. `STARTTUNE`'s loop count is `-1` at every call
-/// site in the game — endless — and the driver reads it unsigned, so the
-/// bool comes back out as the count it stands for.
-pub struct PsmMusic {
-    tx: Sender<PsmCommand>,
-}
-
-impl MusicSink for PsmMusic {
-    fn start(&mut self, _handle: i32, tune: i32, looping: bool, song: &[u8]) {
-        match Plx::parse(song) {
-            Ok(song) => {
-                let loops = if looping { -1 } else { 0 };
-                let _ = self.tx.send(PsmCommand::Start(Box::new(song), loops));
-            }
-            Err(e) => eprintln!("tune {tune} did not parse: {e}"),
-        }
-    }
-
-    fn stop(&mut self, _handle: i32) {
-        let _ = self.tx.send(PsmCommand::Stop);
-    }
-}
-
-/// Opens the default output and starts the audio thread.
-///
-/// `dir` is the game directory: the driver archive and the two instrument banks
-/// come from there, the same three files `ENGINE.EXE` hands its MIDI layer.
-pub fn open_motion32(dir: &Path) -> Result<(Sound, Music), String> {
-    // `find_ci` throughout: these three are looked up by name, and a copied
-    // install is as likely to spell them in lower case as on the disc.
-    let read = |name: &str| -> Result<Vec<u8>, String> {
-        let path =
-            motionvm_formats::find_ci(dir, name).ok_or_else(|| format!("{name}: not found"))?;
-        std::fs::read(path).map_err(|e| format!("{name}: {e}"))
-    };
-    let archive = read("HMIMDRV.386")?;
-    let archive = DriverArchive::parse(&archive).map_err(|e| format!("HMIMDRV.386: {e}"))?;
-    let driver = archive
-        .device(motionvm_audio::opl::Fm::DEVICE)
-        .ok_or("HMIMDRV.386 has no OPL3 driver")?;
-    let melodic = read("MELODIC.BNK")?;
-    let drums = read("DRUM.BNK")?;
-    let melodic = InstrumentBank::parse(&melodic).map_err(|e| format!("MELODIC.BNK: {e}"))?;
-    let drums = InstrumentBank::parse(&drums).map_err(|e| format!("DRUM.BNK: {e}"))?;
-
-    let (device, config, format, channels, rate) = output()?;
-    let player = Player::new(rate, driver, &melodic, &drums)
-        .map_err(|e| format!("the FM driver did not come up: {e}"))?;
-    let (tx, rx) = channel();
-    let stream = spawn(&device, config, format, channels, HmiBackend { player, rx })?;
-    tell_output(rate, channels, format);
-    Ok((Sound { _stream: stream }, Music { tx }))
-}
-
-/// Opens the default output and starts the audio thread for a 16-bit game.
-///
-/// `dir` is the game directory: `MUSADL.DRV` comes from there, the same file
-/// the 16-bit player loads whole and installs — motionvm reads its tables and
-/// rebuilds the code around them. All four 16-bit games ship that driver: the
-/// three later ones carry byte-identical copies, Victor Loomes an older build
-/// with one entry fewer, and `psm::Driver` reads either — so one opener serves
-/// them.
-pub fn open_motion16(dir: &Path) -> Result<(Sound, PsmMusic), String> {
-    let path = motionvm_formats::find_ci(dir, "MUSADL.DRV").ok_or("MUSADL.DRV: not found")?;
-    let driver = std::fs::read(path).map_err(|e| format!("MUSADL.DRV: {e}"))?;
-
-    let (device, config, format, channels, rate) = output()?;
-    let player = psm::Player::new(rate, &driver)
-        .map_err(|e| format!("the Ad Lib driver did not come up: {e}"))?;
-    let (tx, rx) = channel();
-    let stream = spawn(&device, config, format, channels, PsmBackend { player, rx })?;
-    tell_output(rate, channels, format);
-    Ok((Sound { _stream: stream }, PsmMusic { tx }))
 }
 
 /// What the output device settled on — a diagnostic, so it speaks only
@@ -196,17 +27,31 @@ fn tell_output(rate: u32, channels: usize, format: cpal::SampleFormat) {
     }
 }
 
+/// The opened output device, with what it wants to be fed.
+///
+/// One value instead of loose pieces, because the channel count and the rate
+/// are the config's own facts: carried separately they could disagree with
+/// it, and the accessors make that impossible.
+pub struct Output {
+    device: cpal::Device,
+    config: cpal::StreamConfig,
+    format: cpal::SampleFormat,
+}
+
+impl Output {
+    /// The device's channel count.
+    fn channels(&self) -> usize {
+        self.config.channels as usize
+    }
+
+    /// The device's sample rate, which the game's music is built for.
+    pub fn rate(&self) -> u32 {
+        self.config.sample_rate
+    }
+}
+
 /// The default output device and what it wants to be fed.
-fn output() -> Result<
-    (
-        cpal::Device,
-        cpal::StreamConfig,
-        cpal::SampleFormat,
-        usize,
-        u32,
-    ),
-    String,
-> {
+pub fn output() -> Result<Output, String> {
     let device = cpal::default_host()
         .default_output_device()
         .ok_or("no output device")?;
@@ -215,43 +60,43 @@ fn output() -> Result<
         .map_err(|e| format!("no output format: {e}"))?;
     let format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
-    let channels = config.channels as usize;
-    let rate = config.sample_rate;
-    Ok((device, config, format, channels, rate))
+    Ok(Output {
+        device,
+        config,
+        format,
+    })
 }
 
 /// Builds and starts the stream for whichever sample format the device
-/// settled on.
-fn spawn<B: Backend>(
-    device: &cpal::Device,
-    config: cpal::StreamConfig,
-    format: cpal::SampleFormat,
-    channels: usize,
-    backend: B,
-) -> Result<cpal::Stream, String> {
-    let stream = match format {
-        cpal::SampleFormat::F32 => build(device, config, backend, channels, |s| s as f32 / 32768.0),
-        cpal::SampleFormat::I16 => build(device, config, backend, channels, |s| s),
+/// settled on, wraps it in the guard that keeps it alive, and reports what
+/// the device settled on.
+pub fn spawn(out: &Output, source: Box<dyn AudioSource>) -> Result<Sound, String> {
+    let (channels, rate) = (out.channels(), out.rate());
+    let stream = match out.format {
+        cpal::SampleFormat::F32 => build(&out.device, out.config, source, channels, |s| {
+            s as f32 / 32768.0
+        }),
+        cpal::SampleFormat::I16 => build(&out.device, out.config, source, channels, |s| s),
         other => return Err(format!("unsupported sample format {other:?}")),
     }?;
     stream
         .play()
         .map_err(|e| format!("the stream would not start: {e}"))?;
-    Ok(stream)
+    tell_output(rate, channels, out.format);
+    Ok(Sound { _stream: stream })
 }
 
 /// One builder for both sample formats: the synthesis is identical, only the
 /// last step out of `i16` differs.
-fn build<T, B>(
+fn build<T>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
-    mut backend: B,
+    mut source: Box<dyn AudioSource>,
     channels: usize,
     convert: fn(i16) -> T,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample + Send + 'static,
-    B: Backend,
 {
     // Generous enough that the callback never reaches the allocator after the
     // first block, whatever buffer size the device settles on.
@@ -264,7 +109,7 @@ where
                 if stereo.len() < frames * 2 {
                     stereo.resize(frames * 2, 0);
                 }
-                backend.pump(&mut stereo[..frames * 2]);
+                source.fill(&mut stereo[..frames * 2]);
                 for (frame, out) in stereo
                     .as_chunks::<2>()
                     .0

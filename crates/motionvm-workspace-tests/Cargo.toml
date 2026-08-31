@@ -1,0 +1,13 @@
+[package]
+name = "motionvm-workspace-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The workspace's own rig: tests over the tree itself, not over any crate's code"
+publish = false
+
+[lints]
+workspace = true

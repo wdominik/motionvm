@@ -1,0 +1,19 @@
+[package]
+name = "motionvm-motion-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The music: the FM driver, the HMI and PSM 2 sequencers, and the OPL3 they share"
+
+[dependencies]
+motionvm-motion-formats.workspace = true
+nuked-opl3.workspace = true
+
+[dev-dependencies]
+motionvm-motion-testutil.workspace = true
+
+[lints]
+workspace = true

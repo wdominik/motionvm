@@ -74,9 +74,11 @@ are copyrighted. The `justfile` reads six locations and one switch:
   you name yourself is always passed on, so a typo panics instead of quietly
   skipping the suite. The four 16-bit games are recognized by their engine
   binary, not by their container: they all ship a `DATA.-1-`.
-- `SAVES` — a directory holding a savegame, for the savegame tests. Savegames
-  cannot be reconstructed, only played to, so there is no default that could
-  work; without one those tests skip.
+- `SAVES` — the directory the games' own save directories are under, for the
+  savegame tests: the `saves/` the program writes, not `saves/ds2/`, because
+  that is what the engine is pointed at and it puts the game's name on itself.
+  Savegames cannot be reconstructed, only played to, so there is no default
+  that could work; without one those tests skip.
 - `MOTIONVM_NO_GAMEDATA=1` — the opposite: no data at all, whatever this
   machine has. `just check-nodata` sets it, and that is the only way to
   reproduce CI's floor here, because the sibling-directory defaults above are
@@ -127,7 +129,9 @@ that the step that broke something is the step you just took.
 `just check-nodata` runs the suite the way CI does, with no game data at all;
 it is worth a run before pushing anything that touches a test.
 
-`.github/workflows/ci.yml` runs the same four commands on Linux, macOS and
+`.github/workflows/ci.yml` — whose header comment names every
+`MOTIONVM_GAMEDATA_*` variable and counts the suite, so a game touches it
+too — runs the same four commands on Linux, macOS and
 Windows — but **without the game data**, which cannot be in the repository. So
 CI is the floor and this command is the gate: CI proves the workspace builds,
 lints, documents and passes its data-free tests on three platforms, and only a
@@ -159,11 +163,12 @@ with `[lints] workspace = true`:
 - `clippy::correctness` and `clippy::suspicious = "deny"` — the two groups
   that describe code which is probably wrong rather than code which is merely
   unfashionable. `pedantic` is deliberately absent: this codebase makes
-  deliberate choices it would argue with. What it would say is mostly four
-  lints: `cargo clippy --workspace -- -W clippy::pedantic` reports 1177
-  warnings, of which 769 are `cast_sign_loss` (272), `cast_lossless` (197),
-  `cast_possible_truncation` (166) and `cast_possible_wrap` (134), and another
-  187 are `must_use_candidate`. **The casts are the semantics.** A 16-bit
+  deliberate choices it would argue with. What it would say is mostly five
+  lints — run `cargo clippy --workspace -- -W clippy::pedantic` to see them —
+  and about two thirds of what it reports are the cast four,
+  `cast_sign_loss`, `cast_lossless`, `cast_possible_truncation` and
+  `cast_possible_wrap`, with `must_use_candidate` most of the rest.
+  **The casts are the semantics.** A 16-bit
   Forth machine truncating an `i32` to a `u16` is reproducing what the
   original did; a lint asking for `try_into` there is asking the
   reimplementation to stop being one. Named here so that the next person does
@@ -236,7 +241,7 @@ Concretely:
   what folding them would cost.
 - **No TODO markers.** There are no `TODO`, `FIXME`, `XXX`, or `HACK`
   comments in this tree, and none may be added. Open state lives in a named
-  document: unknowns about the original go to `docs/open-questions.md`,
+  document: unknowns about the original go to `docs/motion/open-questions.md`,
   where they are tracked rather than scattered.
 
 **The rustdoc gate.** `just doc` treats broken intra-doc links as errors and
@@ -247,21 +252,30 @@ only read as if it covered them.
 
 ## Architecture
 
-The workspace is layered, and dependencies point strictly downward:
+The workspace is two layers — a neutral one that knows no engine family, and
+the MOTION family's crates, marked as such by their names — with the contract
+crate between them; [`ARCHITECTURE.md`](ARCHITECTURE.md) lays the shape out.
+Dependencies point strictly downward:
 
 | Crate | Role |
 |---|---|
-| `motionvm-formats` | Readers for the shipped file formats; std-only, zero dependencies |
-| `motionvm-forth` | The Forth VM: address model and kernel words |
-| `motionvm-render` | Framebuffer and compositing |
-| `motionvm-audio` | FM driver, HMI and PSM 2 sequencers, OPL3 |
-| `motionvm-engine` | The runtime that ties them into the game loop |
+| `motionvm-motion-formats` | Readers for the shipped file formats; std-only, zero dependencies |
+| `motionvm-motion-forth` | The Forth VM: address model and kernel words |
+| `motionvm-render` | Framebuffer, palettes and blits |
+| `motionvm-playable` | The window-to-engine contract |
+| `motionvm-motion-audio` | FM driver, HMI and PSM 2 sequencers, OPL3 |
+| `motionvm-motion-engine` | The runtime that ties them into the game loop |
+| `motionvm-motion` | The family's front door: engine and audio, paired behind the contract |
+| `motionvm-workspace-tests` | The rig: tests over the tree itself |
 | `motionvm-app` | The window: winit/softbuffer frontend |
-| `motionvm-tools` | CLI for reading and extracting the shipped formats |
-| `motionvm-testutil` | Test-data location, shared by every suite |
+| `motionvm-motion-tools` | CLI for reading and extracting the shipped formats |
+| `motionvm-motion-testutil` | Test-data location, shared by every suite |
 
-The same crates carry both generations; the rule for how they share is
-in the next section. Principles the layout encodes:
+The same crates carry both generations; the rule for how they share is in the
+next section, and what the whole shape is — the two layers, the four levels of variance, the
+seams between them, and why some things are shared behind a `Rules` struct
+where others are written twice — is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). Principles the layout encodes:
 
 - **Readers never panic on malformed input.** A damaged install must surface
   as an error value, not a crash report about this codebase.
@@ -278,8 +292,14 @@ in the next section. Principles the layout encodes:
 
 ## Two generations, and what belongs to a game
 
-Three kinds of things live in this tree, and each is named by a different
-rule. What is **shared by the engine family** — the `Host` boundary, the
+Above everything in this section sits the layer boundary: what is **the
+window's** — winit, cpal, the scaling, the roster — lives in the neutral
+crates, names no family and cites no family's evidence, and the boundary test
+in `motionvm-playable` holds that line. Everything below is placement *within*
+the family's crates.
+
+Three kinds of things live in a family's crates, and each is named by a
+different rule. What is **shared by the engine family** — the `Host` boundary, the
 branch arithmetic, the descriptor scene graph, the framebuffer, the palette
 and font-reference readers, the curtain, the clock, the CLI skeleton —
 carries no tag: an unqualified name or sentence holds for both generations.
@@ -297,7 +317,7 @@ module numbers, the names of its script variables, its module map and
 location scheme, its title strings, tests that drive its data — is tagged
 by **game**: code under `titles/ds2`, `titles/enviro`, `titles/hfa`, `titles/jeffjet` and
 `titles/vloomes`,
-documentation under `docs/games/<game>/`, and a sentence that names the game.
+documentation under `docs/motion/games/<game>/`, and a sentence that names the game.
 Where the games of one generation share something — the 16-bit opener, the
 frame handler, the location mechanism — it belongs to the generation and lives
 under its name (`titles/motion16.rs`), not copied into each game's file.
@@ -310,16 +330,198 @@ handlers are two functions, each citing its own binary.
 The tree holds to this today. Every page under `motion32/` and `motion16/`
 states its generation in the line under its title, every page under
 `games/` its game, and the two ledgers `departures.md` and
-`open-questions.md` keep a section per generation. `motionvm-formats` and
-`motionvm-forth` carry both generations as `m32` and `m16` with only the
-shared things at their roots; `motionvm-tools` dispatches on the game's
-files to an `m32` and an `m16` command set; `motionvm-engine` hosts both
+`open-questions.md` keep a section per generation. `motionvm-motion-formats` and
+`motionvm-motion-forth` carry both generations as `m32` and `m16` with only the
+shared things at their roots; `motionvm-motion-tools` dispatches on the game's
+files to an `m32` and an `m16` command set; `motionvm-motion-engine` hosts both
 machines behind one `Game<M>` driver, keeps each game's bootstrap under
 `titles/`, and keeps the word groups that exist for one machine only —
 the 32-bit savegame words, `DOWALK`, the inventory, the dialogue queue;
-the 16-bit buffer words — in files of their own. The renderer, the
-window and the audio serve all five: the HMI sequencer plays the 32-bit
-game's music, the PSM 2 sequencer the 16-bit games', on the one OPL3.
+the 16-bit buffer words — in files of their own. `motionvm-motion-audio` carries
+the two music stacks the same way, `m32` for the HMI sequencer and the FM
+driver and `m16` for PSM 2, with the OPL3 they both end at at its root.
+Text drawing lives in the engine as the pair `text.rs` and `text16.rs`:
+one glyph and one measure serve both generations, and the 16-bit run
+drawer, which lays a line down by rules of its own, is the twin file —
+while `motionvm-render` underneath knows only the surface and the blits.
+The window serves every game through the contract and never
+learns which generation it is looking at: the music, the keys and the pacing
+are all the family's answers, made behind `motionvm-motion`.
+
+## Adding a game
+
+MOTION made more games than the ones this plays, and the shape above is what
+keeps a further one cheap. Cheap is not free, though, and it is not one file:
+what follows is every place a game is named, in the order it makes sense to
+work through them. It is a checklist because the alternative is doing it from
+memory, and from memory the code gets done and the prose does not: a sentence
+that counts the games is wrong the moment there is another one, and nothing
+fails when it is.
+
+**The engine**
+
+1. A variant of `Title`, and a line in each of its five total matches —
+   `name`, `short`, `slug`, `needs`, `generation` — and in `ALL`. They are
+   total on purpose: the start-up message that lists what each game needs is
+   built from `needs`, the window's help from the roster's cards, and the
+   family's music opener from `generation`, so none of them can fall behind
+   the roster.
+2. A module `titles/<slug>.rs`: `REQUIRED` — each file and what it is for,
+   quoted verbatim in the error message — `LOCATION`, and `missing_data` and
+   `open` forwarding to the generation. On the 16-bit side it also names
+   `ENGINE`, the binary its kernel table comes out of; on the 32-bit side
+   `SIGNATURE`, the words that tell its container from another game's. Nothing
+   else belongs here: if the game needs behavior, that is a finding about the
+   *engine* and belongs to the generation.
+3. A line in its generation's `GAMES` table, and `pub mod` plus an `open` arm
+   in `titles/mod.rs`.
+
+**The test rig**
+
+4. `motionvm-motion-testutil`: a `gamedata_<slug>()` beside the others, probing for
+   the file that identifies the game, and its `MOTIONVM_GAMEDATA_<SLUG>` in
+   that crate's module doc.
+5. The `justfile`, in six places: the header comment that names the variables,
+   the `DEFAULT_GAMEDATA_*`/`GAMEDATA_*` pair, the `_DATA_*` probe, the
+   environment `test` passes, the same in `test-one`, and a `run-<slug>`
+   recipe. No game is the default for `just run`.
+6. Tests that drive the game's data, one file per subject, each named for the
+   game and closing its `//!` with the line every such file carries: *The game
+   this file drives is `<title>` (MOTION 16-bit).*
+
+**What a person reads**
+
+7. `motionvm-motion-tools`: the `USAGE` string and the crate's module doc, both of
+   which list the games and the files that identify them.
+8. `README.md`: the roster table, the "what a game needs" table with its four
+   columns, the `--loc` paragraph where a game's opening needs a word, the
+   per-game menu sentence under Controls, and the list of save directories.
+9. `docs/motion/README.md`: the roster table, a block of rows in the documentation
+   map, and a section under "The shipped files".
+10. `docs/motion/games/<slug>/`: the five pages the other games have — the game, its
+    structure, its module map, its resource inventory, its other files — with
+    the `Sources` discipline that separates what the published record says from
+    what was read out of the binaries.
+11. `docs/motion/verification.md`: what has been held against the original's own
+    output for this game, and what only against its files.
+12. A line under `## [Unreleased]` in `CHANGELOG.md`.
+
+**Then check the counts.** Every sentence that says how many games or builds
+there are, and every "the other game" that has just stopped identifying one,
+is now wrong. Two greps find them:
+
+```sh
+grep -rniE '\b(two|three|four|five) (16-bit |32-bit )?(games?|titles?|builds?)\b' .
+grep -rniE 'the other( two| three)? (16-bit |32-bit )?games?' .
+```
+
+Neither is a formality. The hits run into the dozens, they are spread over
+code comments, test headers, the `justfile`, both READMEs and half the
+documentation tree, and not one of them is caught by anything else in the
+gate.
+
+**If it is the second game on the 32-bit engine**, two things that are
+simplifications today stop being any: `motion32::detect` answers from the
+container shape alone because its table has one entry, and the signature check
+that would tell two 32-bit games apart happens later, in `open`. Move the
+check into `detect` and the shape becomes what it already is on the 16-bit
+side — a narrowing, with the game's own data settling it.
+
+## Adding an engine build
+
+A build of the same engine is not a game and mostly not code. The point of
+probing rather than assuming is that a build usually costs nothing at all;
+when it costs something, this is where the something is.
+
+1. **Check what the scan makes of it first.** `mz::binding_of` reads the
+   kernel tables out of the MZ image and derives the domain ordinal base by
+   disassembling the registration loop. If that succeeds and the inline words
+   are all found, the machine binds and the build costs a manifest.
+2. **A missing inline word is a decision.** `Inline::by_name` requires every
+   name but `_PutStringAdr` and `_ChElseDup`, which are optional because a
+   build that lacks them exists. Making a third one optional is a claim about
+   the engine family and needs its evidence.
+3. **A behavior that differs is a capability, not a version test.** Read it out
+   of the binary the way `?XINSIDE`'s hole-skipping is read, name it for what
+   it does, and cite the address on the field. Never `if build == …`.
+4. **Constants that differ go in a `Rules` table; readings that differ go in a
+   second file.** The criterion is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+5. **Nothing about the build belongs in a game's module.** What the games of a
+   generation share — the opener, the frame handler, the location mechanism —
+   is the generation's, in `titles/motion16.rs`, and a game's file holds
+   constants only.
+
+The documentation costs more than the code:
+
+6. A page `docs/motion/motion16/engine/<binary>-exe.md` of its own — what the image
+   is, where its tables are, what its ordinals do, what its game asks of it —
+   and its row in `docs/motion/README.md`.
+7. A *See also* bullet on each sibling build page, and a look at what those
+   pages say about how many builds there are and which is oldest.
+8. **The scope line under the title of every page in that generation's tree**
+   names every build. That is one line on some thirty pages, and it is the
+   thing most likely to be forgotten.
+9. The build's name in `CONTRIBUTING`'s fidelity section, which lists the
+   binaries behavior is matched against.
+
+## Adding an engine family
+
+A further family is a bigger thing than a game or a build: a different
+original, its own formats, its own crates. The architecture makes room for it
+without being edited — the shape is in [`ARCHITECTURE.md`](ARCHITECTURE.md)
+under *Extending the tree* — and this is the order that keeps each step
+compiling:
+
+1. **A crate set of its own, named for the family.** `motionvm-<family>-*`
+   for its parts — however many it needs; one is a fine start — and a front
+   door `motionvm-<family>` holding its `Family` implementation. The family
+   reaches the neutral layer only through `motionvm-playable` and
+   `motionvm-render`; nothing in it names the window, and nothing in the
+   window names it.
+2. **Implement the contract.** `Playable` for its games, with the family's
+   own error type behind the contract's boxed one — the `Display` output is
+   what a player reads, so the family's tests should pin its messages.
+   Translate the contract's `KeyPress` into whatever the family's scripts
+   read, the way the MOTION engine's `keys.rs` does, and answer
+   `Playable::open_music` with the audio thread's source, with `None` for a
+   game that has nothing to play, or with an error that says why sound is
+   off — how the music reaches the source stays the family's own, behind
+   its front door.
+3. **One roster line.** `roster.rs` in the window is the only platform edit:
+   the usage text, the folder dialog and every message follow from `games()`
+   and the openers. The roster's fallback rule — a directory nobody claims is
+   answered by the first family's refusal — stops being exact at this point;
+   give the unrecognized directory an answer built from every family before
+   the line lands.
+4. **The boundary test's list.** The family's name goes into `FAMILIES` in
+   `motionvm-workspace-tests/tests/boundary.rs`, which is what makes the new
+   crates family crates in the layer rule's eyes.
+5. **Its games, its data, its rig.** Each game then follows *Adding a game*
+   inside the new family: lookup functions, justfile plumbing, suites, and
+   `docs/motion/games/` trees. A family whose originals need different rig rules
+   brings its own testutil crate rather than growing MOTION's. **Slugs are a
+   workspace-wide namespace**: `saves/<slug>/`, `MOTIONVM_GAMEDATA_<SLUG>`
+   and `docs/motion/games/<slug>/` are shared with every family, so a new game's
+   slug is checked against every roster, not just its own — a collision puts
+   two games' savegames in one directory.
+6. **Its own documentation trees.** A family's pages live under
+   `docs/<family>/…` — MOTION's under `docs/motion/`, ledgers included —
+   with an index of their own, and `docs/README.md` at the root is the map
+   that carries a row per family. Every page's scope line names what it
+   covers, the way the generation trees' pages do.
+7. **The stale-count grep.** Sentences that count families are wrong the
+   moment there is a second one:
+
+   ```sh
+   grep -rniE '\bone (engine )?\*?family\*?\b' .
+   ```
+
+   finds them, beside the two game-count greps under *Adding a game*. The
+   emphasis marks are in the pattern because the sentence most likely to go
+   stale writes the word as `*family*`; the pattern is line-based, so keep
+   the phrase on one line wherever it is written.
+8. **The changelog.** A new family is the loudest thing a release can carry;
+   its entry belongs at the top of *Added*.
 
 ## Fidelity and accepted divergences
 
@@ -327,9 +529,14 @@ Behavior is matched to the original binary of the generation in question —
 `ENGINE.EXE` V0.06.06/R109 for the 32-bit engine, `ENVIRO.EXE` and its older
 builds `BMZ.EXE`, `HPPLAY.EXE` and `LL.EXE` for the 16-bit one. When motionvm and the original
 disagree, motionvm is wrong —
-unless the divergence is on the list below, which exists precisely so that
-nobody "fixes" a deliberate decision. Every entry below concerns the 32-bit
-engine as it runs Dunkle Schatten 2 unless it names the 16-bit engine:
+unless the divergence is recorded, which is what stops anyone "fixing" a
+deliberate decision. **The record is [`docs/motion/departures.md`](docs/motion/departures.md)
+and only that** — every divergence is written there, where the code lives, in
+the section of the generation it concerns. The ten below are the ones worth
+knowing before reading any of this code; they are a summary of that page, not
+a second list, and a divergence that is here and not there is a mistake. Every
+one of them concerns the 32-bit engine as it runs Dunkle Schatten 2 unless it
+names the 16-bit engine:
 
 1. **Savegame formats are motionvm's own.** The original stores raw DOS4GW
    heap pointers; matching that is structurally impossible.
@@ -355,9 +562,11 @@ engine as it runs Dunkle Schatten 2 unless it names the 16-bit engine:
     Jeff Jet's table was written for a larger font than it ships; no shipped
     string reaches one of the two entries concerned.
 
-Adding to this list is a deliberate act: document the divergence where the
-code lives, state why matching the original is impossible or undesirable, and
-record it here.
+Adding a divergence is a deliberate act: document it where the code lives,
+state why matching the original is impossible or undesirable, record it in
+`docs/motion/departures.md`, and point at that entry from the page it concerns. This
+summary grows only when the new one belongs among the first things a reader
+should know.
 
 ## Testing
 
@@ -368,10 +577,10 @@ record it here.
 - **Every test file documents what it verifies and against which evidence** —
   the same evidence discipline as the code.
 - **Fixtures come from your own game install**, located through
-  `motionvm-testutil`, never checked in. Remember the rule from setup:
+  `motionvm-motion-testutil`, never checked in. Remember the rule from setup:
   missing data skips loudly, a wrong path panics.
 - **A test that needs a game's files says which game.** It asks
-  `motionvm-testutil` for that game — `gamedata_ds2()`, `gamedata_enviro()`,
+  `motionvm-motion-testutil` for that game — `gamedata_ds2()`, `gamedata_enviro()`,
   `gamedata_jeffjet()`, `gamedata_hfa()` or `gamedata_vloomes()` — and closes
    its `//!` with the one
   line every such file carries: *The game this file drives is `<title>`
@@ -392,8 +601,9 @@ record it here.
   picture. If you are changing the drawing path, render the scenes before
   and after on your own machine and compare them there — the determinism note
   above is what makes that trustworthy.
-- **Measure before optimizing.** `MOTIONVM_PERF=1` and the `timing` rig in
-  `motionvm-engine` exist so that performance claims are measurements.
+- **Measure before optimizing.** `MOTIONVM_PERF=1` and the frame timing
+  `motionvm-app` prints under it exist so that performance claims are
+  measurements.
   Plausible arguments about frame cost are wrong in both directions: the
   obvious candidate turns out to cost nothing measurable, and the real hot
   spot sits in a routine nobody suspected.
@@ -405,9 +615,10 @@ the VM's execution model, the engine's subsystems, and a page per script
 module. When code changes what is known, the docs move with it in the same
 change. Conventions:
 
-- Pages are laid out by engine generation and by game: `docs/motion32/`
-  and `docs/motion16/` hold the format, VM and engine pages of the two
-  generations, `docs/games/<game>/` the pages about
+- Pages are laid out by family, then by engine generation and by game:
+  `docs/motion/motion32/`
+  and `docs/motion/motion16/` hold the format, VM and engine pages of the two
+  generations, `docs/motion/games/<game>/` the pages about
   one game's own data and script library. Every generation page carries a
   one-line scope note under its title naming its engine and the game it
   was measured on; every game page names its game the same way.
@@ -415,7 +626,8 @@ change. Conventions:
   with a **See also** link list. A page carries an **Open questions** section
   when it has open questions; empty boilerplate sections are noise, not
   honesty.
-- The index (`docs/README.md`) fixes the shared vocabulary once: values are
+- The family's index (`docs/motion/README.md`) fixes the shared vocabulary
+  once: values are
   little-endian, text is CP437, a cell is 32 bits under `motion32/` and 16
   under `motion16/`, stack effects use Forth's `( a b -- c )` notation, and
   engine addresses refer to `ENGINE.EXE`'s *relocated* image for the 32-bit
@@ -427,9 +639,9 @@ change. Conventions:
   README's file tables carried both for a release before anyone
   measured them.
 - Unresolved questions about the original belong in
-  `docs/open-questions.md`, the single ledger of what is not yet known, in
+  `docs/motion/open-questions.md`, the single ledger of what is not yet known, in
   the section of the generation they concern.
-- Deliberate differences from the original belong in `docs/departures.md`,
+- Deliberate differences from the original belong in `docs/motion/departures.md`,
   the single ledger of where the code knowingly does something else. The
   subsystem pages describe the original engine; a departure is recorded there
   and pointed at from the page it concerns.
@@ -466,8 +678,8 @@ LGPL-2.1-or-later does — the corresponding entry in `NOTICE`.
   not finished until it is green.
 - For changes that touch fidelity — anything the original engine also does —
   state the evidence: the address read, the measurement taken, or the
-  hypothesis being made, and update `docs/`, `docs/open-questions.md` and
-  `docs/departures.md` accordingly.
+  hypothesis being made, and update `docs/`, `docs/motion/open-questions.md` and
+  `docs/motion/departures.md` accordingly.
 
 ## Releasing
 

@@ -6,6 +6,136 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-31
+
+### Added
+
+- **`ARCHITECTURE.md`**, and three procedures in `CONTRIBUTING.md` — adding a
+  game, adding a build of the engine, adding an engine family. For anyone
+  reading or changing this code rather than playing with it: how the tree
+  splits into a neutral layer and the family behind the contract, how family,
+  generation, build and game are kept apart, where every seam between them
+  is, and every file a further game — or a further family — is named in.
+
+- **The savegame files motionvm writes are documented**, in
+  `docs/motion/savegames.md`: the header both of them carry, the layout of
+  each, and
+  what the version number in them means for slots already on disk — a slot
+  from a build that wrote an older version is refused by name rather than
+  half-read, and nothing deletes it. The README's savegame section says the
+  same in two sentences. It was the one format in the project without a page,
+  and the one a player's own data depends on.
+
+### Changed
+
+- **The window and the engine family are two layers with a contract between
+  them.** The window drives any game through `motionvm-playable` and knows
+  nothing else. `Playable` answers a name instead of a roster variant,
+  `start` returns with the game parked in its own frame loop, the pointer's
+  position and every button and key transition cross as the platform saw
+  them — `key(press, down)`, with the scroll wheel, the typed stream and the
+  modifiers' level state beside it for whatever reads them — and the
+  picture's pixel shape is a named width and height, impossible to swap.
+  What a press *means* is the family's translation: `?KEY`'s codes and the
+  fifteen-slot BIOS buffer live with the engine that measured them, one
+  keystroke per frame. Music is the opened game's own answer —
+  `open_music(rate)` hands back the audio thread's source, or nothing for a
+  game with nothing to play — with `AudioSource` joined to the engine's
+  `MusicSink` inside `motionvm-motion`, the one crate that knows the engine
+  and the audio stacks both. The window holds a roster of `Family` values
+  and names no family crate but that front door — a rule a data-free
+  boundary test reads out of the manifests — so adding a game, or a whole
+  family, never edits a call site. The path is `Send`, machines included,
+  so a window may open a game — the slowest thing it does — on a worker
+  thread. A click during the F12 freeze now lands on the next frame instead
+  of vanishing; everything else a player sees is unchanged.
+
+- **Every crate that is MOTION's alone says so in its name.** The family's
+  crates were named as if they were the whole product — `motionvm-formats`
+  read MOTION's containers and nothing else, and five siblings alike. They are
+  `motionvm-motion-formats`, `-forth`, `-audio`, `-engine`, `-tools` and
+  `-testutil` now; a name without the family's is reserved for what does not
+  belong to one family. The inspection CLI accordingly builds as
+  `motionvm-motion-tools`.
+
+- **A held mouse button reaches the scripts the way the hardware did.** The
+  original's `MOUSELK` answers the live level, the shell's `_MPRESSED`
+  debounces it in script, and the title's task handler reads it raw on
+  purpose — holding a button skips the title a card per fade. The engine
+  now delivers exactly that level, so held-button behavior is the game's
+  own again; a press and release both falling between two frames is kept
+  visible for the one frame the original's once-per-frame poll would have
+  caught.
+
+- **Both music stacks answer to one `Player` trait.** `rate`, `start`, `stop`,
+  `playing` and `fill` were the same five methods twice, with the window
+  improvising the abstraction over them; the trait is in the audio crate now,
+  with the song type as its one difference. The rounding rule the two sample
+  clocks shared word for word is one function, `clock::frames_to_tick` — the
+  two PIT constants stay apart, because 1 193 180 and 1 193 182 are what the
+  two drivers were each timed against.
+
+- **`motionvm-motion-audio` carries its two stacks the way the rest of the tree
+  carries two generations.** Its root re-exported the 32-bit game's HMI
+  sequencer, FM driver and player unqualified and left the 16-bit games' whole
+  PSM 2 stack in one module its own crate documentation never mentioned. Both
+  are now under `m16` and `m32`, and the root keeps what genuinely belongs to
+  both: the OPL3 and the register write. The 32-bit `Player` struct is
+  `m32::Player` now and `psm::Sequencer` is `m16::Sequencer`; the root name
+  `motionvm_motion_audio::Player` belongs to the trait.
+
+- **The renderer takes a picture, not one generation's sprite.** Its blits took
+  the 32-bit `Sprite`, so a 16-bit sprite had to be turned into one — with a
+  768-byte all-zero palette invented per decode to fill a field the renderer
+  never read — and every signature in a crate that serves both generations
+  carried an `m32` name. `motionvm_render::Picture` is the three things a blit
+  needs, both readers decode into it, and the palette a 32-bit sprite really
+  does carry travels beside it instead of inside it.
+
+- **A game's saves go in a directory of its own, and the engine is what puts
+  them there.** Every game names its slots alike and the savegame magic is the
+  generation's, so two games pointed at one directory would find each other's
+  saves and the 16-bit ones would load them. `saves/ds2/`, `saves/enviro/` and
+  the rest were the window's arrangement; now `Game::set_saves` takes the
+  directory the games live under and adds the game's own name itself, so
+  anything embedding the engine gets the same guarantee. Existing saves are
+  where they always were. `Playable::saves` answers where they went.
+  `MOTIONVM_SAVES` accordingly names the directory above a game's, not the
+  game's own.
+
+- **The container's two framings are called framings.** The reader's
+  `m16::Generation` named the 1993 and 1995 header layouts, a distinction
+  *inside* the 16-bit generation, while everywhere else in the project a
+  generation is the 16-bit engine or the 32-bit one. It is `m16::Framing` now,
+  with `Earlier` and `Later` for what were `One` and `Two`, and
+  `Container::generation` is `Container::framing`. One concept owns the word.
+
+- **The technical documentation is laid out by family.** MOTION's trees —
+  `motion16/`, `motion32/`, `games/` — and its five ledgers live under
+  `docs/motion/`, with the family's index in front of them; `docs/README.md`
+  at the root is the map, one row per family. Links inside the record are
+  unchanged — everything moved together.
+
+- **The help text names the games off the roster.** The `GAMEDIR` paragraph
+  listed the five games by hand and the folder dialog named two of their
+  files; both are built from the roster now, so what the program plays is
+  what its help names, and the dialog asks for the game directory in one
+  sentence. A directory holding no recognizable game is refused with the
+  same roster — every game and what it needs — where the closing line now
+  says "a game this program does not play" rather than naming the engine.
+
+### Fixed
+
+- **The 32-bit machine decodes branches from the kernel it was bound to.** It
+  read `IF`, `ELSE`, `UNTIL`, `WHILE`, `REPEAT` and the three loop ends off the
+  ordinals `ENGINE.EXE` V0.06.06/R109 hands out, baked in at compile time,
+  while the dispatch table beside it was already built from the scan of
+  whatever binary the game ships. A build that numbered those words
+  differently would therefore have bound correctly and then decoded an `IF` as
+  something else — a run that goes wrong later and elsewhere. Both readings
+  now come from the same scan, as the 16-bit machine's already did, and the
+  shipped kernel agreeing with the measurement is a test.
+
 ## [0.6.0] - 2026-08-30
 
 ### Added
@@ -666,7 +796,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/wdominik/motionvm/releases/tag/v0.7.0
 [0.6.0]: https://github.com/wdominik/motionvm/releases/tag/v0.6.0
 [0.5.0]: https://github.com/wdominik/motionvm/releases/tag/v0.5.0
 [0.4.1]: https://github.com/wdominik/motionvm/releases/tag/v0.4.1

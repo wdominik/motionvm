@@ -767,74 +767,93 @@ dependencies = [
 
 [[package]]
 name = "motionvm-app"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "cpal",
- "motionvm-audio",
- "motionvm-engine",
- "motionvm-formats",
- "motionvm-render",
+ "motionvm-motion",
+ "motionvm-playable",
  "rfd",
  "softbuffer",
  "winit",
 ]
 
 [[package]]
-name = "motionvm-audio"
-version = "0.6.0"
+name = "motionvm-motion"
+version = "0.7.0"
 dependencies = [
- "motionvm-formats",
- "motionvm-testutil",
+ "motionvm-motion-audio",
+ "motionvm-motion-engine",
+ "motionvm-motion-formats",
+ "motionvm-motion-testutil",
+ "motionvm-playable",
+]
+
+[[package]]
+name = "motionvm-motion-audio"
+version = "0.7.0"
+dependencies = [
+ "motionvm-motion-formats",
+ "motionvm-motion-testutil",
  "nuked-opl3",
 ]
 
 [[package]]
-name = "motionvm-engine"
-version = "0.6.0"
+name = "motionvm-motion-engine"
+version = "0.7.0"
 dependencies = [
- "motionvm-formats",
- "motionvm-forth",
+ "motionvm-motion-formats",
+ "motionvm-motion-forth",
+ "motionvm-motion-testutil",
+ "motionvm-playable",
  "motionvm-render",
- "motionvm-testutil",
 ]
 
 [[package]]
-name = "motionvm-formats"
-version = "0.6.0"
+name = "motionvm-motion-formats"
+version = "0.7.0"
 dependencies = [
- "motionvm-testutil",
+ "motionvm-motion-testutil",
 ]
 
 [[package]]
-name = "motionvm-forth"
-version = "0.6.0"
+name = "motionvm-motion-forth"
+version = "0.7.0"
 dependencies = [
- "motionvm-formats",
- "motionvm-testutil",
+ "motionvm-motion-formats",
+ "motionvm-motion-testutil",
+]
+
+[[package]]
+name = "motionvm-motion-testutil"
+version = "0.7.0"
+
+[[package]]
+name = "motionvm-motion-tools"
+version = "0.7.0"
+dependencies = [
+ "motionvm-motion-formats",
+ "motionvm-motion-forth",
+ "motionvm-render",
+ "png",
+]
+
+[[package]]
+name = "motionvm-playable"
+version = "0.7.0"
+dependencies = [
+ "motionvm-render",
 ]
 
 [[package]]
 name = "motionvm-render"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
- "motionvm-formats",
- "motionvm-testutil",
  "png",
 ]
 
 [[package]]
-name = "motionvm-testutil"
-version = "0.6.0"
-
-[[package]]
-name = "motionvm-tools"
-version = "0.6.0"
-dependencies = [
- "motionvm-formats",
- "motionvm-forth",
- "motionvm-render",
- "png",
-]
+name = "motionvm-workspace-tests"
+version = "0.7.0"
 
 [[package]]
 name = "ndk"

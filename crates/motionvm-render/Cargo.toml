@@ -6,14 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Software framebuffer and screen compositing for the MOTION engine"
+description = "Indexed software framebuffer, palettes and blits"
 
 [dependencies]
-motionvm-formats.workspace = true
 png.workspace = true
-
-[dev-dependencies]
-motionvm-testutil.workspace = true
 
 [lints]
 workspace = true

@@ -6,17 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "The window: shows what the engine renders and feeds it input"
+description = "The window: shows what a game renders and feeds it input, whichever engine runs it"
 
 [[bin]]
 name = "motionvm"
 path = "src/main.rs"
 
 [dependencies]
-motionvm-engine.workspace = true
-motionvm-formats.workspace = true
-motionvm-audio.workspace = true
-motionvm-render.workspace = true
+motionvm-motion.workspace = true
+motionvm-playable.workspace = true
 cpal.workspace = true
 winit.workspace = true
 softbuffer.workspace = true

@@ -4,7 +4,7 @@
 # macOS
 .DS_Store
 
-# motionvm-tools writes extracted game material into the working
+# motionvm-motion-tools writes extracted game material into the working
 # directory by default — that material must never enter the repository.
 /out/
 /sprite-*.png

@@ -21,7 +21,7 @@ Five so far, across the two generations of the engine:
 
 | Game | Year | Commissioned by | Made by | Engine |
 |---|---|---|---|---|
-| *Im Netzwerk gefangen – Dunkle Schatten 2* | 1996 | Bundesministerium des Innern | Art Department Werbeagentur GmbH | **32-bit** — `ENGINE.EXE` |
+| *Im Netzwerk gefangen – Dunkle Schatten 2* | 1996 | Bundesministerium des Innern | DigiTales GmbH, produced by Art Department | **32-bit** — `ENGINE.EXE` |
 | *Die Enviro-Kids greifen ein* | 1996 | Ministerium für Umwelt, Raumordnung und Landwirtschaft NRW | Art Department Werbeagentur GmbH | **16-bit** — `ENVIRO.EXE` |
 | *Jeff Jet - Abenteuer InfoHighway* | 1995 | Hewlett Packard GmbH | Promotion Software GmbH, Tübingen | **16-bit** — `HPPLAY.EXE` |
 | *Hilfe für Amajambere* | 1995 | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung | ART DEPARTMENT WA GmbH | **16-bit** — `BMZ.EXE` |
@@ -35,7 +35,7 @@ motionvm plays them as they are: it changes nothing about the content.
 Every one of them boots, enters each location it has and draws it, plays its
 music, and saves and loads through the game's own pages; what is particular
 to each one is on its own pages in the
-[documentation](docs/README.md#documentation-map).
+[documentation](docs/motion/README.md#documentation-map).
 
 MOTION was written by DigiTales (Stefan Hoffmann) — Dunkle Schatten 2's own
 credits say so, naming the *"Motion"-Präsentations-System von S. Hoffmann* and
@@ -75,9 +75,9 @@ Requires a Rust toolchain of 1.97.0 or newer. That is not the oldest one that
 would work — the workspace compiles on 1.95.0 — but it is recent, so a Rust
 that came with your distribution may well be too old; `rustup` is the reliable
 way to have one. Nothing else is needed: no C compiler, and no system libraries
-beyond what a window and an audio device take. On Linux that means the
-X11/Wayland and ALSA development headers, which `.github/workflows/ci.yml`
-names by Debian package. The folder dialog adds nothing to build against: it
+beyond what a window and an audio device take. On Linux that means the ALSA,
+udev, xkbcommon and Wayland development headers, which
+`.github/workflows/ci.yml` names by Debian package. The folder dialog adds nothing to build against: it
 goes through the XDG desktop portal, which at run time wants the
 `xdg-desktop-portal` service that GNOME and KDE carry, or `zenity` as the
 fallback — and without either, the directory goes on the command line.
@@ -87,9 +87,9 @@ fallback — and without either, the directory goes on the command line.
 ```
 motionvm [GAMEDIR] [options]
 
-  --loc N       start in location N instead of the intro
+  --loc N       start in location N instead of where the game would begin
   --no-sound    do not open an audio device
-  -h, --help    the same summary
+  -h, --help    the full text, with the game list built from the roster
 ```
 
 `--loc N` skips the intro for Dunkle Schatten 2 and lands right after it for
@@ -136,7 +136,7 @@ finds, so the count is the game's to decide.
 What each of the other files in an installation is — the launchers, the sound
 setup, the readmes, the loose copies of things the containers already hold — is
 written down file by file on that game's **Other shipped files** page, linked
-from the [documentation index](docs/README.md#documentation-map).
+from the [documentation index](docs/motion/README.md#documentation-map).
 
 ### The game directory is only ever read
 
@@ -160,7 +160,7 @@ its manual describes.
 | Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In the 16-bit games it skips the intro |
 | Cursor keys | Move through Dunkle Schatten 2's in-game mailbox; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
-| F12 | Freeze the picture **and** write it out as an indexed PNG, to `shot.png` beside the savegames; the path is printed |
+| F12 | Freeze the picture **and** write it out as an indexed PNG, to `shot.png` in the data directory beside `saves/`; the path is printed |
 | Alt+Enter | Borderless fullscreen, on and off (Option+Return on macOS) |
 | Close the window | Quit |
 
@@ -197,6 +197,14 @@ Underneath it, one directory per game: `saves/ds2/`, `saves/enviro/`,
 slots alike and each looks for its own at start-up; the directory is created
 then if it is not there and its path is printed, so a fresh install needs no
 setup and a savegame is an ordinary file to copy or back up.
+
+A savegame is a snapshot of the engine's own state, so it carries a version
+number and a release that changes what is in it raises that number. A slot
+from an older one is then refused by name — *`701.FRZ`: savegame version 1,
+this build writes 2* — rather than half-read; nothing deletes it, and the
+release notes say when it happens. Within a version, saves carry across
+updates and between machines. What is in the files is
+[documented](docs/motion/savegames.md).
 
 The window shows the picture the way the game's own monitor did, and only ever
 scaled by whole numbers — one per axis. Dunkle Schatten 2's 640×480 is
@@ -240,7 +248,7 @@ repository neither hosts nor links to any game files. Without them, motionvm
 starts, says exactly what is missing, and stops.
 
 **Will it play another MOTION game?** Not today. The readers are the engine's
-rather than a game's, so `motionvm-tools` already reads games motionvm does not
+rather than a game's, so `motionvm-motion-tools` already reads games motionvm does not
 play; playing one needs its bootstrap, its script variables and its location
 scheme read first. Until they are, motionvm refuses the directory by name at
 start-up rather than opening it under the name of a game it already knows.
@@ -250,8 +258,8 @@ frames of Dunkle Schatten 2 and Die Enviro-Kids greifen ein and the whole
 eight-picture intro of Victor Loomes match recordings of the original pixel
 for pixel, and three of the games' music has been held against register
 captures of the original's sound hardware.
-[`docs/verification.md`](docs/verification.md) says what that covers and what
-it does not; [`docs/departures.md`](docs/departures.md) lists every place
+[`docs/motion/verification.md`](docs/motion/verification.md) says what that covers and what
+it does not; [`docs/motion/departures.md`](docs/motion/departures.md) lists every place
 motionvm knowingly does something else.
 
 ## How it works
@@ -265,7 +273,11 @@ It is one Rust workspace, deliberately small at the edges: six dependencies to
 run at all — a window, a presenter, an audio device, a folder dialog, a PNG
 writer and an OPL3 core — and no graphics API anywhere. The readers, the two
 virtual machines, the renderer, the audio and the runtime are split across
-eight crates that [`CONTRIBUTING.md`](CONTRIBUTING.md#architecture) lists. The
+eleven crates — two layers and a test rig over both — a neutral one holding the window and the contract
+it drives any game through, and the MOTION engine family behind that contract
+— which [`ARCHITECTURE.md`](ARCHITECTURE.md) lays out, along with how the
+family, its two engine generations, the four builds of the older one and the
+games on top of them are kept apart. The
 two engine generations share the Forth dialect, the compiler's output
 conventions and most of the kernel's vocabulary; they do not share the machine
 — cell width, kernel ordinals, address model, container, asset encodings and
@@ -274,18 +286,19 @@ music format all differ.
 MOTION itself was two halves: the runtime that plays a game, and the authoring
 side that makes one — an IDE, a Forth compiler and a debugger, in the same
 binary. **Only the runtime is reimplemented here.** Reading a compiled module
-is in scope, and the disassembler in `motionvm-tools` does it; writing one is
+is in scope, and the disassembler in `motionvm-motion-tools` does it; writing one is
 not.
 
 ## Further reading
 
 | Where | What is in it |
 |---|---|
-| [`docs/README.md`](docs/README.md) | The full technical documentation: every file format, both virtual machines, the engine's subsystems, and a page per game and per script module — written to stand on its own as a specification of MOTION |
-| [`docs/tools.md`](docs/tools.md) | `motionvm-tools`, which reads a game's containers and writes out what it finds as ordinary files |
-| [`docs/verification.md`](docs/verification.md) | What is checked against the original engine's own output, and what is only checked against the games' files |
-| [`docs/departures.md`](docs/departures.md) | Every place motionvm knowingly does something else, and why |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How the code is laid out, tested and released |
+| [`docs/README.md`](docs/README.md) | The map of the technical documentation — one tree per engine family; MOTION's covers every file format, both virtual machines, the engine's subsystems, and a page per game and per script module |
+| [`docs/motion/tools.md`](docs/motion/tools.md) | `motionvm-motion-tools`, which reads a game's containers and writes out what it finds as ordinary files |
+| [`docs/motion/verification.md`](docs/motion/verification.md) | What is checked against the original engine's own output, and what is only checked against the games' files |
+| [`docs/motion/departures.md`](docs/motion/departures.md) | Every place motionvm knowingly does something else, and why |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the code is laid out: the two layers, the four levels of variance, and the seams between them |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to work in it: the conventions, the quality gate, adding a game, an engine build, or an engine family |
 
 ## Licensing
 
@@ -298,7 +311,7 @@ the object files or the sources have to be on offer. Distributed as source, as
 this is, that condition is already met; ship a pre-built binary and it becomes
 yours to meet. Every release therefore carries the source archive of its tag
 alongside the two zips, which is that means. [NOTICE](NOTICE) says so in full,
-and [`docs/motion32/engine/audio.md`](docs/motion32/engine/audio.md) says why
+and [`docs/motion/motion32/engine/audio.md`](docs/motion/motion32/engine/audio.md) says why
 that core was chosen anyway.
 
 **The games' own files are not covered by any of this.** They are not part of

@@ -1,0 +1,15 @@
+[package]
+name = "motionvm-playable"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The contract between the window and whatever game engine it drives"
+
+[dependencies]
+motionvm-render.workspace = true
+
+[lints]
+workspace = true

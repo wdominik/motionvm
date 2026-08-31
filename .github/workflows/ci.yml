@@ -2,7 +2,7 @@
 #
 # `just check` is the real gate and it runs the suite against a copy of the
 # game. The game's files are copyrighted and cannot be here, so CI runs the
-# same four commands without them: of the test suite's ~340 tests, the ~150
+# same four commands without them: of the test suite's ~400 tests, the ~230
 # that need the data skip themselves and say so. What this proves is that the
 # workspace builds, lints, documents and passes its data-free tests — on three
 # platforms rather than on the one it was written on.
@@ -56,7 +56,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # winit and cpal need X11/Wayland and ALSA headers to build at all. The
+      # winit and cpal need Wayland, xkbcommon, udev and ALSA headers to build
+      # at all. The
       # other two runners bring their equivalents with the OS.
       - name: System libraries (Linux)
         if: runner.os == 'Linux'

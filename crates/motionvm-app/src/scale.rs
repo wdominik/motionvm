@@ -10,10 +10,10 @@
 //! screen has room for".
 //!
 //! The pixel aspect a pair is measured against comes from the game, through
-//! `Playable::pixel_aspect`: square for the 32-bit engine's 640×480, 6:5 for
-//! the 16-bit engine's 320×200, which filled the same 4:3 monitor.
+//! `Playable::pixel_aspect`: square where the game's grid already matches its
+//! monitor, taller than wide where it did not.
 
-use motionvm_render::Framebuffer;
+use motionvm_playable::{Framebuffer, PixelAspect};
 
 /// How much bigger than the game the window is asked to be, to begin with —
 /// per axis, as everywhere here.
@@ -31,11 +31,11 @@ use motionvm_render::Framebuffer;
 /// title bar of a 1080p screen and three times — 1920x1440 — does not.
 /// The 16-bit games' 6:5 pixels get (3, 4) — 960×800 — because
 /// (2, 2) would show the squash this pair exists to correct.
-pub(crate) fn base_pair(aspect: (u32, u32)) -> (u32, u32) {
+pub(crate) fn base_pair(aspect: PixelAspect) -> (u32, u32) {
     let mut sx = 2;
     loop {
         let sy = tall(sx, aspect);
-        if sy * aspect.1 >= sx * aspect.0 {
+        if sy * aspect.width >= sx * aspect.height {
             return (sx, sy);
         }
         sx += 1;
@@ -48,8 +48,8 @@ pub(crate) fn base_pair(aspect: (u32, u32)) -> (u32, u32) {
 /// Exact where the aspect divides — for 6:5 pixels at sx of 5, 10, 15 — and
 /// at most half a row off between, which at those sizes is under five percent
 /// of the picture's shape. For square pixels it is `sx` itself.
-fn tall(sx: u32, aspect: (u32, u32)) -> u32 {
-    ((sx * aspect.0 + aspect.1 / 2) / aspect.1).max(1)
+fn tall(sx: u32, aspect: PixelAspect) -> u32 {
+    ((sx * aspect.height + aspect.width / 2) / aspect.width).max(1)
 }
 
 /// How many window pixels one game pixel gets, axis by axis: whole numbers,
@@ -61,7 +61,7 @@ fn tall(sx: u32, aspect: (u32, u32)) -> u32 {
 /// wrong place.
 pub(crate) fn scale_pair(
     game: (u32, u32),
-    aspect: (u32, u32),
+    aspect: PixelAspect,
     width: u32,
     height: u32,
 ) -> (u32, u32) {
@@ -83,15 +83,15 @@ pub(crate) fn scale_pair(
 /// step. For square pixels every pair is exact and this *is* `scale_pair`.
 pub(crate) fn opening_pair(
     game: (u32, u32),
-    aspect: (u32, u32),
+    aspect: PixelAspect,
     width: u32,
     height: u32,
 ) -> (u32, u32) {
     for sx in (1..=(width / game.0).max(1)).rev() {
-        if !(sx * aspect.0).is_multiple_of(aspect.1) {
+        if !(sx * aspect.height).is_multiple_of(aspect.width) {
             continue;
         }
-        let sy = sx * aspect.0 / aspect.1;
+        let sy = sx * aspect.height / aspect.width;
         if game.0 * sx <= width && game.1 * sy <= height {
             return (sx, sy);
         }
@@ -121,7 +121,7 @@ pub(crate) fn blit(
     out: &mut [u32],
     width: u32,
     height: u32,
-    aspect: (u32, u32),
+    aspect: PixelAspect,
 ) {
     let (sx, sy) = scale_pair(
         (frame.width as u32, frame.height as u32),
@@ -196,7 +196,7 @@ mod tests {
         out: &mut [u32],
         width: u32,
         height: u32,
-        aspect: (u32, u32),
+        aspect: PixelAspect,
     ) {
         out.fill(0);
         let (sx, sy) = scale_pair(
@@ -234,7 +234,7 @@ mod tests {
         (frame, colors)
     }
 
-    fn agree(frame: &Framebuffer, colors: &[u32; 256], cases: &[(u32, u32)], aspect: (u32, u32)) {
+    fn agree(frame: &Framebuffer, colors: &[u32; 256], cases: &[(u32, u32)], aspect: PixelAspect) {
         for &(w, h) in cases {
             // Prefilled with a color neither blit writes, so a pixel either
             // of them missed cannot pass as agreement.
@@ -265,7 +265,7 @@ mod tests {
                 (639, 481),                      // one pixel short, one over
                 (1, 1),                          // degenerate
             ],
-            (1, 1),
+            SQUARE,
         );
     }
 
@@ -284,16 +284,26 @@ mod tests {
                 (300, 180),   // smaller than the picture: clipped
                 (1, 1),       // degenerate
             ],
-            (6, 5),
+            TALL,
         );
     }
 
     /// The pairs the table in the docs promises, and that the old single
     /// scalar comes back out for square pixels.
+    /// Square pixels, and the 16-bit games' 5:6 ones.
+    const SQUARE: PixelAspect = PixelAspect {
+        width: 1,
+        height: 1,
+    };
+    const TALL: PixelAspect = PixelAspect {
+        width: 5,
+        height: 6,
+    };
+
     #[test]
     fn the_scale_pairs_are_the_documented_ones() {
         let game = (320, 200);
-        let par = (6, 5);
+        let par = TALL;
         for (w, h, want) in [
             (960, 800, (3, 4)),
             (1280, 1000, (4, 5)),
@@ -309,7 +319,7 @@ mod tests {
         // Square pixels: the pair is the old `min(w/gw, h/gh).max(1)` twice.
         for (w, h, want) in [(2560, 1920, 4), (700, 500, 1), (1, 1, 1)] {
             assert_eq!(
-                scale_pair((640, 480), (1, 1), w, h),
+                scale_pair((640, 480), SQUARE, w, h),
                 (want, want),
                 "{w}x{h}"
             );
@@ -318,10 +328,10 @@ mod tests {
         assert_eq!(opening_pair(game, par, 1920, 1600), (5, 6));
         assert_eq!(opening_pair(game, par, 3840, 2880), (10, 12));
         assert_eq!(opening_pair(game, par, 960, 800), (3, 4)); // none fits
-        assert_eq!(opening_pair((640, 480), (1, 1), 2560, 1920), (4, 4));
+        assert_eq!(opening_pair((640, 480), SQUARE, 2560, 1920), (4, 4));
         // And the window opens unsquashed: (2,2) for square pixels, (3,4)
         // for the 16-bit games' tall ones.
-        assert_eq!(base_pair((1, 1)), (2, 2));
-        assert_eq!(base_pair((6, 5)), (3, 4));
+        assert_eq!(base_pair(SQUARE), (2, 2));
+        assert_eq!(base_pair(TALL), (3, 4));
     }
 }

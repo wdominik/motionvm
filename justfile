@@ -7,7 +7,8 @@
 # The game data is not in the repository and cannot be. Point GAMEDATA_DS2 at
 # your copy of Dunkle Schatten 2, GAMEDATA_ENVIRO at your copy of Die
 # Enviro-Kids greifen ein, GAMEDATA_JEFFJET at your copy of Jeff Jet -
-# Abenteuer InfoHighway and GAMEDATA_HFA at your copy of Hilfe für Amajambere
+# Abenteuer InfoHighway, GAMEDATA_HFA at your copy of Hilfe für Amajambere and
+# GAMEDATA_VLOOMES at your copy of Victor Loomes – Das Spiel
 # — the defaults are directories next to this one, which
 # is where a checkout beside installed copies of the games finds them. Tests
 # that need data and cannot find it skip themselves; a *wrong* path panics
@@ -29,7 +30,7 @@ GAMEDATA_VLOOMES := DEFAULT_GAMEDATA_VLOOMES
 # built-in default is passed only when the data is really there — otherwise a
 # clone on a machine that has no copy of a game would panic on the very
 # command this file exists to define, instead of skipping the way the README
-# describes. The three 16-bit games are told apart by their engine binary: they
+# describes. The four 16-bit games are told apart by their engine binary: they
 # all ship a DATA.-1-, so probing for that would let any of those defaults match
 # another game's directory.
 _DATA_DS2 := if GAMEDATA_DS2 != DEFAULT_GAMEDATA_DS2 { GAMEDATA_DS2 } \
@@ -49,8 +50,11 @@ _DATA_VLOOMES := if GAMEDATA_VLOOMES != DEFAULT_GAMEDATA_VLOOMES { GAMEDATA_VLOO
     else { "" }
 
 # Savegames cannot be reconstructed, only played to, so there is no default that
-# could work. Set it to a directory holding one — `just test SAVES=…` — and the
-# savegame test runs; without it that one test skips itself and says so.
+# could work. Set it to the directory the games' own save directories are under
+# — the `saves/` the program writes, not `saves/ds2/` — because that is what
+# the engine is pointed at and it puts the game's name on itself. With one,
+# `just test SAVES=…` runs the savegame test; without it that one test skips
+# itself and says so.
 SAVES := ""
 
 _default:
@@ -133,3 +137,7 @@ run-hfa *ARGS:
 
 run-vloomes *ARGS:
     cargo run --release -p motionvm-app -- "{{ GAMEDATA_VLOOMES }}" {{ ARGS }}
+
+# The family's inspection CLI, from a checkout: `just tools info GAMEDIR`.
+tools *ARGS:
+    cargo run --release -p motionvm-motion-tools -- {{ARGS}}

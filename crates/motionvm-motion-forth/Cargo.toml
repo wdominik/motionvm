@@ -1,0 +1,18 @@
+[package]
+name = "motionvm-motion-forth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The two Forth machines that run MOTION's compiled script modules"
+
+[dependencies]
+motionvm-motion-formats.workspace = true
+
+[dev-dependencies]
+motionvm-motion-testutil.workspace = true
+
+[lints]
+workspace = true

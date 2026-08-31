@@ -1,36 +1,46 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/motionvm-formats",
-    "crates/motionvm-tools",
-    "crates/motionvm-forth",
+    # The neutral layer: no engine family is named below this comment's block.
     "crates/motionvm-render",
-    "crates/motionvm-audio",
-    "crates/motionvm-engine",
+    "crates/motionvm-playable",
     "crates/motionvm-app",
-    "crates/motionvm-testutil",
+    # The MOTION family, behind its front door.
+    "crates/motionvm-motion",
+    "crates/motionvm-motion-formats",
+    "crates/motionvm-motion-forth",
+    "crates/motionvm-motion-audio",
+    "crates/motionvm-motion-engine",
+    "crates/motionvm-motion-tools",
+    "crates/motionvm-motion-testutil",
+    # The workspace's own rig: tests over the tree itself.
+    "crates/motionvm-workspace-tests",
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.97.0"
 license = "MIT"
 authors = ["wdominik"]
 repository = "https://github.com/wdominik/motionvm"
-description = "A reimplementation of the MOTION engine, for the games built with it"
+description = "Rebuilt game engines, and a player for the games built with them"
 
 [workspace.dependencies]
-motionvm-formats = { path = "crates/motionvm-formats" }
-motionvm-forth = { path = "crates/motionvm-forth" }
+# The neutral layer.
 motionvm-render = { path = "crates/motionvm-render" }
-motionvm-audio = { path = "crates/motionvm-audio" }
-motionvm-engine = { path = "crates/motionvm-engine" }
+motionvm-playable = { path = "crates/motionvm-playable" }
 motionvm-app = { path = "crates/motionvm-app" }
-motionvm-testutil = { path = "crates/motionvm-testutil" }
+# The MOTION family.
+motionvm-motion = { path = "crates/motionvm-motion" }
+motionvm-motion-formats = { path = "crates/motionvm-motion-formats" }
+motionvm-motion-forth = { path = "crates/motionvm-motion-forth" }
+motionvm-motion-audio = { path = "crates/motionvm-motion-audio" }
+motionvm-motion-engine = { path = "crates/motionvm-motion-engine" }
+motionvm-motion-testutil = { path = "crates/motionvm-motion-testutil" }
 
 # The PNG codec. Encode only: the pictures the tools extract and the frame F12
-# writes. Nothing here decodes one.
+# writes. Nothing here decodes one. MIT OR Apache-2.0.
 png = "0.18"
 
 # The OPL3 itself. A pure-Rust port of Nuked-OPL3 that tests itself bit-for-bit
@@ -62,18 +72,17 @@ softbuffer = "0.4"
 # names none, and the message box that says why a chosen directory is not one.
 # MIT. Native on Windows and macOS, on the `windows-sys` and `objc2` crates
 # softbuffer and cpal already bring — not the ones winit brings, which are a
-# generation older on both axes: rfd resolves `windows-sys 0.61.2` as
-# softbuffer does, and `objc2 0.6.4`, `block2 0.6.2` and
-# `objc2-foundation 0.3.2` as cpal and softbuffer do, where winit 0.30.13 is
-# still on `windows-sys 0.52.0`, `objc2 0.5.2`, `block2 0.5.1` and
-# `objc2-foundation 0.2.2`. What rfd itself adds is `objc2-app-kit 0.3.2`, of
-# which it is the only user, and `pollster`, reached on the Linux path below.
-# Every one of the five pairs `cargo tree --duplicates` reports gets its older
-# half from winit and from nothing else, so dropping rfd would clear one of
-# the five and leave four standing. The bump that would clear them is winit's,
-# and the only release above 0.30.13 is `0.31.0-beta.2`, a pre-release that
-# also splits the crate into `winit-core`, `winit-x11` and `winit-wayland` —
-# hence 0.30 here.
+# generation older on both axes: rfd resolves `windows-sys` as softbuffer does
+# and `objc2`, `block2` and `objc2-foundation` as cpal and softbuffer do, while
+# winit 0.30 is a major version behind on every one of them. What rfd itself
+# adds is `objc2-app-kit`, of which it is the only user, and `pollster`,
+# reached on the Linux path below. `cargo tree --duplicates` is where to see
+# the state of this rather than a list here, which would be a list to maintain:
+# every duplicated pair it reports gets its older half from winit and from
+# nothing else, so dropping rfd would clear one of them and leave the rest
+# standing. The bump that would clear them is winit's, and the only release
+# above 0.30 is a pre-release that also splits the crate into `winit-core`,
+# `winit-x11` and `winit-wayland` — hence 0.30 here.
 # On Linux the XDG desktop portal, spoken over a `libdbus` that is loaded at
 # run time rather than linked, so nothing new is needed to build — at run time
 # it wants the `xdg-desktop-portal` service, which GNOME and KDE ship, and
