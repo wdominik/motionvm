@@ -224,24 +224,16 @@ impl Engine {
                     self.system_bg = color;
                 }
             }
-            // `( delay last first -- )`: the palette range that cycles, and
-            // how many driver ticks each step takes. `0104:5319` pops the
-            // three, and where `first >= last` it clears the cycling flag at
-            // `ds:0x5a4` and does nothing else; otherwise it sets the flag,
-            // stores delay, first and last, zeroes the tick counter at
-            // `ds:0x66f2`, sets the rotation amount at `ds:0x48f4` to one,
-            // and floors a delay below one at one. It answers nothing.
-            //
-            // The rotation itself is a frame effect — the tick at
-            // `0104:536d` copies the master palette over the working one and
-            // rewrites the entries between first and last each time the
-            // counter runs out. motionvm holds the request and does not turn
-            // it yet; see `docs/motion/departures.md`. Only Victor Loomes calls it,
-            // in location 13.
+            // `( delay last first -- )`: the rotating palette, armed here and
+            // turned once a frame by [`Engine::tick_palette_cycle`] — see
+            // [`crate::cycle`] for the handler (`0104:5319`) and its tick.
+            // With `first >= last` the handler only disarms the rotation,
+            // leaving the DAC as the last turn left it.
             "SETCYCLE" => {
                 let a = pop_n(stack, 3, "SETCYCLE")?;
                 let (delay, last, first) = (a[0], a[1], a[2]);
-                self.palette_cycle = (first < last).then(|| (first, last, delay.max(1)));
+                self.palette_cycle =
+                    (first < last).then(|| crate::cycle::PaletteCycle::new(first, last, delay));
             }
             // `( a b -- )`: two cells into two globals that nothing in either
             // build ever reads back — `0104:2824` stores them at `ds:0x150`
@@ -257,11 +249,11 @@ impl Engine {
             // reach the same routine through `DOWALK`, which reads the five
             // pointers out of a person record; this game has no `DOWALK` and
             // pops them itself (`0104:4a45` in `LL.EXE`, in this order).
-            //
-            // Two differences from the later builds are not carried yet, and
-            // both are noted in `docs/motion/open-questions.md`: this build does not
-            // default a zero shadow shrink to 1000, and it ends with a pass
-            // that smooths a one- or two-step heading flip out of the buffer.
+            // What this build's routine does differently — no default for a
+            // zero shrink, a closing pass over the headings — is read off
+            // the binary when the game opens, see
+            // [`Engine::walk_defaults_shrink`] and
+            // [`Engine::walk_smooths_headings`].
             "CROUTE" => {
                 let a = pop_n(stack, 5, "CROUTE")?;
                 // `pop_n` hands them back deepest first, and the handler pops
@@ -281,14 +273,36 @@ impl Engine {
             // nothing; `ENDTUNE ( -- )` (file `0xbfed`) takes nothing — where
             // the 32-bit pair answers a handle and takes it back. The shared
             // arms leaked one cell per location change here.
+            //
+            // Both go through the sound module's Play routine (`1696:02ce`;
+            // `LL.EXE` `0e87:01f2`), which runs the stop routine first when
+            // a tune is still playing — the fade, the half-second wait, the
+            // stop — and only then hands the driver the new song. Victor
+            // Loomes changes its music that way at every location, with no
+            // `ENDTUNE` between: the new tune is queued behind the wait.
             "STARTTUNE" => {
                 let a = pop_n(stack, 2, "STARTTUNE")?;
                 let (looping, tune) = (a[0], a[1]);
-                self.start_tune(tune, looping);
+                if self.tune_playing {
+                    self.end_tune16();
+                    if let Some(hold) = self.wipes.back_mut() {
+                        hold.then_tune = Some((tune, looping));
+                    }
+                } else {
+                    self.start_tune(tune, looping);
+                }
             }
+            // The stop routine (`1696:02fd`; the other three builds' are the
+            // same shape) does nothing while no tune is playing. Otherwise it
+            // starts the driver's 2000 ms fade-out and spins until the 200 Hz
+            // tick has counted 100 — half a second — before it stops the
+            // driver and returns. The audio side keeps that pair's timing on
+            // its own thread; the spin is a [`Wipe::hold`], queued where the
+            // script stands so that the room change waits for it as the
+            // original's does.
             "ENDTUNE" => {
-                if let Some(music) = self.music.as_mut() {
-                    music.stop(0);
+                if self.tune_playing {
+                    self.end_tune16();
                 }
             }
             "GSCRY" => {
@@ -325,5 +339,20 @@ impl Engine {
             self.rebuild.push((handle, (0, 0, w as i32, h as i32)));
         }
         self.dirty = true;
+    }
+}
+
+impl Engine {
+    /// The 16-bit stop routine (`1696:02fd`) with a tune playing: the
+    /// driver's fade-out begins, and the script waits half a second
+    /// ([`Wipe::hold`]) before the driver is stopped and the word returns.
+    /// The audio side keeps the pair's own timing — the fade at once, the
+    /// hard stop 500 ms in — so what is queued here is only the wait.
+    pub(crate) fn end_tune16(&mut self) {
+        self.tune_playing = false;
+        if let Some(music) = self.music.as_mut() {
+            music.stop(0);
+        }
+        self.wipes.push_back(Wipe::hold(Self::ENDTUNE_HOLD_TICKS));
     }
 }

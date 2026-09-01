@@ -11,6 +11,7 @@
 mod buffer;
 mod clock;
 mod curtain;
+mod cycle;
 mod descriptor;
 mod dialogue16;
 mod dialogue32;
@@ -134,9 +135,9 @@ pub struct Engine {
     /// the read 16-bit behavior. The 32-bit pair is unread and keeps the
     /// plain on/off it always had here.
     pub(crate) pointer_counted: bool,
-    /// The palette range `SETCYCLE` asked to cycle and the tick delay per
-    /// step, or `None` where it asked for none. Held, not turned.
-    pub(crate) palette_cycle: Option<(i32, i32, i32)>,
+    /// The palette rotation `SETCYCLE` asked for, or `None` where it asked
+    /// for none — turned once a frame by [`Engine::tick_palette_cycle`].
+    pub(crate) palette_cycle: Option<cycle::PaletteCycle>,
     /// The message box the game is waiting on, if it is waiting on one.
     pub(crate) request: Option<crate::request::Request>,
     /// Whether `?XINSIDE` passes over a hot area whose four corners are all
@@ -148,6 +149,20 @@ pub struct Engine {
     /// record of four zeros as a hole and `?XINSIDE` applies the same rule
     /// (the click dispatch at `0x7ce73` and its area walk).
     pub(crate) skips_holes: bool,
+    /// Whether `CROUTE` takes a shadow record's zero shrink as 1000 for the
+    /// walk's first step. The 32-bit routine does (`0x778ca`) and so does
+    /// `ENVIRO.EXE` (`0a40:1176`); `HPPLAY.EXE`, `BMZ.EXE` and `LL.EXE` copy
+    /// the field as it stands. Read off the binary the game was opened with
+    /// ([`motionvm_motion_formats::m16::mz::croute_defaults_shrink`]); the
+    /// default is the 32-bit reading.
+    pub(crate) walk_defaults_shrink: bool,
+    /// Whether `CROUTE` ends with `LL.EXE`'s pass over the finished buffer
+    /// (`0104:516d`), which rewrites the heading of a run of one or two
+    /// steps that sits between a run of three or more and a run of one or
+    /// more heading the same way, when the short run's heading and theirs
+    /// fall on different sides of 2. No other build has it
+    /// ([`motionvm_motion_formats::m16::mz::croute_smooths_headings`]).
+    pub(crate) walk_smooths_headings: bool,
     /// Set when the game asks for a redraw. A still frame is composed on
     /// demand, so this only records that it was asked for.
     pub(crate) dirty: bool,
@@ -396,6 +411,14 @@ pub struct Engine {
     /// original answers with its SOS sequence handle; nothing in the game does
     /// anything with the number except hand it back to `ENDTUNE`.
     next_tune: i32,
+    /// Whether a tune has been started and not yet ended — the 16-bit stop
+    /// routine's own flag (`ENVIRO.EXE` `ds:18f4`, `LL.EXE` `ds:13dc`), set
+    /// when a song starts and cleared by `ENDTUNE`, which does nothing at
+    /// all — no fade, no wait — while it is clear. Whether the driver clears
+    /// it when a non-looping song plays out is unread; every stop the games
+    /// ask for comes while a song is still playing, and Victor Loomes'
+    /// jingle, played once, still gets its fade.
+    pub(crate) tune_playing: bool,
     /// The off-screen buffers of the 16-bit kernel's `SETBUF`/`SDBUF`/`BUFON`
     /// family — see [`buffer::Buffers`]. Empty for the 32-bit game, whose
     /// `SETBUF` is inert.
@@ -808,6 +831,8 @@ impl Engine {
             // The 32-bit handler's own walk tests for it; the 16-bit opener
             // overrides this from the build it read.
             skips_holes: true,
+            walk_defaults_shrink: true,
+            walk_smooths_headings: false,
             dirty: false,
             rebuild: Vec::new(),
             controller: None,
@@ -846,6 +871,7 @@ impl Engine {
             wipes: std::collections::VecDeque::new(),
             music: None,
             next_tune: 1,
+            tune_playing: false,
             buffers: buffer::Buffers::default(),
             backing: crate::draw::BackingCache::default(),
             video: Framebuffer::new(width, height),
@@ -896,6 +922,11 @@ impl Engine {
     /// Polls of the pointer or a key one frame may make before the word is
     /// taken to be waiting for input; see [`Engine::polls`].
     pub(crate) const POLL_BUDGET: u32 = 256;
+
+    /// How long `ENDTUNE` holds the 16-bit game after starting the music's
+    /// fade-out: the stop routine spins until the 200 Hz tick reads 100
+    /// (`ENVIRO.EXE` `1696:031d`, `cmp $0x64`) — 500 ms. See [`Wipe::hold`].
+    pub(crate) const ENDTUNE_HOLD_TICKS: i32 = 100;
 
     /// One poll of the pointer or the key buffer by the bytecode.
     pub(crate) fn polled(&mut self) {

@@ -50,16 +50,11 @@ impl Engine {
             // a reminder that its boundaries are inferred from the next
             // handler's address, not from the code.
             //
-            // Neither reloads a module's bytes. In the original a location's
-            // modules come back from the resource file pristine, so their
-            // variables reset on every re-entry; here they persist. That is a
-            // difference of its own, older than saving and not touched by it —
-            // for the location a savegame is *in* the end state is the same,
-            // because `=>GETAS` overwrites all of it anyway.
-            "=>GET" => {
-                let n = pop1(stack, "=>GET")?;
-                self.mark_resident(n.max(0) as u32);
-            }
+            // `=>GET` itself is answered by the machine's host, because
+            // reloading a module's image needs the machine: in the original a
+            // location's modules come back from the resource file pristine,
+            // and their variables reset on every re-entry. `=>ERASE` only
+            // frees the slot — the original moves no memory either.
             "=>ERASE" => {
                 let n = pop1(stack, "=>ERASE")?;
                 self.mark_gone(n.max(0) as u32);

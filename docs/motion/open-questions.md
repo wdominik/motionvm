@@ -180,14 +180,16 @@ something the others do not. What is open:
   its place (the ledger records the departure). Reading it settles whether
   the two engines' keyboards really agree past the plain character byte.
 
-- **Two differences in `CROUTE`** between `LL.EXE` (`0104:4a45`) and
-  `ENVIRO.EXE` (`0a40:10d0`), neither carried yet. The older build does not
-  default a zero shadow shrink to 1000, where the later one does
-  (`0a40:1176`); and it ends with a pass the later one has no counterpart to
-  (`0104:516d`–`0x5315`), which rewrites the heading of a run of one or two
-  steps that sits between two longer runs heading the same way — a
-  direction-flip suppressor. Both change how a walk looks, not where it goes.
-  ([LL.EXE](motion16/engine/ll-exe.md))
+- **Whether the driver clears the playing flag when a song plays out.**
+  The sound module's flag (`ENVIRO.EXE` `ds:18f4`, `LL.EXE` `ds:13dc`) is
+  set when the driver starts a song and cleared by the stop routine, and
+  while it is clear `ENDTUNE` neither fades nor waits. Whether the driver's
+  own end-of-song path clears it too is unread; it decides whether a stop
+  asked for after a non-looping song has played out still holds the game
+  half a second. Every stop the games ask for comes over a playing song,
+  and Victor Loomes' jingle, played once, still gets its fade in the
+  recording — so at least there the flag stood.
+  ([PSM 2 music](motion16/formats/psm-music.md))
 - **What *Motion 1.0* is, and who Michel "Babe" Stigler and EGO Software
   are.** Victor Loomes' credits close on *Erstellt unter · Motion 1.0 ·
   Michel "Babe" Stigler · EGO Software*. Two of the five games name the

@@ -46,7 +46,11 @@ slots and copies the two memory regions back, taking their sizes from the
 *running* descriptor: it reads the module number and the descriptor into
 the cursor and then ignores both. **The mapping is purely positional**,
 and it works only because the loaded set is identical on both sides —
-which is what `INCLLOC`, running before `=>GETAS`, guarantees.
+which is what `INCLLOC`, running before `=>GETAS`, guarantees. `=>GET`
+itself (`0x64999`) loads the module out of the resource file every time it
+is asked, so a location's three modules come back pristine on every entry
+and their variables start over; the savegame's image is what `=>GETAS` lays
+over that fresh copy.
 
 Two of the forty-eight descriptor bytes in each record are live DOS4GW
 heap addresses. Neither reader looks at them.

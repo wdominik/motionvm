@@ -569,3 +569,61 @@ fn a_door_changes_the_palette_only_behind_the_wipe() {
     assert_eq!(game.get_var(601, "ACTLOC"), Some(7), "the door was taken");
     assert!(switches >= 1, "the transition switched the palette");
 }
+
+/// `ENDTUNE`'s stop routine (`1696:02fd`) starts the music's fade-out and
+/// then spins until the 200 Hz tick has counted 100 before it returns to
+/// the script — half a second in which the frame loop does not turn.
+/// `INCLLOC` calls it between the closing wipe and the opening one, so on
+/// a door walk there is exactly one step that long, and the view is black
+/// while it stands.
+#[test]
+fn ending_the_tune_holds_the_room_change_for_half_a_second() {
+    let Some(dir) = gamedata_enviro() else {
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
+        return;
+    };
+    // The flag the stop routine tests is set by a song the driver started,
+    // so a game with no music has no wait either; a sink that plays nothing
+    // stands in for the driver here.
+    struct Silent;
+    impl motionvm_motion_engine::MusicSink for Silent {
+        fn start(&mut self, _handle: i32, _tune: i32, _looping: bool, _song: &[u8]) {}
+        fn stop(&mut self, _handle: i32) {}
+    }
+    let mut game = settled_in_the_game(&dir);
+    game.set_music(Box::new(Silent));
+    game.request_location(15).expect("NEXTLOC");
+    for frame in 1..=200 {
+        game.set_input(2, 2, false, false, 0).expect("input");
+        game.step()
+            .unwrap_or_else(|e| panic!("supermarket frame {frame} stopped: {e}"));
+    }
+    assert_eq!(game.get_var(601, "ACTLOC"), Some(15));
+
+    let half_second = std::time::Duration::from_millis(500);
+    let mut holds = 0;
+    for frame in 0..=900 {
+        let click = frame == 0;
+        game.set_input(3, 42, click, false, 0).expect("input");
+        game.step()
+            .unwrap_or_else(|e| panic!("walk-out frame {frame} stopped: {e}"));
+        if game.frame_duration() == Some(half_second) {
+            holds += 1;
+            let fb = game.render();
+            let w = fb.width as usize;
+            let lit = fb.pixels[..160 * w].iter().filter(|&&p| p != 0).count();
+            assert_eq!(
+                lit, 0,
+                "walk-out frame {frame}: the hold stands on a lit view"
+            );
+        }
+        if game.get_var(601, "ACTLOC") == Some(7)
+            && game.get_var(601, "NEXTLOC") == Some(-1)
+            && !game.engine.in_transition()
+        {
+            break;
+        }
+    }
+    assert_eq!(holds, 1, "one half-second step per room change with music");
+    assert_eq!(game.get_var(601, "ACTLOC"), Some(7), "the door was walked");
+}

@@ -635,8 +635,11 @@ pub(crate) fn croute_with(
     set_step(mem, steps, 0, T_Y, y)?;
     let z = aux(mem, extra, at, A_Z)?;
     set_step(mem, steps, 0, T_Z, z)?;
+    // A zero shrink is 1000 in the 32-bit routine (`0x778ca`) and in
+    // `ENVIRO.EXE` (`0a40:1176`); the other three 16-bit builds copy the
+    // field as it stands — see [`Engine::walk_defaults_shrink`].
     let shrink = match get(mem, shadow, S_SHRINK)? {
-        0 => 1000,
+        0 if eng.walk_defaults_shrink => 1000,
         v => v,
     };
     set_step(mem, steps, 0, T_SHRINK, shrink)?;
@@ -764,6 +767,69 @@ pub(crate) fn croute_with(
     // 0x78241: room left over means the path ended, and the end is a Z of −1.
     if i < room {
         set_step(mem, steps, i, T_Z, -1)?;
+    }
+    if eng.walk_smooths_headings {
+        smooth_headings(mem, steps, room)?;
+    }
+    Ok(())
+}
+
+/// The pass `LL.EXE`'s `CROUTE` closes with (`0104:516d`–`0x5318`), over the
+/// buffer the loop above has just filled.
+///
+/// It walks the buffer as runs of equal heading — the field as the loop left
+/// it, so a leg's later steps, which carry −1, are a run of their own. Where
+/// a run of at least three steps is followed by a run of one or two whose
+/// heading sits on the other side of 2 from it (0, 1 or 2 against 3 and
+/// up, or the reverse), and that by a run of at least one step heading the
+/// same way as the first, the short run is rewritten to the first run's
+/// heading (`0x52da`–`0x52f7`) and the walk goes on from where the third run
+/// *ended* — so that run is never a first run of its own; otherwise it goes
+/// on from the second run's first step. The pass stops at an end marker
+/// (`0x530b`), but a run does not: inside a run the marker is tested only
+/// together with an index at or past `room` (`0x5189`–`0x51a2`), so a run
+/// reads on through the marker while the headings beyond it — whatever an
+/// earlier, longer walk left there — keep matching, and what it finds
+/// there counts.
+///
+/// One bound is this engine's: a run stops at `room` where the original's
+/// would read on into whatever memory follows the buffer.
+fn smooth_headings(mem: &mut dyn AddressSpace, steps: u32, room: i32) -> Result<()> {
+    let heading = |mem: &dyn AddressSpace, i: i32| step_at(mem, steps, i, T_HEADING);
+    let ended =
+        |mem: &dyn AddressSpace, i: i32| Ok::<bool, Error>(step_at(mem, steps, i, T_Z)? == -1);
+    let run_end = |mem: &dyn AddressSpace, from: i32, h: i32| -> Result<i32> {
+        let mut i = from;
+        while i < room && heading(mem, i)? == h {
+            i += 1;
+        }
+        Ok(i)
+    };
+    let mut si = 0;
+    while si < room && !ended(mem, si)? {
+        let h1 = heading(mem, si)?;
+        let i = run_end(mem, si, h1)?;
+        if i >= room || ended(mem, i)? {
+            si = i;
+            continue;
+        }
+        let h2 = heading(mem, i)?;
+        let di = run_end(mem, i, h2)?;
+        if di >= room || ended(mem, di)? || heading(mem, di)? != h1 {
+            si = i;
+            continue;
+        }
+        let j = run_end(mem, di, h1)?;
+        let (len1, len2, len3) = (i - si, di - i, j - di);
+        let across = (h2 <= 2 && h1 >= 3) || (h2 >= 3 && h1 <= 2);
+        if !across || len2 > 2 || len1 < 3 || len3 < 1 {
+            si = i;
+            continue;
+        }
+        for k in i..di {
+            set_step(mem, steps, k, T_HEADING, h1)?;
+        }
+        si = j;
     }
     Ok(())
 }
@@ -1209,4 +1275,146 @@ fn facing(mem: &dyn AddressSpace, p: &Plan, extra: u32, shadow: u32) -> Result<i
         };
     }
     Ok(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A flat, four-byte-celled memory: enough of an [`AddressSpace`] for
+    /// the step buffer the closing pass reads and writes.
+    struct Flat(Vec<i32>);
+
+    impl AddressSpace for Flat {
+        fn fetch_cell(&self, raw: i32) -> Result<i32> {
+            Ok(self.0[raw as usize / 4])
+        }
+        fn store_cell(&mut self, raw: i32, value: i32) -> Result<()> {
+            self.0[raw as usize / 4] = value;
+            Ok(())
+        }
+        fn fetch_byte(&self, raw: i32) -> Result<u8> {
+            Ok((self.0[raw as usize / 4] >> (8 * (raw % 4))) as u8)
+        }
+        fn read_bytes(&self, _raw: i32, _n: usize) -> Result<Vec<u8>> {
+            Err(Error::Unsupported("bytes".into()))
+        }
+        fn write_bytes(&mut self, _raw: i32, _bytes: &[u8]) -> Result<()> {
+            Err(Error::Unsupported("bytes".into()))
+        }
+        fn offset(&self, raw: i32, bytes: i32) -> i32 {
+            raw + bytes
+        }
+        fn cell_size(&self) -> i32 {
+            4
+        }
+        fn callable(&self, raw: i32) -> i32 {
+            raw
+        }
+        fn is_live(&self, _raw: i32) -> bool {
+            true
+        }
+        fn module_image(&self, _module: u32) -> Option<Vec<u8>> {
+            None
+        }
+        fn restore_module(&mut self, _module: u32, _image: &[u8]) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    const ROOM: i32 = 16;
+
+    /// A step buffer holding `headings`, closed with the end marker.
+    fn buffer(headings: &[i32]) -> Flat {
+        let mut mem = Flat(vec![0; ROOM as usize * STEP as usize / 4 + 8]);
+        for (i, &h) in headings.iter().enumerate() {
+            set_step(&mut mem, 0, i as i32, T_HEADING, h).unwrap();
+        }
+        set_step(&mut mem, 0, headings.len() as i32, T_Z, -1).unwrap();
+        mem
+    }
+
+    fn headings(mem: &Flat, n: usize) -> Vec<i32> {
+        (0..n as i32)
+            .map(|i| step_at(mem, 0, i, T_HEADING).unwrap())
+            .collect()
+    }
+
+    fn smoothed(input: &[i32]) -> Vec<i32> {
+        let mut mem = buffer(input);
+        smooth_headings(&mut mem, 0, ROOM).unwrap();
+        headings(&mem, input.len())
+    }
+
+    /// The pass as read: three or more one way, one or two the other way
+    /// across 2, one or more back — the short run takes the long run's
+    /// heading.
+    #[test]
+    fn a_short_flip_between_two_runs_is_rewritten() {
+        assert_eq!(smoothed(&[3, 3, 3, 1, 3, 3]), [3, 3, 3, 3, 3, 3]);
+        assert_eq!(smoothed(&[3, 3, 3, 1, 1, 3]), [3, 3, 3, 3, 3, 3]);
+        assert_eq!(smoothed(&[0, 0, 0, 0, 7, 0]), [0, 0, 0, 0, 0, 0]);
+    }
+
+    /// A leg's later steps carry −1, which sits on the low side of 2: a
+    /// single leg start heading 3 or up between them loses its heading.
+    #[test]
+    fn a_leg_start_after_a_long_leg_is_folded_into_it() {
+        assert_eq!(smoothed(&[-1, -1, -1, 5, -1]), [-1, -1, -1, -1, -1]);
+        assert_eq!(smoothed(&[-1, -1, -1, 2, -1]), [-1, -1, -1, 2, -1]);
+    }
+
+    /// What the pass leaves alone: a first run under three, a middle run
+    /// over two, a flip that stays on one side of 2, no run to come back
+    /// to, and a middle run that does not lead back to the first heading.
+    #[test]
+    fn everything_else_stands() {
+        assert_eq!(smoothed(&[3, 3, 1, 3]), [3, 3, 1, 3]);
+        assert_eq!(smoothed(&[3, 3, 3, 1, 1, 1, 3]), [3, 3, 3, 1, 1, 1, 3]);
+        assert_eq!(smoothed(&[3, 3, 3, 5, 3]), [3, 3, 3, 5, 3]);
+        assert_eq!(smoothed(&[1, 1, 1, 3]), [1, 1, 1, 3]);
+        assert_eq!(smoothed(&[3, 3, 3, 1, 4]), [3, 3, 3, 1, 4]);
+        assert_eq!(smoothed(&[]), Vec::<i32>::new());
+    }
+
+    /// After a rewrite the walk goes on from where the third run ended, so
+    /// that run is never a first run of its own: a second flip right behind
+    /// it stands, and one behind a fresh run of three is rewritten.
+    #[test]
+    fn the_pass_goes_on_past_the_third_run() {
+        assert_eq!(
+            smoothed(&[3, 3, 3, 1, 3, 3, 3, 2, 3]),
+            [3, 3, 3, 3, 3, 3, 3, 2, 3]
+        );
+        assert_eq!(
+            smoothed(&[3, 3, 3, 1, 3, 4, 4, 4, 1, 4]),
+            [3, 3, 3, 3, 3, 4, 4, 4, 4, 4]
+        );
+    }
+
+    /// A run reads on through the end marker while the headings beyond it
+    /// keep matching: what an earlier walk left there counts. A run that
+    /// *ends* on the marker ends the pass (`0x51bc`, `0x5225`).
+    #[test]
+    fn a_run_reads_on_through_the_marker() {
+        // Live: three 3s and a 1. The marker at 4 still carries a 1 from an
+        // earlier walk, so the short run reaches past it, and the stale 3s
+        // behind it make the third run.
+        let mut mem = buffer(&[3, 3, 3, 1]);
+        set_step(&mut mem, 0, 4, T_HEADING, 1).unwrap();
+        for i in 5..8 {
+            set_step(&mut mem, 0, i, T_HEADING, 3).unwrap();
+        }
+        smooth_headings(&mut mem, 0, ROOM).unwrap();
+        assert_eq!(headings(&mem, 4), [3, 3, 3, 3]);
+
+        // With the marker itself heading 3, the short run ends on it, and
+        // the pass stops there.
+        let mut mem = buffer(&[3, 3, 3, 1]);
+        for i in 4..8 {
+            set_step(&mut mem, 0, i, T_HEADING, 3).unwrap();
+        }
+        smooth_headings(&mut mem, 0, ROOM).unwrap();
+        assert_eq!(headings(&mem, 4), [3, 3, 3, 1]);
+    }
 }

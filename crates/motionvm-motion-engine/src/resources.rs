@@ -343,6 +343,7 @@ impl Engine {
         if let Some(music) = self.music.as_mut() {
             music.start(handle, tune, looping != 0, &song);
         }
+        self.tune_playing = true;
         handle
     }
 }

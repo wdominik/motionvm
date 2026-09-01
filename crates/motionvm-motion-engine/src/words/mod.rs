@@ -48,6 +48,7 @@ mod transitions;
 
 use crate::Engine;
 use crate::order;
+use motionvm_motion_formats::m32::ScrModule;
 use motionvm_motion_forth as forth;
 use motionvm_motion_forth::m32;
 use motionvm_motion_forth::{Address, Host, Machine};
@@ -68,6 +69,26 @@ impl Host<m32::Vm> for Engine {
         // the machine, not just its stack and memory.
         if name == "DOORDER" {
             return self.do_order(vm, order::M32_RULES);
+        }
+        // `( module -- )`: `=>GET` (0x64999) loads `%03d.SCR` out of the
+        // resource file into the first free descriptor slot — a fresh copy
+        // every time, so a location's modules come back pristine on every
+        // re-entry and their variables start over. The machine here holds
+        // every module from the start, so what the word does is put the
+        // container's image back over the one in memory, which is the same
+        // reset; the slot bookkeeping is [`Engine::mark_resident`]. A module
+        // the container does not hold is only marked, as before: the first
+        // `INCLLOC` asks for 100, 200 and 300 while `_ACTLOC` is still zero.
+        if name == "=>GET" {
+            let n = crate::stack::pop1(&mut vm.data, "=>GET")?;
+            let n = n.max(0) as u32;
+            self.mark_resident(n);
+            if let Some(item) = self.resources.as_ref().and_then(|r| r.script(n))
+                && let Ok(parsed) = ScrModule::parse(&item)
+            {
+                vm.load(&item, &parsed);
+            }
+            return Ok(true);
         }
         let m32::Vm { data, mem, .. } = vm;
         self.plain_word32(name, data, mem)

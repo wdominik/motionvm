@@ -141,9 +141,11 @@ locations 4, 5 and 10 set before they send the player here, so the room is a
 transit whose exit belongs to whoever entered it.
 
 It is also the only location that asks for a cycling palette: `SETCYCLE` occurs
-in modules 33 and 113 and nowhere else in the game. motionvm records the
-request and leaves the palette as it stands
-([departures](../../departures.md#the-16-bit-machine)).
+in modules 33 and 113 and nowhere else in the game. The room's macro arms
+`1 127 32 SETCYCLE`, and from then on the kernel's tick (`0104:536d`, once a
+frame after the blit) moves entries 32 through 127 up by one more than the
+frame before, wrapping inside the range; `DO_TIME_1` and `DO_TIME_2` disarm
+it with `1 0 0 SETCYCLE` once the descriptor they shrink is under half size.
 
 ## Hotspots, items, verbs
 
@@ -202,7 +204,11 @@ Module 609 is the walk machinery — `WALKER` at 927 cells, `NPCWALKING` at
 itself is laid out by the kernel's `CROUTE`, which this game calls directly
 with its five pointers on the stack; the later games reach the same routine
 through `DOWALK`, a word this build's kernel does not have
-([`LL.EXE`](../../motion16/engine/ll-exe.md)).
+([`LL.EXE`](../../motion16/engine/ll-exe.md)). This build's routine differs
+in two things, both read off the binary when the game opens: a zero shrink
+is copied as it stands rather than taken as 1000, and a closing pass folds a
+one- or two-step heading flip between longer runs into the heading around
+it (`0104:516d`).
 
 ## Saving
 

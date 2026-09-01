@@ -263,6 +263,95 @@ pub fn skips_empty_areas(img: &Image, words: &[KernelWord]) -> bool {
         .is_some_and(|body| body.windows(HOLE_TEST.len()).any(|w| w == HOLE_TEST))
 }
 
+/// Whether a byte pattern — `None` a wildcard — lies within `reach` bytes of
+/// a kernel word's handler. How a build's variant of a routine is told apart:
+/// by what the routine holds, not by which game shipped it.
+fn handler_holds(
+    img: &Image,
+    words: &[KernelWord],
+    name: &str,
+    reach: usize,
+    pat: &[Option<u8>],
+) -> bool {
+    let Some(w) = words.iter().find(|w| w.name == name) else {
+        return false;
+    };
+    let at = w.handler as usize;
+    let data = img.bytes();
+    data.get(at..data.len().min(at + reach))
+        .is_some_and(|body| {
+            body.windows(pat.len())
+                .any(|w| w.iter().zip(pat).all(|(b, p)| p.is_none_or(|p| p == *b)))
+        })
+}
+
+/// How far the walk builder's body reaches from `CROUTE`'s entry: past the
+/// longest of the four (`LL.EXE`'s, `0x8d4` bytes with its closing pass) and
+/// short of the routines behind it.
+const CROUTE_REACH: usize = 0xa00;
+
+/// Whether this build's `CROUTE` takes a shadow record's zero shrink as 1000
+/// for the walk's first step.
+///
+/// `ENVIRO.EXE` does (`0a40:116f`–`0x1183`: `cmpw $0, %es:0x1c(%bx)`, then
+/// `mov $0x3e8, %ax` on the zero branch), as the 32-bit routine does
+/// (`0x778ca`). `HPPLAY.EXE` (`0a16:116c`), `BMZ.EXE` (`0a3f:1170`) and
+/// `LL.EXE` (`0104:4ae4`) copy the field as it stands. Read off the handler:
+/// the comparison and the immediate together, nine bytes with the branch
+/// displacement left open.
+pub fn croute_defaults_shrink(img: &Image, words: &[KernelWord]) -> bool {
+    const TEST_AND_DEFAULT: [Option<u8>; 10] = [
+        Some(0x26),
+        Some(0x83),
+        Some(0x7f),
+        Some(0x1c),
+        Some(0x00), // cmpw $0, %es:0x1c(%bx)
+        Some(0x75),
+        None, // jne
+        Some(0xb8),
+        Some(0xe8),
+        Some(0x03), // mov $0x3e8, %ax
+    ];
+    handler_holds(img, words, "CROUTE", CROUTE_REACH, &TEST_AND_DEFAULT)
+}
+
+/// Whether this build's `CROUTE` ends with the pass that rewrites the heading
+/// of a short run of steps between two longer runs — `LL.EXE`'s
+/// `0104:516d`–`0x5318`, which no later build has.
+///
+/// Read off the handler by the pass's own tests: the two run headings held
+/// against 2 and 3 on both sides (`0104:52b0`–`0x52c6`), four compare-and-
+/// branch pairs on frame locals whose offsets are the compiler's and are
+/// left open.
+pub fn croute_smooths_headings(img: &Image, words: &[KernelWord]) -> bool {
+    const SIDE_TESTS: [Option<u8>; 23] = [
+        Some(0x83),
+        Some(0x7e),
+        None,
+        Some(0x02),
+        Some(0x7f),
+        None, // cmpw $2, h2; jg
+        Some(0x83),
+        Some(0x7e),
+        None,
+        Some(0x03),
+        Some(0x7d),
+        None, // cmpw $3, h1; jge
+        Some(0x83),
+        Some(0x7e),
+        None,
+        Some(0x03),
+        Some(0x7c),
+        None, // cmpw $3, h2; jl
+        Some(0x83),
+        Some(0x7e),
+        None,
+        Some(0x02),
+        Some(0x7f), // cmpw $2, h1; jg
+    ];
+    handler_holds(img, words, "CROUTE", CROUTE_REACH, &SIDE_TESTS)
+}
+
 /// The bytecode ordinal for a kernel word: its index plus its table's base.
 ///
 /// `domain_base` is what [`placeholder_count`] settles; the core table is

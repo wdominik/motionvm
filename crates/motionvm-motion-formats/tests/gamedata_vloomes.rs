@@ -307,3 +307,46 @@ fn this_builds_hot_area_test_has_no_hole_case() {
         );
     }
 }
+
+/// The walk builder's two build variants, read off `CROUTE`'s body.
+///
+/// This build copies a shadow's zero shrink as it stands (`0104:4ae4`) and
+/// closes with the pass over the headings (`0104:516d`). Neither is the
+/// generation's: only `ENVIRO.EXE` defaults the shrink (`0a40:1176`), as the
+/// 32-bit routine does, and no other build has the pass.
+#[test]
+fn this_builds_walk_builder_keeps_a_zero_shrink_and_smooths_headings() {
+    let Some(dir) = gamedata_vloomes() else {
+        eprintln!("skipping: no Victor Loomes gamedata directory");
+        return;
+    };
+    let img = mz::Image::open(game_file(&dir, "LL.EXE")).expect("LL.EXE opens");
+    let words = mz::kernel_words(&img);
+    assert!(!mz::croute_defaults_shrink(&img, &words));
+    assert!(mz::croute_smooths_headings(&img, &words));
+
+    for (other, defaults) in [
+        (motionvm_motion_testutil::gamedata_enviro(), true),
+        (motionvm_motion_testutil::gamedata_jeffjet(), false),
+        (motionvm_motion_testutil::gamedata_hfa(), false),
+    ] {
+        let Some(other) = other else { continue };
+        let exe = ["ENVIRO.EXE", "HPPLAY.EXE", "BMZ.EXE"]
+            .into_iter()
+            .find_map(|n| motionvm_motion_formats::find_ci(&other, n))
+            .expect("an engine binary");
+        let img = mz::Image::open(&exe).expect("the binary opens");
+        let words = mz::kernel_words(&img);
+        assert_eq!(
+            mz::croute_defaults_shrink(&img, &words),
+            defaults,
+            "{}",
+            exe.display()
+        );
+        assert!(
+            !mz::croute_smooths_headings(&img, &words),
+            "{}",
+            exe.display()
+        );
+    }
+}

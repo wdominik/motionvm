@@ -195,19 +195,19 @@ in `motionvm-motion-engine` names a title.
 ## Behavior differences are named capabilities
 
 Where the two generations really do behave differently, the engine carries
-eleven named booleans and a savegame layout — `opaque_blocks`, `text_runs`,
+thirteen named booleans and a savegame layout — `opaque_blocks`, `text_runs`,
 `per_screen_descriptors`, `skips_holes` and the rest — each documented with the
 disassembly address it was measured at. They default to the 32-bit reading and
-are flipped in one place, `Engine::with_container`, with a single exception:
-`skips_holes` is probed from the shipped binary, so the 16-bit opener writes
-what it read.
+are flipped in one place, `Engine::with_container`, with three exceptions:
+`skips_holes`, `walk_defaults_shrink` and `walk_smooths_headings` are probed
+from the shipped binary, so the 16-bit opener writes what it read.
 
 Ten of them are, today, two-valued functions of "is this the 16-bit engine",
 and collapsing them into a generation enum would lose nothing that is currently
 true. It is deliberately not done. Each was *measured separately*, each names a
-behavior rather than a version, and `skips_holes` already varies within a
-generation — which is the whole case for capabilities over version tests in a
-family whose next build is unknown.
+behavior rather than a version, and `skips_holes` and the walk builder's two
+already vary within a generation — which is the whole case for capabilities
+over version tests in a family whose next build is unknown.
 
 ## The rule for sharing, and the rule for not
 

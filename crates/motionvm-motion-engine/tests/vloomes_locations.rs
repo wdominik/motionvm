@@ -326,3 +326,70 @@ fn a_request_moves_the_game_to_another_location() {
     assert!(resident.contains(&24), "location 4's macro module");
     assert!(!resident.contains(&101), "location 1's was dropped");
 }
+
+/// The time machine (location 13) arms `1 127 32 SETCYCLE`, and from then
+/// on every completed frame turns palette entries 32 through 127 by one
+/// more than the frame before (`0104:536d`, called at the end of every
+/// `ANIMPLAY` pass). Entries outside the range never move.
+#[test]
+fn the_time_machine_turns_its_palette_a_step_further_every_frame() {
+    let Some(mut game) = into_the_game() else {
+        eprintln!("skipping: no Victor Loomes gamedata directory");
+        return;
+    };
+    game.request_location(13).expect("ask for the time machine");
+    let mut arrived = false;
+    for frame in 0..600 {
+        game.set_input(160, 100, false, false, 0).expect("input");
+        game.pump().expect("pump");
+        game.step()
+            .unwrap_or_else(|e| panic!("time machine frame {frame} stopped: {e}"));
+        if game.get_var(605, "AO") == Some(13) && !game.engine.in_transition() {
+            arrived = true;
+            break;
+        }
+    }
+    assert!(arrived, "location 13 was never entered");
+
+    // The room's own init arms the cycle and opens with a wipe, and no
+    // frame completes while the wipe runs — so the first frame on which the
+    // palette moves is the first turn, and the base the later turns are
+    // measured against.
+    let entry = |pal: &[u8], i: usize| [pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2]];
+    let still = game.palette().raw.to_vec();
+    let mut base = None;
+    for frame in 0..300 {
+        game.set_input(160, 100, false, false, 0).expect("input");
+        game.pump().expect("pump");
+        game.step()
+            .unwrap_or_else(|e| panic!("settling frame {frame} stopped: {e}"));
+        if game.palette().raw[..] != still[..] {
+            base = Some(game.palette().raw.to_vec());
+            break;
+        }
+    }
+    let base = base.expect("the palette never began to turn");
+    for k in 1..=30 {
+        game.set_input(160, 100, false, false, 0).expect("input");
+        game.pump().expect("pump");
+        game.step()
+            .unwrap_or_else(|e| panic!("cycle frame {k} stopped: {e}"));
+        let pal = game.palette().raw.to_vec();
+        for i in 0..96 {
+            assert_eq!(
+                entry(&pal, 32 + (i + k) % 96),
+                entry(&base, 32 + i),
+                "frame {k}: entry {} should hold what entry {} held",
+                32 + (i + k) % 96,
+                32 + i
+            );
+        }
+        for i in (0..32).chain(128..256) {
+            assert_eq!(
+                entry(&pal, i),
+                entry(&base, i),
+                "frame {k}: entry {i} moved"
+            );
+        }
+    }
+}

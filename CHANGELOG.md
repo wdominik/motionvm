@@ -6,6 +6,48 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-02
+
+### Changed
+
+- **A location's modules come back pristine on re-entry.** `=>GET`
+  (0x64999) loads a module out of the resource file every time it is
+  asked, so when `INCLLOC` takes a location's three modules their variables
+  start over. The 32-bit machine had kept every module as it stood from the
+  moment the game opened, so a location's state survived leaving and coming
+  back where the original's does not. `=>GET` now puts the container's
+  image back; the savegame words and `=>ERASE` are as they were.
+
+- **`ENDTUNE` waits the half second the original waits.** The 16-bit
+  stop routine (`ENVIRO.EXE` `1696:02fd`; the other three builds' are the
+  same shape) starts the driver's fade-out and spins until the 200 Hz tick
+  has counted 100 before it stops the driver and returns to the script.
+  The word had returned at once, so every room change with music began
+  half a second early. The wait now stands where a wipe would, painting
+  nothing; and `STARTTUNE` over a still-playing tune — the Play routine
+  runs the stop first (`1696:02ce`), which is how Victor Loomes changes
+  its music with no `ENDTUNE` between locations — fades, waits and starts
+  the new tune when the wait is over. The wait comes only while the
+  driver's own flag says a song is playing, as it does there.
+
+- **`SETCYCLE` turns the palette.** Victor Loomes' time machine asks for
+  entries 32 through 127 to cycle, and the request had been recorded and
+  left standing. The tick is now the handler's (`LL.EXE` `0104:536d`,
+  once a frame after the blit): the working palette is taken from the
+  master, every entry of the range moves up by the turn's amount, wrapping
+  inside the range, and the amount grows by one a turn until it would
+  exceed the range's span.
+
+- **The walk builder's two build variants are read off the binary.**
+  Only `ENVIRO.EXE` (`0a40:1176`), as the 32-bit routine (`0x778ca`), takes
+  a shadow's zero shrink as 1000 for the walk's first step — `HPPLAY.EXE`,
+  `BMZ.EXE` and `LL.EXE` copy the field as it stands — and only `LL.EXE`
+  closes `CROUTE` with a pass over the finished headings (`0104:516d`) that
+  folds a one- or two-step flip between longer runs into the heading
+  around it. The default had been applied to all four builds and the pass
+  to none; both are now capabilities probed from `CROUTE`'s body, the way
+  the hot-area hole test is.
+
 ## [0.7.1] - 2026-09-01
 
 ### Changed
@@ -828,7 +870,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/wdominik/motionvm/releases/tag/v0.7.2
 [0.7.1]: https://github.com/wdominik/motionvm/releases/tag/v0.7.1
 [0.7.0]: https://github.com/wdominik/motionvm/releases/tag/v0.7.0
 [0.6.0]: https://github.com/wdominik/motionvm/releases/tag/v0.6.0

@@ -111,11 +111,16 @@ word; only this game calls it.
 Victor Loomes' bytecode uses 100 of the 124 domain words. Nine of them no
 other game calls, and all nine are read from their handlers: `?INSIDE`,
 `CROUTE` (`0104:4a45`, the five pointers on the stack where the later games
-reach the same routine through `DOWALK`), `GSCRPOS` (`0104:13bf`), `SETSHADE`
+reach the same routine through `DOWALK` — and a routine of its own in two
+places: it copies a zero shrink as it stands where `ENVIRO.EXE` takes it as
+1000, and it closes with a pass over the finished headings, `0104:516d`,
+that no other build has; both are read off the binary when the game opens,
+see [the walk](interaction.md)), `GSCRPOS` (`0104:13bf`), `SETSHADE`
 (`0104:2824` — two cells into two globals nothing in either binary reads
-back), `SETCYCLE` (`0104:5319`), `SYSFC`/`SYSBC` (`0104:358e`/`0104:3597`,
-which only the request box reads), `REQUEST` and `_POOR` (`0104:0002`, a
-constant zero).
+back), `SETCYCLE` (`0104:5319`, with the tick that turns the palette once a
+frame at `0104:536d`), `SYSFC`/`SYSBC` (`0104:358e`/`0104:3597`, which only
+the request box reads), `REQUEST` and `_POOR` (`0104:0002`, a constant
+zero).
 The core table adds one: `I'` (`0af7:095e`), which is `I` with the fetch at
 `+2` instead of `+0`.
 

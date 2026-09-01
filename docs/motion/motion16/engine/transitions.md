@@ -46,6 +46,14 @@ the step directly, which is why a scene can swap its pictures under a
 `FADEOUT`/`FADEIN` pair without erasing anything itself — the intro and
 the start-up page's teardown both lean on it.
 
+One more thing holds the frame loop the way a wipe does, and takes its
+turn among them: the half second `ENDTUNE` waits after starting the
+music's fade-out (`1696:02fd`, spinning on the 200 Hz tick until it
+reads 100), and `STARTTUNE` over a still-playing tune, whose Play routine
+runs that stop first (`1696:02ce`). The wait paints nothing; a `SETPAL`
+behind it lands when it is over, and a tune queued behind it starts then
+([PSM 2 music](../formats/psm-music.md)).
+
 ## Open questions
 
 - The `XGFXVFLIP` mirror axis: left-right — a flip about the vertical axis —

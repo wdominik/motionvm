@@ -150,6 +150,9 @@ impl Engine {
             if let Some(p) = w.palette_after {
                 self.display.palette = p;
             }
+            if let Some((tune, looping)) = w.then_tune {
+                self.start_tune(tune, looping);
+            }
         }
     }
 
@@ -159,6 +162,9 @@ impl Engine {
     }
 
     fn paint_wipe(&mut self, wp: &Wipe) {
+        if wp.hold {
+            return;
+        }
         let (x, y, w, h) = wp.area;
         let (bx, by, bw, bh) = wp.inner();
         if !wp.opening {
@@ -234,9 +240,48 @@ pub struct Wipe {
     /// installed when the wipe finishes, so the script's order stays the
     /// screen's order. See the `SETPAL` handler for the path that needs it.
     pub palette_after: Option<motionvm_render::Palette>,
+    /// A wait and not a wipe: the interpreter stands for `ticks_per_ring`
+    /// ticks and nothing is painted — `ENDTUNE`'s half second, see the
+    /// constructor `Wipe::hold`.
+    pub hold: bool,
+    /// A tune to start when this wait is over — `( tune looping )` as
+    /// `STARTTUNE` popped them. The 16-bit Play routine (`1696:02ce`,
+    /// `0e87:01f2`) runs the stop routine first when a tune is playing, so
+    /// the new one begins only after the old one's half-second wait.
+    pub(crate) then_tune: Option<(i32, i32)>,
 }
 
 impl Wipe {
+    /// A plain wait of `ticks` unit-3 ticks, queued where a wipe would be so
+    /// that it takes its turn among them.
+    ///
+    /// What `ENDTUNE` does after starting the music's fade-out: its stop
+    /// routine (`ENVIRO.EXE` `1696:02fd`, `HPPLAY.EXE` `1639:02ef`,
+    /// `BMZ.EXE` `166d:02f1`, `LL.EXE` `0e87:0221`) resets the tick
+    /// counter and spins until it reads 100 — the 200 Hz reading of the
+    /// driver's millisecond count (`110a:042e`: `ds:7bb8 / 5`) — before it
+    /// stops the driver and returns to the script. Half a second in which
+    /// the frame loop does not turn, so the frontend sees one step that
+    /// long. A `SETPAL` behind it attaches the way it attaches to a wipe,
+    /// and lands when the wait is over — which is when the original's,
+    /// issued after the handler returned, would have been programmed.
+    pub(crate) fn hold(ticks: i32) -> Self {
+        Wipe {
+            opening: false,
+            screen: 0,
+            area: (0, 0, 0, 0),
+            xstep: 0,
+            ystep: 0,
+            rings: 1,
+            walked: 0,
+            ticks_per_ring: ticks.max(1),
+            banked: 0,
+            palette_after: None,
+            hold: true,
+            then_tune: None,
+        }
+    }
+
     /// Builds the wipe the way the handler sets one up.
     pub(crate) fn new(
         opening: bool,
@@ -264,6 +309,8 @@ impl Wipe {
             ticks_per_ring: (200 / duration.max(1)).max(1),
             banked: 0,
             palette_after: None,
+            hold: false,
+            then_tune: None,
         }
     }
 

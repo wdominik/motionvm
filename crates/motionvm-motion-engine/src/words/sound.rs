@@ -40,6 +40,7 @@ impl Engine {
             }
             "ENDTUNE" => {
                 let handle = pop1(stack, "ENDTUNE")?;
+                self.tune_playing = false;
                 if let Some(music) = self.music.as_mut() {
                     music.stop(handle);
                 }

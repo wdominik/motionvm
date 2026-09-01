@@ -118,6 +118,11 @@ pub(super) fn open(
     // all-zero hot area, `HPPLAY.EXE` and `LL.EXE` take it as a rectangle at
     // the origin, and Jeff Jet's build is the younger of its pair.
     let skips_holes = mz::skips_empty_areas(&img, &words);
+    // The walk builder's two build variants, read the same way: only
+    // `ENVIRO.EXE` takes a zero shrink as 1000, and only `LL.EXE` closes
+    // with the heading pass.
+    let walk_defaults_shrink = mz::croute_defaults_shrink(&img, &words);
+    let walk_smooths_headings = mz::croute_smooths_headings(&img, &words);
     let binding = mz::binding_of(&img, &words).map_err(|e| Error::data(&exe, e))?;
     let mut vm = m16::Vm::new(&binding);
     let boot = container.boot();
@@ -134,6 +139,8 @@ pub(super) fn open(
     // `SETRES` to ask for another.
     let mut engine = Engine::with_display(320, 200).with_container(dir, container);
     engine.skips_holes = skips_holes;
+    engine.walk_defaults_shrink = walk_defaults_shrink;
+    engine.walk_smooths_headings = walk_smooths_headings;
     Ok(Game {
         vm,
         engine,

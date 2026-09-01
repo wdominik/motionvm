@@ -110,7 +110,16 @@ loop count stored, the volume full, the streams primed, the host timer
 registered with the period. The loop count is compared unsigned against a
 pass counter that starts at 1, so the `-1` every one of the game's sixteen
 call sites passes means forever. `ENDTUNE` (`1696:02fd`) is FadeOut
-(`0x3e2`) with 2000 ms, a 500 ms wait, then Stop (`0x4c9`).
+(`0x3e2`) with 2000 ms, a 500 ms wait, then Stop (`0x4c9`) — and the wait
+is the script's: the stop routine resets the tick counter and spins until
+the 200 Hz reading (`110a:042e`, the driver's millisecond count over five)
+comes back 100, and only then stops the driver and returns. It does nothing
+at all while its own flag (`ds:18f4`) says no song is playing, and Play
+(`1696:02ce`) runs the whole stop routine first when one is — which is how
+Victor Loomes changes its music, with no `ENDTUNE` between locations: the
+new tune begins half a second after the old one's fade started. The other
+three builds' routines are the same shape (`HPPLAY.EXE` `1639:02c0`,
+`BMZ.EXE` `166d:02c2`, `LL.EXE` `0e87:01f2`).
 
 **The tick** (`0xa71`), on the host timer at the period: every `speed`th
 tick is a row. Channels run 8 down to 0, each draining its due events; a

@@ -286,13 +286,10 @@ in practice the plain character byte, which both engines agree on; the day
 one of them turns out to dispatch on a cursor code, the 16-bit handler has
 to be read first. The open questions carry it.
 
-**The cycling palette does not turn.** `SETCYCLE` names a range of palette
-entries and a tick delay, and the driver's own tick rewrites those entries
-each time the delay runs out, walking the range by one and pushing the result
-to the DAC (`0104:536d` in `LL.EXE`). motionvm records what was asked for and
-leaves the palette as it stands. Only Victor Loomes calls the word, and only
-in location 13, so what is lost is one room's animated color rather than
-anything a game depends on.
+**A palette cycle stays inside the palette.** `SETCYCLE`'s tick (`0104:536d`
+in `LL.EXE`) indexes its two 768-byte tables with whatever range the script
+named and checks nothing; motionvm leaves an entry outside 0 through 255
+alone. Victor Loomes, the one game that cycles, asks for 32 through 127.
 
 **An earlier-framing game's `GFX.INF` is not read.** It says how big every
 sprite is without unpacking it, which is what a player that unpacks on demand
@@ -440,17 +437,6 @@ key that is waiting, or 0, rather than blocking. Each is the reading the
 call sites admit; none is the handler's.
 ([Descriptors](motion16/engine/descriptors.md))
 
-**`ENDTUNE` does not halt the game.** The original's stop site
-(`ENVIRO.EXE` `1696:02fd`) starts the driver's 2000 ms fade-out, waits
-500 ms in a loop, and only then stops the driver and returns to the
-script — every room change with music holds the original for half a
-second. The rebuilt word returns at once, and the audio side keeps the
-pair's own timing: the fade begins immediately and the hard stop lands
-500 ms in, so the music does exactly what the original's does while the
-room change does not wait for it. A transition out of a location with
-music therefore begins about half a second earlier than the original's.
-([PSM 2 music](motion16/formats/psm-music.md))
-
 **The 16-bit scale fields hold pixels; this engine keeps per-mille.**
 `SDH%SHR` (`05f1:23f2`) and `SDV%SHR` (`05f1:246f`) store `1000` and
 `−1` as −1 (natural) and any other value as `v · natural / 1000` **in
@@ -471,6 +457,16 @@ controller second; this engine keeps the 32-bit order (`0x68c64`,
 controller first). With the active gate modelled, nothing read so far
 tells the two apart — a callback that fires sees one frame's controller
 state either way. ([Screens and the draw chain](motion16/engine/screens.md))
+
+**`LL.EXE`'s heading pass stops at the buffer's end.** The pass that build's
+`CROUTE` closes with (`0104:516d`) walks the step buffer as runs of equal
+heading and stops at the end marker — but a run itself tests the marker only
+together with an index at or past the buffer's room, so a buffer the walk
+filled to the last step without writing a marker sends the original reading
+on into whatever memory follows it. motionvm ends a run at the room. A walk
+that long is one Victor Loomes has not been seen to make; the pass itself,
+and the stale headings a shorter walk leaves behind the marker, are
+reproduced as read ([the walk](motion16/engine/interaction.md)).
 
 ## See also
 

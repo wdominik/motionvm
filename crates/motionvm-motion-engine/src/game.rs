@@ -542,6 +542,9 @@ where
         // them visible. Separate for the same reason the original separates
         // them: a curtain writes to the visible screen alone.
         self.engine.present();
+        // Last in the 16-bit frame, after the blit (`LL.EXE` `0104:5756`):
+        // the rotating palette's turn, if `SETCYCLE` armed one.
+        self.engine.tick_palette_cycle();
         Ok(())
     }
 
