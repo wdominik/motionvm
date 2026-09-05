@@ -1,0 +1,11 @@
+# Reference digests for hfa, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+tune_1  0xe7e497bb20977c82
+tune_2  0xcad2a58fd1d352fa
+tune_3  0x4b7b8246196939b6
+tune_4  0x4f47e7bf78b41216

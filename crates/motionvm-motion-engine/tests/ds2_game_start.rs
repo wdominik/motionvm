@@ -22,25 +22,21 @@
 //!
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
+mod common;
+
+use common::settled_in;
 use motionvm_motion_engine::Game;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
 
-/// The title card times out on its own and the scene moves on.
-///
-/// Deliberately not an assertion about *which* phase comes next: the rest of
-/// the opening is still being built, and a frame further along may still fail.
-/// The one thing this pins is that the scene does not stand still — that a
-/// timed text runs down, fires its callback and reports itself finished.
 #[test]
 fn the_opening_scene_gets_past_its_title_card() {
     let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(1).expect("the classroom");
+    let mut game = settled_in(&dir, 1);
 
     // Note this enters the location from outside rather than through `ICTRL`,
     // so the location's task manager runs but `DOORDER` never does. That is
@@ -176,7 +172,7 @@ fn the_opening_conversation_speaks_its_lines() {
 /// the two have to be modeled together or not at all.
 #[test]
 fn a_wait_counts_down_only_behind_a_callback() {
-    let mut e = motionvm_motion_engine::Engine::with_display(640, 480);
+    let mut e = motionvm_motion_engine::Engine::new(motionvm_motion_engine::Profile::motion32());
     let handle = 1;
     e.add_descriptor(motionvm_motion_engine::Descriptor {
         handle,
@@ -454,8 +450,8 @@ fn a_fade_out_hides_the_frame_that_was_showing() {
             && game.engine.fades()[fades].name == "FADEOUT"
             && let Some(last) = &before
         {
-            let differ = (0..frame.height as i32)
-                .flat_map(|y| (0..frame.width as i32).map(move |x| (x, y)))
+            let differ = (0..i32::from(frame.height))
+                .flat_map(|y| (0..i32::from(frame.width)).map(move |x| (x, y)))
                 .filter(|(x, y)| frame.get(*x, *y).is_some_and(|p| p != 0))
                 .filter(|(x, y)| frame.get(*x, *y) != last.get(*x, *y))
                 .count();
@@ -524,16 +520,16 @@ fn the_pointer_draws_itself_over_the_frame() {
     // The very shape the engine resolved, straight out of the bank.
     let bank = motionvm_motion_formats::m32::rsc::Bank::open_dir(&dir).expect("banks open");
     let item = bank
-        .item(motionvm_motion_formats::m32::Kind::Gfx8, id as usize)
+        .item(motionvm_motion_formats::m32::Kind::Gfx8, cell::index(id))
         .expect("the cursor sprite")
         .expect("present");
     let sprite = motionvm_motion_formats::m32::Sprite::parse(item).expect("parses");
 
     let frame = game.engine.render();
     let mut opaque = 0;
-    for sy in 0..sprite.height as i32 {
-        for sx in 0..sprite.width as i32 {
-            let p = sprite.pixels[(sy * sprite.width as i32 + sx) as usize];
+    for sy in 0..i32::from(sprite.height) {
+        for sx in 0..i32::from(sprite.width) {
+            let p = sprite.pixels[usize::try_from(sy * i32::from(sprite.width) + sx).unwrap()];
             if p == motionvm_render::TRANSPARENT {
                 continue;
             }

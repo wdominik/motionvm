@@ -17,6 +17,7 @@ pub const PIT_HZ: u32 = 1_193_182;
 /// Read from the shipped driver rather than embedded, the way the 32-bit
 /// game's FM driver reads `HMIMDRV.386`: the file is part of every install,
 /// and the bytes stay the original's.
+#[derive(Debug)]
 pub struct Driver {
     /// One default per OPL register (`0x5c4`); `0xFF` marks a register the
     /// init leaves untouched. The init writes every other one, in ascending
@@ -62,7 +63,7 @@ impl Driver {
         if !head_ok {
             return Err(Error::Psm("not a MUS 1.00 driver with 7 imports"));
         }
-        let trailer = u16::from_le_bytes([file[0x0a], file[0x0b]]) as usize;
+        let trailer = usize::from(u16::from_le_bytes([file[0x0a], file[0x0b]]));
         if file.get(trailer..trailer + 2) != Some(b"NS".as_ref()) {
             return Err(Error::Psm("the NS trailer is not where the header says"));
         }

@@ -15,6 +15,7 @@
 //! The game this file drives is Jeff Jet (MOTION 16-bit).
 
 use motionvm_motion_formats::m16::{Container, Segment, mz, scr::ScrModule};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m16::{Vm, word_address};
 use motionvm_motion_forth::{Error, Host, NullHost, Result};
 use motionvm_motion_testutil::{game_file, gamedata_jeffjet};
@@ -44,10 +45,13 @@ struct Loader<'a> {
 }
 
 impl Host<Vm> for Loader<'_> {
-    fn word(&mut self, name: &str, vm: &mut Vm) -> Result<bool> {
-        match name {
+    fn word(&mut self, ordinal: u32, vm: &mut Vm) -> Result<bool> {
+        // The machine hands over an ordinal; this host is written against the
+        // kernel's names, so it asks the machine what this one is called.
+        let name = vm.ordinal_name(ordinal).unwrap_or_default().to_owned();
+        match name.as_str() {
             "=>GET" => {
-                let n = vm.data.pop().expect("a module number") as usize;
+                let n = cell::at(vm.data.pop().expect("a module number")).unwrap();
                 let item = self.container.item(Segment::Scr, n).unwrap().unwrap();
                 let parsed = ScrModule::parse(item).unwrap();
                 vm.load(item, &parsed)?;
@@ -55,7 +59,7 @@ impl Host<Vm> for Loader<'_> {
                 Ok(true)
             }
             "=>ERASE" => {
-                let n = vm.data.pop().expect("a module number") as u16;
+                let n = cell::low16(vm.data.pop().expect("a module number"));
                 vm.unload(n);
                 self.asked.push(format!("=>ERASE {n}"));
                 Ok(true)
@@ -114,7 +118,7 @@ fn run_executes_on_this_machine_up_to_the_first_engine_word() {
     let do_xdir = word_address(&vm, 601, "DO_XDIR").unwrap();
     vm.data.clear();
     vm.call(do_xdir, &mut NullHost).unwrap();
-    let addr = vm.data[0] as u16;
+    let addr = cell::low16(vm.data[0]);
     // 1680 here, 1685 in Die Enviro-Kids greifen ein: the id is the game's,
     // the mechanism the engine's.
     assert_eq!(vm.mem.fetch(addr), 1680, "module 651's direction word");
@@ -149,7 +153,7 @@ fn the_library_computes_the_table_sizes_the_blocks_are_cut_to() {
     for n in 1..=13 {
         assert_eq!(
             c.item(Segment::Blk, 200 + n).unwrap().map(<[u8]>::len),
-            Some(lditem as usize),
+            Some(cell::at(lditem).unwrap()),
             "block {}",
             200 + n
         );

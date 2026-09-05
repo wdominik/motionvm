@@ -108,7 +108,7 @@ fn a_note_lands_on_its_own_f_number() {
             );
             assert_eq!(
                 (high >> 10) & 7,
-                ((low >> 10) & 7) + octave as u32,
+                ((low >> 10) & 7) + u32::try_from(octave).unwrap(),
                 "and raises the block by {octave}"
             );
         }
@@ -168,7 +168,7 @@ fn velocity_becomes_a_total_level() {
     let tables = Tables::read(arc.device(Fm::DEVICE).unwrap()).unwrap();
 
     let level = |velocity: u8, patch: u32| -> u32 {
-        let c = tables.velocity[(velocity >> 1) as usize] as u32;
+        let c = u32::from(tables.velocity[usize::from(velocity >> 1)]);
         (0x2000 - (0x40 - patch) * ((0x40 - c) * 2)) >> 7
     };
     assert_eq!(
@@ -273,12 +273,12 @@ fn the_driver_switches_the_chip_on_in_one_fixed_order() {
     for v in 0..VOICES {
         assert_eq!(
             seen[2 + v * 2],
-            (0xb0 + v as u16, 0),
+            (0xb0 + u16::try_from(v).unwrap(), 0),
             "voice {v} silenced on bank 0"
         );
         assert_eq!(
             seen[3 + v * 2],
-            (0x1b0 + v as u16, 0),
+            (0x1b0 + u16::try_from(v).unwrap(), 0),
             "voice {v} silenced on bank 1"
         );
     }

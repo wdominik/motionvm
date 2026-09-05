@@ -18,7 +18,12 @@
 /// Rounds up: the tick belongs to the frame that reaches the mark, not to the
 /// one before it.
 pub fn frames_to_tick(clock: u64, tick_period: u64, pit_hz: u32) -> usize {
-    tick_period
-        .saturating_sub(clock)
-        .div_ceil(u64::from(pit_hz)) as usize
+    // More frames than a `usize` counts is more than a device asks for in
+    // one call, so the saturation only ever answers "as many as you want".
+    usize::try_from(
+        tick_period
+            .saturating_sub(clock)
+            .div_ceil(u64::from(pit_hz)),
+    )
+    .unwrap_or(usize::MAX)
 }

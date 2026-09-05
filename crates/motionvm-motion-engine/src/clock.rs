@@ -53,7 +53,10 @@ impl Engine {
     /// one band, so its six steps arrived as six pictures — which is why the
     /// menu's fades looked right while the intro's did not.
     pub fn step_ticks(&self) -> i32 {
-        match (self.curtains.front(), self.wipes.front()) {
+        match (
+            self.transitions.curtains.front(),
+            self.transitions.wipes.front(),
+        ) {
             (Some(c), _) => c.ticks_per_band.max(1),
             (None, Some(w)) => w.ticks_per_ring.max(1),
             (None, None) => self.frame_ticks,
@@ -72,7 +75,8 @@ impl Engine {
     /// delays — the intro's full-screen fades — and skipping it is what made
     /// them run 15 % fast.
     fn quantized_raw(ticks: i32) -> u64 {
-        (ticks as u64 * 51).div_ceil(10)
+        // A count below zero is no wait at all.
+        (u64::try_from(ticks).unwrap_or(0) * 51).div_ceil(10)
     }
 
     /// How long the next frame should last, in wall-clock time.
@@ -95,7 +99,8 @@ impl Engine {
         let ticks = self.step_ticks();
         (ticks > 0).then(|| {
             std::time::Duration::from_nanos(
-                1_000_000_000u64 * Self::quantized_raw(ticks) / Self::RAW_TICKS_PER_SECOND as u64,
+                1_000_000_000u64 * Self::quantized_raw(ticks)
+                    / u64::from(Self::RAW_TICKS_PER_SECOND),
             )
         })
     }
@@ -124,7 +129,8 @@ mod tests {
     fn the_fades_last_what_the_arithmetic_says() {
         let band = |ticks| {
             Duration::from_nanos(
-                1_000_000_000 * Engine::quantized_raw(ticks) / Engine::RAW_TICKS_PER_SECOND as u64,
+                1_000_000_000 * Engine::quantized_raw(ticks)
+                    / u64::from(Engine::RAW_TICKS_PER_SECOND),
             )
         };
         // 31 passes at delay 1, 26 at delay 2, 6 at delay 10.

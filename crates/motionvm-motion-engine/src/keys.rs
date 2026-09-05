@@ -32,11 +32,17 @@
 //! layout's character, the modifiers — which is exactly what the translation
 //! consumes, delivered in a type a test can build.
 //!
-//! **One reading serves both machines.** Everything above is `ENGINE.EXE`'s;
-//! the 16-bit `?KEY` handler (`12c8:063c`) has not been read, and the four
-//! 16-bit games are fed this table anyway — no 16-bit module is known to
-//! test a scan code, so what reaches them is in practice the character byte.
-//! The departure ledger and the open questions both carry this.
+//! **Both engines carry this translator.** Everything above is
+//! `ENGINE.EXE`'s, and `ENVIRO.EXE`'s `?KEY` (`12c8:063c`) pushes what its
+//! own copy answers: `110a:02a5` takes the keystroke from the runtime, asks
+//! the shift state through INT 16h (`110a:03a0`), and folds it the same way
+//! step for step — `0x100` for a scan code, `0x800` and the table at
+//! `ds:0x10d2` (file `0x20512`) for Alt and a letter, `0x68`–`0x71` less
+//! `0x2d` for Alt and a function key, `0x54`–`0x5d` less `0x19` and
+//! `0x5e`–`0x67` less `0x23` for Shift and Ctrl over one, `0x40` back onto a
+//! Ctrl character up to `0x1a`. The table is the same twenty-six entries,
+//! the `Z`-that-is-`O` mistake included. `KEY` (`12c8:061c`) loops on the
+//! same routine until it answers.
 
 use motionvm_playable::{Key, KeyPress};
 
@@ -122,15 +128,15 @@ pub(crate) fn code(press: &KeyPress) -> Option<i32> {
     // is the handler's own `jbe 0x1a`, which is why Escape — `0x1b` — passes
     // through as 27 even with Ctrl down.
     Some(if press.ctrl && al <= 0x1a {
-        CTRL | (al as i32 + 0x40)
+        CTRL | (i32::from(al) + 0x40)
     } else {
-        al as i32
+        i32::from(al)
     })
 }
 
 /// A key with no character of its own, as `0x23894` marks it.
 fn extended(scan: u8, press: &KeyPress) -> i32 {
-    let code = EXTENDED | scan as i32;
+    let code = EXTENDED | i32::from(scan);
     // Only the function keys carry a modifier here, because only they have
     // shifted scan codes for `0x23860` and `0x2387a` to fold: `0x54`…`0x5d`
     // for Shift and `0x5e`…`0x67` for Ctrl. The BIOS answers the Ctrl code
@@ -154,14 +160,14 @@ fn extended(scan: u8, press: &KeyPress) -> i32 {
 fn alt(key: Key) -> Option<i32> {
     let scan = letter_scancode(key).or_else(|| scancode(key))?;
     if let Some(&(_, ascii)) = ALT_LETTERS.iter().find(|(code, _)| *code == scan) {
-        return Some(ALT | ascii as i32);
+        return Some(ALT | i32::from(ascii));
     }
     // `0x2383d` maps Alt+F1…F10 — scan codes `0x68`…`0x71` — back onto the
     // plain function keys and sets both bits, which is the same value this
     // reaches directly. Alt and a cursor key is a divergence and a small one:
     // the BIOS gives those their own scan codes, nothing here or in the game
     // pins them down, and no module reads an Alt code at all.
-    Some(ALT | EXTENDED | scan as i32)
+    Some(ALT | EXTENDED | i32::from(scan))
 }
 
 /// The scan code of a key that carries no character.
@@ -225,8 +231,8 @@ fn ascii(press: &KeyPress) -> Option<u8> {
         Key::Escape => Some(27),
         Key::Space => Some(32),
         _ => {
-            let c = press.text? as u32;
-            (1..=0xff).contains(&c).then_some(c as u8)
+            let c = u32::from(press.text?);
+            u8::try_from(c).ok().filter(|&byte| byte != 0)
         }
     }
 }
@@ -334,7 +340,7 @@ mod tests {
 
     #[test]
     fn the_buffer_holds_fifteen_and_drops_the_sixteenth() {
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(crate::Profile::motion32());
         for _ in 0..20 {
             e.push_key(&press(Key::Enter, None, NONE));
         }
@@ -347,14 +353,14 @@ mod tests {
 
     #[test]
     fn an_untranslatable_press_never_reaches_the_buffer() {
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(crate::Profile::motion32());
         e.push_key(&press(Key::Other, None, SHIFT));
         assert_eq!(e.pop_key(), 0);
     }
 
     #[test]
     fn presses_come_back_oldest_first_one_per_take() {
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(crate::Profile::motion32());
         e.push_key(&press(Key::Letter(b'A'), Some('a'), NONE));
         e.push_key(&press(Key::Letter(b'B'), Some('b'), NONE));
         assert_eq!(e.pop_key(), 97);

@@ -20,4 +20,17 @@ pub trait MusicSink: Send {
     fn start(&mut self, handle: i32, tune: i32, looping: bool, song: &[u8]);
     /// Stops the song that `handle` was started under.
     fn stop(&mut self, handle: i32);
+    /// What the sink has to say about the songs it was handed — a tune that
+    /// would not decode, and nothing else so far.
+    ///
+    /// It goes back to the caller rather than to stderr for two reasons: a
+    /// library that prints has decided both where the report goes and when,
+    /// and on a windowed build the answer to the first is nowhere. The
+    /// engine collects this into [`crate::Engine::diagnostics`].
+    ///
+    /// The default body has nothing to say, which is right for the sinks a
+    /// test installs to watch what was asked for.
+    fn diagnostics(&self) -> Vec<String> {
+        Vec::new()
+    }
 }

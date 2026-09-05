@@ -99,7 +99,7 @@ fn key_on_car_before_the_newspaper() {
         eprintln!("skipping: no Victor Loomes gamedata directory");
         return;
     };
-    game.vm.step_limit = 300_000;
+    game.vm.set_step_limit(300_000);
     key_on_car(&mut game).unwrap_or_else(|e| panic!("DO_ORDER, at {}: {e}", game.vm.here()));
     frames(&mut game, 1200, "after the order");
     assert_eq!(game.get_var(605, "AO"), Some(4), "still in the street");
@@ -111,7 +111,7 @@ fn key_on_car_after_the_newspaper_drives_off() {
         eprintln!("skipping: no Victor Loomes gamedata directory");
         return;
     };
-    game.vm.step_limit = 300_000;
+    game.vm.set_step_limit(300_000);
     set_kond(&mut game, 30, 1); // NEWSREAD
     key_on_car(&mut game).unwrap_or_else(|e| panic!("DO_ORDER, at {}: {e}", game.vm.here()));
     // `CALC_XUSE` has set `SETBUSY` and `1 SET_LOCALTA`: the drive-away runs
@@ -140,7 +140,7 @@ fn key_on_car_with_the_savings_contract_takes_the_key() {
         eprintln!("skipping: no Victor Loomes gamedata directory");
         return;
     };
-    game.vm.step_limit = 300_000;
+    game.vm.set_step_limit(300_000);
     set_kond(&mut game, 34, 1); // ZMTEST
     key_on_car(&mut game).unwrap_or_else(|e| panic!("DO_ORDER, at {}: {e}", game.vm.here()));
     frames(&mut game, 1200, "after the key is taken");

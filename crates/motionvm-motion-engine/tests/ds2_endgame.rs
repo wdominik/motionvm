@@ -15,7 +15,6 @@
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_motion_engine::Game;
-use motionvm_motion_forth::Host;
 use motionvm_motion_testutil::gamedata_ds2;
 
 #[test]
@@ -45,12 +44,14 @@ fn quitanim_lets_start_run_on_into_endgame() {
         !game.engine.resident().contains(&3),
         "module 3 should not be loaded while the game is running"
     );
+    assert!(
+        game.vm.module(3).is_none(),
+        "and its memory went with the slot"
+    );
 
     // The game's own quit word, reached from the shell's exit button. A kernel
     // word, so it goes through the engine rather than a module lookup.
-    game.engine
-        .word("QUITANIM", &mut game.vm)
-        .expect("QUITANIM");
+    assert!(game.kernel_word("QUITANIM").expect("QUITANIM"));
     assert!(
         !game.engine.main_loop(),
         "QUITANIM clears the main-loop flag"

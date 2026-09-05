@@ -1,12 +1,34 @@
 //! The 16-bit machine's primitives: what each kernel word the interpreter
 //! owns does, on 16-bit cells.
 //!
-//! The arithmetic wraps at 16 bits and every result is pushed sign-extended;
-//! the comparison, logic, loop and branch rules are the 32-bit engine's
-//! measured ones taken as the hypothesis for this kernel — the handlers in
-//! `ENVIRO.EXE` are unread — and each arm below says which it is.
+//! The arithmetic wraps at 16 bits and every result is pushed sign-extended.
+//!
+//! **Its own engine, not a copy of the other one.** Most of these rules are
+//! read out of the 16-bit binaries, and where they were read they differ
+//! from the 32-bit machine's. The loops are the clearest case: the 32-bit
+//! engine keeps a loop's limit in a frame
+//! beside the return stack, and this one keeps limit *and* index on the return
+//! stack itself (`DO` at `LL.EXE` `0af7:05d5` and `ENVIRO.EXE` `12c8:01b8`).
+//! That is not a detail — Victor Loomes' `STOPLOOP` (module 605) leaves a loop
+//! early by rewriting those very cells through `R>` and `>R`, and a machine
+//! that kept the limit somewhere of its own turned that into a loop with no
+//! end. `LOOP`, `+LOOP`, `_ULoopEnd`, `LEAVE`, `=IF` and `WHILE` are read at
+//! the addresses their arms cite, `EXECUTE` takes a word id where the other
+//! takes an address, and `I'` and `_ChElseDup` exist only here.
+//!
+//! The rest is read too, in `ENVIRO.EXE`: the comparisons answer 1 and 0
+//! and compare signed (`=` at `12c8:03f2`, `<` at `12c8:0464`, `>=` at
+//! `1977:0098`), `NOT`, `AND` and `OR` are logical (`12c8:04e1`,
+//! `1977:0068`, `12c8:04f5`) beside the bitwise `&` (`12c8:0530`), `+`,
+//! `-` and `*` are the plain 16-bit operations (`1977:000c`, `1977:001d`,
+//! `12c8:000e`), and `/` and `MOD` divide **unsigned** (`div`, at
+//! `12c8:0030` and `12c8:0072`) — which is where this machine parts from the
+//! other one's signed division, and where `/` by zero answers 0 rather than
+//! faulting. What both machines genuinely share is their own bookkeeping,
+//! which lives in [`crate::core`].
 
 use super::{CELL, Vm};
+use crate::cell;
 use crate::prims::{Prim, flag};
 use crate::{Address, Error, Host, Result};
 
@@ -76,7 +98,7 @@ impl Vm {
     ) -> Result<bool> {
         let prim = self
             .prims
-            .get(ordinal as usize)
+            .get(cell::index(ordinal))
             .copied()
             .unwrap_or(Prim::Absent);
         if prim == Prim::Absent {
@@ -91,7 +113,7 @@ impl Vm {
             Prim::Branch => self.step_branch(ordinal, here).map(|_| false),
             Prim::PutLit => {
                 let (_, v) = self.operand();
-                self.push(v as i32);
+                self.push(v);
                 Ok(false)
             }
             // A variable: the byte address of the cell after the opcode,
@@ -99,12 +121,12 @@ impl Vm {
             // modules and by every variable body being `_PutAdr value`.
             Prim::PutAdr => {
                 let at = self.ip;
-                self.push(at as i32);
+                self.push(i32::from(at));
                 Ok(true)
             }
             Prim::PutConst => {
                 let (_, v) = self.operand();
-                self.push(v as i32);
+                self.push(v);
                 Ok(true)
             }
             // A string built into the word: push its address and skip it.
@@ -113,7 +135,7 @@ impl Vm {
             // counts the same way is open.
             Prim::PutStringAdr => {
                 let at = self.ip;
-                self.push(at as i32);
+                self.push(i32::from(at));
                 self.skip_string(at);
                 Ok(false)
             }
@@ -124,9 +146,8 @@ impl Vm {
             Prim::PutString => {
                 let at = self.ip;
                 self.skip_string(at);
-                if let Some(t) = self.trace.as_mut() {
-                    t.push(format!("{here:>12}  _PutString (skipped)"));
-                }
+                self.core
+                    .push_trace(format!("{here:>12}  _PutString (skipped)"));
                 Ok(false)
             }
             other => self.step_simple(other, ordinal, here, host).map(|_| false),
@@ -139,7 +160,9 @@ impl Vm {
         while self.mem.fetch_byte(at.wrapping_add(len)) != 0 {
             len = len.wrapping_add(1);
         }
-        // `(len + 2) / 2` cells: the terminator and the padding to a cell.
+        // `(len + 2) / 2` cells: the terminator and the padding to a cell,
+        // which is what the handler adds to the instruction pointer
+        // (`12c8:134c`: `strlen`, plus two, shifted right).
         self.ip = at.wrapping_add(((len + 2) / 2) * CELL);
     }
 
@@ -148,9 +171,9 @@ impl Vm {
         let (operand_at, distance) = self.operand();
         let forward = inline.is_forward(ordinal);
         let target = if forward {
-            operand_at.wrapping_add((distance as i32 * CELL as i32) as u16)
+            operand_at.wrapping_add(cell::low16(distance * i32::from(CELL)))
         } else {
-            operand_at.wrapping_sub((distance as i32 * CELL as i32) as u16)
+            operand_at.wrapping_sub(cell::low16(distance * i32::from(CELL)))
         };
 
         let taken = if ordinal == inline.check_if {
@@ -190,12 +213,12 @@ impl Vm {
             if n < 2 {
                 return Err(Error::StackUnderflow {
                     word: "LOOP",
-                    at: here,
+                    at: Some(here),
                 });
             }
-            let index = (self.ret[n - 1] as i16).wrapping_add(step as i16);
-            self.ret[n - 1] = index as u16;
-            let again = (self.ret[n - 2] as i16) > index;
+            let index = cell::signed16(self.ret[n - 1]).wrapping_add(cell::short(step));
+            self.ret[n - 1] = cell::unsigned16(index);
+            let again = cell::signed16(self.ret[n - 2]) > index;
             if !again {
                 self.ret.truncate(n - 2);
             }
@@ -211,7 +234,7 @@ impl Vm {
             if n < 2 {
                 return Err(Error::StackUnderflow {
                     word: "LOOP",
-                    at: here,
+                    at: Some(here),
                 });
             }
             let index = self.ret[n - 1].wrapping_add(1);
@@ -226,7 +249,8 @@ impl Vm {
             // Die Enviro-Kids greifen ein reaches it.
             return Err(Error::Unread {
                 what: "_ChElseDup, the ELSEDUP runtime".into(),
-                at: "ENVIRO.EXE, the handler the core table names at ordinal 43",
+                binary: "ENVIRO.EXE",
+                at: "the handler the core table names at ordinal 43",
             });
         } else {
             return Err(Error::UnknownOrdinal { ordinal, at: here });
@@ -250,7 +274,7 @@ impl Vm {
             Prim::Dup => {
                 let v = *self.data.last().ok_or(Error::StackUnderflow {
                     word: "DUP",
-                    at: here,
+                    at: Some(here),
                 })?;
                 self.push(v);
             }
@@ -269,7 +293,7 @@ impl Vm {
                     .get(n.wrapping_sub(2))
                     .ok_or(Error::StackUnderflow {
                         word: "OVER",
-                        at: here,
+                        at: Some(here),
                     })?;
                 self.push(v);
             }
@@ -280,24 +304,35 @@ impl Vm {
                 self.push(a);
             }
 
-            // 16-bit wrap on every result: `push` truncates.
+            // 16-bit wrap on every result: `push` truncates. `+` and `-` add
+            // and subtract in place (`1977:000c`, `1977:001d`); `*` is a
+            // `mul` whose low word is kept (`12c8:000e`).
             Prim::Add => self.binary("+", |a, b| a.wrapping_add(b))?,
             Prim::Sub => self.binary("-", |a, b| a.wrapping_sub(b))?,
             Prim::Mul => self.binary("*", |a, b| a.wrapping_mul(b))?,
-            Prim::Div | Prim::Mod => {
-                let word = if prim == Prim::Div { "/" } else { "MOD" };
-                let (b, a) = (self.pop(word)?, self.pop(word)?);
+            // Both divide the low words **unsigned** — `xor dx, dx` then
+            // `div` — so a negative dividend is a large one. `/`
+            // (`12c8:0030`) tests the divisor first and answers 0 for a zero;
+            // `MOD` (`12c8:0072`) tests nothing, and a zero divisor is the
+            // processor's own fault, which ends the program.
+            Prim::Div => {
+                let (b, a) = (self.pop("/")?, self.pop("/")?);
+                let (a, b) = (cell::low16(a), cell::low16(b));
+                self.push(i32::from(a.checked_div(b).unwrap_or(0)));
+            }
+            Prim::Mod => {
+                let (b, a) = (self.pop("MOD")?, self.pop("MOD")?);
+                let (a, b) = (cell::low16(a), cell::low16(b));
                 if b == 0 {
                     return Err(Error::DivideByZero { at: here });
                 }
-                self.push(if prim == Prim::Div {
-                    a.wrapping_div(b)
-                } else {
-                    a.wrapping_rem(b)
-                });
+                self.push(i32::from(a % b));
             }
 
-            // True is 1 — measured on the 32-bit engine, hypothesis here.
+            // True is 1 and false 0, and the compare is signed: `=` at
+            // `12c8:03f2`, `!=` at `12c8:0418`, `>` at `12c8:043e` (`jle`),
+            // `<` at `12c8:0464` (`jge`), `>=` and `<=` at `1977:0098` and
+            // `1977:00ba`, `0=` at `12c8:048a`.
             Prim::Eq => self.compare("=", |a, b| a == b)?,
             Prim::Ne => self.compare("!=", |a, b| a != b)?,
             Prim::Lt => self.compare("<", |a, b| a < b)?,
@@ -320,14 +355,18 @@ impl Vm {
                 let a = self.pop("NOT")?;
                 self.push(flag(a == 0));
             }
-            // Logical, as in the 32-bit engine; `&` and `|` are the bitwise
-            // pair.
+            // Logical: `AND` (`1977:0068`) counts the non-zero operands and
+            // answers 1 for two, `OR` (`12c8:04f5`) answers 1 for either, and
+            // `NOT` (`12c8:04e1`) is `neg; sbb; inc` — 1 for zero. `&` and
+            // `|` are the bitwise pair (`12c8:0530`).
             Prim::And => self.binary("AND", |a, b| flag(a != 0 && b != 0))?,
             Prim::Or => self.binary("OR", |a, b| flag(a != 0 || b != 0))?,
             Prim::BitAnd => self.binary("&", |a, b| a & b)?,
             Prim::BitOr => self.binary("|", |a, b| a | b)?,
-            Prim::Shl => self.binary("<<", |a, b| a.wrapping_shl(b as u32))?,
-            Prim::Shr => self.binary(">>", |a, b| ((a as u16) >> (b as u32 & 15)) as i32)?,
+            Prim::Shl => self.binary("<<", |a, b| a.wrapping_shl(cell::unsigned(b)))?,
+            Prim::Shr => self.binary(">>", |a, b| {
+                i32::from(cell::low16(a) >> (cell::unsigned(b) & 15))
+            })?,
             Prim::BitNot => {
                 let a = self.pop("~")?;
                 self.push(!a);
@@ -336,44 +375,44 @@ impl Vm {
             // Byte addresses, aligned by the memory.
             Prim::Fetch => {
                 let a = self.pop("@")?;
-                let v = self.mem.fetch(a as u16) as i16;
-                self.push(v as i32);
+                let v = cell::sign16(self.mem.fetch(cell::low16(a)));
+                self.push(v);
             }
             Prim::Store => {
                 let (addr, v) = (self.pop("!")?, self.pop("!")?);
-                self.mem.store(addr as u16, v as u16);
+                self.mem.store(cell::low16(addr), cell::low16(v));
             }
             Prim::FetchByte => {
                 let a = self.pop("C@")?;
-                let v = self.mem.fetch_byte(a as u16);
-                self.push(v as i32);
+                let v = self.mem.fetch_byte(cell::low16(a));
+                self.push(i32::from(v));
             }
             Prim::StoreByte => {
                 let (addr, v) = (self.pop("C!")?, self.pop("C!")?);
-                self.mem.store_byte(addr as u16, v as u8);
+                self.mem.store_byte(cell::low16(addr), cell::low8(v));
             }
 
             // The return stack holds 16-bit cells; a value comes back
             // sign-extended, the way it went in.
             Prim::ToR => {
                 let a = self.pop(">R")?;
-                self.ret.push(a as u16);
+                self.ret.push(cell::low16(a));
             }
             Prim::FromR => {
                 let a = self.ret.pop().ok_or(Error::StackUnderflow {
                     word: "R>",
-                    at: here,
+                    at: Some(here),
                 })?;
-                self.push((a as i16) as i32);
+                self.push(cell::sign16(a));
             }
             // Whatever is on top of the return stack, loop counter or not —
             // `XYLSITEM.` uses `>R I … R>` as a copy of the top.
             Prim::LoopIndex => {
                 let v = *self.ret.last().ok_or(Error::StackUnderflow {
                     word: "I",
-                    at: here,
+                    at: Some(here),
                 })?;
-                self.push((v as i16) as i32);
+                self.push(cell::sign16(v));
             }
             // `I'` reads the cell behind the one `I` reads — the handler is
             // `I` with the fetch at `+2` instead of `+0` (`0af7:095e` against
@@ -385,10 +424,10 @@ impl Vm {
                 let v = *n.checked_sub(2).and_then(|i| self.ret.get(i)).ok_or(
                     Error::StackUnderflow {
                         word: "I'",
-                        at: here,
+                        at: Some(here),
                     },
                 )?;
-                self.push((v as i16) as i32);
+                self.push(cell::sign16(v));
             }
             // `J` binds in none of the four 16-bit builds — no kernel table
             // names it — so this is the layout's answer rather than a
@@ -398,10 +437,10 @@ impl Vm {
                 let v = *n.checked_sub(3).and_then(|i| self.ret.get(i)).ok_or(
                     Error::StackUnderflow {
                         word: "J",
-                        at: here,
+                        at: Some(here),
                     },
                 )?;
-                self.push((v as i16) as i32);
+                self.push(cell::sign16(v));
             }
             // `LEAVE` copies the index over the limit — `LL.EXE` 0af7:069f,
             // `ENVIRO.EXE` 12c8:029a — so the next LOOP steps out. Nothing
@@ -413,16 +452,24 @@ impl Vm {
                 }
             }
 
+            // `RANDOM ( n -- r )`: `r` in `0..n`. The original divides
+            // unsigned — a zero would fault it and a negative count leaves
+            // its hash unreduced — and no shipped call pushes either, so
+            // zero is what those get here.
             Prim::Random => {
                 let n = self.pop("RANDOM")?;
                 let r = self.next_rng();
-                self.push(if n > 0 { (r % n as u32) as i32 } else { 0 });
+                self.push(if n > 0 {
+                    cell::signed(r % cell::unsigned(n))
+                } else {
+                    0
+                });
             }
             // `EXECUTE ( id -- )`: a global word id, through the table —
             // `LOCINIT EXECUTE` with `LOCINIT` = `CONST 549` is the measured
             // use.
             Prim::Execute => {
-                let id = self.pop("EXECUTE")? as u16;
+                let id = cell::low16(self.pop("EXECUTE")?);
                 let Some(body) = self.mem.resolve(id) else {
                     return Err(Error::UnboundWord { id, at: here });
                 };
@@ -440,15 +487,20 @@ impl Vm {
             // exit into a loop that never ends.
             Prim::LoopStart => {
                 let (index, limit) = (self.pop("DO")?, self.pop("DO")?);
-                self.ret.push(limit as u16);
-                self.ret.push(index as u16);
+                self.ret.push(cell::low16(limit));
+                self.ret.push(cell::low16(index));
             }
 
             Prim::Host => {
-                let Some(name) = self.ordinal_name(ordinal).map(str::to_owned) else {
-                    return Err(Error::UnknownOrdinal { ordinal, at: here });
-                };
-                if !host.word(&name, self)? {
+                self.core.host_word();
+                // The name is materialized on the error paths and nowhere
+                // else. Building it for every host word would be a map lookup
+                // and an allocation apiece, for a string the engine has no use
+                // for: it resolves the ordinal once when the game opens.
+                if !host.word(ordinal, self)? {
+                    let Some(name) = self.ordinal_name(ordinal).map(str::to_owned) else {
+                        return Err(Error::UnknownOrdinal { ordinal, at: here });
+                    };
                     return Err(Error::Unimplemented {
                         ordinal,
                         name,

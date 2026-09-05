@@ -198,7 +198,8 @@ impl Binding {
         self.words
             .binary_search_by_key(&ordinal, |&(o, _)| o)
             .ok()
-            .map(|i| self.words[i].1.as_str())
+            .and_then(|i| self.words.get(i))
+            .map(|(_, name)| name.as_str())
     }
 
     /// The ordinal of the word called `name`, if the kernel has one.

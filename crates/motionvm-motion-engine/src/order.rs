@@ -126,7 +126,12 @@ pub(crate) mod block {
     pub(crate) const INFO_FONT: u32 = 0x1e4;
 }
 
-use block::*;
+use block::{
+    AFTER, ANSWER_DESCS, AREA_COUNT, AREA_HIT, AREAS, BAR_SCREEN, FIELDS, HELD, IMX, INFO_COLOR,
+    INFO_DESC, INFO_FONT, INVENTORY, ITEMS, MMX, MMY, MODE, NODE, OBJECT, RECORD, SCREEN, SPEAKERS,
+    TAKEN, TALK, TARGET, VERB,
+};
+use motionvm_motion_forth::cell;
 
 /// What differs between the two engines' interaction machines.
 ///
@@ -196,7 +201,7 @@ pub(crate) const M16_RULES: Rules = Rules {
 /// A field's address on this machine: `off` is the 32-bit layout's byte
 /// offset, and the field sits `off / 4` cells into the record on either.
 pub(crate) fn at(mem: &dyn AddressSpace, base: u32, off: u32) -> i32 {
-    mem.offset(base as i32, (off / 4) as i32 * mem.cell_size())
+    mem.offset(cell::signed(base), cell::signed(off / 4) * mem.cell_size())
 }
 
 /// A cell of a record, by the 32-bit layout's byte offset.
@@ -239,14 +244,17 @@ impl Conversation<m32::Vm> for Engine {
             12 | 13 => self.dialog_waiting(vm, order, mode == 13),
             14 => self.dialog_picking(vm, order),
             16 => self.dialog_over(vm, order),
-            _ => Err(Error::Unread {
-                what: format!("DOORDER: the mode {mode} branch"),
-                at: match mode {
-                    15 => "0x7e6d0",
-                    17 => "0x7e918",
-                    _ => "0x7e9b1",
-                },
-            }),
+            17 => self.dialog_item_menu(vm, order),
+            18 => self.dialog_item_order(vm, order),
+            // 15 is the quit line — a last line on screen, then every speaker
+            // hears 3 and the mode falls to 16 (0x7e6d0). One routine enters
+            // it, 0x7b120, and nothing in the engine calls, jumps to or points
+            // at that routine: a branch the build left behind, which the
+            // shipped game cannot take.
+            _ => Err(Error::Unsupported(format!(
+                "DOORDER: mode {mode}, the conversation's quit line, which only the routine \
+                 at 0x7b120 enters and nothing reaches"
+            ))),
         }
     }
 
@@ -266,11 +274,14 @@ impl Conversation<m32::Vm> for Engine {
     fn conversation_tail(&mut self, vm: &mut m32::Vm, order: u32) -> Result<()> {
         let at = |off: u32| Self::field(order, off);
         let table = vm.mem.fetch(at(SPEAKERS))?;
-        let slots = vm.mem.fetch(at(ANSWER_DESCS))? as i32;
-        let (px, py) = (vm.mem.fetch(at(MMX))? as i32, vm.mem.fetch(at(MMY))? as i32);
+        let slots = cell::signed(vm.mem.fetch(at(ANSWER_DESCS))?);
+        let (px, py) = (
+            cell::signed(vm.mem.fetch(at(MMX))?),
+            cell::signed(vm.mem.fetch(at(MMY))?),
+        );
         self.select_screen(vm.mem.fetch(at(SCREEN))?);
         for i in 0..4i32 {
-            self.select_descriptor((slots + i) as u32);
+            self.select_descriptor(cell::unsigned(slots + i));
             if self.descriptor_active() == 0 {
                 continue;
             }
@@ -279,7 +290,7 @@ impl Conversation<m32::Vm> for Engine {
             let x2 = x + self.descriptor_width();
             let y2 = y + self.descriptor_height();
             let under = px >= x && py >= y && px <= x2 && py <= y2;
-            let want = Self::cell(&vm.mem, table, if under { 4 } else { 0x18 })? as i32;
+            let want = cell::signed(Self::cell(&vm.mem, table, if under { 4 } else { 0x18 })?);
             if self.descriptor_color() != want {
                 self.set_color(want)?;
             }
@@ -308,7 +319,7 @@ impl Engine {
         M: Machine,
         Engine: Host<M> + Conversation<M>,
     {
-        let order = pop1(vm.data(), "DOORDER")? as u32;
+        let order = cell::unsigned(pop1(vm.data(), "DOORDER")?);
 
         // An argument that names no module does nothing at all.
         //
@@ -328,7 +339,7 @@ impl Engine {
         // at 0x7ea22, reached with the real block. So the original getting a 5
         // here reads whatever module 0 would be and finds no mode it knows —
         // nothing happens, no check needed, which is why there is none.
-        if !vm.space().is_live(order as i32) {
+        if !vm.space().is_live(cell::signed(order)) {
             return Ok(true);
         }
         let f = |vm: &M, off: u32| get(vm, order, off);
@@ -526,8 +537,8 @@ impl Engine {
         // sight.
         self.select_screen(vm.mem.fetch(at(SCREEN))?);
         self.select_descriptor(vm.mem.fetch(at(INFO_DESC))?);
-        self.set_color(vm.mem.fetch(at(INFO_COLOR))? as i32)?;
-        self.set_template(vm.mem.fetch(at(INFO_FONT))? as i32)?;
+        self.set_color(cell::signed(vm.mem.fetch(at(INFO_COLOR))?))?;
+        self.set_template(cell::signed(vm.mem.fetch(at(INFO_FONT))?))?;
 
         // 0x7c726: no talk word, nothing to say.
         if vm.mem.fetch(at(TALK))? == 0 {
@@ -539,14 +550,14 @@ impl Engine {
         if said == -1 {
             return Ok(());
         }
-        vm.mem.store(at(RECORD), said as u32)?;
+        vm.mem.store(at(RECORD), cell::unsigned(said))?;
         let with = pop1(&mut vm.data, "EXECORDER")?;
-        vm.mem.store(at(FIELDS), with as u32)?;
+        vm.mem.store(at(FIELDS), cell::unsigned(with))?;
         // 0x7c7b1 and 0x7c7de, with the block's own +0x194 set from the record
         // in between (0x7c7bf, and again at 0x7c7d3 — the handler stores it
         // twice, either side of `HIDEMOUSE`).
-        self.dialogue_changes(vm, order, said as u32, with as u32)?;
-        let entry = Self::cell(&vm.mem, said as u32, 4)?;
+        self.dialogue_changes(vm, order, cell::unsigned(said), cell::unsigned(with))?;
+        let entry = Self::cell(&vm.mem, cell::unsigned(said), 4)?;
         vm.mem.store(at(NODE), entry)?;
         self.calc_dialog(vm, order, 0)
     }
@@ -604,13 +615,13 @@ impl Engine {
         put(vm, order, VERB, 0)?;
         put(vm, order, MODE, 0)?;
 
-        let items = get(vm, order, ITEMS)? as u32;
+        let items = cell::unsigned(get(vm, order, ITEMS)?);
         let imx = get(vm, order, IMX)?;
 
         // Taking an item into the hand, from wherever it was found.
         let take = |me: &mut Self, vm: &mut M, item: i32, from_scene: bool| -> Result<()> {
             put(vm, order, TARGET, item)?;
-            let sprite = get(vm, items, item as u32 * 20 + 8)?;
+            let sprite = get(vm, items, cell::unsigned(item) * 20 + 8)?;
             let (hx, hy) = rules.held_hot;
             me.order_callback(vm, order, 0xb8, &[sprite + 1, hx, hy])?;
             put(vm, order, MODE, 3)?;
@@ -629,7 +640,7 @@ impl Engine {
         if (rules.bar_x0..rules.bar_x0 + 8 * rules.slot_w).contains(&imx) {
             let list = get(vm, order, INVENTORY)?;
             let slot = (imx - rules.bar_x0) / rules.slot_w;
-            let index = get(vm, list as u32, 0)? + slot;
+            let index = get(vm, cell::unsigned(list), 0)? + slot;
             let item =
                 vm.space()
                     .fetch_cell(crate::words::slot_address(vm.space(), list, index))?;
@@ -644,12 +655,12 @@ impl Engine {
         if hit == 0 {
             return Ok(());
         }
-        let areas = get(vm, order, AREAS)? as u32;
-        let field = |vm: &M, k: u32| get(vm, areas, (hit as u32 - 1000) * 64 + k);
+        let areas = cell::unsigned(get(vm, order, AREAS)?);
+        let field = |vm: &M, k: u32| get(vm, areas, (cell::unsigned(hit) - 1000) * 64 + k);
         let item = field(vm, 0x28)?;
         if item != 0 {
             // Bit 0 of the item's flags is what makes it takeable at all.
-            if get(vm, items, item as u32 * 20 + 4)? & 1 != 0 {
+            if get(vm, items, cell::unsigned(item) * 20 + 4)? & 1 != 0 {
                 take(self, vm, item, true)?;
             }
             return Ok(());
@@ -670,13 +681,13 @@ impl Engine {
     /// addresses area fields with large negative displacements: `area*64 -
     /// 0xf9d8` folds to `i*64 + 0x28`. The 16-bit `hit_area` (`0d34:03d6`)
     /// is the same walk over 32-byte records.
-    pub(crate) fn area_under_pointer<M: Machine>(&mut self, vm: &mut M, order: u32) -> Result<()> {
-        let areas = get(vm, order, AREAS)? as u32;
+    pub(crate) fn area_under_pointer<M: Machine>(&self, vm: &mut M, order: u32) -> Result<()> {
+        let areas = cell::unsigned(get(vm, order, AREAS)?);
         put(vm, order, AREA_HIT, 0)?;
         let (mx, my) = (get(vm, order, MMX)?, get(vm, order, MMY)?);
         for i in 0..get(vm, order, AREA_COUNT)? {
             let c: Vec<i32> = (0..4)
-                .map(|k| get(vm, areas, (i as u32) * 64 + k * 4).unwrap_or(0))
+                .map(|k| get(vm, areas, cell::unsigned(i) * 64 + k * 4).unwrap_or(0))
                 .collect();
             if mx >= c[0] && mx <= c[2] && my >= c[1] && my <= c[3] {
                 put(vm, order, AREA_HIT, i + 1000)?;
@@ -701,7 +712,7 @@ impl Engine {
         let item = get(vm, order, HELD)?;
 
         let screen = get(vm, order, BAR_SCREEN)?;
-        self.select_screen(screen as u32);
+        self.select_screen(cell::unsigned(screen));
         crate::words::add_to_inventory(vm.space_mut(), item, list, rules.inventory)?;
 
         let slot = |vm: &M, i: i32| {
@@ -717,9 +728,9 @@ impl Engine {
             i += 1;
         }
         if slot(vm, i)? == item && i >= 8 {
-            let offset = get(vm, list as u32, 0)?;
+            let offset = get(vm, cell::unsigned(list), 0)?;
             if i - 7 > offset {
-                put(vm, list as u32, 0, i - 7)?;
+                put(vm, cell::unsigned(list), 0, i - 7)?;
             }
         }
         self.order_callback(vm, order, 0xb0, &[])
@@ -743,9 +754,10 @@ impl Engine {
     {
         let raw = get(vm, order, slot)?;
         let Some(target) = vm.callback_target(raw) else {
-            return Err(Error::Unsupported(format!(
-                "DOORDER: the callback at +{slot:#x} of the order block, {raw:#x}, names no word"
-            )));
+            return Err(Error::NotAWord {
+                what: format!("DOORDER: the callback at +{slot:#x} of the order block"),
+                raw,
+            });
         };
         vm.data().extend_from_slice(args);
         vm.call_nested(target, self)
@@ -753,7 +765,7 @@ impl Engine {
 
     /// The tail at 0x7eae2, which every route through `DOORDER` joins.
     ///
-    /// Not a menu builder, as it was once filed — the common epilogue. With a
+    /// Not a menu builder, though it sits among them — the common epilogue. With a
     /// menu open it lets `ANIMATEORDERS` breathe on the right screen; mode 0xE
     /// walks four descriptors; everything else falls straight through, which
     /// is what an idle frame does. The 16-bit tail (`0d34:33db`) is the same.

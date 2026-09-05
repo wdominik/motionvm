@@ -5,17 +5,24 @@
 //!
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
+use motionvm_motion_audio::m32::fm::Fm;
 use motionvm_motion_audio::m32::{Kind, Message, Sequencer};
 use motionvm_motion_formats::m32::{
-    Kind as Res,
+    DriverArchive, Kind as Res,
+    bnk::Bank as InstrumentBank,
     hmi::{Event, Song},
     rsc::Bank,
 };
-use motionvm_motion_testutil::{game_file, gamedata_ds2};
+use motionvm_motion_testutil::{Digests, digest::Digest, game_file, gamedata_ds2};
+
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    Digests::of(env!("CARGO_MANIFEST_DIR"), "ds2")
+}
 
 /// Runs `ticks` ticks and returns every message with the tick it fell on.
 fn play(song: Song, ticks: u32) -> Vec<(u32, Message)> {
-    let mut seq = Sequencer::new(song);
+    let mut seq = Sequencer::new(song, Fm::DEVICE);
     let mut out = Vec::new();
     let mut buf = Vec::new();
     for t in 0..ticks {
@@ -54,24 +61,29 @@ fn the_notes_come_out_as_the_decoder_read_them() {
     // the same controller cache the sequencer keeps.
     let mut want: Vec<(u32, u8, u8, u8)> = Vec::new();
     let mut scaled = 0;
-    for track in &song.tracks {
+    // Only the tracks the OPL3 gets: the sequencer loads no other.
+    for track in song
+        .tracks
+        .iter()
+        .filter(|t| motionvm_motion_audio::m32::sequencer::plays_on(&t.devices, Fm::DEVICE))
+    {
         let mut volume = 0x7fu32;
         for e in &track.events {
             match e.event {
-                motionvm_motion_formats::m32::hmi::Event::Control {
+                Event::Control {
                     controller: 7,
                     value,
                 } => {
-                    volume = value as u32;
+                    volume = u32::from(value);
                 }
-                motionvm_motion_formats::m32::hmi::Event::NoteOn { note, velocity, .. } => {
+                Event::NoteOn { note, velocity, .. } => {
                     let velocity = if track.channel == 9 {
                         scaled += 1;
-                        (velocity as u32 * volume / 127) as u8
+                        u8::try_from(u32::from(velocity) * volume / 127).unwrap()
                     } else {
                         velocity
                     };
-                    want.push((e.tick, track.channel as u8, note, velocity));
+                    want.push((e.tick, u8::try_from(track.channel).unwrap(), note, velocity));
                 }
                 _ => {}
             }
@@ -121,9 +133,9 @@ fn a_note_ends_where_its_length_says() {
     const WINDOW: u32 = 900;
     let mut want: std::collections::BTreeMap<(u8, u8), Vec<u32>> = Default::default();
     for track in &song.tracks {
-        let channel = track.channel as u8;
+        let channel = u8::try_from(track.channel).unwrap();
         for e in &track.events {
-            if let motionvm_motion_formats::m32::hmi::Event::NoteOn { note, duration, .. } = e.event
+            if let Event::NoteOn { note, duration, .. } = e.event
                 && e.tick + duration + 1 < WINDOW
             {
                 want.entry((channel, note))
@@ -267,4 +279,123 @@ fn the_shipped_songs_hold_no_event_that_allocates_per_note() {
          {sysex} SysEx and {branch} Branch in {total} events"
     );
     eprintln!("{total} events across the shipped songs, {markers} loop markers");
+}
+
+/// Every shipped song, played through the sequencer and the FM driver, held
+/// against the register stream it produced last time.
+///
+/// The whole 32-bit music stack in one check: the `HMI` decoder, the clock
+/// that dispatches its events, the voice allocator, the instrument banks, and
+/// every table read out of `HMIMDRV.386`. What comes out is the byte sequence
+/// the chip would have seen, in order — which is exactly what a capture of the
+/// original is compared against, and the one form of it that may be kept here.
+///
+/// A fixed tick count rather than a whole song, because the songs loop
+/// endlessly and there is no natural end; 4000 ticks is well past the point
+/// every track has entered.
+#[test]
+fn the_songs_write_the_registers_they_wrote_before() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let bank = Bank::open_dir(&dir).expect("the resource banks open");
+    let archive = std::fs::read(game_file(&dir, "HMIMDRV.386")).expect("HMIMDRV.386");
+    let archive = DriverArchive::parse(&archive).expect("the .386 chain walks");
+    let device = archive.device(Fm::DEVICE).expect("the OPL3 driver");
+    let melodic = std::fs::read(game_file(&dir, "MELODIC.BNK")).expect("MELODIC.BNK");
+    let drums = std::fs::read(game_file(&dir, "DRUM.BNK")).expect("DRUM.BNK");
+    let melodic = InstrumentBank::parse(&melodic).expect("the melodic bank");
+    let drums = InstrumentBank::parse(&drums).expect("the drum bank");
+
+    // Which blocks are songs. The segment holds the game's dialogue and text
+    // blocks too, and `Song::parse` is lenient enough to make a shape out of
+    // some of them — an empty one, with no note in it. So the criterion is
+    // the music itself: a block that holds a note-on is a song, and the set of
+    // them is digested as well, so that a block quietly leaving the set is a
+    // failing line rather than one test fewer.
+    let mut songs = Vec::new();
+    for (_, id) in bank.present(Res::Block) {
+        let Ok(Some(item)) = bank.item(Res::Block, id) else {
+            continue;
+        };
+        let Ok(song) = Song::parse(item) else {
+            continue;
+        };
+        let sounds = song.tracks.iter().any(|t| {
+            t.events
+                .iter()
+                .any(|e| matches!(e.event, Event::NoteOn { .. }))
+        });
+        if sounds {
+            songs.push((id, song));
+        }
+    }
+    assert!(
+        !songs.is_empty(),
+        "no song was found, so this proves nothing"
+    );
+    let mut ids = Digest::new();
+    for (id, _) in &songs {
+        ids.number(u64::try_from(*id).unwrap());
+    }
+    digests().check("songs", ids.value());
+
+    for (id, song) in songs {
+        let mut seq = Sequencer::new(song, Fm::DEVICE);
+        let mut fm = Fm::new(device, &melodic, &drums).expect("the driver's tables");
+        let mut messages = Vec::new();
+        let mut writes = Vec::new();
+        // The switch-on sequence `Fm::new` runs is part of the stream: it is
+        // what the chip sees first, and getting it wrong is silent.
+        fm.take_into(&mut writes);
+        for _ in 0..4000 {
+            messages.clear();
+            seq.tick(&mut messages);
+            for m in &messages {
+                fm.send(*m);
+            }
+            fm.take_into(&mut writes);
+        }
+        assert!(
+            writes.len() > 100,
+            "song {id} wrote only {} registers in 4000 ticks",
+            writes.len()
+        );
+        let mut d = Digest::new();
+        for w in &writes {
+            d.byte(w.bank).byte(w.reg).byte(w.value);
+        }
+        digests().check(&format!("song_{id}"), d.value());
+    }
+}
+
+/// The opening tune (block 25) carries eight tracks, and two of them — the
+/// bass on channel 2 and the second guitar on channel 4 — name no device
+/// the OPL3 answers to (`[0xA000, 0xA004, 0xA00A]`, without `0xA002`). The
+/// original's song open gives them to no device, so they are silent there,
+/// and the sequencer loads six tracks.
+#[test]
+fn the_opening_tune_gives_two_tracks_to_other_devices() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let bank = Bank::open_dir(&dir).expect("the resource banks open");
+    let block = bank
+        .item(Res::Block, 25)
+        .expect("the bank reads")
+        .expect("block 25");
+    let song = Song::parse(block).expect("the opening tune parses");
+    let silent: Vec<u16> = song
+        .tracks
+        .iter()
+        .filter(|t| !motionvm_motion_audio::m32::sequencer::plays_on(&t.devices, Fm::DEVICE))
+        .map(|t| t.channel)
+        .collect();
+    assert_eq!(silent, [2, 4], "the tracks the OPL3 does not get");
+    assert!(
+        song.tracks.iter().all(|t| t.devices.contains(&0xa000)),
+        "every track names the Ad Lib family"
+    );
 }

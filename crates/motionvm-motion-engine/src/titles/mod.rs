@@ -9,7 +9,33 @@ use std::path::Path;
 use crate::Result;
 
 use crate::MusicSink;
-use motionvm_playable::{Button, KeyPress, PixelAspect};
+pub use motionvm_motion_formats::Generation;
+use motionvm_playable::{Button, KeyPress, PixelAspect, Size};
+
+/// The shape of a pixel of a picture this size, on the 4:3 monitor the
+/// modes of the time were shown on: a mode whose grid is not 4:3 had its
+/// pixels stretched to make up the difference, so a pixel is `4h : 3w`,
+/// reduced — square at 640×480, 5:6 at 320×200.
+pub(crate) fn pixel_aspect_of(size: Size) -> PixelAspect {
+    let (w, h) = (u32::from(size.width), u32::from(size.height));
+    if w == 0 || h == 0 {
+        return PixelAspect::default();
+    }
+    let (across, down) = (4 * h, 3 * w);
+    let common = gcd(across, down);
+    PixelAspect {
+        width: across / common,
+        height: down / common,
+    }
+}
+
+/// Euclid's, for the ratio above.
+fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
 
 /// A game the family's front door drives — the family's own side of the
 /// window's contract.
@@ -20,13 +46,33 @@ use motionvm_playable::{Button, KeyPress, PixelAspect};
 /// by the front door before it starts the game. Errors are this crate's own
 /// [`crate::Error`]; the front door boxes them at the seam. `Send`, so a
 /// game may be opened on a worker thread.
+///
+/// **Why there are two traits and twenty forwarding methods.** Rust's orphan
+/// rule allows `impl Playable for X` only in the crate that owns `Playable`
+/// or the crate that owns `X`. `Playable` is the neutral layer's and
+/// `Game<M>` is this crate's, and this crate must not depend on the audio
+/// stack — a song leaves it as bytes and it never learns the codec — so the
+/// one crate that could write that impl is the one that knows both halves:
+/// the family's front door. It writes it over a `Box<dyn Driven>`, which is
+/// what this trait is for.
+///
+/// The forwarding is the price of the seam and not a sign of one too many.
+/// It is said here once; the methods below and the impl in `motionvm-motion`
+/// do not repeat it.
 pub trait Driven: Send {
     /// The game's full name, as a window shows it.
     fn name(&self) -> &str;
-    /// The size of the picture [`Driven::render`] answers with.
-    fn display_size(&self) -> (u16, u16);
+    /// Which generation of the engine runs it — what the opener decided,
+    /// answered once so nothing has to detect the directory a second time.
+    fn generation(&self) -> Generation;
+    /// The size of the picture [`Driven::frame`] answers with.
+    fn display_size(&self) -> Size;
     /// The shape of one of that picture's pixels on the game's own monitor.
     fn pixel_aspect(&self) -> PixelAspect;
+    /// Reseeds what the game draws random numbers from, before
+    /// [`Driven::start`]. A caller that never does gets the fixed seed the
+    /// machine is built with, and with it the same run every time.
+    fn seed(&mut self, seed: u64);
     /// Begins the game and returns once it is parked in its own frame loop.
     fn start(&mut self) -> Result<()>;
     /// One step of the game — one round of the original's native loop.
@@ -35,8 +81,14 @@ pub trait Driven: Send {
     fn pointer(&mut self, x: i32, y: i32);
     /// Takes one button transition; the level follows it, as `MOUSELK` read.
     fn button(&mut self, which: Button, down: bool);
-    /// Takes one key transition; only presses reach the keyboard buffer.
-    fn key(&mut self, press: &KeyPress, down: bool);
+    /// Takes one key press, which is what reaches the keyboard buffer.
+    fn key_down(&mut self, press: &KeyPress);
+    /// Takes one key release. No game of this family reads one — `?KEY`
+    /// answers keystrokes and a keystroke is a press — so the default body
+    /// drops it, and the channel exists because the contract has one.
+    fn key_up(&mut self, press: &KeyPress) {
+        let _ = press;
+    }
     /// The scroll wheel, in lines. No game of this family reads it; the
     /// default body drops it, and the channel exists so the front door can
     /// forward without asking.
@@ -52,10 +104,8 @@ pub trait Driven: Send {
     fn modifiers(&mut self, shift: bool, ctrl: bool, alt: bool) {
         let _ = (shift, ctrl, alt);
     }
-    /// The frame to show, pointer and all.
-    fn render(&mut self) -> motionvm_render::Framebuffer;
-    /// The palette the frame's indices mean.
-    fn palette(&self) -> &motionvm_render::Palette;
+    /// The frame to show, pointer and all, with the palette its indices mean.
+    fn frame(&mut self) -> motionvm_render::Frame<'_>;
     /// How long the frame about to run should last, or `None` for no wait.
     fn frame_duration(&self) -> Option<std::time::Duration>;
     /// Where the music goes — installed by the front door before
@@ -65,6 +115,10 @@ pub trait Driven: Send {
     fn set_saves(&mut self, dir: &Path) -> Result<()>;
     /// Where saving and loading go, or `None` while there is nowhere.
     fn saves(&self) -> Option<&Path>;
+    /// What the run has to report about itself; see
+    /// `motionvm_playable::Diagnostic`. Per generation, because what a
+    /// machine notices is the machine's own.
+    fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic>;
     /// Whether the game has run to its end.
     fn finished(&self) -> bool;
     /// Asks the game to begin at location `n` instead of where it would.
@@ -80,24 +134,6 @@ pub mod jeffjet;
 pub mod motion16;
 pub mod motion32;
 pub mod vloomes;
-
-/// Which of the engine's two generations a game runs on.
-///
-/// The engine knows this several times over — which container is open, which
-/// savegame layout is written, which of the capability flags are set — and
-/// none of that is anything a caller should have to reconstruct. The roster
-/// answers it in one place — [`Title::generation`] — and the family's music
-/// opener is who asks: the two stacks are different code over different
-/// files. Everything else driving a game is the same for both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Generation {
-    /// The 32-bit engine: `ENGINE.EXE`, 32-bit cells, `NNN.RSC` containers,
-    /// HMI music.
-    Motion32,
-    /// The 16-bit engine: `ENVIRO.EXE` and its older builds, 16-bit cells, a
-    /// `DATA.-n-` container, PSM 2 music.
-    Motion16,
-}
 
 /// The games motionvm knows, by the files they ship.
 ///
@@ -259,5 +295,32 @@ pub fn open(dir: &Path) -> Result<Box<dyn Driven>> {
                 dir: dir.to_path_buf(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pixel_aspect_of;
+    use motionvm_playable::{PixelAspect, Size};
+
+    /// The two modes the games enter, and the two the table also holds.
+    #[test]
+    fn a_pixel_is_what_stretches_the_mode_to_a_4_by_3_screen() {
+        let aspect = |width, height| pixel_aspect_of(Size { width, height });
+        assert_eq!(aspect(640, 480), PixelAspect::default(), "square");
+        assert_eq!(
+            aspect(320, 200),
+            PixelAspect {
+                width: 5,
+                height: 6
+            }
+        );
+        assert_eq!(aspect(800, 600), PixelAspect::default());
+        assert_eq!(aspect(1024, 768), PixelAspect::default());
+        assert_eq!(
+            aspect(0, 480),
+            PixelAspect::default(),
+            "no picture, no shape"
+        );
     }
 }

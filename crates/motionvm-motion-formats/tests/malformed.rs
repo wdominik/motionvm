@@ -290,7 +290,7 @@ fn a_minimal_container_tells_empty_slots_from_occupied_ones() {
     // and must read as empty, not as the next item.
     let mut v = dat_header([3, 0, 0, 0, 0, 0, 0]);
     v.extend_from_slice(&[1u16, 0, 1].map(u16::to_le_bytes).concat());
-    let first = (v.len() + 3 * 4 + 12) as u32;
+    let first = u32::try_from(v.len() + 3 * 4 + 12).unwrap();
     v.extend_from_slice(&[first, first + 6, first + 6].map(u32::to_le_bytes).concat());
     v.extend_from_slice(&[0u8; 12]);
     v.extend_from_slice(&[1, 0, 1, 0, 0, 0]); // a 1x1 sprite
@@ -322,8 +322,8 @@ fn dat_one_volume(volumes: u16, packed_gfx: u16, items: [&[u8]; 2]) -> Vec<u8> {
     v[18..20].copy_from_slice(&volumes.to_le_bytes());
     v[0x16..0x18].copy_from_slice(&packed_gfx.to_le_bytes());
     v.extend_from_slice(&[1u16, 0, 1].map(u16::to_le_bytes).concat());
-    let first = (v.len() + 3 * 4) as u32;
-    let second = first + items[0].len() as u32;
+    let first = u32::try_from(v.len() + 3 * 4).unwrap();
+    let second = first + u32::try_from(items[0].len()).unwrap();
     v.extend_from_slice(&[first, second, second].map(u32::to_le_bytes).concat());
     v.extend_from_slice(items[0]);
     v.extend_from_slice(items[1]);
@@ -336,7 +336,7 @@ fn packed_item(dictionary: u16, initial_width: u16) -> Vec<u8> {
     let stream = [0x00u8, 0x80, 0x80, 0x60];
     let mut v = Vec::new();
     v.extend_from_slice(&3u16.to_le_bytes());
-    v.extend_from_slice(&(stream.len() as u16).to_le_bytes());
+    v.extend_from_slice(&u16::try_from(stream.len()).unwrap().to_le_bytes());
     v.extend_from_slice(&dictionary.to_le_bytes());
     v.extend_from_slice(&initial_width.to_le_bytes());
     v.extend_from_slice(&stream);
@@ -425,7 +425,7 @@ fn an_executable_with_no_kernel_tables_binds_nothing() {
 /// tables end, and the last slot's offset is the file's length — so a fixture
 /// is only in the earlier framing if both are built to hold.
 fn dat_earlier(counts: [u16; 7], spare: u16, items: &[&[u8]]) -> Vec<u8> {
-    let total: usize = counts.iter().map(|&c| c as usize).sum();
+    let total: usize = counts.iter().map(|&c| usize::from(c)).sum();
     assert_eq!(total, items.len(), "one item per slot, empty ones included");
     let mut v = vec![0u8; 22];
     v[0..2].copy_from_slice(&100u16.to_le_bytes());
@@ -441,18 +441,18 @@ fn dat_earlier(counts: [u16; 7], spare: u16, items: &[&[u8]]) -> Vec<u8> {
     for item in items {
         v.extend_from_slice(&u16::from(!item.is_empty()).to_le_bytes());
     }
-    let ends = 22 + total * 2 + (total + spare as usize) * 4;
+    let ends = 22 + total * 2 + (total + usize::from(spare)) * 4;
     let mut at = ends;
     let mut offsets = Vec::new();
     for item in items {
-        offsets.push(at as u32);
+        offsets.push(u32::try_from(at).unwrap());
         at += item.len();
     }
     // The last slot's offset is the file's length, and the spares repeat it.
     let last = offsets.len() - 1;
-    offsets[last] = at as u32;
+    offsets[last] = u32::try_from(at).unwrap();
     for _ in 0..spare {
-        offsets.push(at as u32);
+        offsets.push(u32::try_from(at).unwrap());
     }
     for o in &offsets {
         v.extend_from_slice(&o.to_le_bytes());
@@ -470,7 +470,7 @@ fn earlier_packed_item(repeat: u16) -> Vec<u8> {
     let mut v = Vec::new();
     v.extend_from_slice(&repeat.to_le_bytes());
     v.extend_from_slice(&3u16.to_le_bytes());
-    v.extend_from_slice(&(stream.len() as u16).to_le_bytes());
+    v.extend_from_slice(&u16::try_from(stream.len()).unwrap().to_le_bytes());
     v.extend_from_slice(&2048u16.to_le_bytes());
     v.extend_from_slice(&9u16.to_le_bytes());
     v.extend_from_slice(&stream);
@@ -495,8 +495,7 @@ fn a_truncated_earlier_framing_container_is_refused_as_one() {
     // and ship one file.
     for cut in [whole.len() - 1, whole.len() - 4] {
         let err = m16::Container::from_volumes(vec![whole[..cut].to_vec()], "earlier".into())
-            .err()
-            .expect("a cut container is refused")
+            .expect_err("a cut container is refused")
             .to_string();
         assert!(
             err.contains("last slot's offset is not the file's length"),
@@ -511,8 +510,7 @@ fn a_truncated_earlier_framing_container_is_refused_as_one() {
     // Cut back past the tables there is nothing left to recognise, and the
     // reader says so as it does for any other short file.
     let err = m16::Container::from_volumes(vec![whole[..30].to_vec()], "earlier".into())
-        .err()
-        .expect("a container cut into its tables is refused")
+        .expect_err("a container cut into its tables is refused")
         .to_string();
     assert!(err.contains("only 30 bytes"), "{err}");
 }
@@ -533,8 +531,7 @@ fn an_earlier_framing_packed_item_whose_repeated_length_disagrees_is_refused() {
 
     let bad = dat_earlier([2, 0, 0, 0, 0, 0, 0], 1, &[&earlier_packed_item(4), b""]);
     let err = m16::Container::from_volumes(vec![bad], "earlier".into())
-        .err()
-        .expect("a header whose two lengths disagree is refused")
+        .expect_err("a header whose two lengths disagree is refused")
         .to_string();
     assert!(
         err.contains("do not open") && err.contains("GFXCRUNCH"),
@@ -554,7 +551,7 @@ fn a_short_gfx_inf_answers_for_the_slots_it_does_describe() {
         bytes.extend_from_slice(&w.to_le_bytes());
         bytes.extend_from_slice(&h.to_le_bytes());
     }
-    let whole = m16::GfxInf::parse(&bytes).expect("a whole file parses");
+    let whole = m16::GfxInf::parse(&bytes);
     assert_eq!(whole.len(), 3);
     assert_eq!(whole.size(0), Some((64, 48)));
     assert_eq!(
@@ -567,7 +564,7 @@ fn a_short_gfx_inf_answers_for_the_slots_it_does_describe() {
     assert_eq!(whole.size(3), None, "past the end is not a panic");
 
     for cut in [1, 2, 3] {
-        let short = m16::GfxInf::parse(&bytes[..bytes.len() - cut]).expect("a short file parses");
+        let short = m16::GfxInf::parse(&bytes[..bytes.len() - cut]);
         assert_eq!(short.len(), 2, "the partial entry is not counted");
         assert_eq!(
             short.size(0),
@@ -577,7 +574,7 @@ fn a_short_gfx_inf_answers_for_the_slots_it_does_describe() {
         assert_eq!(short.size(2), None, "and the partial one does not");
     }
 
-    let empty = m16::GfxInf::parse(&[]).expect("an empty file parses");
+    let empty = m16::GfxInf::parse(&[]);
     assert!(empty.is_empty());
     assert_eq!(empty.size(0), None);
 }

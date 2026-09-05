@@ -15,6 +15,16 @@
 
 use motionvm_playable::{Framebuffer, PixelAspect};
 
+/// A window dimension as an index. Lossless on every target this workspace
+/// builds for, all of which have a `usize` at least 32 bits wide.
+#[expect(
+    clippy::as_conversions,
+    reason = "a widening on every target this builds for; `usize` has no `From<u32>`"
+)]
+pub(crate) fn wide(n: u32) -> usize {
+    n as usize
+}
+
 /// How much bigger than the game the window is asked to be, to begin with —
 /// per axis, as everywhere here.
 ///
@@ -124,12 +134,12 @@ pub(crate) fn blit(
     aspect: PixelAspect,
 ) {
     let (sx, sy) = scale_pair(
-        (frame.width as u32, frame.height as u32),
+        (u32::from(frame.width), u32::from(frame.height)),
         aspect,
         width,
         height,
     );
-    let (dw, dh) = (frame.width as u32 * sx, frame.height as u32 * sy);
+    let (dw, dh) = (u32::from(frame.width) * sx, u32::from(frame.height) * sy);
     // Left-over space is split evenly; an odd remainder leaves the extra pixel
     // on the right and bottom, which is invisible and keeps the arithmetic in
     // integers.
@@ -140,10 +150,10 @@ pub(crate) fn blit(
     // How much of the picture the window has room for: all of it, unless the
     // window is smaller than the game — then the pair is already pinned at
     // one and the picture is cut off at the right and bottom.
-    let rows = dh.min(height.saturating_sub(oy)) as usize;
-    let cols = dw.min(width.saturating_sub(ox)) as usize;
-    let (width, ox, oy) = (width as usize, ox as usize, oy as usize);
-    let (sx, sy) = (sx as usize, sy as usize);
+    let rows = wide(dh.min(height.saturating_sub(oy)));
+    let cols = wide(dw.min(width.saturating_sub(ox)));
+    let (width, ox, oy) = (wide(width), wide(ox), wide(oy));
+    let (sx, sy) = (wide(sx), wide(sy));
 
     // The margins. Top and bottom are contiguous runs; the side strips only
     // exist when the width is not an exact multiple, and the loop is skipped
@@ -160,12 +170,12 @@ pub(crate) fn blit(
     for row in 0..rows.div_ceil(sy) {
         let y0 = row * sy;
         let base = (oy + y0) * width + ox;
-        let src = &frame.pixels[row * frame.width as usize..];
+        let src = &frame.pixels[row * usize::from(frame.width)..];
         // The row, expanded once: each source pixel becomes `sx` copies of
         // its color.
         let dst = &mut out[base..base + cols];
         for (chunk, &index) in dst.chunks_exact_mut(sx).zip(src) {
-            chunk.fill(colors[index as usize]);
+            chunk.fill(colors[usize::from(index)]);
         }
         // A row cut off mid-pixel. `scale_pair` cannot actually produce one —
         // sx above 1 means the window fits the whole width, and at 1 every
@@ -173,7 +183,7 @@ pub(crate) fn blit(
         // `out` gets written, and that must not hang on that arithmetic.
         let rem = cols % sx;
         if rem > 0 {
-            dst[cols - rem..].fill(colors[src[cols / sx] as usize]);
+            dst[cols - rem..].fill(colors[usize::from(src[cols / sx])]);
         }
         // And repeated: the other window rows this source row covers are
         // copies of the one just written.
@@ -200,22 +210,22 @@ mod tests {
     ) {
         out.fill(0);
         let (sx, sy) = scale_pair(
-            (frame.width as u32, frame.height as u32),
+            (u32::from(frame.width), u32::from(frame.height)),
             aspect,
             width,
             height,
         );
-        let (dw, dh) = (frame.width as u32 * sx, frame.height as u32 * sy);
+        let (dw, dh) = (u32::from(frame.width) * sx, u32::from(frame.height) * sy);
         let (ox, oy) = (
             (width.saturating_sub(dw)) / 2,
             (height.saturating_sub(dh)) / 2,
         );
         for y in 0..dh.min(height.saturating_sub(oy)) {
-            let src_row = (y / sy) as usize * frame.width as usize;
-            let dst_row = (oy + y) as usize * width as usize + ox as usize;
+            let src_row = wide(y / sy) * usize::from(frame.width);
+            let dst_row = wide(oy + y) * wide(width) + wide(ox);
             for x in 0..dw.min(width.saturating_sub(ox)) {
-                let index = frame.pixels[src_row + (x / sx) as usize];
-                out[dst_row + x as usize] = colors[index as usize];
+                let index = frame.pixels[src_row + wide(x / sx)];
+                out[dst_row + wide(x)] = colors[usize::from(index)];
             }
         }
     }
@@ -225,11 +235,11 @@ mod tests {
     fn patterned(width: u16, height: u16) -> (Framebuffer, [u32; 256]) {
         let mut frame = Framebuffer::new(width, height);
         for (i, p) in frame.pixels.iter_mut().enumerate() {
-            *p = (i * 7 % 251) as u8;
+            *p = u8::try_from(i * 7 % 251).unwrap();
         }
         let mut colors = [0u32; 256];
         for (i, c) in colors.iter_mut().enumerate() {
-            *c = (i as u32) * 0x0101 + 3;
+            *c = u32::try_from(i).unwrap() * 0x0101 + 3;
         }
         (frame, colors)
     }
@@ -238,8 +248,8 @@ mod tests {
         for &(w, h) in cases {
             // Prefilled with a color neither blit writes, so a pixel either
             // of them missed cannot pass as agreement.
-            let mut fast = vec![0xdead_beefu32; (w * h) as usize];
-            let mut slow = vec![0xdead_beefu32; (w * h) as usize];
+            let mut fast = vec![0xdead_beefu32; wide(w * h)];
+            let mut slow = vec![0xdead_beefu32; wide(w * h)];
             blit(frame, colors, &mut fast, w, h, aspect);
             blit_reference(frame, colors, &mut slow, w, h, aspect);
             assert_eq!(fast, slow, "{w}x{h}");
@@ -250,7 +260,10 @@ mod tests {
     fn the_fast_blit_agrees_with_the_slow_one() {
         const WIDTH: u32 = 640;
         const HEIGHT: u32 = 480;
-        let (frame, colors) = patterned(WIDTH as u16, HEIGHT as u16);
+        let (frame, colors) = patterned(
+            u16::try_from(WIDTH).unwrap(),
+            u16::try_from(HEIGHT).unwrap(),
+        );
         agree(
             &frame,
             &colors,
@@ -333,5 +346,86 @@ mod tests {
         // for the 16-bit games' tall ones.
         assert_eq!(base_pair(SQUARE), (2, 2));
         assert_eq!(base_pair(TALL), (3, 4));
+    }
+
+    /// [`scale_pair`] against a brute force, over a grid of window sizes.
+    ///
+    /// The function walks down from the largest horizontal scale that fits and
+    /// takes the first pair whose *both* axes fit; the oracle tries every pair
+    /// and keeps the largest that fits, which is obviously right and far too
+    /// slow to use. They have to agree, and where they can disagree is the
+    /// interesting part: `tall` is not monotone in an obvious way for a 5:6
+    /// pixel, so a larger `sx` can want a `sy` that no longer fits while a
+    /// smaller one does — the walk relies on taking the first that works, and
+    /// this is what says that is the largest.
+    ///
+    /// Both games' sizes and both pixel shapes, over sizes from smaller than
+    /// one picture to larger than eight of them.
+    #[test]
+    fn the_scale_walk_agrees_with_brute_force() {
+        fn largest_that_fits(
+            game: (u32, u32),
+            aspect: PixelAspect,
+            width: u32,
+            height: u32,
+        ) -> (u32, u32) {
+            let mut best = (1, 1);
+            for sx in 1..=64 {
+                let sy = tall(sx, aspect);
+                if game.0 * sx <= width && game.1 * sy <= height && sx >= best.0 {
+                    best = (sx, sy);
+                }
+            }
+            best
+        }
+
+        let square = PixelAspect::default();
+        let tall_pixel = PixelAspect {
+            width: 5,
+            height: 6,
+        };
+        for game in [(640u32, 480u32), (320, 200)] {
+            for aspect in [square, tall_pixel] {
+                for width in (100..=2600).step_by(37) {
+                    for height in (100..=1800).step_by(41) {
+                        assert_eq!(
+                            scale_pair(game, aspect, width, height),
+                            largest_that_fits(game, aspect, width, height),
+                            "game {game:?} aspect {aspect:?} in {width}x{height}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// A scale pair never overflows the window it was chosen for, and never
+    /// answers zero.
+    ///
+    /// The two things everything downstream assumes: `blit` walks
+    /// `game * scale` pixels and would run off the surface, and a zero scale
+    /// would divide by nothing when a click is mapped back.
+    #[test]
+    fn a_scale_pair_fits_or_is_one() {
+        let tall_pixel = PixelAspect {
+            width: 5,
+            height: 6,
+        };
+        for game in [(640u32, 480u32), (320, 200)] {
+            for aspect in [PixelAspect::default(), tall_pixel] {
+                for width in (1..=2000).step_by(29) {
+                    for height in (1..=1500).step_by(31) {
+                        let (sx, sy) = scale_pair(game, aspect, width, height);
+                        assert!(sx >= 1 && sy >= 1, "{sx}x{sy} in {width}x{height}");
+                        let fits = game.0 * sx <= width && game.1 * sy <= height;
+                        assert!(
+                            fits || (sx, sy) == (1, 1),
+                            "{sx}x{sy} overflows {width}x{height} without being the \
+                             clipped fallback"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

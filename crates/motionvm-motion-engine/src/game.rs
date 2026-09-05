@@ -5,7 +5,7 @@
 //! loaded, the VM wired to the engine as its host. It is generic over the
 //! machine, and named with it — `Game<m32::Vm>` or `Game<m16::Vm>`, neither
 //! of them the default — and what one game does that another does not lives
-//! in `titles/`, behind [`Hooks`]. What it does not own is the clock or
+//! in `titles/`. What it does not own is the clock or
 //! the window — a caller decides when a frame happens and what becomes of the
 //! picture. That split is what lets the same setup drive a window, a test and a
 //! headless run without any of the three knowing about the others.
@@ -24,12 +24,21 @@ use crate::{Engine, Error, Result};
 
 /// The loaded game: the virtual machine and the runtime behind it.
 ///
-/// Both halves are public because this is also the inspection point: the
-/// test suites read the machine's memory and the engine's descriptors and
-/// drive both directly. A **window** needs neither — it holds a
-/// boxed contract and cannot even name them; see [`Game::palette`],
-/// [`Game::frame_duration`] and [`Game::set_music`], which are the kinds of
-/// things a window turns out to want.
+/// Both halves are public because this is also the inspection point: the test
+/// suites read the machine's memory and the engine's descriptors and drive
+/// both directly, and they are the only callers that do.
+///
+/// **Deliberate, and the facade it looks like a hole in is enforced
+/// elsewhere.** A window holds a boxed contract and cannot name either half;
+/// that is not a convention but a test — `boundary.rs` asserts that
+/// `motionvm-app` names a family only in its roster — and what a window
+/// actually wants is [`Game::palette`], [`Game::frame_duration`] and
+/// [`Game::set_music`], three methods rather than the engine. Putting these
+/// two behind accessors would stop an outside caller *replacing* an engine,
+/// which nothing tries and nothing outside this workspace can reach; it would
+/// cost two hundred call sites in the suites, most of them growing a `_mut`
+/// they only need because a method takes `&mut self`. The guarantee is
+/// already held where it is worth holding.
 pub struct Game<M: Machine> {
     /// The interpreter, with the game's modules loaded.
     pub vm: M,
@@ -94,6 +103,21 @@ pub struct Game<M: Machine> {
     pub(crate) parked: Option<M::Context>,
 }
 
+impl<M: Machine> std::fmt::Debug for Game<M> {
+    /// Which game, and where its frame stands; the machine and the engine
+    /// print themselves.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Game")
+            .field("title", &self.title)
+            .field("running", &self.running)
+            .field("ending", &self.ending)
+            .field("over", &self.over)
+            .field("parked", &self.parked.is_some())
+            .field("engine", &self.engine)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Where a game keeps the location it is in and the one it is going to.
 ///
 /// Every MOTION game moves between locations by writing a module variable that
@@ -119,23 +143,9 @@ pub(crate) struct LocationScheme {
     pub(crate) unset_below: Option<i32>,
 }
 
-/// What a generation's stand-in frame does that the driver cannot know: the
-/// frame to run while no controller is installed. Implemented once per
-/// machine type in `titles/` — Rust's coherence allows no more than that,
-/// which is why the impl is the generation's even where one game's variable
-/// names appear in it — and public only because the generic driver is
-/// bounded on it; nothing outside this crate implements it.
-pub trait Hooks {
-    /// The word to run this frame when `CTRL`/`SCRCTRL` has not installed a
-    /// controller yet — or `None` when the frame is spent or there is nothing
-    /// to run.
-    fn fallback_controller(&mut self) -> Result<Option<Address>>;
-}
-
 impl<M: Machine> Game<M>
 where
     Engine: Host<M>,
-    Self: Hooks,
 {
     /// Points saving and loading at a directory — this game's own, under the
     /// one given.
@@ -158,7 +168,7 @@ where
     /// its saves beside its data files, and here the data files are read-only.
     pub fn set_saves(&mut self, dir: &Path) -> Result<()> {
         self.engine
-            .set_saves(&dir.join(self.title.slug()))
+            .set_saves(&dir.join(self.title.slug()), self.title.slug())
             .map_err(Error::Saves)
     }
 
@@ -217,8 +227,49 @@ where
     /// engine's mouse record, and the pointer the engine draws follows this
     /// between frames.
     pub fn pointer_position(&mut self, x: i32, y: i32) {
-        self.engine.mouse.x = x;
-        self.engine.mouse.y = y;
+        self.engine.input.mouse.x = x;
+        self.engine.input.mouse.y = y;
+    }
+
+    /// Hands the game this frame's buttons — the live level the step derived
+    /// from the platform's transitions, a stretched short press included.
+    ///
+    /// Into the mouse record the `MOUSE…` words read, and nowhere else. No
+    /// script variable is written here, on either machine: `ICTRL` calls
+    /// `MOUSELK` and `MOUSERK` and stores what they answer into `_MLK` and
+    /// `_MRK` itself (module 4, `0x02920`), and `CTRL` does the same; the
+    /// location handlers read those. Writing them here as well put the right
+    /// value in the right place by a route the original does not have — which
+    /// is worse than harmless, because it would have hidden a wrong reading of
+    /// `ICTRL`: the variables would have held the right value either way.
+    pub fn pointer_buttons(&mut self, left: bool, right: bool) -> Result<()> {
+        self.engine.input.mouse.left = i32::from(left);
+        self.engine.input.mouse.right = i32::from(right);
+        Ok(())
+    }
+
+    /// Hands the game this frame's whole pointer — position and buttons in
+    /// one call, the shape the tests use.
+    pub fn pointer(&mut self, x: i32, y: i32, left: bool, right: bool) -> Result<()> {
+        self.pointer_position(x, y);
+        self.pointer_buttons(left, right)
+    }
+
+    /// Hands the game the key `?KEY` answers this frame, into the engine's
+    /// record and nowhere else. Both frame handlers store it for themselves:
+    /// `ICTRL` opens with `?KEY DUP _AKTKEY !` (module 4, `0x022a0`), and
+    /// `CTRL` puts `?KEY` into `_AKTKEY` the same way.
+    pub fn deliver_key(&mut self, key: i32) -> Result<()> {
+        self.engine.input.key = key;
+        Ok(())
+    }
+
+    /// Hands the game this frame's whole input: the pointer half and the key
+    /// half in one call, which is the shape the tests feed raw `?KEY` codes
+    /// through.
+    pub fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Result<()> {
+        self.pointer(x, y, left, right)?;
+        self.deliver_key(key)
     }
 
     /// Takes one button transition from the platform: the level follows it,
@@ -325,9 +376,13 @@ where
         self.vm.variable(addr)
     }
 
-    /// Writes a module variable. This is how input reaches the game: the
-    /// original engine's native loop fills `_MLK`, `_MRK` and `_AKTKEY` the
-    /// same way, since no bytecode anywhere writes them.
+    /// Writes a module variable — an inspection point, and how a caller sets
+    /// a game's state up without playing to it.
+    ///
+    /// Not how input reaches the game. Input reaches it through the engine's
+    /// own mouse record and key cell, which the `MOUSE…` words and `?KEY`
+    /// answer from; the shell variables the handlers read are the *script's*,
+    /// stored by the game's own controller out of those words.
     pub fn set_var(&mut self, module: u32, name: &str, value: i32) -> Result<()> {
         let addr = self
             .address(module, name)
@@ -390,10 +445,12 @@ where
     /// One step of the game — what the original engine's native loop does once
     /// per frame.
     ///
-    /// No bytecode anywhere reads `_LTHANDLER` or writes `_MLK`, so this part
-    /// was never in the game files to begin with: the native loop polled the
-    /// input, stored it in those variables and called the location's task
-    /// manager. That manager is bytecode and does the rest itself.
+    /// The frame itself is native and was never in the game files: the
+    /// original's loop calls whatever `CTRL` was handed and that is all. What
+    /// the *controller* then does is bytecode — Dunkle Schatten 2's `ICTRL`
+    /// (module 4, `0x02170`) polls `?KEY`, `MOUSELK` and `MOUSERK`, stores
+    /// what they answer into `_AKTKEY`, `_MLK` and `_MRK` (`0x022a0`,
+    /// `0x02920`), and calls the location's task manager itself.
     ///
     /// A frame is the unit of time here, not a millisecond. `!LTWAIT` is
     /// `_LOCTASKWAI --`, one subtraction per call, so a task that asks to wait
@@ -401,9 +458,9 @@ where
     pub fn step(&mut self) -> Result<()> {
         // A new frame, new input: the poll budget starts over, and a word
         // that had spent it and is now finished is no longer waiting.
-        self.engine.polls = 0;
+        self.engine.input.polls = 0;
         if !self.running {
-            self.engine.polling = false;
+            self.engine.input.polling = false;
         }
         // Something already part-way through gets this frame instead. That is
         // the whole of the blocking behavior: the task manager is not called
@@ -437,14 +494,12 @@ where
         }
         // Once `START` has handed a controller to `CTRL`, that word is the
         // frame. It calls the location handler, acts on `_NEXTLOC` and drives
-        // the animations itself.
-        //
-        // Without one, a hand-built loop stands in. It serves the path
-        // `startup_only` + `enter_location`, which is how a caller reaches a
-        // rendered scene without playing to it — the intro tests and the
-        // pixel-for-pixel comparison against the original both enter that way.
-        // It applies only until `START` sets a controller; removing it would
-        // take those entry points with it.
+        // the animations itself. Without one there is nothing to run, and a
+        // frame with nothing to run is a frame that does nothing — there is no
+        // second path, and there must not be one: a hand-built loop standing
+        // in here for a test that skipped `START` would be a frame the
+        // original never ran, inside the function that claims to be the
+        // original's frame. A test reaches a scene the way the game does.
         //
         // A frame runs **every** screen's controller, not one. `ANIMPLAY`
         // walks its three screen slots and for each one whose word id is not
@@ -470,15 +525,13 @@ where
         let addr = loop {
             let Some(id) = self.frame_controllers.pop() else {
                 // The engine-wide controller is the 32-bit game's, which sets
-                // one without naming a screen. The stand-in is asked for only
-                // when there is none, because asking is not free.
-                if let Some(addr) = self.engine.controller {
-                    break addr;
-                }
-                match self.fallback_controller()? {
-                    Some(addr) => break addr,
-                    None => return Ok(()),
-                }
+                // one without naming a screen. A frame with neither is a frame
+                // with nothing to run, and there is nothing else to try — see
+                // above for why no stand-in loop may run here.
+                let Some(addr) = self.engine.controller else {
+                    return Ok(());
+                };
+                break addr;
             };
             if let Some(addr) = self.vm.callback_target(id) {
                 // The screen whose word this is becomes the current one
@@ -568,7 +621,7 @@ where
                 // with it (`016a:05d6`: the screen into `DS:0x5de2`, the
                 // number into `DS:0x3058`) — on that machine a number names a
                 // descriptor only together with its screen.
-                if self.engine.per_screen_descriptors {
+                if self.engine.profile.per_screen_descriptors {
                     self.engine.select_screen(screen);
                 }
                 self.engine.select_descriptor(handle);
@@ -578,7 +631,38 @@ where
         Ok(())
     }
 
-    /// The frame to show, pointer and all.
+    /// Runs one kernel word by name, the way the bytecode reaches it.
+    ///
+    /// The engine is asked for a word by ordinal, so a caller with a name has
+    /// to go through the game's own kernel to find one — which is what this
+    /// does. For a test that drives a word directly: loading a savegame is
+    /// `GET`, `INCLLOC`, `GETANIM` and `=>GETAS` in that order, and
+    /// reproducing a reported state is far quicker from a savegame than from
+    /// an hour of play.
+    ///
+    /// Answers `false` for a word this game's kernel does not have or this
+    /// engine does not implement, which is what [`Host::word`] answers.
+    pub fn kernel_word(&mut self, name: &str) -> Result<bool> {
+        let Some(ordinal) = self.engine.ordinal_of(name) else {
+            return Ok(false);
+        };
+        Ok(self.engine.word(ordinal, &mut self.vm)?)
+    }
+
+    /// The frame to show, pointer and all, with the palette its indices mean.
+    ///
+    /// What a window asks for: composed into a buffer the engine keeps and
+    /// lent out, so nothing is allocated per present.
+    pub fn frame(&mut self) -> motionvm_render::Frame<'_> {
+        self.engine.frame()
+    }
+
+    /// The same picture, owned.
+    ///
+    /// For a caller that wants to keep the frame rather than show it — every
+    /// test that digests or measures one. It costs the copy [`Game::frame`]
+    /// exists to avoid, which is the right way round: a window presents a
+    /// hundred times a second and a test does not.
     pub fn render(&mut self) -> Framebuffer {
         self.engine.render()
     }

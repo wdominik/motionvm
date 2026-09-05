@@ -21,25 +21,14 @@ use motionvm_playable::KeyPress;
 use std::path::Path;
 
 use motionvm_motion_formats::m32::{Kind, ScrModule, rsc::Bank};
+use motionvm_motion_forth::Machine;
 use motionvm_motion_forth::m32;
-use motionvm_motion_forth::{Address, Machine};
 
 use crate::Engine;
 use crate::Error;
 use crate::Result;
-use crate::game::{Game, Hooks, LocationScheme};
-use crate::titles::{Driven, Title};
-
-/// Width of the display this generation's games ask for.
-///
-/// `640x480x256 SETRES`, which is the only mode Dunkle Schatten 2 asks for and
-/// the one every measurement on this engine was taken in. It is the game's
-/// request and not the renderer's assumption, which is why it is written down
-/// here: the 16-bit engine has no `SETRES` at all and its `TOGFX` enters
-/// 320×200.
-pub const DISPLAY_W: u16 = 640;
-/// Height of the same. Screens are composited onto a surface of that size.
-pub const DISPLAY_H: u16 = 480;
+use crate::game::{Game, LocationScheme};
+use crate::titles::{Driven, Generation, Title};
 
 /// The games this engine knows on the 32-bit machine, each with the words
 /// that tell its container from another game's.
@@ -105,9 +94,9 @@ pub(super) fn missing_data(
         .collect()
 }
 
-/// Opens the bank, binds the kernel out of `ENGINE.EXE`, loads every script
-/// module in the containers, and checks that the container is the game the
-/// caller named.
+/// Opens the bank, binds the kernel out of `ENGINE.EXE`, and checks that the
+/// container is the game the caller named. The modules are the game's own to
+/// load, `4 =>GET` first, as `SYSTEM.RSC` has it.
 ///
 /// Checks the required files first. Not for safety — the opens below would
 /// fail anyway — but because of *what* they fail with: a bare
@@ -164,32 +153,20 @@ pub(super) fn open(
     let img = motionvm_motion_formats::m32::le::Image::open(&engine_exe)
         .map_err(|e| Error::data(&engine_exe, e))?;
     let kernel = motionvm_motion_formats::m32::le::kernel_words(&img);
-    let mut vm = m32::Vm::new(&kernel);
+    let vm = m32::Vm::new(&kernel);
 
-    for (_, id) in bank.present(Kind::Script) {
-        // `present` reads the index, `item` reads the data behind it, and a
-        // truncated container can index an item it does not hold. Skipping
-        // for the same reason a module that will not parse is skipped: one
-        // bad entry should not stop the game from starting.
-        let Some(item) = bank
-            .item(Kind::Script, id)
-            .map_err(|e| Error::data(dir, e))?
-        else {
-            continue;
-        };
-        // A module that will not parse is skipped rather than fatal: the set
-        // of modules is large and one bad entry should not stop the game from
-        // starting. A missing module announces itself loudly later, when
-        // something calls into it.
-        if let Ok(parsed) = ScrModule::parse(item) {
-            vm.load(item, &parsed);
-        }
-    }
-
-    if let Some(name) = signature
-        .iter()
-        .find(|name| vm.word_address(2, name).is_none())
-    {
+    // The one thing the opener reads out of the scripts is the signature, and
+    // it reads it off the container: the machine holds what the game has
+    // loaded and nothing else, and nothing is loaded before `START` runs.
+    let module_2 = bank
+        .item(Kind::Script, 2)
+        .map_err(|e| Error::data(dir, e))?
+        .and_then(|item| ScrModule::parse(item).ok());
+    if let Some(name) = signature.iter().find(|name| {
+        module_2
+            .as_ref()
+            .is_none_or(|m| !m.entries.iter().any(|e| e.name == **name))
+    }) {
         return Err(Error::NotThisGame {
             dir: dir.to_path_buf(),
             title: title.short(),
@@ -197,7 +174,11 @@ pub(super) fn open(
         });
     }
 
-    let engine = Engine::with_display(DISPLAY_W, DISPLAY_H).with_bank(dir, bank);
+    let mut engine = Engine::new(crate::Profile::motion32()).with_bank(dir, bank);
+    // Which of the engine's words each of this kernel's ordinals is, decided
+    // here and not again. The 32-bit reading, because ten names mean something
+    // else on the other machine.
+    engine.bind_words(&motionvm_motion_formats::m32::le::binding_of(&kernel), true);
     Ok(Game {
         vm,
         engine,
@@ -218,14 +199,18 @@ impl Driven for Game<m32::Vm> {
         self.title.name()
     }
 
-    fn display_size(&self) -> (u16, u16) {
+    fn generation(&self) -> Generation {
+        Generation::Motion32
+    }
+
+    fn display_size(&self) -> motionvm_playable::Size {
         self.engine.display_size()
     }
 
+    /// Square at the 640×480 the game asks for; a mode with another grid
+    /// would answer its own shape.
     fn pixel_aspect(&self) -> motionvm_playable::PixelAspect {
-        // 640×480 on a 4:3 monitor: the grid already matches, so the pixels
-        // are square.
-        motionvm_playable::PixelAspect::default()
+        super::pixel_aspect_of(self.engine.display_size())
     }
 
     /// Startup runs to the game's own parked loop before returning, under
@@ -249,6 +234,10 @@ impl Driven for Game<m32::Vm> {
         Game::<m32::Vm>::step(self)
     }
 
+    fn seed(&mut self, seed: u64) {
+        Machine::seed(&mut self.vm, seed);
+    }
+
     fn pointer(&mut self, x: i32, y: i32) {
         self.pointer_position(x, y);
     }
@@ -257,20 +246,12 @@ impl Driven for Game<m32::Vm> {
         self.note_button(which, down);
     }
 
-    fn key(&mut self, press: &KeyPress, down: bool) {
-        // Releases cross and are dropped here: `?KEY` answers keystrokes,
-        // and a keystroke is a press.
-        if down {
-            self.engine.push_key(press);
-        }
+    fn key_down(&mut self, press: &KeyPress) {
+        self.engine.push_key(press);
     }
 
-    fn render(&mut self) -> motionvm_render::Framebuffer {
-        Game::<m32::Vm>::render(self)
-    }
-
-    fn palette(&self) -> &motionvm_render::Palette {
-        Game::<m32::Vm>::palette(self)
+    fn frame(&mut self) -> motionvm_render::Frame<'_> {
+        self.engine.frame()
     }
 
     fn frame_duration(&self) -> Option<std::time::Duration> {
@@ -278,7 +259,7 @@ impl Driven for Game<m32::Vm> {
     }
 
     fn set_music(&mut self, sink: Box<dyn crate::MusicSink>) {
-        Game::<m32::Vm>::set_music(self, sink)
+        Game::<m32::Vm>::set_music(self, sink);
     }
 
     fn set_saves(&mut self, dir: &Path) -> Result<()> {
@@ -287,6 +268,42 @@ impl Driven for Game<m32::Vm> {
 
     fn saves(&self) -> Option<&Path> {
         Game::<m32::Vm>::saves(self)
+    }
+
+    /// The engine's, plus the machine's own: every address in a module that
+    /// is not loaded that the game read or wrote.
+    ///
+    /// `@` validates nothing (`0x626fc`) and the game leans on it — five of
+    /// the sixteen locations read through a pointer that lands in module 0 —
+    /// so these are expected rather than alarming, and the number is the
+    /// point: it says how much of a run went past an address nobody can
+    /// account for. The first few addresses are named because a *new* one
+    /// appearing is what would be worth looking at.
+    fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic> {
+        let mut out = self.engine.diagnostics();
+        let loose = self.vm.mem.loose();
+        if !loose.is_empty() {
+            let total: u32 = loose.values().sum();
+            let (shown, rest) = (loose.iter().take(8), loose.len().saturating_sub(8));
+            let mut detail = format!(
+                "{total} read{} at {} address{}: {}",
+                if total == 1 { "" } else { "s" },
+                loose.len(),
+                if loose.len() == 1 { "" } else { "es" },
+                shown
+                    .map(|(a, n)| format!("{a} ×{n}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+            if rest > 0 {
+                detail.push_str(&format!(", and {rest} more"));
+            }
+            out.push(motionvm_playable::Diagnostic {
+                subject: "reads into modules that are not loaded",
+                detail,
+            });
+        }
+        out
     }
 
     fn finished(&self) -> bool {
@@ -315,16 +332,6 @@ impl Driven for Game<m32::Vm> {
 pub(super) struct Shell {
     /// The module the compiler placed the shell variables in.
     pub(super) module: u32,
-    /// The left button, as the location handlers read it.
-    pub(super) left: &'static str,
-    /// The right button.
-    pub(super) right: &'static str,
-    /// The key `?KEY` answered, as the handlers read it.
-    pub(super) key: &'static str,
-    /// The location the stand-in frame loop moves to.
-    pub(super) next_location: &'static str,
-    /// The handler the stand-in frame loop runs.
-    pub(super) handler: &'static str,
     /// The task the location is in.
     pub(super) task: &'static str,
     /// The task's phase.
@@ -349,10 +356,10 @@ impl Game<m32::Vm> {
     /// module memory to end at `0x50 + 16004` — so it is easy to conclude the
     /// word does not exist.
     pub fn start(&mut self) -> Result<()> {
-        // The first of those two lines is the one no bytecode contains, so the
-        // slot it takes has to be granted from here. Module 4 lands in slot 1,
-        // and everything `START` loads follows behind it.
-        self.engine.mark_resident(4);
+        // The first of those two lines is the one no bytecode contains, so it
+        // is done from here: `4 =>GET`, which loads module 4 into slot 1, and
+        // everything `START` loads follows behind it.
+        self.engine.get_module(&mut self.vm.mem, 4)?;
         let addr = self.address(4, "START").ok_or_else(|| Error::NoWord {
             module: 4,
             name: "START".into(),
@@ -361,73 +368,15 @@ impl Game<m32::Vm> {
         self.running = true;
         Ok(())
     }
-    /// Runs `STARTUP` alone, for tests that want the state without the game.
-    pub fn startup_only(&mut self) -> Result<()> {
-        self.call(3, "STARTUP", &[])
-    }
-    /// Enters a location and lets the entry play out at once.
-    ///
-    /// Convenient where only the settled picture matters. Anything with a frame
-    /// clock wants [`Self::begin_location`] instead, or the entry's own fade is
-    /// consumed before a single frame reaches the screen.
-    pub fn enter_location(&mut self, location: i32) -> Result<()> {
-        self.call(5, "INCLLOC", &[location])
-    }
-    /// Starts entering a location without running it to the end.
-    ///
-    /// `INCLLOC` fades out, runs the location's macro, and fades back in — the
-    /// second of those is how a location appears at all. Driving it frame by
-    /// frame is what makes that visible.
-    pub fn begin_location(&mut self, location: i32) -> Result<()> {
-        let addr = self.address(5, "INCLLOC").ok_or_else(|| Error::NoWord {
-            module: 5,
-            name: "INCLLOC".into(),
-        })?;
-        self.vm.data.push(location);
-        self.vm.start(addr);
-        self.running = true;
-        Ok(())
-    }
-    /// Hands the game this frame's buttons — the live level the step derived
-    /// from the platform's transitions, a stretched short press included.
-    ///
-    /// Both routes are fed, because the game uses both: `ICTRL` reads the
-    /// pointer through the kernel words `MOUSEX`, `MOUSEY`, `MOUSELK` and
-    /// `MOUSERK` and stores the result in these variables itself, while the
-    /// location handlers read the variables.
-    pub fn pointer_buttons(&mut self, left: bool, right: bool) -> Result<()> {
-        let shell = &super::ds2::SHELL;
-        self.set_var(shell.module, shell.left, left as i32)?;
-        self.set_var(shell.module, shell.right, right as i32)?;
-        self.engine.mouse.left = left as i32;
-        self.engine.mouse.right = right as i32;
+
+    /// Loads module `n` as `=>GET` would, for a test that drives a word of it
+    /// without going through the game's own way into the location that
+    /// loads it.
+    pub fn load_module(&mut self, n: u32) -> Result<()> {
+        self.engine.get_module(&mut self.vm.mem, n)?;
         Ok(())
     }
 
-    /// Hands the game this frame's whole pointer — position and buttons in
-    /// one call, the shape the tests use.
-    pub fn pointer(&mut self, x: i32, y: i32, left: bool, right: bool) -> Result<()> {
-        self.pointer_position(x, y);
-        self.pointer_buttons(left, right)
-    }
-
-    /// Hands the game the key `?KEY` answers this frame, on both of its
-    /// routes: `_AKTKEY` for the location handlers, the engine's record for
-    /// the kernel word.
-    pub fn deliver_key(&mut self, key: i32) -> Result<()> {
-        let shell = &super::ds2::SHELL;
-        self.set_var(shell.module, shell.key, key)?;
-        self.engine.key = key;
-        Ok(())
-    }
-
-    /// Hands the game this frame's whole input: the pointer half and the key
-    /// half in one call, which is the shape the tests feed raw `?KEY` codes
-    /// through.
-    pub fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Result<()> {
-        self.pointer(x, y, left, right)?;
-        self.deliver_key(key)
-    }
     /// The task and phase the location is currently in — the intro's progress.
     pub fn task_phase(&self) -> (i32, i32) {
         (
@@ -436,32 +385,5 @@ impl Game<m32::Vm> {
             self.get_var(super::ds2::SHELL.module, super::ds2::SHELL.task_phase)
                 .unwrap_or(0),
         )
-    }
-}
-
-impl Hooks for Game<m32::Vm> {
-    /// The hand-built frame loop that stands in until `START` has handed
-    /// `CTRL` a controller: act on `_NEXTLOC`, else run `_LTHANDLER`.
-    ///
-    /// It serves the path `startup_only` + `enter_location`, which is how a
-    /// caller reaches a rendered scene without playing to it — the intro
-    /// tests and the pixel-for-pixel comparison against the original both
-    /// enter that way. It applies only until `START` sets a controller;
-    /// removing it would take those entry points with it. Answers the word
-    /// to run this frame, or `None` when the frame is spent.
-    fn fallback_controller(&mut self) -> Result<Option<Address>> {
-        if let Some(next) = self
-            .get_var(super::ds2::SHELL.module, super::ds2::SHELL.next_location)
-            .filter(|&n| n != 0)
-        {
-            self.set_var(super::ds2::SHELL.module, super::ds2::SHELL.next_location, 0)?;
-            self.begin_location(next)?;
-            self.pump()?;
-            return Ok(None);
-        }
-        Ok(self
-            .get_var(super::ds2::SHELL.module, super::ds2::SHELL.handler)
-            .filter(|&h| h != 0)
-            .map(|h| Address::new(h as u32 >> 16, h as u32 & 0xffff)))
     }
 }

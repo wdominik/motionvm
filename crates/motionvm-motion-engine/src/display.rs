@@ -6,6 +6,8 @@
 //! is asked for. How the recorded values map onto compositing is a
 //! *hypothesis*, spelled out at [`Display::compose`].
 
+use motionvm_motion_forth::cell;
+use motionvm_playable::Size;
 use motionvm_render::Palette;
 use motionvm_render::{Framebuffer, Rect};
 
@@ -59,9 +61,9 @@ pub struct Screen {
     /// One entry per 8x8 tile of [`Screen::view`]: the lowest level that has to
     /// be redrawn there, or [`Screen::UNDAMAGED`] for nothing.
     ///
-    /// The original keeps the same array at `screen+0x41A`, `(view_w * view_h)
-    /// >> 6` entries of two bytes each, and its drawer refills it with
-    /// `0x7FFF` at the start of every pass (0x69248).
+    /// The original keeps the same array at `screen+0x41A`, with
+    /// `(view_w * view_h) >> 6` entries of two bytes each, and its drawer
+    /// refills it with `0x7FFF` at the start of every pass (0x69248).
     pub damage: Vec<i16>,
 }
 
@@ -114,7 +116,7 @@ impl Screen {
     /// screen that was not would leave its last strip unmarkable in the
     /// original too.
     pub fn tiles(&self) -> (usize, usize) {
-        (self.view.0 as usize >> 3, self.view.1 as usize >> 3)
+        (usize::from(self.view.0) >> 3, usize::from(self.view.1) >> 3)
     }
 
     /// `0x6e701`: everything in this rectangle has to be redrawn from `level` up.
@@ -130,7 +132,7 @@ impl Screen {
         if tw == 0 || th == 0 || w <= 0 || h <= 0 {
             return;
         }
-        let level = level.clamp(i16::MIN as i32, Self::UNDAMAGED as i32) as i16;
+        let level = cell::short(level.clamp(i32::from(i16::MIN), i32::from(Self::UNDAMAGED)));
         for (tx, ty) in self.span(x, y, w, h) {
             let slot = &mut self.damage[ty * tw + tx];
             if *slot > level {
@@ -150,7 +152,7 @@ impl Screen {
             return true;
         }
         self.span(x, y, w, h)
-            .any(|(tx, ty)| self.damage[ty * tw + tx] as i32 <= level)
+            .any(|(tx, ty)| i32::from(self.damage[ty * tw + tx]) <= level)
     }
 
     /// Every tile a surface rectangle touches, clipped to the view.
@@ -164,14 +166,17 @@ impl Screen {
     fn span(&self, x: i32, y: i32, w: i32, h: i32) -> impl Iterator<Item = (usize, usize)> + use<> {
         let (tw, th) = self.tiles();
         let (ox, oy) = (
-            self.origin.0 as i32 + self.pos.0 as i32,
-            self.origin.1 as i32 + self.pos.1 as i32,
+            i32::from(self.origin.0) + i32::from(self.pos.0),
+            i32::from(self.origin.1) + i32::from(self.pos.1),
         );
-        let x0 = ((x - ox) >> 3).clamp(0, tw as i32);
-        let y0 = ((y - oy) >> 3).clamp(0, th as i32);
-        let x1 = ((x - ox + w + 7) >> 3).clamp(x0, tw as i32);
-        let y1 = ((y - oy + h + 7) >> 3).clamp(y0, th as i32);
-        (y0..y1).flat_map(move |ty| (x0..x1).map(move |tx| (tx as usize, ty as usize)))
+        let x0 = ((x - ox) >> 3).clamp(0, cell::count(tw));
+        let y0 = ((y - oy) >> 3).clamp(0, cell::count(th));
+        let x1 = ((x - ox + w + 7) >> 3).clamp(x0, cell::count(tw));
+        let y1 = ((y - oy + h + 7) >> 3).clamp(y0, cell::count(th));
+        // Clamped at zero above, so the conversions cannot come up short.
+        let span = |lo: i32, hi: i32| cell::at(lo).unwrap_or(0)..cell::at(hi).unwrap_or(0);
+        let cols = span(x0, x1);
+        span(y0, y1).flat_map(move |ty| cols.clone().map(move |tx| (tx, ty)))
     }
 
     /// `0x69248`: the drawer empties the map at the start of every pass.
@@ -181,10 +186,11 @@ impl Screen {
 }
 
 /// The set of screens plus the palette in force.
+#[derive(Debug)]
 pub struct Display {
     /// The size of the picture the screens are composited onto: 640×480 for
     /// the 32-bit engine's game, 320×200 for the 16-bit engine's.
-    pub size: (u16, u16),
+    pub size: Size,
     /// Every screen the game has made, in the order it made them — which is
     /// also the order they are composited in, before `level` is considered.
     pub screens: Vec<Screen>,
@@ -205,9 +211,9 @@ impl Display {
     }
 
     /// A display of the given size, with no screens and an all-black palette.
-    pub fn with_size(width: u16, height: u16) -> Self {
+    pub fn with_size(size: Size) -> Self {
         Self {
-            size: (width, height),
+            size,
             screens: Vec::new(),
             palette: Palette::from_6bit(&[0; Palette::BYTES]),
             current: None,
@@ -264,13 +270,13 @@ impl Display {
     /// (`Engine::advance_curtain`) — which is what the original does too — and
     /// nothing composes while one runs.
     pub fn compose(&self) -> Framebuffer {
-        let mut out = Framebuffer::new(self.size.0, self.size.1);
+        let mut out = Framebuffer::new(self.size.width, self.size.height);
         for s in self.screens.iter().filter(|s| s.active) {
             out.copy_from(
                 &s.buffer,
                 self.window(s),
-                s.view_pos.0 as i32,
-                s.view_pos.1 as i32,
+                i32::from(s.view_pos.0),
+                i32::from(s.view_pos.1),
             );
         }
         out
@@ -283,8 +289,8 @@ impl Display {
     /// rather than twice.
     pub fn window(&self, s: &Screen) -> Rect {
         Rect {
-            x: s.pos.0 as i32,
-            y: s.pos.1 as i32,
+            x: i32::from(s.pos.0),
+            y: i32::from(s.pos.1),
             w: s.view.0.min(s.size.0),
             h: s.view.1.min(s.size.1),
         }
@@ -327,7 +333,10 @@ mod tests {
     /// that together tile the display, plus a third screen parked outside it.
     #[test]
     fn screens_tile_the_display() {
-        let mut d = Display::with_size(640, 480);
+        let mut d = Display::with_size(Size {
+            width: 640,
+            height: 480,
+        });
 
         let main = d.new_screen();
         let s = d.screen_mut(main).unwrap();
@@ -363,7 +372,10 @@ mod tests {
 
     #[test]
     fn handles_start_at_one() {
-        let mut d = Display::with_size(640, 480);
+        let mut d = Display::with_size(Size {
+            width: 640,
+            height: 480,
+        });
         assert_eq!(d.new_screen(), 1);
         assert_eq!(d.new_screen(), 2);
     }

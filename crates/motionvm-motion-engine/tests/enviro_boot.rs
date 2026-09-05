@@ -5,21 +5,20 @@
 //! drive exactly that far and ask for the picture. They need the game's
 //! files — `MOTIONVM_GAMEDATA_ENVIRO` — and skip without them.
 //!
+//! That this directory is told apart and opens as this game is asked in
+//! `titles_detected.rs`, one row per game; here the game is already open.
+//!
 //! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
-use motionvm_motion_engine::{Title, titles};
-use motionvm_motion_testutil::gamedata_enviro;
+mod common;
 
-#[test]
-fn the_directory_is_told_apart_and_opened_as_the_16_bit_game() {
-    let Some(dir) = gamedata_enviro() else {
-        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
-        return;
-    };
-    assert_eq!(titles::detect(&dir), Some(Title::DieEnviroKidsGreifenEin));
-    let game = titles::open(&dir).expect("opens");
-    assert_eq!(game.name(), "Die Enviro-Kids greifen ein");
-    assert_eq!(game.display_size(), (320, 200));
+use motionvm_motion_engine::titles;
+use motionvm_motion_forth::cell;
+use motionvm_motion_testutil::{Digests, digest, digest::Digest, gamedata_enviro};
+
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("enviro")
 }
 
 #[test]
@@ -54,6 +53,12 @@ fn run_reaches_the_intro_loop_and_the_first_frames_draw_a_picture() {
     // for well over a thousand frames without reaching a kernel word the
     // engine lacks, and every frame is a 320×200 picture.
     let mut lit_frames = 0;
+    // Every frame of the intro folded into one digest, rather than the last
+    // one alone: the intro is an animation, and a still from the end of it
+    // would say nothing about the fourteen hundred pictures before it. The
+    // frames are rendered here either way, so this costs the fold and nothing
+    // else.
+    let mut intro = Digest::new();
     for frame in 1..=1500 {
         game.step()
             .unwrap_or_else(|e| panic!("ICTRL stopped at frame {frame}: {e}"));
@@ -63,6 +68,7 @@ fn run_reaches_the_intro_loop_and_the_first_frames_draw_a_picture() {
         );
         let picture = game.render();
         assert_eq!((picture.width, picture.height), (320, 200));
+        intro.number(digest::frame(&picture));
         if picture.pixels.iter().any(|&p| p != 0) {
             lit_frames += 1;
         }
@@ -71,6 +77,7 @@ fn run_reaches_the_intro_loop_and_the_first_frames_draw_a_picture() {
         lit_frames > 1000,
         "only {lit_frames} of 1500 frames drew anything"
     );
+    digests().check("intro", intro.value());
     assert!(
         game.engine.stubbed().is_empty(),
         "words walked past without effect: {:?}",
@@ -145,7 +152,7 @@ fn a_scene_change_leaves_nothing_of_the_last_picture() {
         game.step().unwrap_or_else(|e| panic!("frame {frame}: {e}"));
         let fb = game.render();
         let pal = game.palette().clone();
-        let w = fb.width as usize;
+        let w = usize::from(fb.width);
         let (mut red, mut other) = (0usize, 0usize);
         for &p in &fb.pixels {
             if p == 0 {
@@ -170,7 +177,7 @@ fn a_scene_change_leaves_nothing_of_the_last_picture() {
         for (i, &p) in fb.pixels.iter().enumerate() {
             let [r, g, b] = pal.rgb8(p);
             if r > 150 && g < 80 && b < 80 {
-                let (x, y) = ((i % w) as i32, (i / w) as i32);
+                let (x, y) = (cell::count(i % w), cell::count(i / w));
                 x0 = x0.min(x);
                 x1 = x1.max(x);
                 y0 = y0.min(y);
@@ -181,7 +188,7 @@ fn a_scene_change_leaves_nothing_of_the_last_picture() {
             if p == 0 {
                 continue;
             }
-            let (x, y) = ((i % w) as i32, (i / w) as i32);
+            let (x, y) = (cell::count(i % w), cell::count(i / w));
             assert!(
                 (x0 - 2..=x1 + 2).contains(&x) && (y0 - 2..=y1 + 2).contains(&y),
                 "frame {frame}: a pixel at ({x}, {y}) outside the title \
@@ -229,7 +236,7 @@ fn the_intro_grid_settles_all_four_motifs_at_full_size() {
         }
     }
     assert_eq!(phase, 44, "the grid never settled");
-    let mot2 = game.get_var(610, "_MOT2").expect("_MOT2") as u32;
+    let mot2 = cell::unsigned(game.get_var(610, "_MOT2").expect("_MOT2"));
     let d = game
         .engine
         .descriptors()
@@ -238,8 +245,8 @@ fn the_intro_grid_settles_all_four_motifs_at_full_size() {
         .expect("the bottom-left motif")
         .clone();
     assert_eq!(
-        d.fields.get("SDH%SHR"),
-        Some(&1000),
+        d.fields.get(motionvm_motion_engine::Field::SDH_PCT_SHR),
+        Some(1000),
         "the flip ends at full width"
     );
     assert_eq!((d.x, d.y), (2, 99), "settled at the grid cell");
@@ -252,12 +259,12 @@ fn the_intro_grid_settles_all_four_motifs_at_full_size() {
     let mut bl_columns = [false; 160];
     for y in 0..200i32 {
         for x in 0..320i32 {
-            let p = fb.pixels[(y * 320 + x) as usize];
+            let p = fb.pixels[usize::try_from(y * 320 + x).unwrap()];
             if p != 0 {
                 min = (min.0.min(x), min.1.min(y));
                 max = (max.0.max(x), max.1.max(y));
                 if (2..162).contains(&x) && (99..176).contains(&y) {
-                    bl_columns[(x - 2) as usize] = true;
+                    bl_columns[usize::try_from(x - 2).unwrap()] = true;
                 }
             }
         }
@@ -273,4 +280,44 @@ fn the_intro_grid_settles_all_four_motifs_at_full_size() {
         lit >= 150,
         "the bottom-left motif fills its cell ({lit}/160 columns lit)"
     );
+}
+
+/// A 16-bit screen holds a hundred descriptors, and the hundred-and-first
+/// `NEWSETDESC` (`05f1:0ad4`) pops nothing and pushes nothing: its six
+/// arguments stay on the stack and no handle comes back.
+#[test]
+fn the_hundred_and_first_descriptor_leaves_the_stack_as_it_is() {
+    let Some(dir) = gamedata_enviro() else {
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
+        return;
+    };
+    let mut game = titles::enviro::open(&dir).expect("opens");
+    game.start().expect("RUN starts");
+    let make = |game: &mut motionvm_motion_engine::Game<motionvm_motion_forth::m16::Vm>| {
+        let depth = game.vm.data.len();
+        game.vm.data.extend_from_slice(&[10, 20, 15, 0, 15, -1]);
+        assert!(game.kernel_word("NEWSETDESC").expect("NEWSETDESC"));
+        game.vm.data.len() - depth
+    };
+    // One to learn which screen is current, then up to the hundred.
+    assert_eq!(make(&mut game), 1, "a handle comes back");
+    let screen = game
+        .engine
+        .descriptors()
+        .last()
+        .expect("the descriptor")
+        .screen;
+    let on_screen = |game: &motionvm_motion_engine::Game<motionvm_motion_forth::m16::Vm>| {
+        game.engine
+            .descriptors()
+            .iter()
+            .filter(|d| d.screen == screen)
+            .count()
+    };
+    while on_screen(&game) < 100 {
+        assert_eq!(make(&mut game), 1);
+    }
+    assert_eq!(on_screen(&game), 100);
+    assert_eq!(make(&mut game), 6, "the six arguments stay, no handle");
+    assert_eq!(on_screen(&game), 100, "and no descriptor was made");
 }

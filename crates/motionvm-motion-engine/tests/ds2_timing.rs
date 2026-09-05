@@ -8,12 +8,9 @@
 //! wrong in both directions: the obvious candidate turns out to cost nothing
 //! measurable, and the real hot spot sits in a routine nobody suspected.
 //!
-//! `#[ignore]`d, so `just check` skips it. Run it by hand:
-//!
-//! ```text
-//! MOTIONVM_GAMEDATA_DS2=… cargo test --release -p motionvm-motion-engine \
-//!     --test timing -- --nocapture --ignored
-//! ```
+//! `#[ignore]`d, so `just check` skips it; `just bench` runs it, together with
+//! `throughput.rs`, which measures the other thing a frame is made of — how
+//! fast the machine that produced the scene ran.
 //!
 //! Release only. A debug build measures the optimizer, not the code.
 //!
@@ -43,8 +40,8 @@ fn where_the_frame_time_goes() {
     game.set_var(2, "_NEXTLOC", 1).unwrap();
     play(&mut game, 400);
 
-    const N: usize = 2_000;
-    let us = |d: std::time::Duration| d.as_secs_f64() * 1e6 / N as f64;
+    const N: u32 = 2_000;
+    let us = |d: std::time::Duration| d.as_secs_f64() * 1e6 / f64::from(N);
     let time = |f: &mut dyn FnMut()| {
         let t = Instant::now();
         for _ in 0..N {
@@ -56,19 +53,30 @@ fn where_the_frame_time_goes() {
     // The three stages of a frame, each on its own and over the same state.
     let draw = time(&mut || game.engine.draw());
     let present = time(&mut || game.engine.present());
+    // The two ways a frame leaves the engine, because they differ by a copy:
+    // `frame` composes into the buffer the engine keeps and lends it out,
+    // which is what a window does; `render` composes and hands the picture
+    // over owned, which is what a test that keeps one does.
+    let frame = time(&mut || {
+        std::hint::black_box(game.engine.frame().pixels.width);
+    });
     let render = time(&mut || {
         std::hint::black_box(game.engine.render());
     });
     let step = {
         let t = Instant::now();
-        play(&mut game, N);
+        play(&mut game, usize::try_from(N).unwrap());
         t.elapsed()
     };
 
     println!("\n--- a frame, microseconds per call ---");
     println!("draw()      {:8.1}", us(draw));
     println!("present()   {:8.1}", us(present));
-    println!("render()    {:8.1}", us(render));
+    println!(
+        "frame()     {:8.1}   (borrowed, what a window takes)",
+        us(frame)
+    );
+    println!("render()    {:8.1}   (owned, one copy more)", us(render));
     println!("step()      {:8.1}   (the whole frame)", us(step));
 
     // Each piece measured on its own, so its share of the frame is arguable
@@ -101,7 +109,7 @@ fn where_the_frame_time_goes() {
         .collect();
     let pixels: usize = sprites
         .iter()
-        .map(|s| s.width as usize * s.height as usize)
+        .map(|s| usize::from(s.width) * usize::from(s.height))
         .sum();
     let mut scratch = Framebuffer::new(640, 480);
     println!(

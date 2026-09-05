@@ -41,8 +41,9 @@
 //! variables, 310 constants and
 //! 672 colon definitions.
 
+use crate::cursor::Cursor;
 use crate::error::{Error, Result};
-use crate::{cp437_to_string, u16le};
+use crate::{Record, bytes, cp437_char, slice};
 
 /// Bytes of fixed header before the body-offset table.
 pub const HEADER_LEN: usize = 0x22;
@@ -72,7 +73,7 @@ pub struct Entry {
 impl Entry {
     /// Offset of the first body cell within the item.
     pub fn body_offset(&self) -> usize {
-        self.offset + WORD_HEADER_LEN
+        self.offset.saturating_add(WORD_HEADER_LEN)
     }
 
     /// Whether the body opens a variable (`_PutAdr`, ordinal 37): its first
@@ -105,17 +106,15 @@ pub struct ScrModule {
 impl ScrModule {
     /// Reads a script module.
     pub fn parse(item: &[u8]) -> Result<Self> {
-        if item.len() < HEADER_LEN {
-            return Err(Error::Truncated {
-                off: 0,
-                need: HEADER_LEN,
-                have: item.len(),
-            });
-        }
-        let first_id = u16le(item, 0)?;
-        let last_id = u16le(item, 2)?;
-        let nwords = u16le(item, 4)? as usize;
-        let again = (u16le(item, 6)?, u16le(item, 8)?, u16le(item, 10)? as usize);
+        let head = Record(bytes::<HEADER_LEN>(item, 0)?);
+        let first_id = head.u16::<0>();
+        let last_id = head.u16::<2>();
+        let nwords = usize::from(head.u16::<4>());
+        let again = (
+            head.u16::<6>(),
+            head.u16::<8>(),
+            usize::from(head.u16::<10>()),
+        );
         if again != (first_id, last_id, nwords) {
             return Err(Error::Corrupt {
                 what: "script module",
@@ -125,68 +124,80 @@ impl ScrModule {
                 ),
             });
         }
-        let module = u16le(item, 0x20)?;
-        let dict = HEADER_LEN + 2 * nwords;
-        if dict > item.len() {
-            return Err(Error::Truncated {
-                off: HEADER_LEN,
-                need: 2 * nwords,
-                have: item.len(),
-            });
-        }
-        let mut body_offsets = Vec::with_capacity(nwords);
-        for i in 0..nwords {
-            body_offsets.push(u16le(item, HEADER_LEN + 2 * i)? as usize);
-        }
+        let module = head.u16::<0x20>();
+        let mut c = Cursor::new(item, HEADER_LEN);
+        let body_offsets: Vec<usize> = c
+            .records::<2>(nwords)?
+            .iter()
+            .map(|o| usize::from(u16::from_le_bytes(*o)))
+            .collect();
+        let dict = c.position();
+        // Where each body starts, in bytes from the dictionary start, and
+        // where the next one does — the end of the item for the last.
+        let starts = body_offsets
+            .iter()
+            .map(|&cells| cells.checked_mul(2).and_then(|b| dict.checked_add(b)));
+        let nexts = starts
+            .clone()
+            .skip(1)
+            .map(Some)
+            .chain(std::iter::once(None));
         let mut entries = Vec::with_capacity(nwords);
-        for (i, &cells) in body_offsets.iter().enumerate() {
-            let body_start = dict + cells * 2;
+        for (i, (start, next)) in starts.zip(nexts).enumerate() {
             // The header is the sixteen bytes before the body, so the first
             // body cannot sit closer than that to the dictionary start.
-            let header = body_start
-                .checked_sub(WORD_HEADER_LEN)
+            let header = start
+                .and_then(|s| s.checked_sub(WORD_HEADER_LEN))
                 .filter(|&h| h >= dict);
-            let Some(header) = header else {
+            let Some((body_start, header)) = start.zip(header) else {
                 return Err(Error::Corrupt {
                     what: "script module",
-                    detail: format!(
-                        "word {i} has its body {cells} cells in, before its own header"
-                    ),
+                    detail: format!("word {i} has its body before its own header"),
                 });
             };
-            let end = match body_offsets.get(i + 1) {
-                Some(&next) => dict + next * 2 - WORD_HEADER_LEN,
-                None => item.len(),
+            let end = match next {
+                Some(next) => next.and_then(|n| n.checked_sub(WORD_HEADER_LEN)),
+                None => Some(item.len()),
             };
-            if end < body_start || end > item.len() {
+            let Some(len) = end
+                .filter(|&end| end <= item.len())
+                .and_then(|end| end.checked_sub(body_start))
+            else {
                 return Err(Error::Corrupt {
                     what: "script module",
                     detail: format!(
-                        "word {i} runs from {body_start:#x} to {end:#x} in a {}-byte item",
+                        "word {i} runs from {body_start:#x} past the next word or the {}-byte item",
                         item.len()
                     ),
                 });
-            }
-            if !(end - body_start).is_multiple_of(2) {
+            };
+            if !len.is_multiple_of(2) {
                 return Err(Error::Corrupt {
                     what: "script module",
-                    detail: format!("word {i} is {} bytes, not whole cells", end - body_start),
+                    detail: format!("word {i} is {len} bytes, not whole cells"),
                 });
             }
-            let declared_len = item[header] as usize;
-            let name_field = &item[header + 1..header + 1 + NAME_CAP];
+            let head = Record(bytes::<WORD_HEADER_LEN>(item, header)?);
+            let declared_len = usize::from(head.u8::<0>());
+            let name_field = head.bytes::<1, NAME_CAP>();
             let kept = name_field
                 .iter()
                 .position(|&b| b == 0)
                 .unwrap_or(NAME_CAP)
                 .min(declared_len.max(1));
-            let name = cp437_to_string(&name_field[..kept]);
-            let id = u16le(item, header + 12)?;
-            let link = u16le(item, header + 14)?;
-            let body = (body_start..end)
-                .step_by(2)
-                .map(|o| u16le(item, o))
-                .collect::<Result<Vec<_>>>()?;
+            let name = name_field
+                .iter()
+                .take(kept)
+                .map(|&b| cp437_char(b))
+                .collect();
+            let id = head.u16::<12>();
+            let link = head.u16::<14>();
+            let body = slice(item, body_start, len)?
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
+                .collect();
             entries.push(Entry {
                 name,
                 declared_len,

@@ -35,7 +35,9 @@
 //! carry no `SDAUTOBUF`, so `HIDSCR` leaves them standing and `CLSCR` can wipe
 //! them a row at a time.
 
+use crate::Field;
 use crate::{Descriptor, Engine, Placement, Shows, line_height};
+use motionvm_motion_forth::cell;
 use motionvm_render::Framebuffer;
 use motionvm_render::Palette;
 
@@ -75,12 +77,14 @@ impl Engine {
     /// borrow.)
     pub(crate) fn backing_row(&mut self) -> [u8; 256] {
         let palette = self
+            .transitions
             .wipes
             .iter()
             .rev()
             .find_map(|w| w.palette_after.as_ref())
             .or_else(|| {
-                self.curtains
+                self.transitions
+                    .curtains
                     .iter()
                     .rev()
                     .find_map(|c| c.palette_after.as_ref())
@@ -111,8 +115,31 @@ impl Engine {
     /// Nothing is composed here: [`Self::present`] has already put the frame
     /// where the original keeps it, and a running curtain has written its own
     /// bands over it.
+    pub fn frame(&mut self) -> motionvm_render::Frame<'_> {
+        self.compose_presented();
+        motionvm_render::Frame {
+            pixels: &self.presented,
+            palette: &self.display.palette,
+        }
+    }
+
+    /// The same picture, owned — for a caller that wants to keep it rather
+    /// than show it, which is every test that digests or measures one.
     pub fn render(&mut self) -> Framebuffer {
-        let mut out = self.video.clone();
+        self.compose_presented();
+        self.presented.clone()
+    }
+
+    /// Paints the frame to show into the buffer that is lent out.
+    fn compose_presented(&mut self) {
+        // Taken out and put back, because everything below wants the engine
+        // too — the request box reads its own state, the pointer's sprite may
+        // have to be decoded. `take` leaves an empty buffer behind and hands
+        // over the allocation, and `clone_from` fills it without asking for a
+        // new one: the whole point of keeping this buffer is that a frame is
+        // 307 200 bytes and a window wants one a hundred times a second.
+        let mut out = std::mem::take(&mut self.presented);
+        out.clone_from(&self.video);
         // The request box, over the frame and under the pointer: the drawer
         // blits it and calls `SHOWMOUSE` after (`0104:7332`).
         self.draw_request(&mut out);
@@ -129,17 +156,17 @@ impl Engine {
         // own `SHOWMOUSE`/`HIDEMOUSE` state and nothing is claimed here about
         // how the two nest. The 16-bit wipes bracket their ring loops the
         // same way (`05f1:28f5`/`05f1:29d7`, `05f1:2aff`/`05f1:2c8b`).
-        if self.pointer_visible
-            && self.curtains.is_empty()
-            && self.wipes.is_empty()
-            && let Some((id, hx, hy)) = self.cursor
+        if self.cursor_state.visible
+            && self.transitions.curtains.is_empty()
+            && self.transitions.wipes.is_empty()
+            && let Some((id, hx, hy)) = self.cursor_state.shape
         {
-            let (mx, my) = (self.mouse.x, self.mouse.y);
+            let (mx, my) = (self.input.mouse.x, self.input.mouse.y);
             if let Some(sprite) = self.sprite(id) {
                 out.blit_scaled(&sprite, mx - hx, my - hy, 1000, 1000);
             }
         }
-        out
+        self.presented = out;
     }
 
     /// The drawer, 0x6915b: descriptors onto the screen buffers.
@@ -180,8 +207,8 @@ impl Engine {
         // joins the pass when a tile it covers is waiting for a repaint at or
         // below its own level. The ones already marked are in either way, and
         // the ones neither marked nor active are skipped (0x6ea02).
-        for i in 0..self.descriptors.len() {
-            let d = &self.descriptors[i];
+        for i in 0..self.scene.descriptors.len() {
+            let d = &self.scene.descriptors[i];
             if d.dirty || !d.active || !mine(d.screen) {
                 continue;
             }
@@ -193,7 +220,7 @@ impl Engine {
                 .iter()
                 .find(|s| s.handle == d.screen)
                 .is_some_and(|s| s.damaged(x, y, w, h, d.level));
-            self.descriptors[i].dirty = wanted;
+            self.scene.descriptors[i].dirty = wanted;
         }
 
         // 0x69248: the map is spent, and the pass starts from an empty one.
@@ -225,8 +252,8 @@ impl Engine {
         self.rebuild = kept;
 
         let mut region: Vec<(u32, (i32, i32, i32, i32))> = owed;
-        for i in 0..self.descriptors.len() {
-            let d = &self.descriptors[i];
+        for i in 0..self.scene.descriptors.len() {
+            let d = &self.scene.descriptors[i];
             if !d.active || !d.dirty || !mine(d.screen) {
                 continue;
             }
@@ -270,7 +297,7 @@ impl Engine {
         }
 
         // 0x69659: drawn is drawn.
-        for d in self.descriptors.iter_mut().filter(|d| mine(d.screen)) {
+        for d in self.scene.descriptors.iter_mut().filter(|d| mine(d.screen)) {
             (d.dirty, d.changed) = (false, false);
         }
     }
@@ -284,16 +311,23 @@ impl Engine {
         if let Some(s) = self.display.screen_mut(screen) {
             s.buffer.fill(0);
         }
-        let mut order: Vec<usize> = (0..self.descriptors.len())
-            .filter(|&i| self.descriptors[i].active && self.descriptors[i].screen == screen)
+        let mut order: Vec<usize> = (0..self.scene.descriptors.len())
+            .filter(|&i| {
+                self.scene.descriptors[i].active && self.scene.descriptors[i].screen == screen
+            })
             .collect();
         // `(level, stamp)`: the 16-bit level chain's order — among equals
         // the freshest `SDLEV` draws on top. On the 32-bit machine the
         // stamps never move after creation, so this is the plain stable
         // sort it always was; see [`crate::Descriptor::stamp`].
-        order.sort_by_key(|&i| (self.descriptors[i].level, self.descriptors[i].stamp));
+        order.sort_by_key(|&i| {
+            (
+                self.scene.descriptors[i].level,
+                self.scene.descriptors[i].stamp,
+            )
+        });
         for i in order {
-            let d = self.descriptors[i].clone();
+            let d = self.scene.descriptors[i].clone();
             self.paint_descriptor(&d);
         }
     }
@@ -318,17 +352,17 @@ impl Engine {
             return;
         };
         // `SD%SHR` scales in thousandths; unset means full size.
-        let all = d.fields.get("SD%SHR").copied().unwrap_or(0);
-        let h = d.fields.get("SDH%SHR").copied().unwrap_or(all).max(0) as u32;
-        let v = d.fields.get("SDV%SHR").copied().unwrap_or(all).max(0) as u32;
+        let all = d.fields.get(Field::SD_PCT_SHR).unwrap_or(0);
+        let h = cell::unsigned(d.fields.get(Field::SDH_PCT_SHR).unwrap_or(all).max(0));
+        let v = cell::unsigned(d.fields.get(Field::SDV_PCT_SHR).unwrap_or(all).max(0));
         let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
         // The drawn corner depends on what the coordinate means. A centered
         // sprite sits half its *scaled* size to the left and above the
         // point — that is what makes the title logo, 320x200 at 2000 per
         // mille with its center at (320, 240), land on (0, 40).
         let (sw, sh) = (
-            sprite.width as i32 * h as i32 / 1000,
-            sprite.height as i32 * v as i32 / 1000,
+            i32::from(sprite.width) * cell::signed(h) / 1000,
+            i32::from(sprite.height) * cell::signed(v) / 1000,
         );
         let x = match d.x_mode {
             Placement::Edge => d.x,
@@ -342,7 +376,7 @@ impl Engine {
         };
         // Bit 15 of `+0x10`, and nothing else: `016a:0fe8` sends a sprite to
         // the keyed blit and a block to the opaque one, out of the same pool.
-        let opaque = self.opaque_blocks && matches!(d.shows, Shows::Picture(_));
+        let opaque = self.profile.opaque_blocks && matches!(d.shows, Shows::Picture(_));
         if let Some(screen) = self.display.screen_mut(d.screen) {
             if opaque && h == 1000 && v == 1000 {
                 screen.buffer.blit_masked(&sprite, x, y, None);
@@ -373,13 +407,13 @@ impl Engine {
         // holds font 5.
         let font = match d
             .font
-            .and_then(|f| self.fonts.get(&f))
-            .or(self.system_font.as_ref())
+            .and_then(|f| self.scene.fonts.get(&f))
+            .or(self.scene.system_font.as_ref())
         {
             Some(f) => f.clone(),
             None => return,
         };
-        let Some(refs) = self.font_refs.clone() else {
+        let Some(refs) = self.scene.font_refs.clone() else {
             return;
         };
         // The value `SDCOL` carries is composite, and clamping it threw both
@@ -388,7 +422,7 @@ impl Engine {
         // low part is the palette index. `SETT1` passes 18 + 256, the speaker
         // table 165 + 256.
         let raw = d.color;
-        let color = (raw & 0xff) as u8;
+        let color = cell::low8(raw & 0xff);
         // An empty text gets no backing. The color asks for one, but the
         // drawer overrules it: having set the flag at 0x69f5d it runs the
         // layout, compares the layout's +0x18 against 1 (`cmpw $1` at 0x69f75)
@@ -415,10 +449,10 @@ impl Engine {
         // set: `8 2 2 -1 -1 -1 -1 _F2@ n`.
         let template = d
             .template
-            .and_then(|t| self.templates.iter().find(|x| x.id == t));
+            .and_then(|t| self.scene.templates.iter().find(|x| x.id == t));
         let outline = template
             .and_then(|t| t.args.get(7).copied())
-            .and_then(|f| self.fonts.get(&f))
+            .and_then(|f| self.scene.fonts.get(&f))
             .cloned();
         let outline_gap = template
             .and_then(|t| t.args.get(6).copied())
@@ -429,11 +463,11 @@ impl Engine {
         // (`and $0xff` at 0x6a219). Handing both passes the same color is
         // what made the outline invisible: it was there, in the color of the
         // letters it was supposed to sit behind.
-        let outline_color = template.and_then(|t| t.args.first().copied()).unwrap_or(0) as u8;
+        let outline_color = cell::low8(template.and_then(|t| t.args.first().copied()).unwrap_or(0));
         let shadow_dx = template.and_then(|t| t.args.get(4).copied()).unwrap_or(0);
         let shadow_dy = template.and_then(|t| t.args.get(3).copied()).unwrap_or(0);
-        let justify = self.text_runs && d.fields.get("SDBLK").copied().unwrap_or(0) != 0;
-        let runs = self.text_runs;
+        let justify = self.profile.text_runs && d.fields.get(Field::SDBLK).unwrap_or(0) != 0;
+        let runs = self.profile.text_runs;
 
         let lines: Vec<&str> = text.split('\n').collect();
         // The backing goes down first, under the whole block, on the rectangle
@@ -475,9 +509,25 @@ impl Engine {
         // and paragraph ends with it.
         let passes = outline
             .iter()
-            .map(|f| (f, outline_gap, outline_color, true))
-            .chain([(&font, crate::text::SPACING, color, false)]);
-        for (pass_font, gap, pass_color, is_shadow) in passes {
+            .map(|f| {
+                let pen = crate::text::Pen {
+                    font: f,
+                    refs: &refs,
+                    color: outline_color,
+                    spacing: outline_gap,
+                };
+                (pen, true)
+            })
+            .chain([(
+                crate::text::Pen {
+                    font: &font,
+                    refs: &refs,
+                    color,
+                    spacing: crate::text::SPACING,
+                },
+                false,
+            )]);
+        for (pen, is_shadow) in passes {
             // Each pass is placed with *its own* font, not with the text's.
             // The output routine at 0x257cf centers what it draws — it measures
             // and subtracts half, at 0x25845 and again at 0x25878 — so two
@@ -488,7 +538,7 @@ impl Engine {
             // outline a pixel: doubled below, missing above. (The 16-bit run
             // drawer does the same per-pass centering, per line, with the
             // gaps the drawer set for the pass — `14ee:1231`, `14ee:1262`.)
-            let height = line_height(pass_font, gap);
+            let height = line_height(pen.font, pen.spacing);
             // The gap belongs in the centering height, and this is why.
             //
             // At 0x2588e the output routine computes `font[+2] × lines`
@@ -503,23 +553,18 @@ impl Engine {
             // flag that had looked just as convincing. (The 16-bit measure is
             // the same sum, read this time: `lines × height + (lines − 1) ×
             // gap` at `14ee:1711`–`14ee:172b`.)
-            let block = (lines.len() as i32 * height - gap).max(0);
+            let block = (cell::count(lines.len()) * height - pen.spacing).max(0);
             let off = |v: i32| if runs && is_shadow { v } else { 0 };
             let top = match d.y_mode {
                 Placement::Edge => d.y + off(shadow_dy),
                 Placement::Center => d.y - block / 2,
                 Placement::FarEdge => d.y - block + off(shadow_dy),
             };
-            let block_width = justify.then(|| {
-                lines
-                    .iter()
-                    .map(|l| crate::text::text_width_spaced(pass_font, &refs, l, gap))
-                    .max()
-                    .unwrap_or(0)
-            });
+            let block_width =
+                justify.then(|| lines.iter().map(|l| pen.width(l)).max().unwrap_or(0));
             for (i, line) in lines.iter().enumerate() {
-                let y = top + i as i32 * height;
-                let width = crate::text::text_width_spaced(pass_font, &refs, line, gap);
+                let y = top + cell::count(i) * height;
+                let width = pen.width(line);
                 let x = match d.x_mode {
                     Placement::Edge => d.x + off(shadow_dx),
                     Placement::Center => match block_width {
@@ -533,28 +578,9 @@ impl Engine {
                         Some(bw) => justify_pads(line, bw - width),
                         None => Vec::new(),
                     };
-                    crate::text16::draw_line(
-                        &mut screen.buffer,
-                        pass_font,
-                        &refs,
-                        line,
-                        x,
-                        y,
-                        pass_color,
-                        gap,
-                        &pads,
-                    );
+                    crate::text16::draw_line(&mut screen.buffer, pen, line, x, y, &pads);
                 } else {
-                    crate::text::draw_text_spaced(
-                        &mut screen.buffer,
-                        pass_font,
-                        &refs,
-                        line,
-                        x,
-                        y,
-                        pass_color,
-                        gap,
-                    );
+                    crate::text::draw_line(&mut screen.buffer, pen, line, x, y);
                 }
             }
         }
@@ -582,7 +608,7 @@ fn justify_pads(line: &str, deficit: i32) -> Vec<i32> {
         return Vec::new();
     }
     let mut pads = vec![0i32; count];
-    for n in 0..deficit as usize {
+    for n in 0..cell::at(deficit).unwrap_or(0) {
         pads[n % count] += 1;
     }
     pads

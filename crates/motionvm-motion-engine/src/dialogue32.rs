@@ -12,10 +12,57 @@
 //! back a neighbor instead. That is how a spoken line once turned up among the
 //! answers.
 
-use crate::order::block::*;
+use crate::menu;
+use crate::order::M32_RULES;
+use crate::order::block::{
+    ANSWER_DESCS, ARROW, BAR_MENU, BAR_SCREEN, CAPTION, CHANGE_COUNT, CHANGE_QUEUE, CHANGE_ROOM,
+    CHOSEN, FIELDS, GATE1, IMX, MLK, MMX, MMY, MODE, MRK, NODE, OBJECT, PICKED, PRESSED,
+    QUIET_TABLE, QUIET_TEXT, RECORD, SCREEN, SLOT, SPEAKERS, TARGET, VERB,
+};
 use crate::{Address, Engine, Placement};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32;
 use motionvm_motion_forth::{Error, Result};
+
+/// The four addresses a conversation is: its record, and the three arrays
+/// behind it.
+///
+/// `_ORDER` carries only two of them — the record at `RECORD`, the field area
+/// at `FIELDS` — and 0x7b4d1-0x7b50c derives the other two by walking the
+/// counts in the record: the answers begin where the fields do, the lines
+/// `record[+8]` answers on, the branches `record[+0xc]` lines after those.
+/// Every mode that stands on a node needs all four, so they travel as one
+/// rather than being derived again in each and handed on in threes and fours
+/// of bare `u32`s that nothing tells apart.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Conversation {
+    /// Entry node at +4, answer count at +8, line count at +0xc, the name at
+    /// +0x24, and the per-answer permission bits from +0x30, four apart.
+    record: u32,
+    /// The answers, 0x12 bytes apart: +0 the node it says, +4 the next
+    /// answer, +8 the name.
+    answers: u32,
+    /// The lines, 0x10 apart: +0 text, +4 table, +8 next, +0xc speaker.
+    lines: u32,
+    /// The branches, 0x22 apart: +0x16 the target, +0x1e the next node.
+    branches: u32,
+}
+
+impl Conversation {
+    /// Reads the four out of `_ORDER`, the way 0x7b4d1-0x7b50c does.
+    fn of(vm: &m32::Vm, order: u32) -> Result<Self> {
+        let record = vm.mem.fetch(Engine::field(order, RECORD))?;
+        let answers = vm.mem.fetch(Engine::field(order, FIELDS))?;
+        let lines = Engine::field(answers, Engine::cell(&vm.mem, record, 8)? * 0x12).0;
+        let branches = Engine::field(lines, Engine::cell(&vm.mem, record, 0x0c)? * 0x10).0;
+        Ok(Self {
+            record,
+            answers,
+            lines,
+            branches,
+        })
+    }
+}
 
 impl Engine {
     /// The deferred changes a location has queued for this conversation, 0x7b258.
@@ -33,21 +80,21 @@ impl Engine {
     /// 4 → record[+0x20] = answer[j]
     /// ```
     pub(crate) fn dialogue_changes(
-        &mut self,
+        &self,
         vm: &mut m32::Vm,
         order: u32,
         record: u32,
         fields: u32,
     ) -> Result<()> {
         let o = |off: u32| Self::field(order, off);
-        if vm.mem.fetch(o(CHANGE_COUNT))? as i32 <= 0 {
+        if cell::signed(vm.mem.fetch(o(CHANGE_COUNT))?) <= 0 {
             return Ok(());
         }
         let queue = vm.mem.fetch(o(CHANGE_QUEUE))?;
         let answers = vm.mem.fetch(o(CHANGE_COUNT))?;
         let mut i = 0u32;
-        let mut count = answers as i32;
-        while i < count as u32 {
+        let mut count = cell::signed(answers);
+        while i < cell::unsigned(count) {
             let entry = Self::field(queue, i * 0x22).0;
             if !Self::same_name(vm, Self::field(record, 0x24).0, entry)? {
                 i += 1;
@@ -61,7 +108,7 @@ impl Engine {
                 }
                 let flag = Self::field(record, 0x30 + j * 4);
                 let id = Self::cell(&vm.mem, answer, 0)?;
-                match Self::cell(&vm.mem, entry, 0x12)? as i32 {
+                match cell::signed(Self::cell(&vm.mem, entry, 0x12)?) {
                     1 => {
                         let v = vm.mem.fetch(flag)?;
                         vm.mem.store(flag, v | 1)?;
@@ -77,14 +124,14 @@ impl Engine {
             }
             // 0x7b399: the entry is used up; the rest of the queue moves down
             // over it and the same index is looked at again.
-            for k in i..count as u32 - 1 {
+            for k in i..cell::unsigned(count) - 1 {
                 for b in 0..0x22u32 {
                     let v = vm.mem.fetch_byte(Self::field(queue, (k + 1) * 0x22 + b))?;
                     vm.mem.store_byte(Self::field(queue, k * 0x22 + b), v)?;
                 }
             }
             count -= 1;
-            vm.mem.store(o(CHANGE_COUNT), count as u32)?;
+            vm.mem.store(o(CHANGE_COUNT), cell::unsigned(count))?;
         }
         Ok(())
     }
@@ -116,11 +163,9 @@ impl Engine {
         let table = vm.mem.fetch(o(SPEAKERS))?;
         let count = Self::speakers(vm, table)?;
         let speaker = if named {
-            let record = vm.mem.fetch(o(RECORD))?;
-            let fields = vm.mem.fetch(o(FIELDS))?;
-            let lines = Self::field(fields, Self::cell(&vm.mem, record, 8)? * 0x12).0;
+            let talk = Conversation::of(vm, order)?;
             let node = vm.mem.fetch(o(NODE))?;
-            Self::cell(&vm.mem, lines, node * 0x10 + 0x0c)?
+            Self::cell(&vm.mem, talk.lines, node * 0x10 + 0x0c)?
         } else {
             0
         };
@@ -137,9 +182,9 @@ impl Engine {
             }
             self.calc_dialog(vm, order, 1)?;
         } else {
-            let left = vm.mem.fetch(o(MLK))? as i32;
-            let right = vm.mem.fetch(o(MRK))? as i32;
-            let pressed = vm.mem.fetch(o(PRESSED))? as i32;
+            let left = cell::signed(vm.mem.fetch(o(MLK))?);
+            let right = cell::signed(vm.mem.fetch(o(MRK))?);
+            let pressed = cell::signed(vm.mem.fetch(o(PRESSED))?);
             if (left != 0 || right != 0) && pressed == 0 {
                 self.set_wait(0)?;
             } else if voice != 0 {
@@ -150,19 +195,31 @@ impl Engine {
 
         // Everybody who is not speaking gets a 4 every frame. Mode 12 counts
         // from 1 (0x7dee2) because entry 0 is the one it just handled; mode 13
-        // counts from 0 and skips the named speaker instead (0x7e163, 0x7e191).
-        let first = if named { 0 } else { 1 };
-        for i in first..count {
-            if named && i == speaker {
-                continue;
-            }
+        // counts from 0 and skips the named speaker instead (0x7e163, 0x7e191)
+        // — the same thing, since entry 0 is the unnamed speaker.
+        self.speakers_idle(vm, table, count, Some(speaker))?;
+        self.order_tail(vm, order)
+    }
+
+    /// Every speaker word but `except` hears 4: the idle call the machine
+    /// makes each frame a conversation stands — 0x7dee2 and 0x7e163 under a
+    /// line, 0x7e669 under the answers, where nobody is speaking and nobody
+    /// is skipped.
+    fn speakers_idle(
+        &mut self,
+        vm: &mut m32::Vm,
+        table: u32,
+        count: u32,
+        except: Option<u32>,
+    ) -> Result<()> {
+        for i in (0..count).filter(|&i| except != Some(i)) {
             let word = Self::cell(&vm.mem, table, i * 0x28)?;
             if word != 0 {
                 vm.data.push(4);
                 vm.call_nested(Address::new(word >> 16, word & 0xffff), self)?;
             }
         }
-        self.order_tail(vm, order)
+        Ok(())
     }
 
     /// Mode 14, 0x7e1da: the answers are up and the pointer decides.
@@ -181,32 +238,52 @@ impl Engine {
     ///
     /// Then `o[0x120]`, and `CALCDIALOG` mode 0 shows the new node.
     ///
-    /// The right click on the inventory bar (0x7e52e) opens the verb menu
-    /// mid-conversation through `GMSHOWMENU`. That path is unread, and says so
-    /// when it is taken.
+    /// Without a fresh left press in the scene, a fresh right press over the
+    /// bar (0x7e52e) puts the item menu up instead, mode 17 — see
+    /// [`Self::dialog_item_menu`]. Either way every speaker then hears 4
+    /// (0x7e669).
     pub(crate) fn dialog_picking(&mut self, vm: &mut m32::Vm, order: u32) -> Result<bool> {
         let o = |off: u32| Self::field(order, off);
-        let (left, right) = (vm.mem.fetch(o(MLK))? as i32, vm.mem.fetch(o(MRK))? as i32);
-        let pressed = vm.mem.fetch(o(PRESSED))? as i32;
-        let (px, py) = (vm.mem.fetch(o(MMX))? as i32, vm.mem.fetch(o(MMY))? as i32);
+        let table = vm.mem.fetch(o(SPEAKERS))?;
+        let count = Self::speakers(vm, table)?;
+        let (left, right) = (
+            cell::signed(vm.mem.fetch(o(MLK))?),
+            cell::signed(vm.mem.fetch(o(MRK))?),
+        );
+        let fresh = cell::signed(vm.mem.fetch(o(PRESSED))?) == 0;
+        let (px, py) = (
+            cell::signed(vm.mem.fetch(o(MMX))?),
+            cell::signed(vm.mem.fetch(o(MMY))?),
+        );
 
-        if right != 0 && pressed == 0 && vm.mem.fetch(o(IMX))? as i32 != -1 {
-            let ix = vm.mem.fetch(o(IMX))? as i32;
-            if (0x40..0x240).contains(&ix) {
-                return Err(Error::Unread {
-                    what: "DOORDER: the verb menu over the inventory during a conversation".into(),
-                    at: "0x7e559, GMSHOWMENU",
-                });
+        if left != 0 && fresh && px != -1 {
+            self.pick_answer(vm, order, px, py)?;
+        } else if right != 0 && fresh && cell::signed(vm.mem.fetch(o(IMX))?) != -1 {
+            // 0x7e559: a slot with something in it. The mode goes up before
+            // the strip does — `GMSHOWMENU` reads it (0x7a303) and adds the
+            // look verb to every menu but this one's and the answers'.
+            if let Some(slot) = menu::bar_slot(vm, order, M32_RULES)?
+                && slot.item != 0
+            {
+                vm.mem.store(o(TARGET), cell::unsigned(slot.item))?;
+                vm.mem.store(o(SLOT), cell::unsigned(slot.index))?;
+                vm.mem.store(o(MODE), 0x11)?;
+                let strip = menu::bar_strip(vm, order, slot, M32_RULES)?;
+                menu::show_menu(self, vm, order, strip, 0x60, M32_RULES)?;
             }
         }
-        if left == 0 || pressed != 0 || px == -1 {
-            return self.order_tail(vm, order);
-        }
+        self.speakers_idle(vm, table, count, None)?;
+        self.order_tail(vm, order)
+    }
 
-        let slots = vm.mem.fetch(o(ANSWER_DESCS))? as i32;
+    /// The left press of mode 14, 0x7e299 to 0x7e524: the first of the four
+    /// boxes under the pointer wins, and all four go away together.
+    fn pick_answer(&mut self, vm: &mut m32::Vm, order: u32, px: i32, py: i32) -> Result<()> {
+        let o = |off: u32| Self::field(order, off);
+        let slots = cell::signed(vm.mem.fetch(o(ANSWER_DESCS))?);
         self.select_screen(vm.mem.fetch(o(SCREEN))?);
         for i in 0..4i32 {
-            self.select_descriptor((slots + i) as u32);
+            self.select_descriptor(cell::unsigned(slots + i));
             if self.descriptor_active() == 0 {
                 continue;
             }
@@ -219,7 +296,7 @@ impl Engine {
             }
 
             for j in 0..4i32 {
-                self.select_descriptor((slots + j) as u32);
+                self.select_descriptor(cell::unsigned(slots + j));
                 self.set_active(false);
             }
 
@@ -229,7 +306,7 @@ impl Engine {
                 vm.mem.store(o(NODE), quiet)?;
             } else {
                 let answers = vm.mem.fetch(o(FIELDS))?;
-                let chosen = vm.mem.fetch(o(CHOSEN + i as u32 * 4))?;
+                let chosen = vm.mem.fetch(o(CHOSEN + cell::unsigned(i) * 4))?;
                 let node = Self::cell(&vm.mem, answers, chosen * 0x12)?;
                 vm.mem.store(o(NODE), node)?;
                 let flag = Self::field(record, 0x30 + chosen * 4);
@@ -238,10 +315,59 @@ impl Engine {
                     vm.mem.store(flag, v & 0xfe)?;
                 }
             }
-            self.pointer_visible = false;
-            self.order_callback(vm, order, 0x120, &[])?;
+            self.cursor_state.visible = false;
+            self.order_callback(vm, order, PICKED, &[])?;
             self.calc_dialog(vm, order, 0)?;
             break;
+        }
+        Ok(())
+    }
+
+    /// Mode 17, 0x7e918: the item menu stands over the bar, mid-conversation
+    /// — the two verbs 6 and 7, `INFO` and `GIVE`, on the item the right
+    /// click landed on.
+    ///
+    /// `HIGHLIGHTORDERS` every frame. A fresh left press is `CHOOSEORDERS`
+    /// over those two, which sets the verb, takes the strip down and leaves
+    /// mode 18; a fresh right press with the first gate clear takes the strip
+    /// down and goes back to the answers, mode 14 (0x7e997).
+    pub(crate) fn dialog_item_menu(&mut self, vm: &mut m32::Vm, order: u32) -> Result<bool> {
+        let o = |off: u32| Self::field(order, off);
+        let (screen, base) = (
+            cell::signed(vm.mem.fetch(o(BAR_SCREEN))?),
+            cell::signed(vm.mem.fetch(o(BAR_MENU))?),
+        );
+        menu::highlight(self, vm, order, screen, base)?;
+        let fresh = cell::signed(vm.mem.fetch(o(PRESSED))?) == 0;
+        if cell::signed(vm.mem.fetch(o(MLK))?) != 0 && fresh {
+            menu::choose(self, vm, order, screen, base, 0x60, M32_RULES)?;
+        }
+        if cell::signed(vm.mem.fetch(o(MRK))?) != 0
+            && fresh
+            && cell::signed(vm.mem.fetch(o(GATE1))?) == 0
+        {
+            menu::remove_menu(self, vm, order)?;
+            vm.mem.store(o(MODE), 14)?;
+        }
+        self.order_tail(vm, order)
+    }
+
+    /// Mode 18, 0x7e9b1: the pick waits for the figure — its command cell
+    /// empty or at the arrived marker — and then runs as a forced order:
+    /// mode 98, `EXECORDER` on the verb, the item and the flag, and the picked
+    /// word after it. Mode 98 hands back to the answers when the order is
+    /// done (0x7ea53).
+    pub(crate) fn dialog_item_order(&mut self, vm: &mut m32::Vm, order: u32) -> Result<bool> {
+        let o = |off: u32| Self::field(order, off);
+        if menu::walk_done(vm, order)? {
+            vm.mem.store(o(MODE), 98)?;
+            let (verb, target, flag) = (
+                cell::signed(vm.mem.fetch(o(VERB))?),
+                cell::signed(vm.mem.fetch(o(TARGET))?),
+                cell::signed(vm.mem.fetch(o(OBJECT))?),
+            );
+            self.exec_order(vm, order, verb, target, flag, M32_RULES)?;
+            self.order_callback(vm, order, PICKED, &[])?;
         }
         self.order_tail(vm, order)
     }
@@ -254,7 +380,7 @@ impl Engine {
     /// the conversation as over.
     pub(crate) fn dialog_over(&mut self, vm: &mut m32::Vm, order: u32) -> Result<bool> {
         self.order_callback(vm, order, 0x50, &[-1])?;
-        self.pointer_visible = true;
+        self.cursor_state.visible = true;
         vm.mem.store(Self::field(order, 0x0c), 0)?;
         self.order_callback(vm, order, 0x124, &[])?;
         if Self::cell(&vm.mem, order, 0x1d8)? != 0 {
@@ -286,28 +412,24 @@ impl Engine {
     /// is the one thing to get wrong here.
     pub(crate) fn calc_dialog(&mut self, vm: &mut m32::Vm, order: u32, mode: i32) -> Result<()> {
         let o = |off: u32| Self::field(order, off);
-        let record = vm.mem.fetch(o(RECORD))?;
-        let fields = vm.mem.fetch(o(FIELDS))?;
-        let answers = fields;
-        let lines = Self::field(fields, Self::cell(&vm.mem, record, 8)? * 0x12).0;
-        let branches = Self::field(lines, Self::cell(&vm.mem, record, 0x0c)? * 0x10).0;
+        let talk = Conversation::of(vm, order)?;
 
         if mode == 1 {
-            self.dialog_advance(vm, order, answers, lines, branches)?;
+            self.dialog_advance(vm, order, talk)?;
         }
 
-        let node = vm.mem.fetch(o(NODE))? as i32;
+        let node = cell::signed(vm.mem.fetch(o(NODE))?);
         if node == -1 {
             return self.dialog_finish(vm, order);
         }
         if node < 1000 {
-            return self.dialog_speak(vm, order, lines, node as u32);
+            return self.dialog_speak(vm, order, talk, cell::unsigned(node));
         }
         if node < 2000 {
-            return self.dialog_choose(vm, order, record, answers, lines, node as u32 - 1000);
+            return self.dialog_choose(vm, order, talk, cell::unsigned(node) - 1000);
         }
         if node < 3000 {
-            return self.dialog_branch(vm, order, record, answers, branches, node as u32 - 2000);
+            return self.dialog_branch(vm, order, talk, cell::unsigned(node) - 2000);
         }
         Ok(())
     }
@@ -328,24 +450,24 @@ impl Engine {
     /// itself sits at `GSCRY + 0x168`.
     ///
     /// Ends in mode 14, where `DOORDER` waits for the pointer.
-    // The arguments are the handler's own: `order`, `record`, `answers`,
-    // `lines` and `first` are the five cells it is called with. Grouping them
-    // would hide which five.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn dialog_choose(
         &mut self,
         vm: &mut m32::Vm,
         order: u32,
-        record: u32,
-        answers: u32,
-        lines: u32,
+        talk: Conversation,
         first: u32,
     ) -> Result<()> {
+        let Conversation {
+            record,
+            answers,
+            lines,
+            ..
+        } = talk;
         let o = |off: u32| Self::field(order, off);
         let voice = vm.mem.fetch(o(SPEAKERS))?;
-        self.pointer_visible = true;
+        self.cursor_state.visible = true;
         self.order_callback(vm, order, 0x124, &[])?;
-        let arrow = vm.mem.fetch(o(ARROW))? as i32;
+        let arrow = cell::signed(vm.mem.fetch(o(ARROW))?);
         self.order_callback(vm, order, 0xb8, &[arrow, 0, 0])?;
 
         self.select_screen(vm.mem.fetch(o(SCREEN))?);
@@ -358,46 +480,46 @@ impl Engine {
             vm.mem.store(o(CHOSEN + i * 4), 0)?;
         }
 
-        let slots = vm.mem.fetch(o(ANSWER_DESCS))? as i32;
+        let slots = cell::signed(vm.mem.fetch(o(ANSWER_DESCS))?);
         // The "say nothing" line first, at the bottom.
-        self.select_descriptor((slots + 3) as u32);
+        self.select_descriptor(cell::unsigned(slots + 3));
         self.set_active(true);
         self.set_wait(-1)?;
         // Both fields are read before either is stored, as the original's own
         // pair of pushes does.
         let (text, table_id) = (
-            vm.mem.fetch(o(QUIET_TEXT))? as i32,
-            vm.mem.fetch(o(QUIET_TABLE))? as i32,
+            cell::signed(vm.mem.fetch(o(QUIET_TEXT))?),
+            cell::signed(vm.mem.fetch(o(QUIET_TABLE))?),
         );
         self.set_text(text)?;
         self.set_text_table(table_id)?;
-        self.note_no_effect("SDNORM");
+        self.note_no_effect(crate::words::Word::SDNORM);
         self.place_x(sx + 0x140, Placement::Center)?;
         self.place_y(y, Placement::Center)?;
         y -= 0x23;
         // +4 is the color, +8 the template, in the speaker's own record.
-        self.set_color(Self::cell(&vm.mem, voice, 4)? as i32)?;
-        self.set_template(Self::cell(&vm.mem, voice, 8)? as i32)?;
+        self.set_color(cell::signed(Self::cell(&vm.mem, voice, 4)?))?;
+        self.set_template(cell::signed(Self::cell(&vm.mem, voice, 8)?))?;
 
-        let mut n = first as i32;
+        let mut n = cell::signed(first);
         for i in 0..3u32 {
             // 0x7bbfd: step over answers whose bit 0 is clear.
-            while n != -1 && Self::cell(&vm.mem, record, 0x30 + n as u32 * 4)? & 1 == 0 {
-                n = Self::cell(&vm.mem, answers, n as u32 * 0x12 + 4)? as i32;
+            while n != -1 && Self::cell(&vm.mem, record, 0x30 + cell::unsigned(n) * 4)? & 1 == 0 {
+                n = cell::signed(Self::cell(&vm.mem, answers, cell::unsigned(n) * 0x12 + 4)?);
             }
             if n == -1 {
                 break;
             }
-            vm.mem.store(o(CHOSEN + i * 4), n as u32)?;
-            self.select_descriptor((slots + i as i32) as u32);
+            vm.mem.store(o(CHOSEN + i * 4), cell::unsigned(n))?;
+            self.select_descriptor(cell::unsigned(slots + cell::signed(i)));
             self.set_active(true);
 
             // An answer names a line, and the line carries the words.
-            let says = Self::cell(&vm.mem, answers, n as u32 * 0x12)?;
+            let says = Self::cell(&vm.mem, answers, cell::unsigned(n) * 0x12)?;
             let line = Self::field(lines, says * 0x10).0;
-            self.set_text_table(Self::cell(&vm.mem, line, 4)? as i32)?;
+            self.set_text_table(cell::signed(Self::cell(&vm.mem, line, 4)?))?;
             self.set_wait(-1)?;
-            self.set_text(Self::cell(&vm.mem, line, 0)? as i32)?;
+            self.set_text(cell::signed(Self::cell(&vm.mem, line, 0)?))?;
             self.place_x(sx + 0x140, Placement::Center)?;
             // Placed by its bottom edge, then re-centered on where that put it —
             // the original reads the center straight back out and stores it, so
@@ -405,11 +527,11 @@ impl Engine {
             self.place_y(y, Placement::FarEdge)?;
             let cy = self.descriptor_center_y();
             self.place_y(cy, Placement::Center)?;
-            self.set_color(Self::cell(&vm.mem, voice, 4)? as i32)?;
-            self.set_template(Self::cell(&vm.mem, voice, 8)? as i32)?;
-            self.set_level(Self::cell(&vm.mem, voice, 0x14)? as i32)?;
+            self.set_color(cell::signed(Self::cell(&vm.mem, voice, 4)?))?;
+            self.set_template(cell::signed(Self::cell(&vm.mem, voice, 8)?))?;
+            self.set_level(cell::signed(Self::cell(&vm.mem, voice, 0x14)?))?;
             y -= self.descriptor_height() + 0x11;
-            n = Self::cell(&vm.mem, answers, n as u32 * 0x12 + 4)? as i32;
+            n = cell::signed(Self::cell(&vm.mem, answers, cell::unsigned(n) * 0x12 + 4)?);
         }
 
         vm.mem.store(o(MODE), 14)
@@ -424,26 +546,22 @@ impl Engine {
     /// (0x7bf41), which is what `dialogue_changes` drains when that one starts.
     ///
     /// Either way the node is not a stop: it ends by stepping on (0x7bf6b).
-    // Same argument list as [`Self::dialog_choose`], deliberately — the two
-    // are called from the same dispatch with the same five cells, and one of
-    // them ignoring `answers` is a fact about the handler, not a reason to
-    // give the pair different shapes.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn dialog_branch(
         &mut self,
         vm: &mut m32::Vm,
         order: u32,
-        record: u32,
-        _answers: u32,
-        branches: u32,
+        talk: Conversation,
         index: u32,
     ) -> Result<()> {
+        let Conversation {
+            record, branches, ..
+        } = talk;
         let o = |off: u32| Self::field(order, off);
         let entry = Self::field(branches, index * 0x22).0;
         if vm.mem.fetch_byte(Self::field(entry, 0))? == 0 {
             let target = Self::cell(&vm.mem, entry, 0x16)?;
             let flag = Self::field(record, 0x30 + target * 4);
-            match Self::cell(&vm.mem, entry, 0x12)? as i32 {
+            match cell::signed(Self::cell(&vm.mem, entry, 0x12)?) {
                 1 => {
                     let v = vm.mem.fetch(flag)?;
                     vm.mem.store(flag, v | 1)?;
@@ -472,10 +590,16 @@ impl Engine {
                     for i in 0..9u32 {
                         match vm.mem.fetch_byte(Self::field(entry, 9 + i))? {
                             0 => break,
-                            b => name.push(b as char),
+                            b => name.push(char::from(b)),
                         }
                     }
-                    let hit = vm.mem.lookup(&name);
+                    // In slot order, which is the order the original's own
+                    // module table carries: `=>GET` takes the first free slot
+                    // and `=>ERASE` frees one in place, so two modules that
+                    // define one name are told apart by which was loaded
+                    // into the earlier slot and not by which has the lower
+                    // number.
+                    let hit = vm.mem.lookup(&name, &self.resident());
                     if op == 5 {
                         if let Some(addr) = hit {
                             vm.call_nested(addr, self)?;
@@ -487,11 +611,12 @@ impl Engine {
                                        original would run on the null globals here \
                                        (module 0, cell 4)"
                                     .into(),
+                                binary: "ENGINE.EXE",
                                 at: "0x7bece",
                             });
                         };
                         vm.call_nested(addr, self)?;
-                        self.dialog_offset = vm.data.pop().unwrap_or(0);
+                        self.dialogue.offset = vm.data.pop().unwrap_or(0);
                     }
                     // 0x7be80/0x7bee8: only these two actions drain the queue
                     // of deferred changes — 1 to 4 leave straight away
@@ -506,16 +631,16 @@ impl Engine {
             // queue, if there is room (0x7bf1e guards it and complains).
             let queue = vm.mem.fetch(o(CHANGE_QUEUE))?;
             let (room, used) = (
-                vm.mem.fetch(o(CHANGE_ROOM))? as i32,
-                vm.mem.fetch(o(CHANGE_COUNT))? as i32,
+                cell::signed(vm.mem.fetch(o(CHANGE_ROOM))?),
+                cell::signed(vm.mem.fetch(o(CHANGE_COUNT))?),
             );
             if room > used {
                 for b in 0..0x22u32 {
                     let v = vm.mem.fetch_byte(Self::field(entry, b))?;
                     vm.mem
-                        .store_byte(Self::field(queue, used as u32 * 0x22 + b), v)?;
+                        .store_byte(Self::field(queue, cell::unsigned(used) * 0x22 + b), v)?;
                 }
-                vm.mem.store(o(CHANGE_COUNT), used as u32 + 1)?;
+                vm.mem.store(o(CHANGE_COUNT), cell::unsigned(used) + 1)?;
             }
         }
         self.calc_dialog(vm, order, 1)
@@ -535,22 +660,34 @@ impl Engine {
         &mut self,
         vm: &mut m32::Vm,
         order: u32,
-        answers: u32,
-        lines: u32,
-        branches: u32,
+        talk: Conversation,
     ) -> Result<()> {
+        let Conversation {
+            answers,
+            lines,
+            branches,
+            ..
+        } = talk;
         let o = |off: u32| Self::field(order, off);
-        let node = vm.mem.fetch(o(NODE))? as i32;
+        let node = cell::signed(vm.mem.fetch(o(NODE))?);
         // Byte-exact throughout: an answer sits 0x12 apart and a branch 0x22,
         // so +0x1e never lands on a cell. Reading the branch successor with
         // `fetch` handed back `[.. .. ff ff]` = -65536 for a stored -1 — the
         // negative node that then walked the spoken-line path.
         let mut next = if node < 1000 {
-            Self::cell(&vm.mem, lines, node as u32 * 0x10 + 8)? as i32
+            cell::signed(Self::cell(&vm.mem, lines, cell::unsigned(node) * 0x10 + 8)?)
         } else if node < 2000 {
-            Self::cell(&vm.mem, answers, (node as u32 - 1000) * 0x12)? as i32
+            cell::signed(Self::cell(
+                &vm.mem,
+                answers,
+                (cell::unsigned(node) - 1000) * 0x12,
+            )?)
         } else if node < 3000 {
-            let raw = Self::cell(&vm.mem, branches, (node as u32 - 2000) * 0x22 + 0x1e)? as i32;
+            let raw = cell::signed(Self::cell(
+                &vm.mem,
+                branches,
+                (cell::unsigned(node) - 2000) * 0x22 + 0x1e,
+            )?);
             match raw {
                 0..=999 => raw + 2000,
                 1000..=1999 => raw - 1000,
@@ -562,17 +699,17 @@ impl Engine {
         };
 
         // 0x7b644: a queued offset, spent on the way past.
-        if self.dialog_offset != 0 {
-            next += self.dialog_offset;
-            self.dialog_offset = 0;
+        if self.dialogue.offset != 0 {
+            next += self.dialogue.offset;
+            self.dialogue.offset = 0;
         }
         // 0x7b669: 4000 means "the answer the player was last on".
         if next == 4000 {
-            next = self.dialog_return;
+            next = self.dialogue.return_node;
         } else if (1000..2000).contains(&next) {
-            self.dialog_return = next;
+            self.dialogue.return_node = next;
         }
-        vm.mem.store(o(NODE), next as u32)?;
+        vm.mem.store(o(NODE), cell::unsigned(next))?;
         Ok(())
     }
 
@@ -591,11 +728,11 @@ impl Engine {
         &mut self,
         vm: &mut m32::Vm,
         order: u32,
-        lines: u32,
+        talk: Conversation,
         node: u32,
     ) -> Result<()> {
         let o = |off: u32| Self::field(order, off);
-        let line = Self::field(lines, node * 0x10).0;
+        let line = Self::field(talk.lines, node * 0x10).0;
         let speaker = Self::cell(&vm.mem, line, 0x0c)?;
         let table = vm.mem.fetch(o(SPEAKERS))?;
         let voice = Self::field(table, speaker * 0x28).0;
@@ -605,13 +742,19 @@ impl Engine {
         self.set_active(true);
         // Seven fields in the order the handler stores them: the line's table
         // and text, the speaker's color, template, center and level.
-        self.set_text_table(Self::cell(&vm.mem, line, 4)? as i32)?;
-        self.set_color(Self::cell(&vm.mem, voice, 4)? as i32)?;
-        self.set_template(Self::cell(&vm.mem, voice, 8)? as i32)?;
-        self.set_text(Self::cell(&vm.mem, line, 0)? as i32)?;
-        self.place_x(Self::cell(&vm.mem, voice, 0x0c)? as i32, Placement::Center)?;
-        self.place_y(Self::cell(&vm.mem, voice, 0x10)? as i32, Placement::Center)?;
-        self.set_level(Self::cell(&vm.mem, voice, 0x14)? as i32)?;
+        self.set_text_table(cell::signed(Self::cell(&vm.mem, line, 4)?))?;
+        self.set_color(cell::signed(Self::cell(&vm.mem, voice, 4)?))?;
+        self.set_template(cell::signed(Self::cell(&vm.mem, voice, 8)?))?;
+        self.set_text(cell::signed(Self::cell(&vm.mem, line, 0)?))?;
+        self.place_x(
+            cell::signed(Self::cell(&vm.mem, voice, 0x0c)?),
+            Placement::Center,
+        )?;
+        self.place_y(
+            cell::signed(Self::cell(&vm.mem, voice, 0x10)?),
+            Placement::Center,
+        )?;
+        self.set_level(cell::signed(Self::cell(&vm.mem, voice, 0x14)?))?;
 
         let sx = self.screen_origin_x();
         let sy = self.screen_origin_y();
@@ -624,12 +767,12 @@ impl Engine {
         // original encodes them too.
         type Get = fn(&mut Engine) -> i32;
         type Place = fn(&mut Engine, i32, Placement) -> Result<()>;
-        for (near, far, center, place, origin, span) in [
+        let axes: [(Get, Get, Get, Place, i32, i32); 2] = [
             (
-                Engine::descriptor_x as Get,
-                Engine::descriptor_far_x as Get,
-                Engine::descriptor_center_x as Get,
-                Engine::place_x as Place,
+                Engine::descriptor_x,
+                Engine::descriptor_far_x,
+                Engine::descriptor_center_x,
+                Engine::place_x,
                 sx,
                 0x280,
             ),
@@ -641,7 +784,8 @@ impl Engine {
                 sy,
                 0x190,
             ),
-        ] {
+        ];
+        for (near, far, center, place, origin, span) in axes {
             if near(self) - 0x14 < origin {
                 place(self, origin + 0x14, Placement::Edge)?;
                 let c = center(self);
@@ -676,7 +820,7 @@ impl Engine {
     /// (0x7b6e8); what ends it is an entry whose +4 is −1.
     pub(crate) fn speakers(vm: &m32::Vm, table: u32) -> Result<u32> {
         for i in 0..10u32 {
-            if Self::cell(&vm.mem, table, i * 0x28 + 4)? as i32 == -1 {
+            if cell::signed(Self::cell(&vm.mem, table, i * 0x28 + 4)?) == -1 {
                 return Ok(i);
             }
         }

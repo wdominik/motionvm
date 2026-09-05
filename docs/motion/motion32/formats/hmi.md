@@ -70,6 +70,7 @@ so tempo cannot change during playback.
 | `+0x63` | `u32` | → the branch-point table, or 0 |
 | `+0x77` | `u16` | Voice priority (also settable by controller 107) |
 | `+0x7b` | `u16` | **The channel every message of this track goes out on** |
+| `+0x99` | `u16[≤8]` | **The devices the track is for**, ids of the `0xA000` series, zero-terminated. The song open (`0x9c8a6`) gives the track to the first installed device one of them names — `0xA000` naming `0xA001` and `0xA008` as well, `0xA002` naming `0xA009`, the OPL3 — and a track none of them names is not played. Every track of every shipped song names `0xA000`, and the ones that also name `0xA002` are the ones the OPL3 plays: song 17 has three tracks that do not, and the opening tune (25) two — its bass (channel 2) and second guitar (channel 4) |
 
 Note that the event stream is at **`+0x57`**. `+0x0c` holds 75 in every track
 of every song, which reads like a plausible offset and is not one — nothing in

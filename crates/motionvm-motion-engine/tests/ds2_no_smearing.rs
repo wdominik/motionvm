@@ -55,8 +55,8 @@ fn compare(game: &mut Game<Vm>) -> Option<(usize, i32, i32)> {
 
     let mut first = None;
     let mut n = 0;
-    for y in 0..before.height as i32 {
-        for x in 0..before.width as i32 {
+    for y in 0..i32::from(before.height) {
+        for x in 0..i32::from(before.width) {
             if before.get(x, y) != after.get(x, y) {
                 n += 1;
                 first.get_or_insert((x, y));

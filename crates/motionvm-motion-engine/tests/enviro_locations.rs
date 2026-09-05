@@ -9,9 +9,12 @@
 //!
 //! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
+mod common;
+
 use motionvm_motion_engine::{Game, titles};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m16::Vm;
-use motionvm_motion_testutil::gamedata_enviro;
+use motionvm_motion_testutil::{Digests, digest, gamedata_enviro};
 use std::path::Path;
 
 /// Words `CTRL`'s frames may walk past without effect: the sprite and text
@@ -65,8 +68,8 @@ fn into_the_game(dir: &Path) -> (Game<Vm>, usize) {
 /// (`016a:05d6` gates on the active bit), and nobody would ever walk.
 fn settled_in_the_game(dir: &Path) -> Game<Vm> {
     let (mut game, _) = into_the_game(dir);
-    let ms = game.get_var(601, "_MS").expect("_MS") as u32;
-    let walker = game.get_var(601, "_WALKER").expect("_WALKER") as u32;
+    let ms = cell::unsigned(game.get_var(601, "_MS").expect("_MS"));
+    let walker = cell::unsigned(game.get_var(601, "_WALKER").expect("_WALKER"));
     for frame in 1..=3000 {
         let active = game
             .engine
@@ -88,8 +91,9 @@ fn settled_in_the_game(dir: &Path) -> Game<Vm> {
     panic!("the arrival never settled in location 11");
 }
 
-fn lit(game: &mut Game<Vm>) -> bool {
-    game.render().pixels.iter().any(|&p| p != 0)
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("enviro")
 }
 
 #[test]
@@ -130,10 +134,14 @@ fn run_plays_through_the_intro_into_location_1_where_ctrl_takes_the_frames() {
             "the game loop ended at frame {frame}"
         );
     }
-    assert!(lit(&mut game), "location 1 draws a picture");
-    let stubbed: Vec<&String> = game.engine.stubbed().keys().collect();
+    assert!(common::lit(&mut game) > 0, "location 1 draws a picture");
+    // The scrapyard as it stands after three hundred settled frames. Every
+    // step to it is the game's own — `RUN` through the intro, `INCLLOC 1`,
+    // then `CTRL` — so the picture is the same on any machine with the game.
+    digests().check("location_1", digest::frame(&game.render()));
+    let stubbed = game.engine.stubbed();
     assert!(
-        stubbed.iter().all(|w| INERT.contains(&w.as_str())),
+        stubbed.keys().all(|w| INERT.contains(&w.as_str())),
         "words walked past without effect: {stubbed:?}"
     );
 }
@@ -160,13 +168,13 @@ fn a_requested_location_is_entered_through_nextloc_on_the_next_frame() {
     assert_eq!(game.get_var(601, "NEXTLOC"), Some(-1));
     assert!(game.vm.mem.is_loaded(102) && game.vm.mem.is_loaded(502));
     assert!(!game.vm.mem.is_loaded(101) && !game.vm.mem.is_loaded(501));
-    assert!(lit(&mut game), "location 2 draws a picture");
+    assert!(common::lit(&mut game) > 0, "location 2 draws a picture");
     // Descriptors are numbered per screen on this machine, and `INCLLOC`'s
     // `?LPD 1 + KILLNDESC` took location 1's off the main screen before
     // location 2's came: the main screen's numbers run from 0 without a
     // gap, and the last permanent one — `_LPD`, the walker — is still there.
-    let main = game.get_var(601, "_MS").expect("_MS") as u32;
-    let lpd = game.get_var(601, "_LPD").expect("_LPD") as u32;
+    let main = cell::unsigned(game.get_var(601, "_MS").expect("_MS"));
+    let lpd = cell::unsigned(game.get_var(601, "_LPD").expect("_LPD"));
     let mut numbers: Vec<u32> = game
         .engine
         .descriptors()
@@ -175,7 +183,10 @@ fn a_requested_location_is_entered_through_nextloc_on_the_next_frame() {
         .map(|d| d.handle)
         .collect();
     numbers.sort_unstable();
-    assert_eq!(numbers, (0..numbers.len() as u32).collect::<Vec<_>>());
+    assert_eq!(
+        numbers,
+        (0..cell::narrow(numbers.len())).collect::<Vec<_>>()
+    );
     assert!(
         numbers.contains(&lpd),
         "the walker, descriptor {lpd}, survives the change"
@@ -205,8 +216,8 @@ fn the_walker_wears_the_routes_scale_on_both_axes() {
         game.set_input(10, 10, false, false, 0).expect("input");
         game.step().expect("a frame under CTRL");
     }
-    let main = game.get_var(601, "_MS").expect("_MS") as u32;
-    let lpd = game.get_var(601, "_LPD").expect("_LPD") as u32;
+    let main = cell::unsigned(game.get_var(601, "_MS").expect("_MS"));
+    let lpd = cell::unsigned(game.get_var(601, "_LPD").expect("_LPD"));
     for (loc, scale) in [(8, 480), (12, 630)] {
         game.request_location(loc).expect("request");
         for _ in 0..250 {
@@ -219,11 +230,16 @@ fn the_walker_wears_the_routes_scale_on_both_axes() {
             .iter()
             .find(|d| d.screen == main && d.handle == lpd)
             .expect("the walker");
-        for key in ["SD%SHR", "SDH%SHR", "SDV%SHR"] {
+        for key in [
+            motionvm_motion_engine::Field::SD_PCT_SHR,
+            motionvm_motion_engine::Field::SDH_PCT_SHR,
+            motionvm_motion_engine::Field::SDV_PCT_SHR,
+        ] {
             assert_eq!(
-                d.fields.get(key).copied(),
+                d.fields.get(key),
                 Some(scale),
-                "location {loc}: {key} is not the route's {scale}"
+                "location {loc}: {} is not the route's {scale}",
+                key.name()
             );
         }
     }
@@ -237,7 +253,7 @@ fn order_mode(game: &Game<Vm>) -> i32 {
         .expect("_ORDER is a variable of module 601");
     // The variable's cells follow its `_PutAdr`; the mode is the fourth.
     let flat = game.vm.mem.flat(at).expect("loaded") + 2 + 6;
-    game.vm.mem.fetch(flat) as i16 as i32
+    cell::sign16(game.vm.mem.fetch(flat))
 }
 
 /// The first locations the game can reach, each entered the way the scripts
@@ -259,10 +275,11 @@ fn the_early_locations_load_and_run_under_ctrl() {
         }
         assert_eq!(game.get_var(601, "ACTLOC"), Some(loc), "location {loc}");
         assert!(
-            game.vm.mem.is_loaded((100 + loc) as u16) && game.vm.mem.is_loaded((500 + loc) as u16),
+            game.vm.mem.is_loaded(cell::low16(100 + loc))
+                && game.vm.mem.is_loaded(cell::low16(500 + loc)),
             "location {loc}'s modules are resident"
         );
-        assert!(lit(&mut game), "location {loc} draws a picture");
+        assert!(common::lit(&mut game) > 0, "location {loc} draws a picture");
     }
 }
 
@@ -294,15 +311,17 @@ fn the_verb_strip_follows_the_pointer_into_a_scrolled_view() {
             .unwrap_or_else(|e| panic!("frame {frame} stopped: {e}"));
     }
     assert_eq!(game.get_var(601, "ACTLOC"), Some(7));
-    let main = game.get_var(601, "_MS").expect("_MS") as u32;
+    let main = cell::unsigned(game.get_var(601, "_MS").expect("_MS"));
     let pos_x = |game: &Game<Vm>| -> i32 {
-        game.engine
-            .screens()
-            .iter()
-            .find(|s| s.handle == main)
-            .expect("the main screen")
-            .pos
-            .0 as i32
+        i32::from(
+            game.engine
+                .screens()
+                .iter()
+                .find(|s| s.handle == main)
+                .expect("the main screen")
+                .pos
+                .0,
+        )
     };
 
     // Walk east until module 107 slides the view to 304.
@@ -406,7 +425,7 @@ fn a_conversation_speaks_its_lines_and_takes_an_answer() {
         }
         if click {
             answered = true;
-            assert!(lit(&mut game), "the answers are drawn");
+            assert!(common::lit(&mut game) > 0, "the answers are drawn");
         }
         if answered && mode == 0 {
             break;
@@ -488,7 +507,7 @@ fn the_start_up_page_waits_for_a_click_when_a_save_exists() {
         game.step().expect("a frame under CTRL");
     }
     let fb = game.render();
-    let w = fb.width as usize;
+    let w = usize::from(fb.width);
     let lit_left = (165..200)
         .flat_map(|y| (0..280).map(move |x| (x, y)))
         .filter(|&(x, y)| fb.pixels[y * w + x] != 0)
@@ -548,7 +567,7 @@ fn a_door_changes_the_palette_only_behind_the_wipe() {
         if pal != last_pal {
             switches += 1;
             let fb = game.render();
-            let w = fb.width as usize;
+            let w = usize::from(fb.width);
             let lit = fb.pixels[..160 * w].iter().filter(|&&p| p != 0).count();
             assert!(
                 lit * 10 < 160 * w,
@@ -610,7 +629,7 @@ fn ending_the_tune_holds_the_room_change_for_half_a_second() {
         if game.frame_duration() == Some(half_second) {
             holds += 1;
             let fb = game.render();
-            let w = fb.width as usize;
+            let w = usize::from(fb.width);
             let lit = fb.pixels[..160 * w].iter().filter(|&&p| p != 0).count();
             assert_eq!(
                 lit, 0,

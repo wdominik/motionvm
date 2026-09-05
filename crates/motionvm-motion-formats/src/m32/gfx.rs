@@ -20,7 +20,7 @@
 
 use crate::error::Error;
 use crate::error::Result;
-use crate::{lzw, u16le, u32le};
+use crate::{bytes, lzw, past_end, tail, u32at, u32le};
 
 /// The eight bytes every sprite resource starts with.
 pub const MAGIC: &[u8; 8] = b"32BITGFX";
@@ -60,30 +60,20 @@ impl Sprite {
             return Err(Error::MissingGfxMagic { found });
         }
 
-        let mut palette = [0u8; 768];
-        palette.copy_from_slice(item.get(PALETTE_OFF..PALETTE_OFF + 768).ok_or(
-            Error::Truncated {
-                off: PALETTE_OFF,
-                need: 768,
-                have: item.len(),
-            },
-        )?);
-
-        let unpacked = u32le(item, 778)? as usize;
+        let palette = *bytes::<768>(item, PALETTE_OFF)?;
+        let unpacked = u32at(item, 778)?;
         let max_bits = u32le(item, 786)?;
-        let stream = item.get(STREAM_OFF..).ok_or(Error::Truncated {
-            off: STREAM_OFF,
-            need: 1,
-            have: item.len(),
-        })?;
+        let stream = tail(item, STREAM_OFF)?;
 
         let raw = lzw::decode(stream, max_bits, unpacked)?;
-        let width = u16le(&raw, 0)?;
-        let height = u16le(&raw, 2)?;
-        // raw[4..6] is the color count, always 256; nothing reads it.
+        let (inner, pixels) = raw
+            .split_first_chunk::<INNER_HEADER>()
+            .ok_or_else(|| past_end(&raw, 0, INNER_HEADER))?;
+        let width = u16::from_le_bytes([inner[0], inner[1]]);
+        let height = u16::from_le_bytes([inner[2], inner[3]]);
+        // The last two bytes are the color count, always 256; nothing reads it.
 
-        let expected = INNER_HEADER + width as usize * height as usize;
-        if expected != unpacked {
+        if usize::from(width).checked_mul(usize::from(height)) != Some(pixels.len()) {
             return Err(Error::GfxSizeMismatch {
                 width,
                 height,
@@ -95,7 +85,7 @@ impl Sprite {
             width,
             height,
             palette,
-            pixels: raw[INNER_HEADER..].to_vec(),
+            pixels: pixels.to_vec(),
         })
     }
 
@@ -107,11 +97,11 @@ impl Sprite {
         // `checked_sub` rather than `-`: the declared size comes out of the
         // file, and one below six wrapped to about four billion in release
         // builds and panicked in debug ones.
-        (u32le(item, 778)? as usize)
+        u32at(item, 778)?
             .checked_sub(INNER_HEADER)
             .ok_or(Error::OutOfRange {
                 field: "sprite unpacked size",
-                value: u32le(item, 778)? as u64,
+                value: u64::from(u32le(item, 778)?),
                 allowed: "at least the 6-byte inner header",
             })
     }

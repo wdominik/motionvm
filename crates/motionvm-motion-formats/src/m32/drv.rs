@@ -59,7 +59,9 @@
 //!              "Sound Blaster 16", and the only driver this engine rebuilds |
 //! | `0xA00A` | `gusmidi.com` | Gravis Ultrasound |
 
-use crate::{Error, Result, reserve, u32le};
+use crate::cursor::Cursor;
+use crate::{Error, Result, reserve, u32at};
+use crate::{nul_terminated, slice};
 
 /// One driver in an archive: its header fields and its image.
 #[derive(Debug, Clone)]
@@ -92,48 +94,46 @@ impl DriverArchive {
     pub const HEADER_BYTES: usize = 44;
     /// Bytes per driver record.
     pub const RECORD_BYTES: usize = 48;
+    /// Bytes of name at the head of the archive and of each record.
+    const NAME_BYTES: usize = 32;
 
     /// Reads a `.386` driver archive, walking its record chain.
     ///
     /// The chain must land exactly on the end of the file; anything else
     /// means the archive is not what it says it is.
     pub fn parse(data: &[u8]) -> Result<Self> {
-        let count = u32le(data, 0x20)? as usize;
-        let header = u32le(data, 0x24)? as usize;
+        let count = u32at(data, 0x20)?;
+        let header = u32at(data, 0x24)?;
         if header != Self::HEADER_BYTES {
             return Err(Error::DriverArchiveHeader { size: header });
         }
-        let name = name_at(data, 0);
+        let name = c_name(slice(data, 0, Self::NAME_BYTES)?);
 
         let mut drivers = reserve(count, data.len(), Self::RECORD_BYTES);
-        let mut at = header;
+        let mut c = Cursor::new(data, header);
         for _ in 0..count {
-            let mem = u32le(data, at + 0x20)?;
-            let size = u32le(data, at + 0x24)? as usize;
-            let device = u32le(data, at + 0x28)?;
-            let flags = u32le(data, at + 0x2c)?;
-            let start = at + Self::RECORD_BYTES;
-            let image = data.get(start..start + size).ok_or(Error::Truncated {
-                off: start,
-                need: size,
-                have: data.len(),
-            })?;
+            let name = c_name(c.take(Self::NAME_BYTES)?);
+            let mem = c.u32()?;
+            let size = c.u32at()?;
+            let device = c.u32()?;
+            let flags = c.u32()?;
+            let at = c.position();
+            let image = c.take(size)?;
             drivers.push(Driver {
-                name: name_at(data, at),
+                name,
                 mem,
                 device,
                 flags,
-                at: start,
+                at,
                 image: image.to_vec(),
             });
-            at = start + size;
         }
         // The chain has to land on the end of the file. Anything else means the
         // walk went wrong, and since there is no directory to fall back on,
         // stopping here is the only honest answer.
-        if at != data.len() {
+        if c.position() != data.len() {
             return Err(Error::DriverArchiveChain {
-                end: at,
+                end: c.position(),
                 have: data.len(),
             });
         }
@@ -146,8 +146,7 @@ impl DriverArchive {
     }
 }
 
-fn name_at(data: &[u8], off: usize) -> String {
-    let raw = data.get(off..off + 32).unwrap_or(&[]);
-    let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
-    String::from_utf8_lossy(&raw[..end]).into_owned()
+/// The name field an archive and each of its records begin with.
+fn c_name(raw: &[u8]) -> String {
+    String::from_utf8_lossy(nul_terminated(raw)).into_owned()
 }

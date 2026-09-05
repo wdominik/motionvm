@@ -8,17 +8,18 @@
 
 use crate::Engine;
 use crate::stack::{pop_n, pop1};
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
 
 impl Engine {
     pub(crate) fn words_sound(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // The music. `0x7F98D` takes the loop flag, `0x7F99A` the tune
             // number, and `0x7FB24` is the **only** exit — one `push()` of a
             // local that is still zero unless a sequence really started. So
@@ -32,16 +33,16 @@ impl Engine {
             // a branchy handler always yields: both arms carry a `push()` and
             // only one arm runs. Answering with two leaves a stray zero on the
             // stack at every location change.)
-            "STARTTUNE" => {
+            Word::STARTTUNE => {
                 let a = pop_n(stack, 2, "STARTTUNE")?;
                 let (tune, looping) = (a[0], a[1]);
                 let handle = self.start_tune(tune, looping);
                 stack.push(handle);
             }
-            "ENDTUNE" => {
+            Word::ENDTUNE => {
                 let handle = pop1(stack, "ENDTUNE")?;
-                self.tune_playing = false;
-                if let Some(music) = self.music.as_mut() {
+                self.sound.playing = false;
+                if let Some(music) = self.sound.sink.as_mut() {
                     music.stop(handle);
                 }
             }

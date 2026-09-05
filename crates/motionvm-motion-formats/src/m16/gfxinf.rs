@@ -22,7 +22,6 @@
 //! every unpacked length is `width * height + 6`.
 
 use crate::error::Result;
-use crate::u16le;
 
 /// The marker an empty slot carries in both halves of its entry.
 const ABSENT: u16 = 0xffff;
@@ -41,14 +40,18 @@ impl GfxInf {
     /// refused: the length is the only thing that says how many slots there
     /// are, and a file that is four bytes long past a whole number of entries
     /// still answers for every slot it does describe.
-    pub fn parse(bytes: &[u8]) -> Result<Self> {
-        let mut entries = Vec::with_capacity(bytes.len() / ENTRY_LEN);
-        for i in 0..bytes.len() / ENTRY_LEN {
-            let w = u16le(bytes, i * ENTRY_LEN)?;
-            let h = u16le(bytes, i * ENTRY_LEN + 2)?;
-            entries.push((w != ABSENT || h != ABSENT).then_some((w, h)));
-        }
-        Ok(Self { entries })
+    pub fn parse(bytes: &[u8]) -> Self {
+        let entries = bytes
+            .as_chunks::<ENTRY_LEN>()
+            .0
+            .iter()
+            .map(|e| {
+                let w = u16::from_le_bytes([e[0], e[1]]);
+                let h = u16::from_le_bytes([e[2], e[3]]);
+                (w != ABSENT || h != ABSENT).then_some((w, h))
+            })
+            .collect();
+        Self { entries }
     }
 
     /// Reads `GFX.INF` out of a game directory, if the game ships one.
@@ -56,7 +59,7 @@ impl GfxInf {
         let Some(path) = crate::find_ci(dir.as_ref(), "GFX.INF") else {
             return Ok(None);
         };
-        Ok(Some(Self::parse(&std::fs::read(path)?)?))
+        Ok(Some(Self::parse(&std::fs::read(path)?)))
     }
 
     /// How many slots the file describes.
@@ -77,8 +80,10 @@ impl GfxInf {
 
     /// The slots the file marks as filled.
     pub fn present(&self) -> Vec<usize> {
-        (0..self.entries.len())
-            .filter(|&i| self.entries[i].is_some())
+        self.entries
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| e.map(|_| i))
             .collect()
     }
 }

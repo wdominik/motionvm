@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use motionvm_motion_formats::m32::le::{KernelWord, TAG_KERNEL};
 use motionvm_motion_formats::m32::scr::ScrModule;
 
-use crate::{Address, Error, Host, Loop, Result, Run, prims};
+use crate::cell;
+use crate::core::Core;
+use crate::{Address, Counters, Error, Host, Loop, Result, Run, prims};
 
 mod prims32;
 
@@ -40,6 +42,18 @@ pub struct Module {
     pub(crate) cells: Vec<u32>,
     /// Word names by cell offset, for tracing and for `run` by name.
     names: BTreeMap<u32, String>,
+}
+
+impl std::fmt::Debug for Module {
+    /// The number and the sizes: a module is thousands of cells, and the
+    /// names are what a trace prints one at a time.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Module")
+            .field("number", &self.number)
+            .field("cells", &self.cells.len())
+            .field("names", &self.names.len())
+            .finish()
+    }
 }
 
 impl Module {
@@ -105,12 +119,14 @@ impl Module {
     /// and loading — only its variables differ.
     pub fn restore(&mut self, cells: &[u32]) -> Result<()> {
         if cells.len() != self.cells.len() {
-            return Err(Error::Unsupported(format!(
-                "module {}: the saved image is {} cells where the module is {}",
-                self.number,
-                cells.len(),
-                self.cells.len()
-            )));
+            return Err(Error::Savegame {
+                what: format!(
+                    "module {}: the saved image is {} cells where the module is {}",
+                    self.number,
+                    cells.len(),
+                    self.cells.len()
+                ),
+            });
         }
         self.cells.copy_from_slice(cells);
         Ok(())
@@ -120,6 +136,7 @@ impl Module {
 /// An execution set aside by [`Vm::park`], to be resumed later.
 ///
 /// Holds no data stack on purpose: see [`Vm::park`].
+#[derive(Debug)]
 pub struct Context {
     ip: Address,
     ret: Vec<Address>,
@@ -158,16 +175,27 @@ pub mod branch {
 }
 
 /// The loaded modules, addressable as one space.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Memory {
     modules: BTreeMap<u32, Module>,
     /// Addresses in modules that are not loaded, with how often each was
     /// touched. See [`Memory::fetch`] — the game does this on purpose-ish, and
     /// it must be visible rather than silent.
     ///
-    /// The one `RefCell` on the machine: it keeps `Memory` `Send` but not
-    /// `Sync`, which is why the machine promises `Send` alone — a `Sync`
-    /// wish starts here.
+    /// The one `RefCell` on the machine, and it stays. `fetch` takes `&self`
+    /// — the original's `@` validates nothing and answers whatever is there,
+    /// so reading really is not a mutation — and something has to be counted
+    /// anyway, which is what interior mutability is for.
+    ///
+    /// It is not what keeps the machine `Send` and not `Sync`, twice over: a
+    /// `Cell` is no more `Sync` than a `RefCell`, so swapping one for the
+    /// other would gain nothing, and `MusicSink` is `Send` alone, so the
+    /// engine that holds one could not be `Sync` whatever this field did. Nor
+    /// is `Sync` wanted — the contract says a game is driven from one thread
+    /// at a time. What a bounded stand-in — a `Cell<u32>` total and a fixed
+    /// array of the first addresses — would buy is one borrow that cannot
+    /// fail and a handful of allocations saved on a cold path; what it would
+    /// cost is the tail of the report. Not a trade worth making.
     loose: std::cell::RefCell<BTreeMap<Address, u32>>,
     /// Where the last successful lookup landed — the globals `0xee668` and
     /// `0xee66c`, kept because action 6 of a dialogue branch (0x7bece) builds
@@ -191,6 +219,12 @@ impl Memory {
         self.modules.get_mut(&n)
     }
 
+    /// Takes module `n` out, as `=>ERASE` gives a module's memory back;
+    /// `None` for one that was not loaded, which is nothing to give back.
+    pub fn remove(&mut self, n: u32) -> Option<Module> {
+        self.modules.remove(&n)
+    }
+
     /// Whether module `n` is loaded.
     pub fn contains(&self, n: u32) -> bool {
         self.modules.contains_key(&n)
@@ -205,18 +239,24 @@ impl Memory {
     /// `0xee668` and the cell in `0xee66c`, and the caller builds an address
     /// out of them.
     ///
-    /// One difference worth knowing: the original walks its module table at
-    /// `0xee6d0` (stride 0x30, count `0xdb027`, module number at +0x10) in the
-    /// order entries were made, this map is keyed by module number. As long as
-    /// a name occurs once that is the same answer; where it occurs twice the
-    /// choice could differ. Every duplicate seen so far lives in location
-    /// modules that are never loaded together.
+    /// `order` is the order to walk the modules in, and it is the caller's to
+    /// supply: the original walks its module table at `0xee6d0` (stride 0x30,
+    /// count `0xdb027`, module number at +0x10) in the order entries were
+    /// made, which is the order `=>GET` took slots in and `=>ERASE` freed
+    /// them. This map is keyed by module number and knows nothing of that
+    /// order; the engine models the table itself, so it is the engine that
+    /// says how to walk. A module named there and not loaded is skipped, and
+    /// a module loaded and not named is not reached — which is the original's
+    /// behavior both ways round, since its table is what a lookup walks.
+    ///
     /// Takes `&mut self` because a hit is *stored*: the original keeps the
     /// last successful lookup in two globals and a dialogue branch reads them
     /// back without checking the search's own answer. See [`Memory::last_hit`].
     /// The borrow is the game's behavior, not this interpreter's bookkeeping.
-    pub fn lookup(&mut self, name: &str) -> Option<Address> {
-        let hit = self.modules.values().find_map(|m| m.word(name));
+    pub fn lookup(&mut self, name: &str, order: &[u32]) -> Option<Address> {
+        let hit = order
+            .iter()
+            .find_map(|n| self.modules.get(n).and_then(|m| m.word(name)));
         if hit.is_some() {
             self.last_hit = hit;
         }
@@ -246,7 +286,7 @@ impl Memory {
             return Ok(0);
         };
         m.cells
-            .get((addr.offset() / CELL) as usize)
+            .get(cell::index(addr.offset() / CELL))
             .copied()
             .ok_or(Error::OutOfRange { addr, at: None })
     }
@@ -259,7 +299,7 @@ impl Memory {
     pub fn fetch_code(&self, addr: Address) -> Result<u32> {
         self.modules
             .get(&addr.module())
-            .and_then(|m| m.cells.get((addr.offset() / CELL) as usize).copied())
+            .and_then(|m| m.cells.get(cell::index(addr.offset() / CELL)).copied())
             .ok_or(Error::OutOfRange { addr, at: None })
     }
 
@@ -272,7 +312,7 @@ impl Memory {
         let cell = self
             .modules
             .get_mut(&addr.module())
-            .and_then(|m| m.cells.get_mut((addr.offset() / CELL) as usize))
+            .and_then(|m| m.cells.get_mut(cell::index(addr.offset() / CELL)))
             .ok_or(Error::OutOfRange { addr, at: None })?;
         *cell = value;
         Ok(())
@@ -285,14 +325,14 @@ impl Memory {
 
     /// Every address in an unloaded module that was read or written, with how
     /// often. Empty in a healthy run.
-    pub fn loose(&self) -> std::collections::BTreeMap<Address, u32> {
+    pub fn loose(&self) -> BTreeMap<Address, u32> {
         self.loose.borrow().clone()
     }
 
     /// Reads one byte. Addresses are byte-granular, so this needs no alignment.
     pub fn fetch_byte(&self, addr: Address) -> Result<u8> {
         let word = self.fetch(Address::new(addr.module(), addr.offset() & !(CELL - 1)))?;
-        Ok(word.to_le_bytes()[(addr.offset() % CELL) as usize])
+        Ok(word.to_le_bytes()[cell::index(addr.offset() % CELL)])
     }
 
     /// A 32-bit read that does not care about alignment.
@@ -317,7 +357,7 @@ impl Memory {
     pub fn store_byte(&mut self, addr: Address, value: u8) -> Result<()> {
         let aligned = Address::new(addr.module(), addr.offset() & !(CELL - 1));
         let mut word = self.fetch(aligned)?.to_le_bytes();
-        word[(addr.offset() % CELL) as usize] = value;
+        word[cell::index(addr.offset() % CELL)] = value;
         self.store(aligned, u32::from_le_bytes(word))
     }
 
@@ -331,12 +371,12 @@ impl Memory {
             .modules
             .get_mut(&addr.module())
             .ok_or(Error::OutOfRange { addr, at: None })?;
-        let start = (addr.offset() / CELL) as usize;
-        let cells = bytes.len().div_ceil(CELL as usize);
+        let start = cell::index(addr.offset() / CELL);
+        let cells = bytes.len().div_ceil(cell::index(CELL));
         if start + cells > m.cells.len() {
             return Err(Error::OutOfRange { addr, at: None });
         }
-        for (i, chunk) in bytes.chunks(CELL as usize).enumerate() {
+        for (i, chunk) in bytes.chunks(cell::index(CELL)).enumerate() {
             let mut word = m.cells[start + i].to_le_bytes();
             word[..chunk.len()].copy_from_slice(chunk);
             m.cells[start + i] = u32::from_le_bytes(word);
@@ -350,6 +390,7 @@ impl Memory {
 /// `mem` and `data` are public because [`Host::word`] is handed the whole
 /// machine and destructures them — the engine's words push and pop like any
 /// other word does.
+#[derive(Debug)]
 pub struct Vm {
     /// The loaded modules.
     pub mem: Memory,
@@ -377,26 +418,13 @@ pub struct Vm {
     ret: Vec<Address>,
     loops: Vec<Loop>,
     ip: Address,
-    steps: u64,
-    /// Guards against a runaway program; generous but finite.
-    pub step_limit: u64,
-    /// When set, every executed word is appended here — see
-    /// [`Vm::start_trace`].
-    trace: Option<Vec<String>>,
+    /// The step budget, the trace, the counters, the generator and the nesting
+    /// depth — the bookkeeping both machines do the same way.
+    core: Core,
     /// When set, report every change to this cell and what caused it — see
-    /// [`Vm::watch`].
+    /// [`Vm::watch`]. This machine's alone: the 16-bit one has no such
+    /// affordance, and a cell to watch is an [`Address`].
     watch: Option<Address>,
-    /// Deterministic source for `RANDOM`: a seeded LCG, never the clock or
-    /// the operating system's entropy.
-    ///
-    /// The engine reads no wall clock anywhere, and this is the other half of
-    /// that: a given input state has to render a given frame, every time, or
-    /// comparing two renderings of a scene across a change proves nothing —
-    /// which is how the drawing code in this project is verified.
-    rng: u32,
-    /// How deep inside [`Vm::call_nested`] the machine is. Non-zero means
-    /// pausing is suppressed; see there.
-    nested: u32,
 }
 
 impl Vm {
@@ -421,18 +449,20 @@ impl Vm {
             ret: Vec::new(),
             loops: Vec::new(),
             ip: Address(0),
-            steps: 0,
-            step_limit: 5_000_000,
-            trace: None,
+            core: Core::default(),
             watch: None,
-            nested: 0,
-            rng: 0x1234_5678,
         }
     }
 
     /// Loads one script module out of its resource item.
     pub fn load(&mut self, item: &[u8], parsed: &ScrModule) {
         self.mem.insert(Module::load(item, parsed));
+    }
+
+    /// Gives module `n`'s memory back, as `=>ERASE` does. Whether there was
+    /// one to give back.
+    pub fn unload(&mut self, n: u32) -> bool {
+        self.mem.remove(n).is_some()
     }
 
     /// Module `n`, if it is loaded.
@@ -447,12 +477,17 @@ impl Vm {
     /// rather than a field so that switching it on is a thing a caller does,
     /// not a thing a caller may forget it did.
     pub fn start_trace(&mut self) {
-        self.trace.get_or_insert_with(Vec::new);
+        self.core.start_trace();
     }
 
     /// What has been recorded, oldest first, or `None` if nothing is.
     pub fn trace(&self) -> Option<&[String]> {
-        self.trace.as_deref()
+        self.core.trace()
+    }
+
+    /// Raises or lowers the guard against a runaway program.
+    pub fn set_step_limit(&mut self, steps: u64) {
+        self.core.set_step_limit(steps);
     }
 
     /// Reports every change to one cell, and what caused it, into the trace.
@@ -476,7 +511,7 @@ impl Vm {
     /// gap in it: no kernel word has it.
     pub(crate) fn prim(&self, ordinal: u32) -> prims::Prim {
         self.prims
-            .get(ordinal as usize)
+            .get(cell::index(ordinal))
             .copied()
             .unwrap_or(prims::Prim::Absent)
     }
@@ -518,7 +553,7 @@ impl Vm {
         Context {
             ip: self.ip,
             ret: std::mem::take(&mut self.ret),
-            steps: self.steps,
+            steps: self.core.steps(),
         }
     }
 
@@ -526,7 +561,7 @@ impl Vm {
     pub fn unpark(&mut self, saved: Context) {
         self.ip = saved.ip;
         self.ret = saved.ret;
-        self.steps = saved.steps;
+        self.core.set_steps(saved.steps);
     }
 
     /// Runs a word to completion on the machine's own memory and data stack,
@@ -548,13 +583,13 @@ impl Vm {
         // on. Leaving the check in meant a callback launched during a
         // transition yielded on its first primitive and could never finish,
         // which is what `FINISHTEXT` ran into.
-        self.nested += 1;
+        self.core.enter_nested();
         let outcome = match self.resume(host) {
             Ok(Run::Done) => Ok(()),
             Ok(Run::Yielded) => Err(Error::Suspended { at: self.ip }),
             Err(e) => Err(e),
         };
-        self.nested -= 1;
+        self.core.leave_nested();
         self.unpark(saved);
         outcome
     }
@@ -563,7 +598,7 @@ impl Vm {
     pub fn start(&mut self, start: Address) {
         self.ip = start;
         self.ret.clear();
-        self.steps = 0;
+        self.core.restart();
     }
 
     /// Runs until the word returns or the host asks to pause.
@@ -586,11 +621,7 @@ impl Vm {
             if let (Some(addr), Some(before)) = (self.watch, watched) {
                 let now = self.fetch(addr).ok();
                 if now != Some(before) {
-                    let word = self
-                        .trace
-                        .as_ref()
-                        .and_then(|t| t.last().cloned())
-                        .unwrap_or_else(|| "?".into());
+                    let word = self.core.last_trace().unwrap_or("?").to_owned();
                     // Into the trace rather than onto stderr. A library that
                     // prints has decided for its caller where the report goes
                     // and when — and here it is the wrong answer twice over:
@@ -600,20 +631,15 @@ impl Vm {
                     // why [`Vm::watch`] turns the trace on: without one there
                     // would be nowhere to say it.
                     let ip = self.ip;
-                    let steps = self.steps;
-                    if let Some(t) = self.trace.as_mut() {
-                        t.push(format!(
-                            "{ip:>12}  !! watch {addr}: {before:#010x} -> {:#010x} at step {steps} (after {word})",
-                            now.unwrap_or(0),
-                        ));
-                    }
+                    let steps = self.core.steps();
+                    self.core.push_trace(format!(
+                        "{ip:>12}  !! watch {addr}: {before:#010x} -> {:#010x} at step {steps} (after {word})",
+                        now.unwrap_or(0),
+                    ));
                     watched = now;
                 }
             }
-            self.steps += 1;
-            if self.steps > self.step_limit {
-                return Err(Error::StepLimit(self.step_limit));
-            }
+            self.core.tick()?;
             let here = self.ip;
             // Jumping into a module that is not there is a different matter
             // from reading through a stray pointer: the game does the second
@@ -621,6 +647,9 @@ impl Vm {
             // and it names the word that jumped rather than repeating the
             // address it landed on.
             let cell = self.mem.fetch_code(here).map_err(|e| match e {
+                // Not `located(here)`: an instruction fetch that failed
+                // landed *at* `here`, and what a reader wants is the word
+                // that jumped there.
                 Error::OutOfRange { addr, at: None } => Error::OutOfRange {
                     addr,
                     at: self.ret.last().copied(),
@@ -644,13 +673,7 @@ impl Vm {
                 // place that knows both.
                 let done = self
                     .step_primitive(ordinal, here, host)
-                    .map_err(|e| match e {
-                        Error::OutOfRange { addr, at: None } => Error::OutOfRange {
-                            addr,
-                            at: Some(here),
-                        },
-                        other => other,
-                    })?;
+                    .map_err(|e| e.located(here))?;
                 if done {
                     // The primitive was a complete word behavior and returned.
                     match self.ret.pop() {
@@ -660,15 +683,16 @@ impl Vm {
                 }
                 if let Some((raw, args)) = host.pending_call() {
                     let Some(target) = crate::Machine::callback_target(self, raw) else {
-                        return Err(Error::Unsupported(format!(
-                            "a pending call to {raw:#x}, which names no word"
-                        )));
+                        return Err(Error::NotAWord {
+                            what: "a pending call".into(),
+                            raw,
+                        });
                     };
                     self.data.extend_from_slice(&args);
                     self.ret.push(self.ip);
                     self.ip = target;
                 }
-                if self.nested == 0 && host.wants_pause() {
+                if !self.core.nested() && host.wants_pause() {
                     return Ok(Run::Yielded);
                 }
                 continue;
@@ -698,22 +722,21 @@ impl Vm {
     /// one. Turning an ordinal back into a name costs a map lookup and a heap
     /// allocation, and the caller cannot know whether anyone is listening — a
     /// trace is off in every normal run, so the cost has to be paid inside the
-    /// `is_none` check and not before it.
+    /// [`Core::tracing`] check and not before it.
     fn note(&mut self, ordinal: u32) {
-        if self.trace.is_none() {
+        if !self.core.tracing() {
             return;
         }
         let ip = self.ip;
         let what = self.ordinal_name(ordinal).unwrap_or("?").to_string();
-        if let Some(t) = self.trace.as_mut() {
-            t.push(format!("{ip:>12}  {what}"));
-        }
+        self.core.push_trace(format!("{ip:>12}  {what}"));
     }
 
     fn pop(&mut self, word: &'static str) -> Result<i32> {
-        self.data
-            .pop()
-            .ok_or(Error::StackUnderflow { word, at: self.ip })
+        self.data.pop().ok_or(Error::StackUnderflow {
+            word,
+            at: Some(self.ip),
+        })
     }
 
     fn push(&mut self, v: i32) {
@@ -728,10 +751,22 @@ impl Vm {
         Ok((at.offset(), v))
     }
 
+    /// Reseeds `RANDOM`'s generator.
+    ///
+    /// The state is 32 bits wide, so the low half of the seed is what reaches
+    /// it and the rest is dropped rather than folded in: a caller with real
+    /// entropy has it in the low bits, and a fold would make two seeds that
+    /// look different behave the same in a way nothing would report.
+    ///
+    /// Not called at all by the test suites, which is the point of it being a
+    /// call: without one the generator stays on the constant it is built with
+    /// and a scene reached the same way twice composes the same bytes twice.
+    pub fn seed(&mut self, seed: u64) {
+        self.core.seed(seed);
+    }
+
     fn next_rng(&mut self) -> u32 {
-        // Any decent generator will do; what matters is that it is repeatable.
-        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        self.rng
+        self.core.next_rng()
     }
 }
 
@@ -744,37 +779,37 @@ pub use prims32::IMPLEMENTED;
 
 impl crate::AddressSpace for Memory {
     fn fetch_cell(&self, raw: i32) -> Result<i32> {
-        self.fetch(Address(raw as u32)).map(|v| v as i32)
+        self.fetch(Address(cell::unsigned(raw))).map(cell::signed)
     }
 
     fn store_cell(&mut self, raw: i32, value: i32) -> Result<()> {
-        self.store(Address(raw as u32), value as u32)
+        self.store(Address(cell::unsigned(raw)), cell::unsigned(value))
     }
 
     fn fetch_byte(&self, raw: i32) -> Result<u8> {
-        Memory::fetch_byte(self, Address(raw as u32))
+        Memory::fetch_byte(self, Address(cell::unsigned(raw)))
     }
 
     fn read_bytes(&self, raw: i32, n: usize) -> Result<Vec<u8>> {
-        let at = Address(raw as u32);
-        (0..n as u32)
+        let at = Address(cell::unsigned(raw));
+        (0..cell::narrow(n))
             .map(|i| Memory::fetch_byte(self, Address::new(at.module(), at.offset() + i)))
             .collect()
     }
 
     fn write_bytes(&mut self, raw: i32, bytes: &[u8]) -> Result<()> {
-        Memory::write_bytes(self, Address(raw as u32), bytes)
+        Memory::write_bytes(self, Address(cell::unsigned(raw)), bytes)
     }
 
     /// The module half stays, the offset moves: a record's fields and a
     /// table's rows never cross a module.
     fn offset(&self, raw: i32, bytes: i32) -> i32 {
-        let at = Address(raw as u32);
-        Address::new(at.module(), at.offset().wrapping_add(bytes as u32)).0 as i32
+        let at = Address(cell::unsigned(raw));
+        cell::signed(Address::new(at.module(), at.offset().wrapping_add(cell::unsigned(bytes))).0)
     }
 
     fn cell_size(&self) -> i32 {
-        CELL as i32
+        cell::signed(CELL)
     }
 
     /// `NEWSETDESC` does not take what it is given. Zero and -1 clear the
@@ -805,13 +840,13 @@ impl crate::AddressSpace for Memory {
         if raw == 0 || raw == -1 {
             return 0;
         }
-        let v = raw as u32;
+        let v = cell::unsigned(raw);
         let addr = Address::new((v >> 16) & 0x3fff, v & 0xffff);
         if self.fetch(addr).is_ok() { raw } else { 0 }
     }
 
     fn is_live(&self, raw: i32) -> bool {
-        self.contains(raw as u32 >> 16)
+        self.contains(cell::unsigned(raw) >> 16)
     }
 
     fn module_image(&self, module: u32) -> Option<Vec<u8>> {
@@ -864,16 +899,19 @@ impl crate::Machine for Vm {
     /// A variable's body opens with the `_PutAdr` that pushes its own
     /// address, so the value sits in the cell right after it.
     fn variable(&self, word: Address) -> Option<i32> {
-        self.fetch(word.next()).ok().map(|v| v as i32)
+        self.fetch(word.next()).ok().map(cell::signed)
     }
 
     fn set_variable(&mut self, word: Address, value: i32) -> Result<()> {
-        self.store(word.next(), value as u32)
+        self.store(word.next(), cell::unsigned(value))
     }
 
     /// A stored callback is the packed address itself.
     fn callback_target(&self, raw: i32) -> Option<Address> {
-        Some(Address::new(raw as u32 >> 16, raw as u32 & 0xffff))
+        Some(Address::new(
+            cell::unsigned(raw) >> 16,
+            cell::unsigned(raw) & 0xffff,
+        ))
     }
 
     fn data(&mut self) -> &mut Vec<i32> {
@@ -886,5 +924,13 @@ impl crate::Machine for Vm {
 
     fn space_mut(&mut self) -> &mut dyn crate::AddressSpace {
         &mut self.mem
+    }
+
+    fn counters(&self) -> Counters {
+        self.core.counters()
+    }
+
+    fn seed(&mut self, seed: u64) {
+        Vm::seed(self, seed);
     }
 }

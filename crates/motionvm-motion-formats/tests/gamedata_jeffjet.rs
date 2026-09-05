@@ -73,7 +73,7 @@ fn the_second_volume_opens_on_a_table_of_its_own_length() {
         return;
     };
     let second = std::fs::read(game_file(&dir, "DATA.-2-")).expect("DATA.-2- reads");
-    let first = u32::from_le_bytes(second[..4].try_into().unwrap()) as usize;
+    let first = usize::try_from(u32::from_le_bytes(second[..4].try_into().unwrap())).unwrap();
     // A secondary volume carries no header: it is the offset table over the
     // same 4345 slots plus the seven spare entries, and then the items. Its
     // first entry is where its own table ends, which is the arithmetic saying
@@ -137,7 +137,7 @@ fn every_sprite_is_exactly_its_header_plus_its_pixels() {
     for id in ids(&c, Segment::Gfx) {
         let item = c.item(Segment::Gfx, id).unwrap().unwrap();
         let s = gfx::Sprite::parse(item).unwrap_or_else(|e| panic!("sprite {id}: {e}"));
-        assert_eq!(s.pixels.len(), s.width as usize * s.height as usize);
+        assert_eq!(s.pixels.len(), usize::from(s.width) * usize::from(s.height));
         assert!(
             s.width > 0 && s.height > 0,
             "sprite {id} has a zero dimension"
@@ -221,7 +221,7 @@ fn the_font_reference_table_maps_a_to_glyph_0() {
         let t = text::parse(c.item(Segment::Txt, id).unwrap().unwrap()).unwrap();
         for s in &t.strings {
             for &b in s.as_bytes() {
-                used[b as usize] = true;
+                used[usize::from(b)] = true;
             }
         }
     }
@@ -277,7 +277,7 @@ fn every_module_parses_and_its_ids_are_as_declared() {
     for &n in &numbers {
         let m = scr::ScrModule::parse(c.item(Segment::Scr, n).unwrap().unwrap())
             .unwrap_or_else(|e| panic!("module {n}: {e}"));
-        assert_eq!(m.module as usize, n, "module number equals the slot");
+        assert_eq!(usize::from(m.module), n, "module number equals the slot");
         assert_eq!(
             m.entries.first().map(|e| e.id),
             Some(m.first_id),

@@ -1,0 +1,12 @@
+# Reference digests for ds2, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+dialogue_menu  0x8cf8aaef7cd7ffb0
+help_viewer  0x43494be47512eca6
+intro_text  0x729261c7bea4489f
+opening  0xeae7a8d011c13180
+title  0x29e169c616446820

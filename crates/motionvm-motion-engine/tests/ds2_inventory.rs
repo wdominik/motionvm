@@ -14,6 +14,7 @@
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_motion_engine::Game;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::{gamedata_ds2, savegame_slot};
 
@@ -55,12 +56,12 @@ fn bar(game: &mut Game<Vm>) -> Bar {
     // their cells. `_FITEM` is not: it is `_PutAdr 0`, so the word *is* the
     // table and what it pushes is its address. Running it is the only way to
     // ask for that.
-    let list = game.get_var(2, "_ACTINV").expect("_ACTINV") as u32;
+    let list = cell::unsigned(game.get_var(2, "_ACTINV").expect("_ACTINV"));
     let first_slot = game.get_var(2, "_ITEM").expect("_ITEM");
     game.call(2, "_FITEM", &[]).expect("_FITEM");
-    let items = game.vm.data.pop().expect("_FITEM pushes its address") as u32;
+    let items = cell::unsigned(game.vm.data.pop().expect("_FITEM pushes its address"));
     game.call(2, "_ORDER", &[]).expect("_ORDER");
-    let order = game.vm.data.pop().expect("_ORDER pushes its address") as u32;
+    let order = cell::unsigned(game.vm.data.pop().expect("_ORDER pushes its address"));
     let packed = game.vm.fetch(cell(order, 176)).expect("the CALCINV slot");
     let calcinv = motionvm_motion_forth::Address::new(packed >> 16, packed & 0xffff);
     Bar {
@@ -78,24 +79,28 @@ fn cell(base: u32, off: u32) -> motionvm_motion_forth::Address {
 
 impl Bar {
     fn offset(&self, game: &Game<Vm>) -> i32 {
-        game.vm.fetch(cell(self.list, 0)).expect("the head cell") as i32
+        cell::signed(game.vm.fetch(cell(self.list, 0)).expect("the head cell"))
     }
     fn entry(&self, game: &Game<Vm>, i: i32) -> i32 {
-        game.vm
-            .fetch(cell(self.list, 4 + i as u32 * 4))
-            .expect("an entry") as i32
+        cell::signed(
+            game.vm
+                .fetch(cell(self.list, 4 + cell::unsigned(i) * 4))
+                .expect("an entry"),
+        )
     }
     /// The sprite the item table gives an item.
     fn sprite_of(&self, game: &Game<Vm>, item: i32) -> i32 {
-        game.vm
-            .fetch(cell(self.items, item as u32 * 20 + 8))
-            .expect("a record") as i32
+        cell::signed(
+            game.vm
+                .fetch(cell(self.items, cell::unsigned(item) * 20 + 8))
+                .expect("a record"),
+        )
     }
     /// What the eight slot descriptors are actually showing.
     fn shown(&self, game: &Game<Vm>) -> Vec<Option<u32>> {
         (0..8)
             .map(|k| {
-                let handle = (self.first_slot + k) as u32;
+                let handle = cell::unsigned(self.first_slot + k);
                 game.engine
                     .descriptors()
                     .iter()
@@ -112,7 +117,7 @@ impl Bar {
         (0..8)
             .map(|k| match self.entry(game, offset + k) {
                 0 => None,
-                item => Some(self.sprite_of(game, item) as u32),
+                item => Some(cell::unsigned(self.sprite_of(game, item))),
             })
             .collect()
     }
@@ -265,7 +270,7 @@ fn the_carried_items_slot_keeps_blinking() {
     game.vm.store(cell(b.list, 0), 0).expect("head");
     let carried = b.entry(&game, 0);
     game.vm
-        .store(cell(b.order, 0x128), carried as u32)
+        .store(cell(b.order, 0x128), cell::unsigned(carried))
         .expect("held");
     game.call_at(b.calcinv).expect("CALCINV");
 
@@ -273,7 +278,7 @@ fn the_carried_items_slot_keeps_blinking() {
         g.engine
             .descriptors()
             .iter()
-            .find(|d| d.handle == b.first_slot as u32)
+            .find(|d| d.handle == cell::unsigned(b.first_slot))
             .expect("the first slot")
     }
     assert_eq!(
@@ -340,7 +345,7 @@ fn a_savegame_says_what_the_bar_is_showing() {
     };
 
     // `GET ( size addr id -- )`: four bytes of `NNN.blk` into `_AKTLT`.
-    word(&mut game, "GET", &[4, aktlt.0 as i32, slot]);
+    word(&mut game, "GET", &[4, cell::signed(aktlt.0), slot]);
     let location = game.get_var(2, "_AKTLT").expect("_AKTLT");
     game.set_var(2, "_?STARTUP", 1).expect("_?STARTUP");
     game.call(5, "INCLLOC", &[location]).expect("INCLLOC");
@@ -352,7 +357,7 @@ fn a_savegame_says_what_the_bar_is_showing() {
     let entries: Vec<i32> = (0..12).map(|i| b.entry(&game, i)).collect();
     eprintln!("save {slot}, location {location}: head {offset}, entries {entries:?}");
     for k in 0..8 {
-        let handle = (b.first_slot + k) as u32;
+        let handle = cell::unsigned(b.first_slot + k);
         let d = game
             .engine
             .descriptors()
@@ -361,7 +366,7 @@ fn a_savegame_says_what_the_bar_is_showing() {
             .expect("slot");
         let want = match b.entry(&game, offset + k) {
             0 => None,
-            item => Some(b.sprite_of(&game, item) as u32),
+            item => Some(cell::unsigned(b.sprite_of(&game, item))),
         };
         assert_eq!(
             (d.shows.graphic(), d.x),

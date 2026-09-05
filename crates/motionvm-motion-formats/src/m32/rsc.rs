@@ -15,8 +15,9 @@
 //! Note the segment order does *not* match the "Scanning for …" order printed by
 //! `ENGINE.EXE`; it was determined from the data itself.
 
+use crate::cursor::Cursor;
 use crate::error::{Error, Result};
-use crate::u32le;
+use crate::{dwords, past_end};
 
 /// The seven resource tables inside a container, in offset-table order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -50,6 +51,16 @@ impl Kind {
         Kind::Palette,
     ];
 
+    /// Where this kind's table sits in the header: the variant's position,
+    /// which is what a fieldless enum's discriminant is.
+    #[expect(
+        clippy::as_conversions,
+        reason = "a fieldless enum's discriminant is its position in the header's tables"
+    )]
+    pub(crate) fn slot(self) -> usize {
+        self as usize
+    }
+
     /// The kind's short name, as the tools print it.
     pub fn name(self) -> &'static str {
         match self {
@@ -76,6 +87,18 @@ pub struct Rsc {
     source: String,
 }
 
+impl std::fmt::Debug for Rsc {
+    /// Where it came from and how it is laid out, not the file itself.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Rsc")
+            .field("source", &self.source)
+            .field("len", &self.data.len())
+            .field("segments", &self.segments)
+            .field("slots", &self.offsets.len())
+            .finish()
+    }
+}
+
 impl Rsc {
     /// Reads one `NNN.RSC` container from disk.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
@@ -92,49 +115,41 @@ impl Rsc {
                 detail: format!("file is only {} bytes", data.len()),
             });
         }
-        let mut counts = [0usize; COUNT_FIELDS];
-        for (i, c) in counts.iter_mut().enumerate() {
-            *c = u32le(&data, i * 4)? as usize;
-        }
+        let counts = dwords::<COUNT_FIELDS>(&data, 0)?.map(crate::wide);
         let [gfx, text, block, font, script, palette] = counts;
-        let total = 2 * gfx + text + block + font + script + palette;
-        if total == 0 || total > 1 << 22 {
+        let sizes = [gfx, gfx, text, block, font, script, palette];
+        let total = sizes
+            .iter()
+            .try_fold(0usize, |sum, &n| sum.checked_add(n))
+            .filter(|&total| total != 0 && total <= 1 << 22);
+        let Some(total) = total else {
             return Err(Error::Corrupt {
                 what: "RSC container",
-                detail: format!("implausible slot total {total}"),
+                detail: format!("implausible slot counts {counts:?}"),
             });
-        }
-        let table_end = HEADER_LEN + total * 4;
-        if data.len() < table_end {
-            return Err(Error::Corrupt {
-                what: "RSC container",
-                detail: format!(
-                    "offset table needs {table_end} bytes, file has {}",
-                    data.len()
-                ),
-            });
-        }
+        };
 
-        let mut offsets = Vec::with_capacity(total);
-        for i in 0..total {
-            offsets.push(u32le(&data, HEADER_LEN + i * 4)?);
-        }
+        let mut table = Cursor::new(&data, HEADER_LEN);
+        let entries = table.records::<4>(total)?;
+        let table_end = table.position();
         // The first data byte must sit exactly where the table ends; that is the
         // strongest single check that the segment layout was read correctly.
-        let first = offsets[0] & 0x7fff_ffff;
-        if first as usize != table_end {
+        let first = entries
+            .first()
+            .map_or(0, |o| u32::from_le_bytes(*o) & 0x7fff_ffff);
+        if crate::wide(first) != table_end {
             return Err(Error::Corrupt {
                 what: "RSC container",
                 detail: format!("first item at {first:#x} but offset table ends at {table_end:#x}"),
             });
         }
+        let offsets = entries.iter().map(|o| u32::from_le_bytes(*o)).collect();
 
-        let sizes = [gfx, gfx, text, block, font, script, palette];
         let mut segments = [(0usize, 0usize); 7];
-        let mut cursor = 0;
+        let mut cursor = 0usize;
         for (seg, &n) in segments.iter_mut().zip(sizes.iter()) {
             *seg = (cursor, n);
-            cursor += n;
+            cursor = cursor.saturating_add(n);
         }
 
         Ok(Self {
@@ -150,9 +165,19 @@ impl Rsc {
         &self.source
     }
 
+    /// Where `kind`'s slots start in the offset table, and how many there
+    /// are.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "a kind's slot is below seven, the table's length"
+    )]
+    fn segment(&self, kind: Kind) -> (usize, usize) {
+        self.segments[kind.slot()]
+    }
+
     /// Number of slots reserved for `kind` (not the number that are filled).
     pub fn slot_count(&self, kind: Kind) -> usize {
-        self.segments[kind as usize].1
+        self.segment(kind).1
     }
 
     /// The raw bytes of one item, or `None` if the slot is empty.
@@ -160,7 +185,7 @@ impl Rsc {
     /// Item length is the gap to the next offset, so the last slot of the last
     /// segment can never hold data — it is the end sentinel.
     pub fn item(&self, kind: Kind, id: usize) -> Result<Option<&[u8]>> {
-        let (base, count) = self.segments[kind as usize];
+        let (base, count) = self.segment(kind);
         if id >= count {
             return Err(Error::IdOutOfRange {
                 kind: kind.name(),
@@ -168,34 +193,32 @@ impl Rsc {
                 count,
             });
         }
-        let idx = base + id;
-        let Some(&next) = self.offsets.get(idx + 1) else {
+        let Some(&[start, next, ..]) = self.offsets.get(base.saturating_add(id)..) else {
             return Ok(None);
         };
-        let start = (self.offsets[idx] & 0x7fff_ffff) as usize;
-        let end = (next & 0x7fff_ffff) as usize;
+        let start = crate::wide(start & 0x7fff_ffff);
+        let end = crate::wide(next & 0x7fff_ffff);
         if end <= start {
             return Ok(None);
         }
-        let slice = self.data.get(start..end).ok_or(Error::Truncated {
-            off: start,
-            need: end - start,
-            have: self.data.len(),
-        })?;
-        Ok(Some(slice))
+        let item = self
+            .data
+            .get(start..end)
+            .ok_or_else(|| past_end(&self.data, start, end.saturating_sub(start)))?;
+        Ok(Some(item))
     }
 
     /// Ids of every filled slot of `kind`, ascending.
     pub fn present(&self, kind: Kind) -> Vec<usize> {
-        let (base, count) = self.segments[kind as usize];
-        (0..count)
-            .filter(|&id| {
-                let idx = base + id;
-                match self.offsets.get(idx + 1) {
-                    Some(&next) => (self.offsets[idx] & 0x7fff_ffff) != (next & 0x7fff_ffff),
-                    None => false,
-                }
-            })
+        let (base, count) = self.segment(kind);
+        let from_base = self.offsets.get(base..).unwrap_or_default();
+        from_base
+            .iter()
+            .zip(from_base.iter().skip(1))
+            .take(count)
+            .enumerate()
+            .filter(|(_, (start, next))| (*start & 0x7fff_ffff) != (*next & 0x7fff_ffff))
+            .map(|(id, _)| id)
             .collect()
     }
 
@@ -208,7 +231,7 @@ impl Rsc {
         let end = self
             .offsets
             .iter()
-            .map(|o| (o & 0x7fff_ffff) as usize)
+            .map(|o| crate::wide(o & 0x7fff_ffff))
             .max()
             .unwrap_or(0);
         self.data.len().saturating_sub(end)
@@ -221,6 +244,12 @@ impl Rsc {
 /// fills a different part of the shared id range, so a lookup tries every bank.
 pub struct Bank {
     banks: Vec<Rsc>,
+}
+
+impl std::fmt::Debug for Bank {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(&self.banks).finish()
+    }
 }
 
 /// Whether that path is named the way the engine names a container: three

@@ -11,7 +11,11 @@
 //!
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
+mod common;
+
+use common::{settle, settled_in};
 use motionvm_motion_engine::{Game, Shows};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
 
@@ -21,9 +25,7 @@ fn the_title_macro_arms_the_task_manager() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let game = settled_in(&dir, 23);
 
     // The macro's own last three lines: task 1, phase 0, and the handler
     // pointing at LTMANAGER in module 223.
@@ -34,7 +36,10 @@ fn the_title_macro_arms_the_task_manager() {
     );
     let handler = game.get_var(2, "_LTHANDLER").expect("_LTHANDLER exists");
     assert_eq!(
-        (handler as u32 >> 16, handler as u32 & 0xffff),
+        (
+            cell::unsigned(handler) >> 16,
+            cell::unsigned(handler) & 0xffff
+        ),
         (223, 0x19c8),
         "the handler is LTMANAGER in module 223"
     );
@@ -46,9 +51,7 @@ fn a_click_advances_the_intro() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
 
     // Idle frames must not advance anything. Phase 0 waits for input and
     // nothing else, so a manager that ran away on its own would show up here.
@@ -98,9 +101,7 @@ fn hiding_a_descriptor_leaves_its_picture_standing() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
 
     // The macro fades the status bar out on the way in; let that finish, or
     // the frame under test is a transition frame rather than a settled one.
@@ -127,7 +128,7 @@ fn hiding_a_descriptor_leaves_its_picture_standing() {
         .collect::<Vec<_>>()
     {
         game.engine
-            .plain_word32("ACTDESC", &mut vec![handle as i32], &mut mem)
+            .plain_word32("ACTDESC", &mut vec![cell::signed(handle)], &mut mem)
             .expect("ACTDESC");
         game.engine
             .plain_word32("SDINACTIVE", &mut vec![], &mut mem)
@@ -187,9 +188,7 @@ fn the_fade_out_finishes_before_the_picture_changes() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
     settle(&mut game);
 
     game.set_input(0, 0, true, false, 0).expect("click");
@@ -266,9 +265,7 @@ fn the_old_picture_fades_out_in_its_own_colors() {
         "the two palettes have to differ for this to mean anything"
     );
 
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
     while game.engine.in_transition() {
         game.step().expect("a curtain frame");
     }
@@ -326,17 +323,6 @@ const ORIGINAL_LINES: [(u32, u32, u32); 7] = [
     (261, 143, 496),
 ];
 
-/// Runs frames until nothing is fading, so a still picture can be measured.
-fn settle(game: &mut Game<Vm>) {
-    let mut guard = 0;
-    while game.engine.in_transition() {
-        game.set_input(0, 0, false, false, 0).expect("input");
-        game.step().expect("a curtain frame");
-        guard += 1;
-        assert!(guard < 500, "a transition never ended");
-    }
-}
-
 fn click(game: &mut Game<Vm>) {
     game.set_input(0, 0, true, false, 0).expect("click");
     game.step().expect("the frame with the click");
@@ -347,12 +333,12 @@ fn click(game: &mut Game<Vm>) {
 
 /// The lines of the frame as (first inked row, leftmost column, rightmost).
 fn text_lines(frame: &motionvm_render::Framebuffer) -> Vec<(u32, u32, u32)> {
-    let (w, h) = (frame.width as u32, frame.height as u32);
+    let (w, h) = (u32::from(frame.width), u32::from(frame.height));
     let mut lines = Vec::new();
     let mut open: Option<(u32, u32, u32)> = None;
     for y in 0..h {
         let inked: Vec<u32> = (0..w)
-            .filter(|&x| frame.pixels[(y * w + x) as usize] != 0)
+            .filter(|&x| frame.pixels[cell::index(y * w + x)] != 0)
             .collect();
         match (inked.first(), inked.last(), open) {
             (Some(&a), Some(&b), None) => open = Some((y, a, b)),
@@ -380,9 +366,7 @@ fn the_intro_shows_its_two_texts_in_order() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
     settle(&mut game);
     click(&mut game); // logo away, title art in
     click(&mut game); // title art away, first text in
@@ -427,24 +411,46 @@ fn a_fade_takes_its_screen_out_of_the_picture() {
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.begin_location(23).expect("start entering");
+    game.start().expect("4:START");
+    while game.pump().expect("startup runs") {}
 
-    // The title macro fades the status bar out first thing, so one pump is
-    // enough to be inside that.
-    game.pump().expect("the first frame of the entry");
-    let bar = game
-        .engine
-        .screens()
-        .iter()
-        .find(|s| s.handle == 1)
-        .expect("the status bar");
-    assert!(!bar.active, "fading a screen out has to deactivate it");
-    assert!(game.engine.in_transition());
+    // The title macro fades the status bar out first thing, so the first fade
+    // of the run is that one. Caught by stepping the game's own frames rather
+    // than by driving `INCLLOC` by hand: what is being pinned is that a screen
+    // goes inactive *because* it is fading, and the entry has to be the
+    // entry the game makes.
+    // The two have to be seen *together*: the bar is inactive because a fade
+    // took it out, so the frame that shows one has to show the other. Waiting
+    // for a transition and then looking would catch whichever fade `START`
+    // runs first; waiting for the bar to go and then looking would catch the
+    // settled picture afterwards.
+    let mut caught = false;
+    for frame in 1..=600 {
+        game.set_input(0, 0, false, false, 0).expect("input");
+        game.step().unwrap_or_else(|e| panic!("frame {frame}: {e}"));
+        let bar_out = game
+            .engine
+            .screens()
+            .iter()
+            .find(|s| s.handle == 1)
+            .is_some_and(|s| !s.active);
+        if bar_out {
+            assert!(
+                game.engine.in_transition(),
+                "the bar went inactive without a fade taking it out"
+            );
+            caught = true;
+            break;
+        }
+    }
+    assert!(caught, "the entry never faded the status bar out");
 
     // And it stays out: nothing fades it back in, so it is gone from the
     // composed frame afterwards too.
-    while game.pump().expect("a frame of the entry") {}
+    while game.engine.in_transition() {
+        game.set_input(0, 0, false, false, 0).expect("input");
+        game.step().expect("a frame of the entry");
+    }
     let bar = game
         .engine
         .screens()
@@ -457,46 +463,37 @@ fn a_fade_takes_its_screen_out_of_the_picture() {
 /// The intro hands over to the first room by writing `_NEXTLOC`.
 ///
 /// Phase 7 ends with `1 _KINTRO !  2 _NEXTLOC !`, and no word in the game ever
-/// reads `_NEXTLOC` — 23 writes, no reads, the same shape as `_LTHANDLER`. The
-/// native loop picks it up, so the rebuilt one has to as well, or the game
-/// simply stops when the title sequence is over.
+/// reads `_NEXTLOC` — 23 writes, no reads, the same shape as `_LTHANDLER`.
+/// `ICTRL` picks it up, consumes it and enters the location, so what is
+/// observable from outside is the arrival rather than the request: the cell is
+/// written and read inside one frame, and a run that watched for it to *hold*
+/// 2 would be watching for something the game never leaves standing. What
+/// this pins is the consequence — the title sequence ends in the park, and
+/// the request is consumed rather than repeated. That the entry's fade takes
+/// the screen out on the way is
+/// [`a_fade_takes_its_screen_out_of_the_picture`]'s.
 #[test]
 fn the_intro_hands_over_to_the_next_location() {
     let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
     settle(&mut game);
-    for _ in 0..4 {
+
+    // Clicked through rather than counted: how many the intro takes is the
+    // intro's business.
+    let mut clicks = 0;
+    while game.get_var(2, "_ACTLOC") != Some(2) {
         click(&mut game);
+        clicks += 1;
+        assert!(clicks < 12, "the intro never handed over");
     }
-
-    // The intro is over and has asked for the park. ( lives in
-    // another module and is not what this is about.)
-    assert_eq!(
-        game.get_var(2, "_NEXTLOC"),
-        Some(2),
-        "and asks for location 2"
-    );
-
-    // One more frame takes the request up: the entry fades out first, which is
-    // what leaves the screen inactive for the fade in to reveal.
-    let _ = game.step();
     assert_eq!(
         game.get_var(2, "_NEXTLOC"),
         Some(0),
         "the request is consumed, not repeated"
     );
-    let main = game
-        .engine
-        .screens()
-        .iter()
-        .find(|s| s.handle == 2)
-        .expect("screen 2");
-    assert!(!main.active, "entering the park fades the screen out first");
 }
 
 /// The intro really does arrive in the park, with its own task running.
@@ -511,9 +508,7 @@ fn the_game_reaches_the_park() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
     settle(&mut game);
     for _ in 0..4 {
         click(&mut game);
@@ -554,7 +549,7 @@ fn the_game_reaches_the_park() {
 /// frame's draw.
 #[test]
 fn a_fade_in_draws_only_its_own_screen() {
-    let mut e = motionvm_motion_engine::Engine::with_display(640, 480);
+    let mut e = motionvm_motion_engine::Engine::new(motionvm_motion_engine::Profile::motion32());
     for handle in [1u32, 2] {
         let mut s = motionvm_motion_engine::Screen::new(handle);
         s.size = (4, 4);
@@ -630,10 +625,10 @@ fn a_fade_in_draws_only_its_own_screen() {
 
 /// Drives the title sequence to its end through the real controller.
 ///
-/// `4:START` rather than `enter_location`, because the raise and the release
-/// this is about straddle both: `INCLLOC` (module 5, 0x017b8) brackets the
-/// location macro with `SETBUSY` … `SETNOBUSY`, and the macro's own raise is
-/// released a whole sequence later by `LTMANAGER`.
+/// From `4:START` and through the game's own frames, because the raise and the
+/// release this is about straddle a whole sequence: `INCLLOC` (module 5,
+/// 0x017b8) brackets the location macro with `SETBUSY` … `SETNOBUSY`, and the
+/// macro's own raise is released a whole sequence later by `LTMANAGER`.
 /// Returns the game once the title is over, and the highest `_BUSY` the title
 /// itself stood at.
 fn play_the_title(dir: &std::path::Path, twice: bool) -> (Game<Vm>, i32) {

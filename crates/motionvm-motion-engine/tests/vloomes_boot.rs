@@ -16,10 +16,15 @@
 //! on the frame it starts: `ANIMPLAY` returns, `RUN` runs its teardown, and a
 //! test that only asked "did it crash" would have said no.
 //!
+//! That this directory is told apart and opens as this game is asked in
+//! `titles_detected.rs`, one row per game; here the game is already open.
+//!
 //! The game this file drives is Victor Loomes (MOTION 16-bit).
 
-use motionvm_motion_engine::{Title, titles};
-use motionvm_motion_testutil::gamedata_vloomes;
+mod common;
+
+use motionvm_motion_engine::titles;
+use motionvm_motion_testutil::{Digests, digest, gamedata_vloomes};
 
 /// Words `CTRL`'s frames may walk past without effect: the sprite and text
 /// status tables, which the 16-bit handlers keep for their own loader and
@@ -27,23 +32,9 @@ use motionvm_motion_testutil::gamedata_vloomes;
 /// screen one — they are the engine's and not the game's.
 const INERT: &[&str] = &["SCRSTAT", "TXTSTAT", "XGFXSTAT", "XGFXSTAT+"];
 
-#[test]
-fn the_directory_is_told_apart_by_its_engine_binary() {
-    let Some(dir) = gamedata_vloomes() else {
-        eprintln!("skipping: no Victor Loomes gamedata directory");
-        return;
-    };
-    assert_eq!(titles::detect(&dir), Some(Title::VictorLoomes));
-    let game = titles::open(&dir).expect("the game opens");
-    assert_eq!(game.name(), "Victor Loomes – Das Spiel");
-    assert_eq!(game.display_size(), (320, 200));
-    assert_eq!(
-        game.pixel_aspect(),
-        motionvm_playable::PixelAspect {
-            width: 5,
-            height: 6
-        }
-    );
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("vloomes")
 }
 
 #[test]
@@ -64,6 +55,10 @@ fn run_plays_the_intro_and_draws_it() {
     // a boot that only looked like one.
     let lit = game.render().pixels.iter().filter(|&&p| p != 0).count();
     assert!(lit > 500, "the intro drew {lit} pixels");
+    // The competition slide, twelve hundred frames in. A fixed frame count
+    // rather than a settled state, because this intro plays on a timer and
+    // never settles; the count is what makes the picture reproducible.
+    digests().check("intro_1200", digest::frame(&game.render()));
     assert!(!game.finished(), "RUN has not returned");
     // Still in the intro: `RUN` zeroes `AO` and only enters a location after
     // the intro is done with.

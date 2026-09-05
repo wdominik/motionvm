@@ -48,7 +48,8 @@
 //! - **A note-on with velocity 0 is not a note-off.** `0x98A89` scales
 //!   velocity only on channel 9 and sends the message either way.
 
-use crate::{Error, Result, reserve, u16le, u32le};
+use crate::cursor::Cursor;
+use crate::{Error, Record, Result, bytes, i16le, records, tail, u16le, u32at, wide};
 
 /// A parsed song.
 #[derive(Debug, Clone)]
@@ -71,6 +72,14 @@ pub struct Track {
     pub channel: u16,
     /// `+0x77` — voice priority, also settable by controller 107.
     pub priority: u16,
+    /// `+0x99` — the devices this track is for: up to eight ids of the
+    /// `0xA000` series, zero-terminated. The engine's song open (`0x9c8a6`)
+    /// gives the track to the first installed device one of them names —
+    /// `0xA000` naming `0xA001` and `0xA008` as well, `0xA002` naming
+    /// `0xA009`, the OPL3 — and a track none of them names is not played.
+    /// Dunkle Schatten 2's opening tune carries a bass and a second guitar
+    /// for devices other than the OPL3.
+    pub devices: Vec<u16>,
     /// The branch-point table at `+0x63`, by id and stream offset.
     pub branch_points: Vec<BranchPoint>,
     /// The events, in stream order, with their absolute ticks worked out.
@@ -209,28 +218,21 @@ impl Song {
     /// Reads a whole song: the header, then every track's event stream with
     /// its deltas summed into absolute ticks.
     pub fn parse(data: &[u8]) -> Result<Self> {
-        let magic = data.get(..Self::MAGIC.len()).ok_or(Error::Truncated {
-            off: 0,
-            need: Self::MAGIC.len(),
-            have: data.len(),
-        })?;
-        if magic != Self::MAGIC {
-            let mut found = [0u8; 18];
-            found.copy_from_slice(magic);
-            return Err(Error::MissingSongMagic { found });
+        let magic = bytes::<{ Self::MAGIC.len() }>(data, 0)?;
+        if magic.as_slice() != Self::MAGIC {
+            return Err(Error::MissingSongMagic { found: *magic });
         }
-        let division = u16le(data, 0xd2)? as i16;
-        let tick_hz = u16le(data, 0xd4)? as i16;
+        let division = i16le(data, 0xd2)?;
+        let tick_hz = i16le(data, 0xd4)?;
         let max_notes = u16le(data, 0xe2)?;
-        let count = u32le(data, 0xe4)? as usize;
-        let table = u32le(data, 0xe8)? as usize;
+        let count = u32at(data, 0xe4)?;
+        let table = u32at(data, 0xe8)?;
 
         // Four bytes per entry in the offset table at `table`.
-        let mut tracks = reserve(count, data.len(), 4);
-        for i in 0..count {
-            let at = u32le(data, table + i * 4)? as usize;
-            tracks.push(Track::parse(data, at)?);
-        }
+        let tracks = records::<4>(data, table, count)?
+            .iter()
+            .map(|entry| Track::parse(data, wide(u32::from_le_bytes(*entry))))
+            .collect::<Result<Vec<_>>>()?;
         Ok(Self {
             division,
             tick_hz,
@@ -241,31 +243,39 @@ impl Song {
 }
 
 impl Track {
-    fn parse(data: &[u8], at: usize) -> Result<Self> {
-        let magic = data
-            .get(at..at + Song::TRACK_MAGIC.len())
-            .ok_or(Error::Truncated {
-                off: at,
-                need: Song::TRACK_MAGIC.len(),
-                have: data.len(),
-            })?;
-        if magic != Song::TRACK_MAGIC {
-            let mut found = [0u8; 13];
-            found.copy_from_slice(magic);
-            return Err(Error::MissingTrackMagic { at, found });
-        }
-        let channel = u16le(data, at + 0x7b)?;
-        let priority = u16le(data, at + 0x77)?;
-        let branch_points = branch_table(data, at)?;
+    /// Bytes of track record the header fields reach into: the device list
+    /// at `+0x99` is the last of them.
+    const HEADER_BYTES: usize = 0xa9;
 
-        // `+0x57` is where the events start, as a track-relative offset that
-        // the engine relocates in place (`0x986DE`). The field at `+0x0C` holds
-        // 75 in every track of every song and nothing in the image reads it.
-        let start = at + u32le(data, at + 0x57)? as usize;
-        let events = decode(data, start, at)?;
+    fn parse(data: &[u8], at: usize) -> Result<Self> {
+        let magic = bytes::<{ Song::TRACK_MAGIC.len() }>(data, at)?;
+        if magic.as_slice() != Song::TRACK_MAGIC {
+            return Err(Error::MissingTrackMagic { at, found: *magic });
+        }
+        let head = Record(bytes::<{ Self::HEADER_BYTES }>(data, at)?);
+        let channel = head.u16::<0x7b>();
+        let priority = head.u16::<0x77>();
+        let devices = head
+            .bytes::<0x99, 16>()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|id| u16::from_le_bytes(*id))
+            .take_while(|&id| id != 0)
+            .collect();
+        // Everything a track addresses, it addresses from its own start: the
+        // branch table at `+0x63` and the event stream at `+0x57` are both
+        // track-relative offsets that the engine relocates in place
+        // (`0x986DE`), and the branch points name event positions the same
+        // way. The field at `+0x0C` holds 75 in every track of every song
+        // and nothing in the image reads it.
+        let track = tail(data, at)?;
+        let branch_points = branch_table(track, head.u32at::<0x63>())?;
+        let events = decode(track, head.u32at::<0x57>())?;
         Ok(Self {
             channel,
             priority,
+            devices,
             branch_points,
             events,
         })
@@ -273,26 +283,22 @@ impl Track {
 }
 
 /// `track+0x63` → `<u8 count> { i16 id; u32 offset }*` — or nothing at all.
-fn branch_table(data: &[u8], at: usize) -> Result<Vec<BranchPoint>> {
-    let rel = u32le(data, at + 0x63)? as usize;
-    if rel == 0 {
+fn branch_table(track: &[u8], at: usize) -> Result<Vec<BranchPoint>> {
+    if at == 0 {
         return Ok(Vec::new());
     }
-    let table = at + rel;
-    let count = *data.get(table).ok_or(Error::Truncated {
-        off: table,
-        need: 1,
-        have: data.len(),
-    })? as usize;
-    let mut out = Vec::with_capacity(count);
-    for i in 0..count {
-        let o = table + 1 + i * 6;
-        out.push(BranchPoint {
-            id: u16le(data, o)? as i16,
-            offset: u32le(data, o + 2)?,
-        });
-    }
-    Ok(out)
+    let mut c = Cursor::new(track, at);
+    let count = usize::from(c.u8()?);
+    Ok(c.records::<6>(count)?
+        .iter()
+        .map(|entry| {
+            let entry = Record(entry);
+            BranchPoint {
+                id: entry.i16::<0>(),
+                offset: entry.u32::<2>(),
+            }
+        })
+        .collect())
 }
 
 /// The variable-length quantity of `0x994B2`: seven bits a byte, ending at the
@@ -304,66 +310,51 @@ fn branch_table(data: &[u8], at: usize) -> Result<Vec<BranchPoint>> {
 /// saying so beats returning a plausible wrong number.
 const VLQ_MAX_BYTES: usize = 5;
 
-fn vlq(data: &[u8], at: usize) -> Result<(u32, usize)> {
+fn vlq(c: &mut Cursor<'_>) -> Result<u32> {
+    let at = c.position();
     let mut value = 0u32;
-    let mut used = 0usize;
-    loop {
-        let b = byte(data, at + used)?;
-        used += 1;
+    for _ in 0..VLQ_MAX_BYTES {
+        let b = c.u8()?;
         value = (value << 7) | u32::from(b & 0x7f);
         if b & 0x80 == 0 {
-            return Ok((value, used));
-        }
-        if used == VLQ_MAX_BYTES {
-            return Err(Error::Corrupt {
-                what: "song",
-                detail: format!(
-                    "a variable-length quantity at {at:#x} runs past {VLQ_MAX_BYTES} bytes"
-                ),
-            });
+            return Ok(value);
         }
     }
-}
-
-fn byte(data: &[u8], at: usize) -> Result<u8> {
-    data.get(at).copied().ok_or(Error::Truncated {
-        off: at,
-        need: 1,
-        have: data.len(),
+    Err(Error::Corrupt {
+        what: "song",
+        detail: format!("a variable-length quantity at {at:#x} runs past {VLQ_MAX_BYTES} bytes"),
     })
 }
 
-/// Walks one event stream to its `FF 2F`.
-fn decode(data: &[u8], start: usize, base: usize) -> Result<Vec<Timed>> {
+/// Walks one event stream, from `start` in the track, to its `FF 2F`.
+fn decode(track: &[u8], start: usize) -> Result<Vec<Timed>> {
     let mut out = Vec::new();
-    let mut p = start;
+    let mut c = Cursor::new(track, start);
     let mut tick = 0u32;
     let mut status = 0u8;
     loop {
-        let (delta, used) = vlq(data, p)?;
-        p += used;
+        let delta = vlq(&mut c)?;
         // Saturating rather than wrapping: a tick count that has run away is
         // already meaningless, and a debug build would otherwise panic on data
         // rather than report it. The end-of-track check below is what stops the
         // walk; this only keeps the arithmetic from being the thing that fails.
         tick = tick.saturating_add(delta);
-        let at = (p - base) as u32;
+        let at = crate::narrow(c.position());
 
         // Running status: the cursor sits on the status byte only when the
         // byte there has the top bit set. The engine keeps one byte and lets
         // `FE` and `FF` overwrite it too (`0x8FD6C`).
-        let here = byte(data, p)?;
-        if here >= 0x80 {
-            status = here;
-            p += 1;
+        if c.peek()? >= 0x80 {
+            status = c.u8()?;
         }
 
         let event = match status {
             0xff => {
-                let kind = byte(data, p)?;
+                let sub_at = c.position();
+                let kind = c.u8()?;
                 if kind != 0x2f {
                     return Err(Error::UnknownSongEvent {
-                        at: p,
+                        at: sub_at,
                         status,
                         sub: kind,
                     });
@@ -377,38 +368,15 @@ fn decode(data: &[u8], start: usize, base: usize) -> Result<Vec<Timed>> {
                 return Ok(out);
             }
             0xfe => {
-                let sub = byte(data, p)?;
-                let (event, size) = extended(data, p, sub)?;
-                p += size;
-                out.push(Timed {
-                    at,
-                    delta,
-                    tick,
-                    event,
-                });
-                continue;
+                let sub_at = c.position();
+                let sub = c.u8()?;
+                extended(&mut c, sub, sub_at)?
             }
             0xf0 => {
-                let len = u32le(data, p)? as usize;
-                let body = data.get(p + 4..p + 4 + len).ok_or(Error::Truncated {
-                    off: p + 4,
-                    need: len,
-                    have: data.len(),
-                })?;
-                p += 4 + len;
-                out.push(Timed {
-                    at,
-                    delta,
-                    tick,
-                    event: Event::SysEx(body.to_vec()),
-                });
-                continue;
+                let len = c.u32at()?;
+                Event::SysEx(c.take(len)?.to_vec())
             }
-            _ => {
-                let (event, size) = channel_event(data, p, status)?;
-                p += size;
-                event
-            }
+            _ => channel_event(&mut c, status)?,
         };
         out.push(Timed {
             at,
@@ -419,136 +387,86 @@ fn decode(data: &[u8], start: usize, base: usize) -> Result<Vec<Timed>> {
     }
 }
 
-/// The `8n`–`En` classes. Returns the event and how many bytes it consumed
-/// after the status byte.
-fn channel_event(data: &[u8], p: usize, status: u8) -> Result<(Event, usize)> {
+/// The `8n`–`En` classes, read from the byte after the status.
+fn channel_event(c: &mut Cursor<'_>, status: u8) -> Result<Event> {
+    let at = c.position();
     Ok(match status & 0xf0 {
-        0x80 => (
-            Event::NoteOff {
-                note: byte(data, p)?,
-                velocity: byte(data, p + 1)?,
-            },
-            2,
-        ),
+        0x80 => Event::NoteOff {
+            note: c.u8()?,
+            velocity: c.u8()?,
+        },
         0x90 => {
             // The duration is what makes this format its own: it comes after
             // the velocity, as a second variable-length value (`0x98A12`).
-            let (duration, used) = vlq(data, p + 2)?;
-            (
-                Event::NoteOn {
-                    note: byte(data, p)?,
-                    velocity: byte(data, p + 1)?,
-                    duration,
-                },
-                2 + used,
-            )
+            let note = c.u8()?;
+            let velocity = c.u8()?;
+            Event::NoteOn {
+                note,
+                velocity,
+                duration: vlq(c)?,
+            }
         }
-        0xa0 => (
-            Event::PolyPressure {
-                note: byte(data, p)?,
-                value: byte(data, p + 1)?,
-            },
-            2,
-        ),
-        0xb0 => (
-            Event::Control {
-                controller: byte(data, p)?,
-                value: byte(data, p + 1)?,
-            },
-            2,
-        ),
-        0xc0 => (Event::Program(byte(data, p)?), 1),
-        0xd0 => (Event::ChannelPressure(byte(data, p)?), 1),
-        0xe0 => (
-            Event::PitchBend {
-                lsb: byte(data, p)?,
-                msb: byte(data, p + 1)?,
-            },
-            2,
-        ),
+        0xa0 => Event::PolyPressure {
+            note: c.u8()?,
+            value: c.u8()?,
+        },
+        0xb0 => Event::Control {
+            controller: c.u8()?,
+            value: c.u8()?,
+        },
+        0xc0 => Event::Program(c.u8()?),
+        0xd0 => Event::ChannelPressure(c.u8()?),
+        0xe0 => Event::PitchBend {
+            lsb: c.u8()?,
+            msb: c.u8()?,
+        },
         _ => {
-            return Err(Error::UnknownSongEvent {
-                at: p,
-                status,
-                sub: 0,
-            });
+            return Err(Error::UnknownSongEvent { at, status, sub: 0 });
         }
     })
 }
 
-/// The `FE` family. Sizes come from the jump table at `0x98967`; only `FE 10`
-/// is variable, and its length byte sits at `+4`.
-fn extended(data: &[u8], p: usize, sub: u8) -> Result<(Event, usize)> {
+/// The `FE` family, read from the byte after the sub-status `sub`, which sat
+/// at `sub_at`. Sizes come from the jump table at `0x98967`; only `FE 10` is
+/// variable, and its length byte sits at `+4`.
+fn extended(c: &mut Cursor<'_>, sub: u8, sub_at: usize) -> Result<Event> {
     Ok(match sub {
         0x10 => {
-            let id = u16le(data, p + 1)? as i16;
-            let len = byte(data, p + 3)? as usize;
-            let snapshot = data.get(p + 4..p + 4 + len).ok_or(Error::Truncated {
-                off: p + 4,
-                need: len,
-                have: data.len(),
-            })?;
-            let tick = u32le(data, p + 4 + len)?;
-            (
-                Event::BranchPoint {
-                    id,
-                    snapshot: snapshot.to_vec(),
-                    tick,
-                },
-                8 + len,
-            )
+            let id = c.i16()?;
+            let len = usize::from(c.u8()?);
+            let snapshot = c.take(len)?.to_vec();
+            Event::BranchPoint {
+                id,
+                snapshot,
+                tick: c.u32()?,
+            }
         }
-        0x12 | 0x14 => (
-            Event::LoopCounter {
-                live: byte(data, p + 1)?,
-                reset: byte(data, p + 2)?,
-            },
-            3,
-        ),
-        0x15 => (
-            Event::Loop {
-                id: u16le(data, p + 1)? as i16,
-                counter_offset: u32le(data, p + 3)?,
-            },
-            7,
-        ),
-        0x11 => (
-            Event::Branch {
-                kind: sub,
-                body: slice(data, p + 1, 6)?,
-            },
-            7,
-        ),
-        0x13 => (
-            Event::Branch {
-                kind: sub,
-                body: slice(data, p + 1, 10)?,
-            },
-            11,
-        ),
-        0x16 => (
-            Event::Branch {
-                kind: sub,
-                body: slice(data, p + 1, 2)?,
-            },
-            3,
-        ),
+        0x12 | 0x14 => Event::LoopCounter {
+            live: c.u8()?,
+            reset: c.u8()?,
+        },
+        0x15 => Event::Loop {
+            id: c.i16()?,
+            counter_offset: c.u32()?,
+        },
+        0x11 => Event::Branch {
+            kind: sub,
+            body: c.take(6)?.to_vec(),
+        },
+        0x13 => Event::Branch {
+            kind: sub,
+            body: c.take(10)?.to_vec(),
+        },
+        0x16 => Event::Branch {
+            kind: sub,
+            body: c.take(2)?.to_vec(),
+        },
         _ => {
             return Err(Error::UnknownSongEvent {
-                at: p,
+                at: sub_at,
                 status: 0xfe,
                 sub,
             });
         }
     })
-}
-
-fn slice(data: &[u8], at: usize, len: usize) -> Result<Vec<u8>> {
-    data.get(at..at + len)
-        .map(<[u8]>::to_vec)
-        .ok_or(Error::Truncated {
-            off: at,
-            need: len,
-            have: data.len(),
-        })
 }

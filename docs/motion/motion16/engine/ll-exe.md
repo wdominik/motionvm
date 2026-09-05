@@ -156,6 +156,27 @@ checks nothing, so the id belongs to the screen and a negative one is the
 absence of a controller. This game gives three screens three different
 controllers and clears the third, which is what showed it.
 
+## Open questions
+
+Each kept in the [ledger](../../open-questions.md#motion-16-bit):
+
+- **What `SETSHADE` was for** — it stores two values at `ds:0x150` and
+  `ds:0x152`, nothing in this binary or `ENVIRO.EXE` reads them, and `RUN`
+  calls it once.
+- **The 32-byte `PSMCFG.DAT`** the older sound setup writes and this binary
+  reads (its name is at file `0x14ee9`); the later games' 36-byte layout
+  does not apply.
+- **Whether the driver clears the playing flag** (`ds:13dc`) when a song
+  plays out, which decides whether `ENDTUNE` after Victor Loomes' jingle
+  still holds the game — the recording says it did, at least there.
+- **What the fade after the intro's jingle runs into**: the rebuild matches
+  the recording for 744 writes and the recording carries 33 seconds more.
+- **What *Motion 1.0* is**, and who the two names after it in the credits
+  are.
+- **Whether the car's key stops for a key** — the talk kernel's assertion
+  hook ends in `KEY`, which blocks, and motionvm answers at once
+  ([departures](../../departures.md#the-16-bit-machine)).
+
 ## See also
 
 - [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the four share

@@ -22,6 +22,7 @@
 
 use motionvm_motion_formats::m32::le::{INLINE, KernelWord, TAG_KERNEL, inline};
 use motionvm_motion_formats::m32::scr::ScrModule;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::{CELL, Vm, branch};
 use motionvm_motion_forth::{Address, Error, NullHost};
 
@@ -102,7 +103,7 @@ const NAMES: &[&str] = &[
 
 /// The index a table-0 ordinal sits at.
 fn index_of(ordinal: u32) -> usize {
-    ((ordinal - 104) / 5) as usize
+    cell::index((ordinal - 104) / 5)
 }
 
 /// The kernel table: the interpreter's own words at their real ordinals, and
@@ -134,7 +135,7 @@ fn ordinal(name: &str) -> u32 {
         .into_iter()
         .find(|w| w.name == name)
         .unwrap_or_else(|| panic!("{name} is in neither FIXED nor NAMES"));
-    104 + 5 * w.index as u32
+    104 + 5 * cell::narrow(w.index)
 }
 
 /// A cell that executes a kernel word.
@@ -439,6 +440,38 @@ fn a_read_from_an_unloaded_module_answers_zero_and_is_counted() {
     assert!(vm.mem.loose().contains_key(&stray));
 }
 
+/// `=>ERASE` gives a module's memory back: once it is unloaded, a call into
+/// it stops, a read answers zero and is counted, and loading it again starts
+/// it over from the container's image.
+#[test]
+fn an_unloaded_module_is_gone_until_it_is_loaded_again() {
+    let mut vm = machine(&[prim("DUP"), 0], &[]);
+    let cell = Address::new(1, CELL);
+    vm.store(cell, 77).expect("a write into a loaded module");
+    assert_eq!(vm.fetch(cell).expect("read back"), 77);
+
+    assert!(vm.unload(1), "module 1 was loaded");
+    assert!(!vm.unload(1), "and is given back once");
+    assert!(vm.module(1).is_none());
+    assert!(
+        matches!(
+            vm.call(Address::new(1, 0), &mut NullHost),
+            Err(Error::OutOfRange { .. })
+        ),
+        "a call into it stops"
+    );
+    assert_eq!(vm.fetch(cell).expect("a stray read"), 0);
+    assert_eq!(vm.mem.loose().get(&cell), Some(&1));
+
+    let (item, parsed) = module(&[prim("DUP"), 0]);
+    vm.load(&item, &parsed);
+    assert_eq!(
+        vm.fetch(cell).expect("loaded again"),
+        0,
+        "the image is the container's, not the one written to"
+    );
+}
+
 /// Instruction fetch stays strict where data fetch is lenient.
 ///
 /// The leniency above is about *data*. Running into an unloaded module is a
@@ -479,7 +512,7 @@ fn put_lit_pushes_its_operand() {
 fn put_adr_pushes_the_following_address_and_returns() {
     // Cell 1 is at byte offset 4. The trailing cells are never reached.
     let left = run(&[op(inline::PUT_ADR), 0, prim("DUP"), 0], &[]);
-    assert_eq!(left, [Address::new(1, CELL).0 as i32]);
+    assert_eq!(left, [cell::signed(Address::new(1, CELL).0)]);
 }
 
 /// `_PutConst` answers with the following cell and returns.
@@ -529,9 +562,9 @@ fn eif_runs_its_arm_only_when_the_two_agree() {
     let body = |a: i32, b: i32| {
         vec![
             op(inline::PUT_LIT),
-            a as u32,
+            cell::unsigned(a),
             op(inline::PUT_LIT),
-            b as u32,
+            cell::unsigned(b),
             op(inline::CHECK_EIF),
             3,
             op(inline::PUT_LIT),
@@ -627,6 +660,38 @@ fn random_is_repeatable_from_a_fixed_seed() {
     assert_eq!(run(&[prim("RANDOM"), 0], &[-5]), [0]);
 }
 
+/// A seed decides the sequence, so a player's run is not everyone's.
+///
+/// The other half of the test above: repeatable *without* a seed is what the
+/// suite relies on, and different *with* one is what a player gets, because
+/// nothing in the original handed out one sequence to everybody. Both have to
+/// hold at once or neither is worth anything.
+#[test]
+fn a_seed_decides_which_sequence_random_draws() {
+    let five = |seed: Option<u64>| {
+        let cells = &[prim("RANDOM"), 0];
+        let mut vm = machine(cells, &[]);
+        if let Some(seed) = seed {
+            vm.seed(seed);
+        }
+        (0..5)
+            .scan(vm, |vm, _| {
+                vm.data.push(1000);
+                vm.call(Address::new(1, 0), &mut NullHost).ok()?;
+                vm.data.pop()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(five(Some(4711)), five(Some(4711)), "one seed, one sequence");
+    assert_ne!(five(Some(4711)), five(Some(4712)), "two seeds, two");
+    assert_ne!(
+        five(Some(4711)),
+        five(None),
+        "a seeded run is not the unseeded one"
+    );
+    assert!(five(Some(4711)).iter().all(|&v| (0..1000).contains(&v)));
+}
+
 // ----------------------------------------------------------------- the host seam
 
 /// A word the interpreter does not own is offered to the host, and a host that
@@ -657,9 +722,84 @@ fn a_runaway_program_is_stopped() {
     // backward by 3, i.e. to cell 0.
     let cells = &[op(inline::PUT_LIT), 0, op(inline::UNTIL), 3, 0];
     let mut vm = machine(cells, &[]);
-    vm.step_limit = 500;
+    vm.set_step_limit(500);
     assert!(matches!(
         vm.call(Address::new(1, 0), &mut NullHost),
         Err(Error::StepLimit(500))
     ));
+}
+
+// ------------------------------------------------------- the module-table walk
+
+/// Two modules, each defining one word of the same name at the same offset,
+/// and the order the caller asks for decides which is found.
+///
+/// The original resolves a dialogue action's word name by walking its module
+/// table at `0xEE6D0` in entry order — the order `=>GET` took slots in — and
+/// answering the first match. Nothing in the interpreter knows that order, so
+/// [`m32::Memory::lookup`] takes it; this is what says the order is really
+/// used rather than merely accepted.
+#[test]
+fn a_lookup_answers_the_first_module_of_the_order_it_is_given() {
+    /// A module holding one word `SAME` whose body is a single literal.
+    fn named(number: u32, value: u32) -> (Vec<u8>, ScrModule) {
+        // `_PutLit`, the literal, and the zero cell that returns.
+        let cells = [TAG_KERNEL | inline::PUT_LIT, value, 0];
+        let mut item = vec![0u8; 0x30];
+        for c in cells {
+            item.extend_from_slice(&c.to_le_bytes());
+        }
+        let parsed = ScrModule {
+            module: number,
+            entry: 0,
+            entries: vec![motionvm_motion_formats::m32::scr::Entry {
+                name: "SAME".into(),
+                declared_len: 4,
+                flags: 11,
+                // `call_offset` is `(offset + 16 - 0x30) / 4`: a header at
+                // 0x20 ends exactly at the address base, so the body this
+                // entry names is the module's first cell.
+                offset: 0x20,
+                body: cells.to_vec(),
+            }],
+            dp_cells: cells.len(),
+            second_area_len: 0,
+            declared_mem_len: 0,
+            tail_len: 0,
+        };
+        (item, parsed)
+    }
+
+    let mut vm = Vm::new(&kernel());
+    for (number, value) in [(7u32, 70u32), (9, 90)] {
+        let (item, parsed) = named(number, value);
+        vm.load(&item, &parsed);
+    }
+
+    // Module number order and slot order agree here…
+    let seven = vm
+        .mem
+        .lookup("SAME", &[7, 9])
+        .expect("module 7 defines SAME");
+    assert_eq!(seven.module(), 7);
+    // …and here they do not: the later-numbered module took the earlier slot.
+    let nine = vm
+        .mem
+        .lookup("SAME", &[9, 7])
+        .expect("module 9 defines SAME");
+    assert_eq!(
+        nine.module(),
+        9,
+        "the walk followed module numbers instead of the order it was given"
+    );
+
+    // A module named in the order and not loaded is stepped over rather than
+    // ending the walk, the way an empty slot is.
+    let past = vm
+        .mem
+        .lookup("SAME", &[3, 9, 7])
+        .expect("SAME is still found");
+    assert_eq!(past.module(), 9);
+    // And a module loaded but not named is not reached at all.
+    assert!(vm.mem.lookup("SAME", &[3]).is_none());
 }

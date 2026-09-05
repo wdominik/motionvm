@@ -6,7 +6,48 @@
 
 The display is composed from **screens**: independent layers, each with its
 own pixel buffer, onto which [descriptors](descriptors.md) are drawn. The
-game runs at 640×480 in 256 colors.
+game runs at 640×480 in 256 colors, which is the mode its script asks for.
+
+## The video mode
+
+The picture has no size until the script enters graphics, and then it has
+the size the script asked for. `SETRES` (`0x6efe2`) stores its argument at
+`0xdb4a0` and selects that mode's parameters (`0x13fc0`); `TOGFX` (`0x6ee64`)
+selects them again and enters the mode. The table at `0x13fc0` holds seven,
+each an ordinal, a VESA mode number, a width and a height:
+
+| Ordinal | Word | Mode | Picture |
+|---:|---|---:|---|
+| 1 | `320x200x256` | `0x13` | 320×200, 256 colors |
+| 2 | `640x480x256` | `0x101` | 640×480, 256 colors |
+| 4 | `640x480x32K` | `0x110` | 640×480, 32K colors |
+| 8 | — | `0x103` | 800×600, 256 colors |
+| 16 | — | `0x113` | 800×600, 32K colors |
+| 32 | — | `0x105` | 1024×768, 256 colors |
+| 64 | — | `0x116` | 1024×768, 32K colors |
+
+The three words push their ordinal and nothing else (`0x6f023`, `0x6f047`,
+`0x6f06b`); the other four modes can only be asked for by number, and no
+shipped script does. An ordinal outside the table leaves the last selection
+standing. `HICOLOR` answers the flag the selection sets for the three
+32K-color modes (`0xd6600`, at `0x140fa`).
+
+`TOGFX` then enters the mode (`0x141dc`): sets it through the video BIOS
+(`0x80e84`), reads its width and height back, and allocates the surface of
+that size, its clip rectangle `(0, 0, w, h)` and its damage map — the
+picture is built at that moment and not before. It copies the width and
+height into the display's own words (`0xf26bc`, `0xf26be`), installs the
+palette a `SETPAL` before it left waiting (`0x14734`, when `0xd66fc` is
+set), sets the default colors and the mouse, and registers `GFXTO` to run
+when the program exits. `GFXTO` (`0x6ef45`) unregisters that, returns to
+text mode 3 and frees the four buffers (`0x1433e`). Before any `SETRES` the
+mode number is initialized to `0x13` and the width and height to zero, so a
+`TOGFX` with no `SETRES` before it would enter VGA 320×200 with a display
+size of nought; every shipped script selects first.
+
+motionvm's display follows the same order: `TOGFX` sizes the composed
+picture to the selected mode, and a mode this renderer cannot draw is
+refused there — see the [departures ledger](../../departures.md#display-and-timing).
 
 ## Configuration words
 

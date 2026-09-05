@@ -17,8 +17,10 @@
 
 use crate::Engine;
 use crate::stack::pop_n;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
+use motionvm_motion_forth::cell;
 
 /// What differs between the two engines' inventory handlers; everything else
 /// in this file is one reading that both binaries confirm.
@@ -62,12 +64,12 @@ pub(crate) const M16_RULES: Rules = Rules {
 impl Engine {
     pub(crate) fn words_inventory(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         mem: &mut dyn AddressSpace,
         rules: Rules,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // Lays the inventory bar out. `CALCINV` calls it the same way in
             // both games — module 5 of Dunkle Schatten 2 and module 602
             // of Die Enviro-Kids greifen ein:
@@ -83,7 +85,7 @@ impl Engine {
             //
             // The bar shows eight at a time, and the list's own head cell is
             // how far it has scrolled.
-            "CCALCINV" => {
+            Word::CCALCINV => {
                 let a = pop_n(stack, 8, "CCALCINV")?;
                 let (list, items) = (a[0], a[1]);
                 let (arrow_down, arrow_up) = (a[2], a[3]);
@@ -109,16 +111,16 @@ impl Engine {
                         item.wrapping_mul(5).wrapping_add(field).wrapping_mul(cell),
                     )
                 };
-                self.select_screen(screen as u32);
+                self.select_screen(cell::unsigned(screen));
                 for arrow in [arrow_up, arrow_down] {
-                    self.select_descriptor(arrow as u32);
+                    self.select_descriptor(cell::unsigned(arrow));
                     self.set_active(false);
                 }
 
                 // Empty all eight slots first, so a shorter list cannot leave
                 // the tail of a longer one standing.
                 for d in first_slot..first_slot + 8 {
-                    self.select_descriptor(d as u32);
+                    self.select_descriptor(cell::unsigned(d));
                     if rules.clear_by_hiding {
                         self.set_active(false);
                     } else {
@@ -138,7 +140,7 @@ impl Engine {
                 // not the original's answer. If the bar is ever seen to scroll
                 // oddly, this is the entry to look for.
                 if offset < 0 {
-                    self.note_unhandled("CCALCINV (negative scroll offset)".into());
+                    self.note_unhandled(Word::CCALCINV, Some("negative scroll offset".into()));
                     offset = 0;
                     mem.store_cell(list, 0)?;
                 }
@@ -156,11 +158,11 @@ impl Engine {
                 // An arrow each way, shown only when there is something that
                 // way: above the window, or one item past its end.
                 if offset > 0 {
-                    self.select_descriptor(arrow_up as u32);
+                    self.select_descriptor(cell::unsigned(arrow_up));
                     self.set_active(true);
                 }
                 if mem.fetch_cell(entry(mem, offset + 8))? != 0 {
-                    self.select_descriptor(arrow_down as u32);
+                    self.select_descriptor(cell::unsigned(arrow_down));
                     self.set_active(true);
                 }
 
@@ -169,7 +171,7 @@ impl Engine {
                     if item == 0 {
                         break;
                     }
-                    self.select_descriptor((first_slot + i - offset) as u32);
+                    self.select_descriptor(cell::unsigned(first_slot + i - offset));
                     self.set_active(true);
                     self.set_sprite(mem.fetch_cell(record(mem, item, 2))?)?;
                     // Only the selected item carries the caption.
@@ -197,7 +199,7 @@ impl Engine {
             // Walks the zero-terminated slots and stops on a match or on the
             // end; the answer is only whether the cell it stopped on holds
             // something. Nothing else — no index, no side effect.
-            "?INVINCL" => {
+            Word::Q_INVINCL => {
                 let a = pop_n(stack, 2, "?INVINCL")?;
                 let (item, list) = (a[0], a[1]);
                 let mut i = 0;
@@ -209,13 +211,13 @@ impl Engine {
                     i += 1;
                 }
                 let found = i < 99 && mem.fetch_cell(slot_address(mem, list, i))? != 0;
-                stack.push(found as i32);
+                stack.push(i32::from(found));
             }
-            "ADDTOINV" => {
+            Word::ADDTOINV => {
                 let a = pop_n(stack, 2, "inventory")?;
                 add_to_inventory(mem, a[0], a[1], rules)?;
             }
-            "SUBFROMINV" => {
+            Word::SUBFROMINV => {
                 let a = pop_n(stack, 2, "inventory")?;
                 remove_from_inventory(mem, a[0], a[1])?;
             }

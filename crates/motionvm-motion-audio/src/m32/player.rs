@@ -36,6 +36,7 @@ use crate::chip::{Chip, Write};
 use crate::error::{Error, Result};
 use crate::m32::fm::Fm;
 use crate::m32::sequencer::{Message, Sequencer};
+use crate::num;
 use motionvm_motion_formats::m32::bnk::Bank;
 use motionvm_motion_formats::m32::drv::Driver;
 use motionvm_motion_formats::m32::hmi::Song;
@@ -60,6 +61,20 @@ pub struct Player {
     ticks: u64,
     messages: Vec<Message>,
     writes: Vec<Write>,
+}
+
+impl std::fmt::Debug for Player {
+    /// The clock and what is playing; the driver's state is its own record
+    /// and the chip is a third party's core.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Player")
+            .field("rate", &self.rate)
+            .field("period", &self.period)
+            .field("playing", &self.seq.is_some())
+            .field("clock", &self.clock)
+            .field("ticks", &self.ticks)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Player {
@@ -106,7 +121,7 @@ impl Player {
 
     /// The rate the sequencer is really clocked at, in Hz.
     pub fn tick_hz(&self) -> f64 {
-        Self::PIT_HZ as f64 / Self::MASTER_DIVISOR as f64 / self.period as f64
+        f64::from(Self::PIT_HZ) / f64::from(Self::MASTER_DIVISOR) / f64::from(self.period)
     }
 
     /// Builds the chain. `driver` is `HMIMDRV.386`'s `0xA009` entry, the two
@@ -176,7 +191,7 @@ impl Player {
             if step > 0 {
                 self.chip.render(&mut out[done * 2..(done + step) * 2]);
                 done += step;
-                self.clock += step as u64 * Self::PIT_HZ as u64;
+                self.clock += num::frames(step) * u64::from(Self::PIT_HZ);
             }
             let period = self.tick_period();
             if self.clock >= period {
@@ -192,7 +207,7 @@ impl Player {
     /// cycles, and a rendered frame is worth `PIT_HZ / rate` of them — so
     /// multiplying through by `rate` keeps every side a whole number.
     fn tick_period(&self) -> u64 {
-        self.rate as u64 * Self::MASTER_DIVISOR as u64 * self.period as u64
+        u64::from(self.rate) * u64::from(Self::MASTER_DIVISOR) * u64::from(self.period)
     }
 
     /// One sequencer tick, and whatever registers it turns into.
@@ -229,10 +244,10 @@ impl crate::Player for Player {
     /// notes hanging.
     fn start(&mut self, song: Song) {
         self.stop();
-        self.period = Self::master_ticks(song.tick_hz as u32);
+        self.period = Self::master_ticks(num::unsigned(i32::from(song.tick_hz)));
         self.clock = 0;
         self.ticks = 0;
-        self.seq = Some(Sequencer::new(song));
+        self.seq = Some(Sequencer::new(song, Fm::DEVICE));
     }
 
     /// Silences what the song left sounding, the way the original's stop path

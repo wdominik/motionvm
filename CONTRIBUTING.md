@@ -31,29 +31,24 @@ that way.
 
 **Toolchain.** The workspace tracks stable Rust via `rust-toolchain.toml` and
 uses the 2024 edition. The minimum supported version is `rust-version` in
-`Cargo.toml` (currently 1.97.0). It is not a floor forced by a feature — the
-whole workspace and all its targets compile on 1.95.0, and the oldest thing
-that really stops it is let-chains, stable in edition 2024 since 1.88.
+`Cargo.toml`, 1.88.0, and it is a **floor**: cargo refuses an older toolchain
+by name, so the number is a promise to users, not a note about CI. The
+workspace and all its targets compile on exactly that version — it is where
+the code stands, let-chains being the newest thing it uses, stable in edition
+2024 since 1.88 — and CI's `msrv` job compiles them there on every push, so
+the promise is checked rather than asserted. `clippy.toml` names the same
+version, so a suggestion clippy makes is one the floor can take.
 
-It is a **ceiling**, and the ceiling is CI. The runner images bring their own
-stable and lag the channel by a week or two, and the workflow deliberately
-builds on that rather than downloading a toolchain three times per push. A
-`rust-version` above what the images carry fails every job before a crate is
-compiled — a freshly released stable sits above them for days.
-
-So: use current language features where they make code clearer, but raise the
-MSRV deliberately, in its own change with a stated reason, and only to a stable
-the runners already have — never as a side effect of reaching for a new API.
-What CI would say is checkable without waiting for a push — install the
-version `rust-version` names and run the workflow's four commands on it:
+**The floor follows the code, not the other way round.** Use the current
+language and library where they make code clearer, and never avoid a feature
+because of the number: the day a change needs a newer toolchain, raise the
+floor in the same change, with the feature as the stated reason, and in all
+three places at once — `rust-version`, `clippy.toml` and the `msrv` job.
+What that job would say is checkable without waiting for a push:
 
 ```sh
-rustup toolchain install 1.97.0 -c rustfmt -c clippy
-export RUSTUP_TOOLCHAIN=1.97.0 RUSTFLAGS="-D warnings"
-cargo fmt --all --check
-cargo clippy --workspace --all-targets
-cargo test --workspace
-cargo doc --workspace --no-deps --document-private-items
+rustup toolchain install 1.88.0 --profile minimal
+RUSTUP_TOOLCHAIN=1.88.0 cargo check --workspace --all-targets
 ```
 
 **Game data.** The games' files are not in the repository and cannot be; they
@@ -92,9 +87,9 @@ wrong* path panics instead: a run that skips everything is indistinguishable
 from a run that passes everything, so a mistyped path would otherwise report
 green without executing a line.
 
-**Running.** `just run-ds2`, `just run-enviro`, `just run-jeffjet`,
-`just run-hfa`, `just run-vloomes` — one per game, and no game is the one you get for saying `just run`. This builds in
-release mode, and that is not
+**Running.** `just run ds2`, and the same for `enviro`, `jeffjet`, `hfa` and
+`vloomes`. The slug is required: no game is the one you get for saying
+`just run`. This builds in release mode, and that is not
 optional ceremony: the frontend is a software renderer that walks every
 physical window pixel on the CPU, and at opt-level 0 the result is a
 slideshow — which reads as broken hardware rather than as a missing flag.
@@ -129,6 +124,53 @@ that the step that broke something is the step you just took.
 `just check-nodata` runs the suite the way CI does, with no game data at all;
 it is worth a run before pushing anything that touches a test.
 
+### Reference digests
+
+Part of what `just test` checks is that every scene the suites compose and
+every tune they play produced the same bytes it produced last time. The
+baselines are FNV-1a digests, one line per entry, in
+`crates/*/tests/digests/<slug>.txt` — a digest reconstructs nothing and is not
+a fixture derived from a game's data, which is why it may live in the
+repository where a rendered frame may not.
+
+A change that moves a pixel or a register write therefore fails a test. When
+the change was meant, `just digests` rewrites the tables from a run and leaves
+the difference in the working tree: the new lines are then part of the diff and
+get reviewed like any other change. Run it with every game on the machine — a
+table is only rewritten when the run produced lines for it, but a game that is
+present and whose suite skipped part of itself writes a shorter table, and
+those deletions are worth reading before committing them.
+
+What a digest cannot say is *what* moved. Once one goes off, render the scene
+and look at it; the assertions beside each digest are what say whether a
+picture is right, where the digest only says whether it changed.
+
+### Lints
+
+`[workspace.lints]` denies `correctness` and `suspicious`, and the manifest
+says what each group and lint that is *not* switched on would cost, counted on
+this tree with a command it gives. That is there so the absence is evidence
+rather than assertion — and because the shape of the counts is the useful part:
+half of `pedantic`'s 500 is a `#[must_use]` pass, `nursery`'s 1281 is 895
+sites of `use_self` and two more lints, and the restriction lints that look
+alarming over `--all-targets` are almost entirely test code, where `unwrap`
+and indexing are the right thing to write.
+
+If you turn one on, update the count beside it or take the entry out. A number
+nobody re-measured is worse than none.
+
+### Measurement
+
+`just bench` runs the two rigs, in release and otherwise `#[ignore]`d: where a
+frame's time goes in Dunkle Schatten 2, and how fast each of the five games'
+machines runs — cells per second, host words per second, and the two halves of
+a frame in microseconds. Neither asserts anything, because a wall-clock number
+is a property of the machine it ran on. They exist so that a figure quoted
+about the cost of anything here can be reproduced and argued with, and so that
+a change to the interpreter is measured before and after rather than reasoned
+about. The cell and host-word counts are the machine's own and are the same
+everywhere, so the ratio between them is the durable number.
+
 `.github/workflows/ci.yml` — whose header comment names every
 `MOTIONVM_GAMEDATA_*` variable and counts the suite, so a game touches it
 too — runs the same four commands on Linux, macOS and
@@ -160,22 +202,51 @@ with `[lints] workspace = true`:
   cannot be smuggled in locally without editing the workspace manifest.
 - `missing_docs = "deny"` — everywhere, including public struct fields and
   enum variants, which are the bulk of a format reader's surface.
-- `clippy::correctness` and `clippy::suspicious = "deny"` — the two groups
-  that describe code which is probably wrong rather than code which is merely
-  unfashionable. `pedantic` is deliberately absent: this codebase makes
-  deliberate choices it would argue with. What it would say is mostly five
-  lints — run `cargo clippy --workspace -- -W clippy::pedantic` to see them —
-  and about two thirds of what it reports are the cast four,
-  `cast_sign_loss`, `cast_lossless`, `cast_possible_truncation` and
-  `cast_possible_wrap`, with `must_use_candidate` most of the rest.
-  **The casts are the semantics.** A 16-bit
-  Forth machine truncating an `i32` to a `u16` is reproducing what the
-  original did; a lint asking for `try_into` there is asking the
-  reimplementation to stop being one. Named here so that the next person does
-  not have to run the lint to find out what it would have said.
+- The idiom lints, denied: `missing_debug_implementations`,
+  `unreachable_pub`, `unused_qualifications`, `trivial_casts`,
+  `trivial_numeric_casts`, `unused_import_braces`, `unused_lifetimes`,
+  `single_use_lifetimes`, `unnameable_types` and the `rust_2018_idioms`
+  group. Each holds a shape the tree already keeps — a `pub` nothing outside
+  the crate can reach is a claim about the API that is not true — and the
+  manifest says what each is for.
+- `clippy::correctness` and `clippy::suspicious`, denied — the two groups
+  that describe code which is probably wrong rather than merely unfashionable
+  — and three of `pedantic`'s lints one at a time: `allow_attributes`,
+  `wildcard_imports` and `doc_markdown`. `pedantic` as a group is not on, and
+  the manifest carries the measured reason rather than an opinion: most of
+  what it would say is a mechanical `#[must_use]` pass and an errors section
+  the `Result` type already documents.
+- `clippy::as_conversions`, denied, because **the casts are the semantics**
+  and a bare `as` cannot show it. A 16-bit Forth machine truncating an `i32`
+  to a `u16` is reproducing what the original did, and a widening beside it
+  looks exactly the same. So every `as` in the tree is inside a named
+  function whose `#[expect]` says which rule it applies —
+  `motionvm-motion-forth`'s `cell` module for what a machine does with a
+  cell's bits, the root of `motionvm-motion-formats` for what a reader does
+  with a file's, `motionvm-motion-audio`'s `num` for the drivers' byte
+  arithmetic, and a handful of the same shape in the neutral crates — and the
+  count of those attributes is the count of conversions the tree performs on
+  purpose. A widening is `From`; a reinterpretation that keeps its width is a
+  `to_le_bytes`/`from_le_bytes` round trip; a test narrows with
+  `try_from(..).unwrap()`. A new conversion that is none of these is a new
+  function in the module that owns the rule, with the address it reproduces.
+- `clippy::indexing_slicing` and `clippy::arithmetic_side_effects`, denied
+  in the readers — `motionvm-motion-formats` as a crate and the engine's
+  `save/` as a module, under `cfg_attr(not(test))` because the tests index
+  what they built. A damaged file is refused, never crashed on, and these
+  two hold that by construction rather than by corpus: an index has been
+  bounds-checked or is a constant, and a sum says what it does at the edge.
+  The readers do not spell that as `checked_add` at every offset; they read
+  through the crate root's `Cursor`, which checks and moves in one step,
+  `records::<N>`, which cuts a table into `[u8; N]` records, and `Record`,
+  whose field offsets are constants the compiler holds inside the record. A
+  new reader takes those and adds no arithmetic of its own; where a bound
+  is in the types and not visible to the lint — a segment's slot below the
+  table's length — one `#[expect]` names it.
 
-`#[allow]` is legal but must carry its reason at the attribute — no bare
-`#[allow]` anywhere in the tree.
+An exemption is `#[expect(lint, reason = "…")]` and never `#[allow]`: an
+`expect` that stops being needed is a warning rather than a fossil, and
+`clippy::allow_attributes` refuses the other spelling.
 
 ## Language
 
@@ -295,7 +366,7 @@ where others are written twice — is in
 Above everything in this section sits the layer boundary: what is **the
 window's** — winit, cpal, the scaling, the roster — lives in the neutral
 crates, names no family and cites no family's evidence, and the boundary test
-in `motionvm-playable` holds that line. Everything below is placement *within*
+in `motionvm-workspace-tests` holds that line. Everything below is placement *within*
 the family's crates.
 
 Three kinds of things live in a family's crates, and each is named by a
@@ -349,6 +420,48 @@ The window serves every game through the contract and never
 learns which generation it is looking at: the music, the keys and the pacing
 are all the family's answers, made behind `motionvm-motion`.
 
+## Adding or correcting a kernel word
+
+The commonest change, and the one with the most places to get wrong. A word
+is a claim about the original's handler, and each step below is where that
+claim is made checkable.
+
+1. **The arity comes from the handler**, never from the call sites: count the
+   argument fetches it makes, and cite the address on the arm. `NEWSETDESC`
+   reads as a three-argument word everywhere it is used and takes six.
+2. **A word is a value.** Add its variant to `Word` in `words/word.rs`,
+   spelled the kernel's way under the transliteration rule the file states,
+   and an arm in `Word::of_m32` or `Word::of_m16` — in both when the name
+   means the same thing on both machines, and as two variants, the 16-bit
+   one with a `_16` suffix, when it does not. A name written twice in a
+   resolver is an unreachable pattern, which is to say a compile error.
+3. **The handler goes in its group**, the file under `words/` for the subject
+   it belongs to, as one arm over the variant. The order the groups are asked
+   in decides nothing.
+4. **What the comment says**: the address the arity and the behavior were
+   read at, the evidence class — read from the disassembly, measured against
+   the running original, measured over a game's files — and the game a
+   measurement was taken on. A reading that looks right and is not stays, in
+   the present tense, as a standing hazard.
+5. **Inert only by admission.** A word that pops its arguments and does
+   nothing goes through `Engine::inert`, which insists `Word::inert` admits
+   it, and that method carries the reason per word. A word the engine does
+   not implement is not inert; it is absent, and a run stops on it by name.
+6. **Unread is a stop, not a guess.** Where a branch of the handler has not
+   been read, the word answers `Error::Unread` naming the binary and the
+   address, and `docs/motion/open-questions.md` carries the same address.
+7. **Which ledger.** A deliberate difference from the original is an entry in
+   `docs/motion/departures.md`; what is still unread is one in
+   `docs/motion/open-questions.md`; a word left unbuilt on purpose is a line
+   with its reason in `kernel_coverage.rs`, the suite that holds the engine
+   to every word the shipped games reach for.
+8. **Tests, three kinds.** The word on its own — `plain_word32` and
+   `plain_word16` run a word by name over a hand-built engine, which is what
+   the unit tests in `lib.rs` and the group files do; the scene the word is
+   part of, in the suite that plays that game; and the digests, which a word
+   that moves a pixel on purpose changes — `just digests`, and the new lines
+   are part of the change.
+
 ## Adding a game
 
 MOTION made more games than the ones this plays, and the shape above is what
@@ -382,13 +495,18 @@ fails when it is.
 4. `motionvm-motion-testutil`: a `gamedata_<slug>()` beside the others, probing for
    the file that identifies the game, and its `MOTIONVM_GAMEDATA_<SLUG>` in
    that crate's module doc.
-5. The `justfile`, in six places: the header comment that names the variables,
-   the `DEFAULT_GAMEDATA_*`/`GAMEDATA_*` pair, the `_DATA_*` probe, the
-   environment `test` passes, the same in `test-one`, and a `run-<slug>`
-   recipe. No game is the default for `just run`.
+5. The `justfile`, in four places: the header comment that names the
+   variables, the `DEFAULT_GAMEDATA_*`/`GAMEDATA_*` pair, the `_DATA_*` probe,
+   and a row in `run`'s case. The environment three recipes pass is one
+   `_GAMES` block, so it takes one line rather than three. No game is the
+   default for `just run`.
 6. Tests that drive the game's data, one file per subject, each named for the
    game and closing its `//!` with the line every such file carries: *The game
-   this file drives is `<title>` (MOTION 16-bit).*
+   this file drives is `<title>` (MOTION 16-bit).* Two suites take a test per
+   game rather than a file: `kernel_coverage.rs` in the engine crate, which
+   holds every kernel word the game's modules reach for to be built, and
+   `mutation.rs` in the formats crate, which hands the game's files to the
+   readers damaged.
 
 **What a person reads**
 
@@ -485,7 +603,10 @@ compiling:
    window names it.
 2. **Implement the contract.** `Playable` for its games, with the family's
    own error type behind the contract's boxed one — the `Display` output is
-   what a player reads, so the family's tests should pin its messages.
+   what a player reads, so the family's tests should pin its messages. What
+   each method has to mean — one `step`, the duration a curtain's band
+   answers, when input arrives, which thread calls what — is gathered in
+   [`docs/writing-a-family.md`](docs/writing-a-family.md).
    Translate the contract's `KeyPress` into whatever the family's scripts
    read, the way the MOTION engine's `keys.rs` does, and answer
    `Playable::open_music` with the audio thread's source, with `None` for a
@@ -553,19 +674,16 @@ names the 16-bit engine:
    it, and no sampled-audio data exists in any container.
 5. **The authoring half of MOTION is out of scope.** motionvm runs games; it
    does not author them.
-6. **`Memory::lookup` walks modules by number**, not by the original's table
-   order; all known duplicate word names live in modules never loaded
-   together.
-7. **`Vm::call_nested` does not block** where the original's re-entrant
+6. **`Vm::call_nested` does not block** where the original's re-entrant
    handlers do.
-8. **`rsc.inf` is never rewritten.** motionvm treats the game directory as
+7. **`rsc.inf` is never rewritten.** motionvm treats the game directory as
    read-only — a guarantee the original does not make.
-9. **The 16-bit engine's disk-change prompt is unreachable.** Every
+8. **The 16-bit engine's disk-change prompt is unreachable.** Every
    `DATA.-n-` volume is opened when the game is opened, and a missing one
    refuses the game rather than emptying the slots it holds.
-10. **A font reference table entry past the end of the font draws nothing.**
-    Jeff Jet's table was written for a larger font than it ships; no shipped
-    string reaches one of the two entries concerned.
+9. **A font reference table entry past the end of the font draws nothing.**
+   Jeff Jet's table was written for a larger font than it ships; no shipped
+   string reaches one of the two entries concerned.
 
 Adding a divergence is a deliberate act: document it where the code lives,
 state why matching the original is impossible or undesirable, record it in
@@ -597,18 +715,27 @@ should know.
   files asking for the same bare name would delete each other's slots mid-run.
   `ds2-`, `enviro-`, `jeffjet-`, `hfa-`, `vloomes-` — the prefix is what makes that
   impossible rather than merely unlikely.
-- **There are no golden frames, and their absence is a real loss.** A
-  pinned rendered scene is the one kind of check that catches a change
-  nobody thought to assert — and a checked-in baseline is a rendering of
-  the game's own artwork, which the rule above forbids. So there is none.
-  `tests/ds2_scenes.rs` drives the engine to four scenes and asserts it
-  arrives and draws something, which covers the navigation but not the
-  picture. If you are changing the drawing path, render the scenes before
-  and after on your own machine and compare them there — the determinism note
-  above is what makes that trustworthy.
+- **There are no golden frames; there are digests of them.** A pinned
+  rendered scene is the one kind of check that catches a change nobody
+  thought to assert, and a checked-in baseline is a rendering of the game's
+  own artwork, which the rule above forbids. A digest of that rendering is not
+  — sixteen hex digits reconstruct no picture — so what is pinned is the
+  number. A scene that reaches its state and then draws it differently fails a
+  test rather than passing quietly. See *Reference digests* under the quality
+  gate for how to add one and how to rewrite a table on purpose. What a digest
+  cannot say is what moved: when one goes off, render the scene before and
+  after on your own machine and compare them there.
+- **Every word a game reaches for is built, and every reader answers to
+  damage.** `kernel_coverage.rs` disassembles every module a game ships and
+  asserts each kernel word it calls is the interpreter's or the engine's —
+  a word left unbuilt on purpose is a line in that file with its reason.
+  `mutation.rs` cuts and flips the shipped files under a seeded generator
+  and asserts every reader answers rather than crashes; `malformed.rs` keeps
+  the cases somebody thought of. Both need the game's files and skip
+  without them.
 - **Measure before optimizing.** `MOTIONVM_PERF=1` and the frame timing
-  `motionvm-app` prints under it exist so that performance claims are
-  measurements.
+  `motionvm-app` prints under it, and `just bench` for the two rigs in the
+  suite, exist so that performance claims are measurements.
   Plausible arguments about frame cost are wrong in both directions: the
   obvious candidate turns out to cost nothing measurable, and the real hot
   spot sits in a routine nobody suspected.
@@ -667,6 +794,18 @@ The dependency list is short on purpose, and every entry in
 license it carries. A new dependency needs that justification, a license
 check, and — if the license imposes obligations, as `nuked-opl3`'s
 LGPL-2.1-or-later does — the corresponding entry in `NOTICE`.
+
+`deny.toml` is what holds all of that to the tree, and `just deny` runs it —
+`cargo install cargo-deny` first; CI runs it on every push. It fails on an
+advisory against anything the build reaches, a license outside the allow-list,
+a source that is not crates.io, and a second version of a package that was not
+already there. So a new dependency that brings a new license, or a second copy
+of something already in the tree, is a line somebody has to add to that file
+on purpose — with the reason beside it, the way every entry there has one.
+
+It also fails on an allowance nothing uses and a skip nothing needs any more,
+which is what keeps the file a description of the tree rather than a pile of
+past decisions.
 
 ## Contribution workflow
 

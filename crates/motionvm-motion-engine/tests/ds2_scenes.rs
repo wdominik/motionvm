@@ -7,24 +7,26 @@
 //! conversation apparatus to all behave, and the help viewer has to be opened
 //! the way the shell opens it. A panic anywhere on those paths fails here.
 //!
-//! **These are deliberately not golden-frame tests.** Holding the composed
-//! picture against a checked-in PNG of itself is the only kind of check that
-//! notices a change nobody thought to write an assertion for — and exactly
-//! that baseline cannot be distributed: it is a rendering of the game's own
-//! artwork — one of the four was the publisher's logo, another a hand-drawn
-//! room with its characters and dialogue in it — and the game's data may not
-//! enter this repository in any form, including a fixture derived from it. The
-//! check was worth a lot and it is gone; shipping the art to keep it was not an
-//! option. What is left is the navigation, plus the weakest honest statement
-//! about the picture: it is the right size, and it is not blank.
+//! **These are not golden-frame tests, and they need not be.** A
+//! checked-in PNG of one of these pictures cannot be distributed: it is a
+//! rendering of the game's own artwork — one of the four was the publisher's
+//! logo, another a hand-drawn room with its characters and dialogue in it —
+//! and the game's data may not enter this repository in any form, including a
+//! fixture derived from it. A **digest** of the picture is not such a fixture,
+//! reconstructs nothing, and does the one thing a golden frame was wanted for:
+//! it notices a change nobody thought to write an assertion for. So each scene
+//! below is checked three ways — it was reached, it is the right size and not
+//! blank, and it composed the same bytes it composed last time.
 //!
-//! Anyone with the game can still get the strong check back locally by
-//! rendering these scenes to PNG and diffing them across a change — nothing
-//! here prevents that, it just cannot live in the repository.
+//! What a digest cannot do is say *what* moved, and the assertions here stay
+//! for that reason: they say what a scene must contain, where the digest only
+//! says whether it changed. Anyone with the game can still render these scenes
+//! to PNG and diff them across a change, which is what to do once a digest
+//! goes off.
 //!
-//! **Determinism**, which those local comparisons rest on: `RANDOM` is an LCG
-//! seeded to a constant in `Vm::new` and never reseeded, there is no `HashMap`
-//! on any drawing path, the engine reads no clock, and the resource directory is
+//! **Determinism**, which the digests rest on: `RANDOM` is an LCG seeded to a
+//! constant in `Vm::new` and never reseeded, there is no `HashMap` on any
+//! drawing path, the engine reads no clock, and the resource directory is
 //! walked in sorted order — so a scene reached the same way twice composes the
 //! same bytes twice. The one thing that is *not* insensitive is the number of
 //! `RANDOM` calls made before the frame: the generator is shared and consumed in
@@ -33,22 +35,32 @@
 //!
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
+mod common;
+
+use common::settled_in;
 use motionvm_motion_engine::Game;
 use motionvm_motion_forth::m32::Vm;
-use motionvm_motion_testutil::gamedata_ds2;
+use motionvm_motion_testutil::{Digests, digest, gamedata_ds2};
 use motionvm_render::Framebuffer;
 use std::path::Path;
 
 // ------------------------------------------------------------------ the check
 
-/// What can still be said about a composed frame without a baseline to hold it
-/// against: it is the size the engine promises, and something was drawn.
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("ds2")
+}
+
+/// Everything that can be said about a composed frame: it is the size the
+/// engine promises, something was drawn, and it is the same picture as last
+/// time.
 ///
 /// "Not blank" is deliberately the weakest useful form — more than one palette
 /// index present. It does not know what the picture should look like, but it
 /// does catch the failure that matters most here, a scene that reaches its
 /// state and then renders a flat field because a descriptor chain, a palette or
-/// a blit stopped working.
+/// a blit stopped working. The digest knows even less about what is right, and
+/// catches everything else: `name` is the scene's line in the table.
 fn drew_something(name: &str, frame: &Framebuffer) {
     assert_eq!(
         (frame.width, frame.height),
@@ -59,7 +71,7 @@ fn drew_something(name: &str, frame: &Framebuffer) {
     );
     assert_eq!(
         frame.pixels.len(),
-        frame.width as usize * frame.height as usize,
+        usize::from(frame.width) * usize::from(frame.height),
         "{name}: the buffer does not match its own dimensions"
     );
     let first = frame.pixels[0];
@@ -67,26 +79,19 @@ fn drew_something(name: &str, frame: &Framebuffer) {
         frame.pixels.iter().any(|&p| p != first),
         "{name}: every pixel is index {first} — the scene was reached but nothing was drawn"
     );
+    digests().check(name, digest::frame(frame));
 }
 
 // ----------------------------------------------------------------- the scenes
 
-/// Runs frames until nothing is fading, so a still picture can be measured.
+/// The curtain out, and then one settled frame.
 ///
-/// A state predicate rather than a frame count on purpose: a step is one band
-/// while a curtain runs, so a fixed number of them would spend most of itself
-/// inside the fade. The rest of this suite settles the same way.
-fn settle(game: &mut Game<Vm>) {
-    let mut guard = 0;
-    while game.engine.in_transition() {
-        game.set_input(0, 0, false, false, 0).expect("input");
-        game.step().expect("a curtain frame");
-        guard += 1;
-        assert!(guard < 500, "a transition never ended");
-    }
-    // And one settled frame after it. The drawer runs once a frame out of the
-    // game loop and nowhere else, so a run that stops the moment the curtain
-    // does has nothing on the screen but what `FADEIN` drew.
+/// The frame is this suite's own and the reason is what it measures: the
+/// drawer runs once a frame out of the game loop and nowhere else, so a run
+/// that stops the moment the curtain does has nothing on the screen but what
+/// `FADEIN` drew.
+fn settled(game: &mut Game<Vm>) {
+    common::settle(game);
     game.set_input(0, 0, false, false, 0).expect("input");
     game.step().expect("a settled frame");
 }
@@ -96,14 +101,12 @@ fn click(game: &mut Game<Vm>) {
     game.step().expect("the frame with the click");
     game.set_input(0, 0, false, false, 0).expect("input");
     game.step().expect("the frame after it");
-    settle(game);
+    settled(game);
 }
 
 fn title(dir: &Path) -> Game<Vm> {
-    let mut game = Game::open(dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
-    settle(&mut game);
+    let mut game = settled_in(dir, 23);
+    settled(&mut game);
     game
 }
 
@@ -218,7 +221,87 @@ fn the_help_viewer() {
         .expect("the documents button");
     game.call(4, "DO_INVSEL", &[]).expect("4:DO_INVSEL");
     assert_eq!(game.get_var(2, "_INVMODE"), Some(5), "the viewer is open");
-    settle(&mut game);
+    settled(&mut game);
 
     drew_something("help_viewer", &game.render());
+}
+
+/// The opening, frame by frame, on the game's own path.
+///
+/// The four scenes above are still pictures, each reached by the shortest
+/// route to it. This is the other half: `START` from the top, a click every so
+/// often, and every frame of what comes out folded into one digest. A still
+/// says the composition is right; a fold says the *sequence* is — that no fade
+/// runs a band shorter, no descriptor appears a frame late, nothing that
+/// stands still moves.
+///
+/// Nothing is asserted about the pictures themselves. What they contain is
+/// what the four tests above are for; what this adds is that four hundred
+/// frames of it are the four hundred frames they were.
+#[test]
+fn the_opening_plays_the_same_way_twice() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let mut game = Game::open(&dir).expect("game opens");
+    game.start().expect("4:START");
+    while game.pump().expect("startup runs") {}
+
+    // A click every 120 frames, which is what carries the intro forward: its
+    // phases wait for input and nothing else. The interval is arbitrary and
+    // has to stay fixed — it is part of what the digest is over.
+    let mut opening = digest::Digest::new();
+    for frame in 1..=400 {
+        let click = frame % 120 == 0;
+        game.set_input(0, 0, click, false, 0).expect("input");
+        game.step()
+            .unwrap_or_else(|e| panic!("the opening stopped at frame {frame}: {e}"));
+        opening.number(digest::frame(&game.render()));
+    }
+    digests().check("opening", opening.value());
+}
+
+/// A seed reaches the picture: two runs of the same scene are two runs.
+///
+/// The whole point of seeding from outside, and the thing the digests above
+/// cannot say, because they exist by *not* being seeded. Nothing in either
+/// intro draws a random number — the title's task manager, module 223, calls
+/// `RANDOM` not once — so the scene has to be a location, and the classroom
+/// is where a new game begins. Module 201, its task manager, calls `RANDOM`
+/// twenty-two times, and the picture parts company with itself somewhere
+/// between the three hundredth frame and the four hundredth.
+///
+/// Both directions are asserted together on purpose. Different seeds giving
+/// different runs is what a player gets; the same seed giving the same run is
+/// what every other test in this file rests on, and a change that broke either
+/// would look like a fix for the other.
+#[test]
+fn a_seed_changes_the_run_and_the_same_seed_does_not() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let classroom = |seed: u64| {
+        let mut game = Game::open(&dir).expect("game opens");
+        motionvm_motion_forth::Machine::seed(&mut game.vm, seed);
+        game.start().expect("4:START");
+        while game.pump().expect("startup runs") {}
+        game.set_var(2, "_NEXTLOC", 1).expect("the classroom");
+        let mut d = digest::Digest::new();
+        for frame in 1..=400 {
+            game.set_input(0, 0, false, false, 0).expect("input");
+            game.step()
+                .unwrap_or_else(|e| panic!("frame {frame} stopped: {e}"));
+            d.number(digest::frame(&game.render()));
+        }
+        d.value()
+    };
+    assert_eq!(classroom(4711), classroom(4711), "one seed, one run");
+    assert_ne!(
+        classroom(4711),
+        classroom(4712),
+        "two seeds drew the same four hundred frames — the seed is not reaching \
+         RANDOM, or nothing on this path draws one"
+    );
 }

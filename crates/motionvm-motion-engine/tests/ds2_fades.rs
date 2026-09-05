@@ -9,6 +9,9 @@
 //!
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
+mod common;
+
+use common::settled_in;
 use motionvm_motion_engine::Game;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
@@ -35,27 +38,11 @@ fn settled_in_the_title(dir: &std::path::Path) -> Game<Vm> {
 
 /// One row of the frame, as palette indices.
 fn row(frame: &motionvm_render::Framebuffer, y: i32) -> Vec<u8> {
-    (0..frame.width as i32)
+    (0..i32::from(frame.width))
         .map(|x| frame.get(x, y).unwrap_or(0))
         .collect()
 }
 
-/// Turning a help page shows the new page over the old one.
-///
-/// The branch under test is `ICTRL`'s `_INVMODE 5` at 0x03ac0: a click in the
-/// top row of tabs sets `_DOC`, runs `SHOW_DOC` — which only switches
-/// descriptors, it fades nothing itself — and then fades **in** twice, once on
-/// the bar and once on the picture. There is no `FADEOUT` in that branch, and
-/// none in `SHOW_DOC` either, so at no point is anything blanked.
-///
-/// The viewer is opened through `DO_INVSEL`'s case 1005 rather than by setting
-/// `_INVMODE` by hand, because that case is also what activates `_ANL1` and
-/// `_ANL2` — the two halves of image 60 that *are* the page. Set the mode
-/// directly and the pages have no paper: the text stands on the cleared
-/// buffer, and the only reason the picture would change at all is that the
-/// text is drawn in something other than the background color. The assertion
-/// below would then be resting on a text-color fault rather than on the
-/// reveal it names.
 #[test]
 fn turning_a_help_page_reveals_it_over_the_page_before() {
     let Some(dir) = gamedata_ds2() else {
@@ -173,9 +160,7 @@ fn a_fade_puts_every_band_on_the_screen() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(23).expect("title macro");
+    let mut game = settled_in(&dir, 23);
     while game.engine.in_transition() {
         game.step().expect("a curtain step");
     }

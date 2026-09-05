@@ -62,7 +62,7 @@ fn every_sprite_decodes_to_its_declared_size() {
             .unwrap_or_else(|e| panic!("sprite {id} (bank {bank_ix}) failed: {e}"));
         assert_eq!(
             sprite.pixels.len(),
-            sprite.width as usize * sprite.height as usize,
+            usize::from(sprite.width) * usize::from(sprite.height),
             "sprite {id} pixel count"
         );
         assert!(
@@ -124,7 +124,11 @@ fn script_modules_parse_and_sizes_add_up() {
     for (_, id) in ids {
         let item = bank.item(Kind::Script, id).unwrap().unwrap();
         let m = ScrModule::parse(item).unwrap_or_else(|e| panic!("script {id}: {e}"));
-        assert_eq!(m.module as usize, id, "module number should match its slot");
+        assert_eq!(
+            usize::try_from(m.module).unwrap(),
+            id,
+            "module number should match its slot"
+        );
         assert_eq!(m.second_area_len, 16004, "second region size");
         // The two regions must fit inside the item, and the field at 0x1c must
         // be the authoring capacity rather than a size — that is what makes DP
@@ -206,9 +210,9 @@ fn standalone_files_match_their_in_container_twins() {
     for (i, ch) in (b'A'..=b'Z').enumerate() {
         assert_eq!(
             frt.glyph_for(ch),
-            Some(a + i as u16),
+            Some(a + u16::try_from(i).unwrap()),
             "glyph run broken at {}",
-            ch as char
+            char::from(ch)
         );
     }
 
@@ -246,7 +250,7 @@ fn fonts_decode_and_spell_the_alphabet() {
             assert_eq!(g.height, f.height, "font {id} glyph {i} height");
             assert_eq!(
                 g.bits.len(),
-                g.stride() * f.height as usize,
+                g.stride() * usize::from(f.height),
                 "font {id} glyph {i} bitmap size"
             );
         }
@@ -262,7 +266,8 @@ fn fonts_decode_and_spell_the_alphabet() {
     // flip.
     let big = bank.item(Kind::Font, 8).unwrap().unwrap();
     let f = motionvm_motion_formats::m32::font::parse(big).unwrap();
-    let glyph = |c: u8| -> &font::Glyph { &f.glyphs[refs.glyph_for(c).expect("mapped") as usize] };
+    let glyph =
+        |c: u8| -> &font::Glyph { &f.glyphs[usize::from(refs.glyph_for(c).expect("mapped"))] };
 
     let a = glyph(b'A');
     let ink_in_row = |g: &font::Glyph, y: u16| (0..g.width).filter(|&x| g.pixel(x, y)).count();
@@ -290,8 +295,8 @@ fn fonts_decode_and_spell_the_alphabet() {
     for (i, ch) in (b'A'..=b'Z').enumerate() {
         let g = refs
             .glyph_for(ch)
-            .unwrap_or_else(|| panic!("no glyph for {}", ch as char));
-        assert_eq!(g as usize, i, "letter {} out of order", ch as char);
+            .unwrap_or_else(|| panic!("no glyph for {}", char::from(ch)));
+        assert_eq!(usize::from(g), i, "letter {} out of order", char::from(ch));
     }
 }
 
@@ -418,7 +423,8 @@ fn the_adlib_banks_parse_and_name_their_instruments() {
     for (slot, want) in [(0usize, "PIANO1"), (48, "STRINGS"), (127, "GUNSHOT")] {
         assert_eq!(m.names[slot].name, want, "melodic slot {slot}");
         assert_eq!(
-            m.names[slot].index as usize, slot,
+            usize::from(m.names[slot].index),
+            slot,
             "the melodic bank is in program order"
         );
         assert_eq!(m.names[slot].key, 1, "every melodic entry carries key 1");
@@ -519,7 +525,8 @@ fn smf_notes(d: &[u8]) -> std::collections::BTreeMap<u16, Vec<(u32, u8, u8)>> {
     let mut out: std::collections::BTreeMap<u16, Vec<(u32, u8, u8)>> = Default::default();
     let mut p = 14;
     for _ in 0..tracks {
-        let len = u32::from_be_bytes([d[p + 4], d[p + 5], d[p + 6], d[p + 7]]) as usize;
+        let len =
+            usize::try_from(u32::from_be_bytes([d[p + 4], d[p + 5], d[p + 6], d[p + 7]])).unwrap();
         let end = p + 8 + len;
         let mut q = p + 8;
         let (mut tick, mut status) = (0u32, 0u8);
@@ -532,11 +539,11 @@ fn smf_notes(d: &[u8]) -> std::collections::BTreeMap<u16, Vec<(u32, u8, u8)>> {
             match status {
                 0xff => {
                     q += 1;
-                    let n = vlq(d, &mut q) as usize;
+                    let n = usize::try_from(vlq(d, &mut q)).unwrap();
                     q += n;
                 }
                 0xf0 | 0xf7 => {
-                    let n = vlq(d, &mut q) as usize;
+                    let n = usize::try_from(vlq(d, &mut q)).unwrap();
                     q += n;
                 }
                 s if s & 0xf0 == 0x90 => {
@@ -658,7 +665,7 @@ fn the_driver_archives_walk_to_their_last_byte() {
         assert_eq!(end, bytes.len(), "{name} chain ends at the file end");
         for d in &arc.drivers {
             assert!(
-                d.mem as usize >= d.image.len(),
+                usize::try_from(d.mem).unwrap() >= d.image.len(),
                 "{name}: {} reserves too little",
                 d.name
             );

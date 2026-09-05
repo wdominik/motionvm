@@ -28,14 +28,44 @@ as if it were a flag, location 6 reads through a shadow record that does not
 exist yet, and both land in module 0 — which is created at run time and has no
 file. Refusing to answer stopped five of the game's sixteen locations. motionvm
 therefore answers **0** for a module that is not loaded, counts every such
-access, and names the total at the end of a run. Zero is the only value that can
-be justified: module 0's data area is allocated at run time (`0x5f39f`) and
-filled by the kernel, so what it really holds is not knowable from outside.
+access, and names the total and the addresses when the run ends — the window
+prints them on the way out, and any caller can ask for them at any time
+through the contract's `diagnostics`. Zero is the only value that can be
+justified: module 0's data area is allocated at run time (`0x5f39f`) and
+filled by the kernel, so what it really holds is not knowable from outside. A
+read from a module `=>ERASE` has given back gets the same answer and the same
+count, where the original reads freed memory; no shipped script does it.
 
 The **instruction fetch** and the inline-operand read stay strict. Jumping into
 a module that is not loaded is a different matter from reading through a stray
 pointer — the game does the second, only a mistake produces the first.
 ([Execution model](motion32/vm/execution-model.md))
+
+**`RANDOM` draws from a linear congruential generator, not the original's.**
+The original's is read, on both engines, and it is not a generator with a
+seed but a hash of the clock: a counter stepped by 331 a call, combined with
+the engine's raw tick count as `((t + s) / s) xor ((t − s) mod s)` and
+reduced modulo the count on the stack
+([word semantics](motion32/vm/word-semantics.md#random),
+[16-bit kernel words](motion16/vm/kernel-words.md#random)). Its input is
+wall-clock time — the interrupt count at the instant of each call — and the
+rebuild reads no wall clock anywhere: a given input state renders a given
+frame, every time, which is what its drawing is verified by. Feeding the
+formula the frame clock instead would give a sequence the original never
+produces either, so the rebuild keeps an LCG of its own — `x = 1664525x +
+1013904223`, the answer taken modulo the count, and zero for a count that is
+not positive, where the original would fault on zero and leave a negative
+count's answer unreduced. What the game leans on holds on both: the answer
+is in `0..n`, and no shipped call asks for anything else — 237 sites in
+Dunkle Schatten 2, all in the location task managers 201–222, and 188 in Die
+Enviro-Kids greifen ein, every one a choice among alternatives rather than a
+value that has to come out a certain way.
+
+The **seed** is the platform's, handed in before the game starts; the
+original has none. A run that is never seeded stays on the constant the
+machine is built with, which is what lets the test suite render a scene twice
+and compare the two — see [verification](verification.md).
+([Word semantics](motion32/vm/word-semantics.md))
 
 **`_PutStringAdr` is followed twice, differently.** The handler advances by
 `(strlen + 3) >> 2` cells, one less than the compiler laid down whenever the
@@ -44,12 +74,6 @@ has to walk a body rather than run it, keeps the compiler's
 `(len + 1 + 3) & ~3`. In the whole game exactly one string is affected,
 `"GANRUFBA"`, at four sites, where both routes reach the same return with the
 same stack. ([Word semantics](motion32/vm/word-semantics.md))
-
-**Script words are looked up in module-number order.** The original walks the
-module table at `0xEE6D0` in entry order. The rebuild walks it by module number
-instead. All known duplicate names live in location modules that are never
-loaded together, so no lookup in the shipped game can tell the two apart.
-([Dialogue machine](motion32/engine/dialogue-machine.md))
 
 ## Display and timing
 
@@ -84,6 +108,19 @@ its ticks arrive in bursts aligned to the emulated 70 Hz refresh and a 1-tick
 band waits a whole burst. That is the emulator's interrupt batching, not the
 game's design, and it is not reproduced.
 ([Game loop](motion32/engine/game-loop.md), [Transitions](motion32/engine/transitions.md#timing))
+
+**Presents are batched to something a display can show.** A step is not always
+a frame: while a curtain runs, the game's clock advances one band at a time,
+down to 5 ms on the title screen, and the original presented each of them —
+that is what a fade *is* there. Presenting each separately here meant two
+hundred pictures a second, which no display shows and which backed the event
+loop up behind the presents, so steps are gathered until they are worth at
+least one display frame and shown together. The wall-clock pace is unchanged:
+the sum of the batched steps is what the loop then waits, so a fade takes
+exactly as long as it did. What differs is how many intermediate pictures reach
+the glass — the original offered every band to a CRT that could show it, and
+this offers the same bands to a compositor that could not.
+([Game loop](motion32/engine/game-loop.md))
 
 **Nested callbacks do not pause.** A descriptor callback runs re-entrantly, and
 the game menu depends on it: `DO_INVSEL`'s documents case starts three fades in
@@ -142,6 +179,17 @@ entry sits on the inert list with that reason beside it, so the day a path does
 call it, the run says so instead of drawing the wrong thing quietly.
 ([Text rendering](motion32/engine/text-rendering.md), [Descriptors](motion32/engine/descriptors.md))
 
+**Only the 256-color modes are drawn.** `TOGFX` enters whichever of the
+engine's seven modes `SETRES` selected (`0x13fc0`), three of them in 32K
+colors; motionvm sizes its picture to the selected mode and refuses the
+32K ones there, because it composes indexed pixels and a 32K mode would show
+a wrong picture rather than the game's. It also refuses a `TOGFX` with no
+mode selected — the original would enter VGA 320×200 with a display size of
+nought — and a second `TOGFX` at another size, since a window is one size
+for a game's lifetime. Dunkle Schatten 2 asks for `640x480x256` once, so none
+of the three is reached.
+([Screens](motion32/engine/screens.md#the-video-mode))
+
 ## Savegames
 
 **They are not interchangeable, in either direction.** `NEWSCREEN` and `NEWDESC`
@@ -160,7 +208,9 @@ writes one run of its arena, addresses and all, and the rebuild's arena is
 laid out differently ([the 16-bit machine](#the-16-bit-machine)) — so its
 `.FRZ` and `.anm` are motionvm's own as well, under magics of their own
 (`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. What those layouts are
-is written down: [motionvm's savegames](savegames.md).
+is written down: [motionvm's savegames](savegames.md) — including the three
+things motionvm's files do that no original's did: they are written whole or
+not at all, they carry a checksum, and they name the game they belong to.
 
 **The magic is the generation's, and the directory is the game's.** All four
 16-bit games write `ENVFRZ` and `ENVANM`, because that is a fact about the
@@ -245,6 +295,19 @@ register, take a sample pair — with nothing above it knowing what is behind it
 so a different core can be substituted at that seam. Which core, and the license
 obligation it carries, are recorded in `NOTICE`.
 
+**Every game plays its Ad Lib rendition, whatever its sound setup said.** The
+four 16-bit games shipped a `SOUND.EXE` that let a player pick a digital
+renderer instead — the `DMA*.DRV` drivers, which play the same tunes out of the
+modules' `SM8` sample sections rather than synthesizing them, and a
+digital-only configuration still has music. Their internals are unread, so
+motionvm plays the FM rendition for every game and every setting. The 32-bit
+game's digital layer is the same story from the other end: `ENGINE.EXE` has one,
+`?SOUND` reports it, and it is not ported. A player who remembers the sampled
+mix will hear the synthesized one. Both are
+[open questions](open-questions.md) before they are choices; they are here
+because the choice is what a player meets.
+([Audio](motion32/engine/audio.md))
+
 **The three parts run with a clock between them, in an audio callback.** After
 the first few notes nothing on that path reaches the allocator; songs are parsed
 on the game thread and sent across. With no output device, no supported format
@@ -261,30 +324,11 @@ game.
 
 Above it sits a stronger one that does not: the whole register stream has been
 held write for write against a recording of the original playing the game's
-opening music. That needs a recording of the original, so it is a result
-reported rather than something a reader can re-run.
-
-**Where the rebuild and the original part.** At write 8043 of 17,047. A dense
-passage hands ten note-ons to nine voices inside one tick, and the original puts
-one of them on a different voice than the rebuild does — motionvm plays
-`FINGBASS` on voice 5, the original `DISTGT`. The three allocation steps the
-driver documents are not enough to explain it, so something in the step-2
-search, or in the order the sequencer delivers a tickful of events, is still not
-right. Everything before that point — nine and a half seconds — is identical.
-This one is a known defect rather than a choice; it is listed here because it is
-a measured difference from the original.
-([The FM driver](motion32/engine/fm-driver.md))
+opening music, and the two agree over all of it — 17,047 writes, 32.8 seconds,
+the switch-on sequence, every note, every steal. That needs a recording of the
+original, so it is a result reported rather than something a reader can re-run.
 
 ## The 16-bit machine
-
-**`?KEY` translates through the 32-bit engine's tables.** The 16-bit
-handler (`12c8:063c`) has not been read; what its games are fed is the
-translation measured out of `ENGINE.EXE` — the `0x100` scan-code marker,
-the modifier bits, the Alt table with its `Z`-that-is-`O` mistake. No
-16-bit module is known to test a scan code, so what reaches those games is
-in practice the plain character byte, which both engines agree on; the day
-one of them turns out to dispatch on a cursor code, the 16-bit handler has
-to be read first. The open questions carry it.
 
 **A palette cycle stays inside the palette.** `SETCYCLE`'s tick (`0104:536d`
 in `LL.EXE`) indexes its two 768-byte tables with whatever range the script
@@ -428,14 +472,25 @@ a handful of times and never comes near the budget. The rule is the
 engine's and holds for every game; only the 16-bit ones have a loop that
 exercises it. ([Boot and frame loop](motion16/engine/game-loop.md))
 
-**Four kernel words of the 16-bit engine answer by reading, not by
-measurement.** `SFT` with 0 resets a font stack that starts out reset and is
-the only argument the game passes; `NEWANIM` resets an animation system that
-starts out reset; `.` and `EMIT` take their argument and print nothing,
-because there is no text console behind a 320×200 game; `KEY` answers the
-key that is waiting, or 0, rather than blocking. Each is the reading the
-call sites admit; none is the handler's.
+**Three kernel words of the 16-bit engine answer by reading, not by
+measurement.** `NEWANIM` resets an animation system that starts out reset;
+`.` and `EMIT` take their argument and print nothing, because there is no
+text console behind a 320×200 game. Each is the reading the call sites
+admit; none is the handler's.
 ([Descriptors](motion16/engine/descriptors.md))
+
+**`KEY` answers the key that is waiting, or 0, where the original blocks.**
+The handler (`12c8:061c`) loops on the keyboard translator until it answers
+something other than 0 — `LL.EXE`'s (file `0xd6f8`) also gives up once
+Ctrl-Break has been pressed. The one place a shipped script reaches it is
+Victor Loomes' `PRINT` (`DUP . 32 EMIT KEY DROP`, module 605), the hook its
+assertions call — an inventory past its thirty-nine slots, a busy count
+below zero, the talk kernel finding its reply descriptor active — and this
+engine reaches that last one when the key is used on the car. Holding the
+game there, with `.` and `EMIT` printing nothing, would be a freeze with no
+prompt; so the word answers at once, and whether the original stops there
+too is in the [open questions](open-questions.md#motion-16-bit).
+([Interaction](motion16/engine/interaction.md))
 
 **The 16-bit scale fields hold pixels; this engine keeps per-mille.**
 `SDH%SHR` (`05f1:23f2`) and `SDV%SHR` (`05f1:246f`) store `1000` and

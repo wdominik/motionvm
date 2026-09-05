@@ -287,10 +287,6 @@ Three things `fmmidi3.com` does not answer for itself:
   controller reaching the driver on channel 9 all the same — so the field is
   not the channel number.
 
-A measured difference between the original and the reading of it — one voice
-allocation out of 17,047 register writes — is recorded under
-[Departures](../../departures.md).
-
 ## See also
 
 - [Departures](../../departures.md) — how the reading is checked, and where it parts

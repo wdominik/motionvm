@@ -1,0 +1,17 @@
+# Reference digests for enviro, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+tune_1  0x373affa556a00d54
+tune_10  0xc34d1fe8af1b410b
+tune_11  0x4d9a866833083f14
+tune_2  0x53b291c442f3555f
+tune_3  0x1ed5101b3da08196
+tune_4  0xacaa906ff2cfaee7
+tune_5  0x5af5580388ae15c3
+tune_7  0x23bafc481b66dac7
+tune_8  0xdc2045186984fe8a
+tune_9  0x905758381f5789ae

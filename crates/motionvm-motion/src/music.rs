@@ -76,6 +76,8 @@ where
 /// allocating have no business in an audio callback.
 struct Music {
     tx: Sender<Command<Song>>,
+    /// Tunes that would not decode, kept for [`MusicSink::diagnostics`].
+    notes: Vec<String>,
 }
 
 impl MusicSink for Music {
@@ -86,13 +88,18 @@ impl MusicSink for Music {
             }
             // A song that will not parse is worth saying out loud — it means a
             // block the decoder does not understand — but not worth stopping
-            // for.
-            Err(e) => eprintln!("tune {tune} did not parse: {e}"),
+            // for. Kept rather than printed: this is a library, and on a
+            // windowed build a print goes nowhere.
+            Err(e) => self.notes.push(format!("tune {tune} did not parse: {e}")),
         }
     }
 
     fn stop(&mut self, _handle: i32) {
         let _ = self.tx.send(Command::Stop);
+    }
+
+    fn diagnostics(&self) -> Vec<String> {
+        self.notes.clone()
     }
 }
 
@@ -101,6 +108,8 @@ impl MusicSink for Music {
 /// bool comes back out as the count it stands for.
 struct PsmMusic {
     tx: Sender<Command<Cue>>,
+    /// Tunes that would not decode, as [`Music`] keeps them.
+    notes: Vec<String>,
 }
 
 impl MusicSink for PsmMusic {
@@ -110,31 +119,36 @@ impl MusicSink for PsmMusic {
                 let loops = if looping { -1 } else { 0 };
                 let _ = self.tx.send(Command::Start(Box::new(Cue { song, loops })));
             }
-            Err(e) => eprintln!("tune {tune} did not parse: {e}"),
+            Err(e) => self.notes.push(format!("tune {tune} did not parse: {e}")),
         }
     }
 
     fn stop(&mut self, _handle: i32) {
         let _ = self.tx.send(Command::Stop);
     }
+
+    fn diagnostics(&self) -> Vec<String> {
+        self.notes.clone()
+    }
 }
 
 /// The music for the game in `dir`, at the device rate the platform learned:
 /// a source for its audio thread and a sink for the game, already joined.
 ///
-/// Which stack comes up is the roster's answer, not the caller's: the
-/// directory's game is detected the way `titles::open` detects it, and its
-/// generation names the format. The files are the game's own — `HMIMDRV.386`
-/// and the two instrument banks for the 32-bit game, the same three files
-/// `ENGINE.EXE` hands its MIDI layer; `MUSADL.DRV` for the 16-bit games,
-/// the same file their player loads whole and installs. All four 16-bit
-/// games ship that driver: the three later ones carry byte-identical copies,
-/// Victor Loomes an older build with one entry fewer, and `m16::Driver`
-/// reads either — so one opener serves them.
-pub fn open_music(dir: &Path, rate: u32) -> Result<(Box<dyn AudioSource>, Box<dyn MusicSink>)> {
-    let Some(title) = titles::detect(dir) else {
-        return Err(format!("no game this family plays in {}", dir.display()).into());
-    };
+/// Which stack comes up is the opened game's answer: its generation names
+/// the format, and it is asked rather than detected from the directory a
+/// second time. The files are the game's own — `HMIMDRV.386` and the two
+/// instrument banks for the 32-bit game, the same three files `ENGINE.EXE`
+/// hands its MIDI layer; `MUSADL.DRV` for the 16-bit games, the same file
+/// their player loads whole and installs. All four 16-bit games ship that
+/// driver: the three later ones carry byte-identical copies, Victor Loomes
+/// an older build with one entry fewer, and `m16::Driver` reads either — so
+/// one opener serves them.
+pub(crate) fn open_music(
+    dir: &Path,
+    generation: titles::Generation,
+    rate: u32,
+) -> Result<(Box<dyn AudioSource>, Box<dyn MusicSink>)> {
     // `find_ci` throughout: the files are looked up by name, and a copied
     // install is as likely to spell them in lower case as on the disc.
     let read = |name: &str| -> std::result::Result<Vec<u8>, String> {
@@ -142,7 +156,7 @@ pub fn open_music(dir: &Path, rate: u32) -> Result<(Box<dyn AudioSource>, Box<dy
             .ok_or_else(|| format!("{name}: not found"))?;
         std::fs::read(path).map_err(|e| format!("{name}: {e}"))
     };
-    match title.generation() {
+    match generation {
         titles::Generation::Motion32 => {
             let archive = read("HMIMDRV.386")?;
             let archive =
@@ -158,14 +172,26 @@ pub fn open_music(dir: &Path, rate: u32) -> Result<(Box<dyn AudioSource>, Box<dy
             let player = m32::Player::new(rate, driver, &melodic, &drums)
                 .map_err(|e| format!("the FM driver did not come up: {e}"))?;
             let (tx, rx) = channel();
-            Ok((Box::new(Backend { player, rx }), Box::new(Music { tx })))
+            Ok((
+                Box::new(Backend { player, rx }),
+                Box::new(Music {
+                    tx,
+                    notes: Vec::new(),
+                }),
+            ))
         }
         titles::Generation::Motion16 => {
             let driver = read("MUSADL.DRV")?;
             let player = m16::Player::new(rate, &driver)
                 .map_err(|e| format!("the Ad Lib driver did not come up: {e}"))?;
             let (tx, rx) = channel();
-            Ok((Box::new(Backend { player, rx }), Box::new(PsmMusic { tx })))
+            Ok((
+                Box::new(Backend { player, rx }),
+                Box::new(PsmMusic {
+                    tx,
+                    notes: Vec::new(),
+                }),
+            ))
         }
     }
 }

@@ -21,6 +21,7 @@
 
 use motionvm_motion_engine::Game;
 use motionvm_motion_forth::Address;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
 
@@ -34,7 +35,7 @@ fn order_mode(game: &Game<Vm>) -> i32 {
         .next();
     game.vm
         .fetch(Address::new(base.module(), base.offset() + 0x0c))
-        .map_or(-1, |v| v as i32)
+        .map_or(-1, cell::signed)
 }
 
 /// The answer boxes currently on screen: text descriptors at level 99.
@@ -200,9 +201,9 @@ fn the_inventory_arrows_scroll_the_window() {
 
     // `_ACTINV` is the list: a scroll offset in its head cell, then the item
     // numbers. More than eight items, so there is somewhere to scroll to.
-    let list = game.get_var(2, "_ACTINV").expect("_ACTINV") as u32;
+    let list = cell::unsigned(game.get_var(2, "_ACTINV").expect("_ACTINV"));
     let head = Address::new(list >> 16, list & 0xffff);
-    let offset = |g: &Game<Vm>| g.vm.fetch(head).unwrap_or(0) as i32;
+    let offset = |g: &Game<Vm>| cell::signed(g.vm.fetch(head).unwrap_or(0));
 
     let mut item = 1;
     while count_items(&game) < 12 && item < 200 {
@@ -238,7 +239,7 @@ fn the_inventory_arrows_scroll_the_window() {
 
 /// How many items the bar's list holds, up to its terminating zero.
 fn count_items(game: &Game<Vm>) -> usize {
-    let list = game.get_var(2, "_ACTINV").unwrap_or(0) as u32;
+    let list = cell::unsigned(game.get_var(2, "_ACTINV").unwrap_or(0));
     let cell = |off: u32| {
         game.vm
             .fetch(Address::new(list >> 16, (list & 0xffff).wrapping_add(off)))

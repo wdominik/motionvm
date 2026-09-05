@@ -17,13 +17,13 @@ use motionvm_playable::KeyPress;
 use std::path::Path;
 
 use motionvm_motion_formats::m16::{Container, Segment, mz, scr::ScrModule};
+use motionvm_motion_forth::Machine;
 use motionvm_motion_forth::m16;
-use motionvm_motion_forth::{Address, Machine};
 
 use crate::Result;
-use crate::game::{Game, Hooks, LocationScheme};
+use crate::game::{Game, LocationScheme};
 use crate::resources::Resources;
-use crate::titles::{Driven, Title};
+use crate::titles::{Driven, Generation, Title};
 use crate::{Engine, Error};
 
 /// Which of `required` the directory `dir` does not hold, as `(what, what
@@ -123,11 +123,14 @@ pub(super) fn open(
     // with the heading pass.
     let walk_defaults_shrink = mz::croute_defaults_shrink(&img, &words);
     let walk_smooths_headings = mz::croute_smooths_headings(&img, &words);
+    // And whether a screen refuses its hundred-and-first descriptor, which
+    // only `LL.EXE` does not test.
+    let screen_holds_a_hundred = mz::newsetdesc_capped(&img, &words);
     let binding = mz::binding_of(&img, &words).map_err(|e| Error::data(&exe, e))?;
     let mut vm = m16::Vm::new(&binding);
     let boot = container.boot();
     let item = container
-        .item(Segment::Scr, boot.module as usize)
+        .item(Segment::Scr, usize::from(boot.module))
         .map_err(|e| Error::data(dir, e))?
         .ok_or_else(|| Error::EmptyBootModule {
             source: container.source().to_string(),
@@ -137,10 +140,21 @@ pub(super) fn open(
     vm.load(item, &parsed)?;
     // 320×200: the mode `TOGFX` enters in this engine, which has no
     // `SETRES` to ask for another.
-    let mut engine = Engine::with_display(320, 200).with_container(dir, container);
-    engine.skips_holes = skips_holes;
-    engine.walk_defaults_shrink = walk_defaults_shrink;
-    engine.walk_smooths_headings = walk_smooths_headings;
+    // The four capabilities that differ between the four 16-bit builds go
+    // into the profile before the engine exists, which is the whole point of
+    // there being one: nothing writes a capability into a built engine.
+    let profile = crate::Profile {
+        skips_holes,
+        walk_defaults_shrink,
+        walk_smooths_headings,
+        screen_holds_a_hundred,
+        ..crate::Profile::motion16()
+    };
+    let mut engine = Engine::new(profile).with_container(dir, container);
+    // Which of the engine's words each of this kernel's ordinals is, decided
+    // here and not again — in the 16-bit reading, which is what gives
+    // `FADEIN`, `SETBUF` and eight others this machine's meaning.
+    engine.bind_words(&binding, false);
     Ok(Game {
         vm,
         engine,
@@ -169,52 +183,12 @@ impl Game<m16::Vm> {
         let boot = c.boot();
         let addr = self
             .vm
-            .callback_target(boot.word as i32)
+            .callback_target(i32::from(boot.word))
             .ok_or(Error::UnboundBootWord { word: boot.word })?;
-        self.engine.mark_resident(boot.module as u32);
+        self.engine.mark_resident(u32::from(boot.module));
         self.vm.start(addr)?;
         self.running = true;
         Ok(())
-    }
-
-    /// Hands the game this frame's buttons, into the mouse record the
-    /// `MOUSE…` words read. No script variable is written — `CTRL` reads
-    /// `MOUSELK` itself.
-    pub fn pointer_buttons(&mut self, left: bool, right: bool) -> Result<()> {
-        self.engine.mouse.left = left as i32;
-        self.engine.mouse.right = right as i32;
-        Ok(())
-    }
-
-    /// Hands the game this frame's whole pointer — position and buttons in
-    /// one call, the shape the tests use.
-    pub fn pointer(&mut self, x: i32, y: i32, left: bool, right: bool) -> Result<()> {
-        self.pointer_position(x, y);
-        self.pointer_buttons(left, right)
-    }
-
-    /// Hands the game the key `?KEY` answers this frame. No script variable
-    /// is written — `CTRL` stores `?KEY` into `_AKTKEY` itself.
-    pub fn deliver_key(&mut self, key: i32) -> Result<()> {
-        self.engine.key = key;
-        Ok(())
-    }
-
-    /// Hands the game this frame's whole input: the pointer half and the key
-    /// half in one call, which is the shape the tests feed raw `?KEY` codes
-    /// through.
-    pub fn set_input(&mut self, x: i32, y: i32, left: bool, right: bool, key: i32) -> Result<()> {
-        self.pointer(x, y, left, right)?;
-        self.deliver_key(key)
-    }
-}
-
-impl Hooks for Game<m16::Vm> {
-    /// Nothing stands in: `RUN` installs `CTRL` with `400 SCRCTRL` before it
-    /// enters `ANIMPLAY`, and the intro installs `ICTRL` before its own, so a
-    /// frame without a controller has nothing to run.
-    fn fallback_controller(&mut self) -> Result<Option<Address>> {
-        Ok(None)
     }
 }
 
@@ -225,17 +199,18 @@ impl Driven for Game<m16::Vm> {
         self.title.name()
     }
 
-    fn display_size(&self) -> (u16, u16) {
+    fn generation(&self) -> Generation {
+        Generation::Motion16
+    }
+
+    fn display_size(&self) -> motionvm_playable::Size {
         self.engine.display_size()
     }
 
+    /// The 320×200×256 mode `TOGFX` enters filled a 4:3 monitor, so one
+    /// pixel stood (4/3)/(320/200) = 6/5 as tall as wide: a 5:6 pixel.
     fn pixel_aspect(&self) -> motionvm_playable::PixelAspect {
-        // The 320×200×256 mode `TOGFX` enters filled a 4:3 monitor, so one
-        // pixel stood (4/3)/(320/200) = 6/5 as tall as wide: a 5:6 pixel.
-        motionvm_playable::PixelAspect {
-            width: 5,
-            height: 6,
-        }
+        super::pixel_aspect_of(self.engine.display_size())
     }
 
     /// Startup runs to the game's own parked loop before returning, under
@@ -259,6 +234,10 @@ impl Driven for Game<m16::Vm> {
         Game::<m16::Vm>::step(self)
     }
 
+    fn seed(&mut self, seed: u64) {
+        Machine::seed(&mut self.vm, seed);
+    }
+
     fn pointer(&mut self, x: i32, y: i32) {
         self.pointer_position(x, y);
     }
@@ -267,20 +246,12 @@ impl Driven for Game<m16::Vm> {
         self.note_button(which, down);
     }
 
-    fn key(&mut self, press: &KeyPress, down: bool) {
-        // Releases cross and are dropped here: `?KEY` answers keystrokes,
-        // and a keystroke is a press.
-        if down {
-            self.engine.push_key(press);
-        }
+    fn key_down(&mut self, press: &KeyPress) {
+        self.engine.push_key(press);
     }
 
-    fn render(&mut self) -> motionvm_render::Framebuffer {
-        Game::<m16::Vm>::render(self)
-    }
-
-    fn palette(&self) -> &motionvm_render::Palette {
-        Game::<m16::Vm>::palette(self)
+    fn frame(&mut self) -> motionvm_render::Frame<'_> {
+        self.engine.frame()
     }
 
     fn frame_duration(&self) -> Option<std::time::Duration> {
@@ -288,7 +259,7 @@ impl Driven for Game<m16::Vm> {
     }
 
     fn set_music(&mut self, sink: Box<dyn crate::MusicSink>) {
-        Game::<m16::Vm>::set_music(self, sink)
+        Game::<m16::Vm>::set_music(self, sink);
     }
 
     fn set_saves(&mut self, dir: &Path) -> Result<()> {
@@ -297,6 +268,13 @@ impl Driven for Game<m16::Vm> {
 
     fn saves(&self) -> Option<&Path> {
         Game::<m16::Vm>::saves(self)
+    }
+
+    /// The engine's, and nothing of the machine's: this machine has one flat
+    /// address space with no notion of a read into a module that is not there,
+    /// so there is no counterpart to the 32-bit stray-read table.
+    fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic> {
+        self.engine.diagnostics()
     }
 
     fn finished(&self) -> bool {
@@ -309,5 +287,62 @@ impl Driven for Game<m16::Vm> {
 
     fn start_location(&self) -> Option<i32> {
         Game::<m16::Vm>::start_location(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GAMES;
+    use crate::titles::{Generation, Title};
+
+    /// Every 16-bit game is in this file's table, and every entry of it is a
+    /// 16-bit game.
+    ///
+    /// The two rosters are separate on purpose — `Title::ALL` is the order the
+    /// documentation lists the games in, `GAMES` is what `detect` walks — and
+    /// separate lists agree by convention until something holds them together.
+    /// The failure they can drift into is the one the table's own comment
+    /// names: "a game added here without a line in this table opens when it is
+    /// named and is not found by looking", which is a game the roster offers
+    /// and a directory never resolves to.
+    #[test]
+    fn the_two_rosters_hold_the_same_games() {
+        let listed: Vec<Title> = Title::ALL
+            .into_iter()
+            .filter(|t| t.generation() == Generation::Motion16)
+            .collect();
+        let detectable: Vec<Title> = GAMES.iter().map(|&(t, _)| t).collect();
+        for title in &listed {
+            assert!(
+                detectable.contains(title),
+                "{} is on the roster and not in GAMES, so it opens when named \
+                 and is never found by looking",
+                title.short()
+            );
+        }
+        for title in &detectable {
+            assert!(
+                listed.contains(title),
+                "{} is in GAMES and not on the roster",
+                title.short()
+            );
+        }
+    }
+
+    /// Each of them names a different binary, which is the whole of how they
+    /// are told apart: all four ship a `DATA.-1-`.
+    #[test]
+    fn each_game_is_found_by_a_binary_of_its_own() {
+        for (i, &(title, exe)) in GAMES.iter().enumerate() {
+            for &(other, other_exe) in &GAMES[i + 1..] {
+                assert_ne!(
+                    exe,
+                    other_exe,
+                    "{} and {} would be told apart by nothing",
+                    title.short(),
+                    other.short()
+                );
+            }
+        }
     }
 }

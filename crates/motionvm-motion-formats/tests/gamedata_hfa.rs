@@ -149,14 +149,14 @@ fn every_sprite_is_exactly_its_header_plus_its_pixels() {
     for id in ids(&c, Segment::Gfx) {
         let item = c.item(Segment::Gfx, id).unwrap().unwrap();
         let s = gfx::Sprite::parse(item).unwrap_or_else(|e| panic!("sprite {id}: {e}"));
-        assert_eq!(s.pixels.len(), s.width as usize * s.height as usize);
+        assert_eq!(s.pixels.len(), usize::from(s.width) * usize::from(s.height));
         assert!(
             s.width > 0 && s.height > 0,
             "sprite {id} has a zero dimension"
         );
         assert_eq!(
             item.len(),
-            s.width as usize * s.height as usize + 6,
+            usize::from(s.width) * usize::from(s.height) + 6,
             "sprite {id} is stored plainly, header and pixels and nothing else"
         );
         sizes.insert((s.width, s.height));
@@ -243,7 +243,7 @@ fn the_font_reference_table_maps_a_to_glyph_0() {
         let t = text::parse(c.item(Segment::Txt, id).unwrap().unwrap()).unwrap();
         for s in &t.strings {
             for &b in s.as_bytes() {
-                used[b as usize] = true;
+                used[usize::from(b)] = true;
             }
         }
     }
@@ -296,7 +296,7 @@ fn every_module_parses_and_its_ids_are_as_declared() {
     for &n in &numbers {
         let m = scr::ScrModule::parse(c.item(Segment::Scr, n).unwrap().unwrap())
             .unwrap_or_else(|e| panic!("module {n}: {e}"));
-        assert_eq!(m.module as usize, n, "module number equals the slot");
+        assert_eq!(usize::from(m.module), n, "module number equals the slot");
         assert_eq!(
             m.entries.first().map(|e| e.id),
             Some(m.first_id),

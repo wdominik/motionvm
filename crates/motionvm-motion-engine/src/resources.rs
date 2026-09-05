@@ -7,16 +7,19 @@
 //! either: a reader reads one layout, and which reader answers is decided
 //! here, once, by which container the game directory held.
 //!
-//! The module-slot bookkeeping lives here too. `=>GET` and `=>ERASE` move no
-//! memory in the 32-bit rebuild — every module is resident from the start —
-//! but they keep the slot table, and the *order* of that table is what a
-//! savegame's module images are written in.
+//! The module-slot bookkeeping lives here too. `=>GET` loads a module into
+//! the machine and takes it a slot, `=>ERASE` gives both back, and the
+//! *order* of the slot table is what a savegame's module images are written
+//! in.
 
 use crate::{Descriptor, Engine};
 use motionvm_motion_formats::TextTable;
 use motionvm_motion_formats::font::{Font, FontRefTable};
 use motionvm_motion_formats::m16::{Container, Segment};
+use motionvm_motion_formats::m32::scr::ScrModule;
 use motionvm_motion_formats::m32::{Kind, Sprite, rsc::Bank};
+use motionvm_motion_forth::cell;
+use motionvm_motion_forth::m32;
 use motionvm_render::Palette;
 use motionvm_render::Picture;
 
@@ -49,7 +52,7 @@ impl Resources {
     pub(crate) fn sprite(&self, id: u32) -> Option<(Picture, Option<Palette>)> {
         match self {
             Resources::Motion32(bank) => {
-                let item = bank.item(Kind::Gfx8, id as usize).ok()??;
+                let item = bank.item(Kind::Gfx8, cell::index(id)).ok()??;
                 let raw = Sprite::parse(item).ok()?;
                 let picture = Picture {
                     width: raw.width,
@@ -59,7 +62,7 @@ impl Resources {
                 Some((picture, Some(Palette::from_6bit(&raw.palette))))
             }
             Resources::Motion16(c) => {
-                let item = c.item(Segment::Gfx, id as usize).ok()??;
+                let item = c.item(Segment::Gfx, cell::index(id)).ok()??;
                 let raw = motionvm_motion_formats::m16::gfx::Sprite::parse(item).ok()?;
                 let picture = Picture {
                     width: raw.width,
@@ -124,8 +127,8 @@ impl Resources {
     /// A script module's raw item, for a machine that loads them on demand.
     pub(crate) fn script(&self, number: u32) -> Option<Vec<u8>> {
         let item = match self {
-            Resources::Motion32(bank) => bank.item(Kind::Script, number as usize).ok()??,
-            Resources::Motion16(c) => c.item(Segment::Scr, number as usize).ok()??,
+            Resources::Motion32(bank) => bank.item(Kind::Script, cell::index(number)).ok()??,
+            Resources::Motion16(c) => c.item(Segment::Scr, cell::index(number)).ok()??,
         };
         Some(item.to_vec())
     }
@@ -144,6 +147,19 @@ impl Resources {
                 .and_then(|d| FontRefTable::parse(&d).ok()),
             Resources::Motion16(c) => {
                 let item = c.item(Segment::Frt, 0).ok()??;
+                FontRefTable::parse(item).ok()
+            }
+        }
+    }
+
+    /// Font reference table `n` of a 16-bit container — what `SFT n` installs.
+    /// The 32-bit engine has no such word, and its one table is the loose
+    /// `000.FRT`.
+    pub(crate) fn font_ref_table(&self, n: u32) -> Option<FontRefTable> {
+        match self {
+            Resources::Motion32(_) => None,
+            Resources::Motion16(c) => {
+                let item = c.item(Segment::Frt, cell::index(n)).ok()??;
                 FontRefTable::parse(item).ok()
             }
         }
@@ -173,31 +189,14 @@ impl Engine {
     }
 
     /// Attaches a 16-bit game's resources.
-    pub(crate) fn with_container(mut self, dir: &std::path::Path, container: Container) -> Self {
-        // The 16-bit drawer copies a block whole, and its descriptors are
-        // numbered per screen; see [`Engine::opaque_blocks`] and
-        // [`Engine::per_screen_descriptors`].
-        self.opaque_blocks = true;
-        self.per_screen_descriptors = true;
-        self.text_runs = true;
-        self.sdtb_allocates_text = false;
-        self.templates_gated = true;
-        self.table_marks_sprites = true;
-        self.level_chain = true;
-        self.sd_marks_always = true;
-        self.callbacks_need_active = true;
-        self.pointer_counted = true;
-        self.save_layout = crate::save::Layout::Motion16;
-        // Initial state rather than a capability: the pointer starts unshown
-        // on this machine — see [`Engine::pointer_shows`].
-        self.pointer_visible = false;
+    pub(crate) fn with_container(self, dir: &std::path::Path, container: Container) -> Self {
         self.with_resources(dir, Resources::Motion16(Box::new(container)))
     }
 
     fn with_resources(mut self, dir: &std::path::Path, resources: Resources) -> Self {
         self.dir = Some(dir.to_path_buf());
-        self.font_refs = resources.font_refs(dir);
-        self.system_font = resources.system_font(dir);
+        self.scene.font_refs = resources.font_refs(dir);
+        self.scene.system_font = resources.system_font(dir);
         self.resources = Some(resources);
         self
     }
@@ -213,19 +212,53 @@ impl Engine {
     /// does it: `INCLLOC` erases before it gets, and `START` takes each module
     /// once.
     pub(crate) fn mark_resident(&mut self, module: u32) {
-        if self.slots.contains(&Some(module)) {
+        if self.persistence.slots.contains(&Some(module)) {
             return;
         }
-        if let Some(slot) = self.slots.iter_mut().skip(1).find(|s| s.is_none()) {
+        if let Some(slot) = self
+            .persistence
+            .slots
+            .iter_mut()
+            .skip(1)
+            .find(|s| s.is_none())
+        {
             *slot = Some(module);
         }
     }
 
-    /// Frees a module's slot, as `=>ERASE` does. Unknown modules are ignored —
-    /// the first `INCLLOC` after boot asks for 100, 200 and 300, because
-    /// `_ACTLOC` is still zero, and no such modules exist.
+    /// Loads module `n` out of the container into the machine and takes it a
+    /// slot, as `=>GET` (0x64999) does — a fresh copy every time it is asked,
+    /// which is what starts a location's variables over on every entry. A
+    /// module the container does not hold is refused by name: the original
+    /// opens `%03d.SCR` and stops when it cannot.
+    pub(crate) fn get_module(
+        &mut self,
+        mem: &mut m32::Memory,
+        n: u32,
+    ) -> motionvm_motion_forth::Result<()> {
+        let item = self
+            .resources
+            .as_ref()
+            .and_then(|r| r.script(n))
+            .ok_or_else(|| motionvm_motion_forth::Error::MissingResource {
+                kind: "module",
+                id: cell::signed(n),
+                word: "=>GET",
+                at: None,
+            })?;
+        let parsed = ScrModule::parse(&item)
+            .map_err(|e| motionvm_motion_forth::Error::Unsupported(format!("=>GET {n}: {e}")))?;
+        mem.insert(m32::Module::load(&item, &parsed));
+        self.mark_resident(n);
+        Ok(())
+    }
+
+    /// Frees a module's slot, as `=>ERASE` does; the machine gives the memory
+    /// back beside it. Unknown modules are ignored — the first `INCLLOC` after
+    /// boot erases 100, 200 and 300, because `_ACTLOC` is still zero, and no
+    /// such modules exist.
     pub(crate) fn mark_gone(&mut self, module: u32) {
-        for slot in self.slots.iter_mut() {
+        for slot in self.persistence.slots.iter_mut() {
             if *slot == Some(module) {
                 *slot = None;
             }
@@ -234,7 +267,7 @@ impl Engine {
 
     /// The resident modules in slot order — the set `=>PUTAS` writes.
     pub fn resident(&self) -> Vec<u32> {
-        self.slots.iter().flatten().copied().collect()
+        self.persistence.slots.iter().flatten().copied().collect()
     }
 
     /// A sprite to **draw**, which is also what may decide the palette.
@@ -247,7 +280,7 @@ impl Engine {
     /// like, and the incremental drawer measures constantly — every mark on the
     /// damage map needs a rectangle.
     pub(crate) fn sprite(&mut self, id: u32) -> Option<Picture> {
-        if self.sprites.contains_key(&id) {
+        if self.scene.sprites.contains_key(&id) {
             return self.load_sprite(id);
         }
         let (picture, palette) = self.resources.as_ref()?.sprite(id)?;
@@ -256,17 +289,17 @@ impl Engine {
         {
             self.display.palette = palette;
         }
-        self.sprites.insert(id, picture.clone());
+        self.scene.sprites.insert(id, picture.clone());
         Some(picture)
     }
 
     /// A sprite, without the palette that comes with drawing one.
     pub(crate) fn load_sprite(&mut self, id: u32) -> Option<Picture> {
-        if let Some(s) = self.sprites.get(&id) {
+        if let Some(s) = self.scene.sprites.get(&id) {
             return Some(s.clone());
         }
         let (picture, _) = self.resources.as_ref()?.sprite(id)?;
-        self.sprites.insert(id, picture.clone());
+        self.scene.sprites.insert(id, picture.clone());
         Some(picture)
     }
 
@@ -276,11 +309,11 @@ impl Engine {
     /// following the intro: it sets table 6, entry 109, and entry 109 of text
     /// resource 6 is the backstory paragraph the intro shows.
     pub(crate) fn text_table(&mut self, id: i32) -> Option<&TextTable> {
-        if !self.texts.contains_key(&id) {
+        if !self.scene.texts.contains_key(&id) {
             let table = self.resources.as_ref()?.text(id)?;
-            self.texts.insert(id, table);
+            self.scene.texts.insert(id, table);
         }
-        self.texts.get(&id)
+        self.scene.texts.get(&id)
     }
 
     /// The string a text descriptor stands for, or `None` where it names none.
@@ -302,23 +335,24 @@ impl Engine {
     pub fn descriptor_text(&mut self, d: &Descriptor) -> Option<String> {
         let (table, entry) = (d.shows.table()?, d.text?);
         let index = entry.checked_sub(1).filter(|i| *i >= 0)?;
-        self.text_table(table)?.strings.get(index as usize).cloned()
+        let index = cell::at(index)?;
+        self.text_table(table)?.strings.get(index).cloned()
     }
 
-    pub(crate) fn load_palette(&mut self, id: i32) -> Option<motionvm_render::Palette> {
-        if let Some(p) = self.palettes.get(&id) {
+    pub(crate) fn load_palette(&mut self, id: i32) -> Option<Palette> {
+        if let Some(p) = self.scene.palettes.get(&id) {
             return Some(p.clone());
         }
         let p = self.resources.as_ref()?.palette(id)?;
-        self.palettes.insert(id, p.clone());
+        self.scene.palettes.insert(id, p.clone());
         Some(p)
     }
 
     pub(crate) fn load_font(&mut self, number: i32) -> Option<i32> {
         let font = self.resources.as_ref()?.font(number)?;
-        let handle = self.next_font;
-        self.next_font += 1;
-        self.fonts.insert(handle, font);
+        let handle = self.scene.next_font;
+        self.scene.next_font += 1;
+        self.scene.fonts.insert(handle, font);
         Some(handle)
     }
 
@@ -332,18 +366,18 @@ impl Engine {
     /// not there fails silently and answers 0 — as the original's words do
     /// when sound never initialized, which is what a missing sink reproduces.
     pub(crate) fn start_tune(&mut self, tune: i32, looping: i32) -> i32 {
-        if self.music.is_none() {
+        if self.sound.sink.is_none() {
             return 0;
         }
         let Some(song) = self.resources.as_ref().and_then(|r| r.block(tune)) else {
             return 0;
         };
-        let handle = self.next_tune;
-        self.next_tune += 1;
-        if let Some(music) = self.music.as_mut() {
+        let handle = self.sound.next_handle;
+        self.sound.next_handle += 1;
+        if let Some(music) = self.sound.sink.as_mut() {
             music.start(handle, tune, looping != 0, &song);
         }
-        self.tune_playing = true;
+        self.sound.playing = true;
         handle
     }
 }
@@ -356,7 +390,7 @@ impl Engine {
 /// rest appended. That is enough for the one question asked of it: a `..` or a
 /// symlink can only appear in the part that exists, because the part that does
 /// not is a name nobody has created yet.
-pub(crate) fn resolve(dir: &std::path::Path) -> std::result::Result<std::path::PathBuf, String> {
+pub(crate) fn resolve(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
     let absolute = if dir.is_absolute() {
         dir.to_path_buf()
     } else {

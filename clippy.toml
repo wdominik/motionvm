@@ -1,0 +1,13 @@
+# The toolchain clippy should assume, which is the floor `rust-version` in
+# Cargo.toml promises and CI's `msrv` job compiles on.
+#
+# Without it clippy suggests whatever the *running* toolchain supports, so a
+# developer on a newer stable gets told to use a method the floor does not
+# have — and the suggestion is green here and red for the user the floor said
+# was welcome. The two numbers have to move together.
+msrv = "1.88.0"
+
+# Words `doc_markdown` would otherwise want in backticks and that are not
+# code: a game's title, the engine's author, and a casing convention. `..`
+# keeps clippy's own list beside them.
+doc-valid-idents = ["InfoHighway", "DigiTales", "PascalCase", ".."]

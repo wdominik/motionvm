@@ -9,18 +9,20 @@
 use crate::Engine;
 use crate::order::{Rules, at};
 use crate::stack::pop_n;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::{Error, Result};
 
 impl Engine {
     pub(crate) fn words_dialogue(
-        &mut self,
-        name: &str,
+        &self,
+        word: Word,
         stack: &mut Vec<i32>,
         mem: &mut dyn AddressSpace,
         rules: Rules,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // `ADDMESSPIPE ( name1 name2 art a b _ORDER -- )`, `ENGINE.EXE`
             // 0x7f1dd and `ENVIRO.EXE` file `0x13e41`.
             //
@@ -37,11 +39,11 @@ impl Engine {
             // key; the 16-bit one never reads the room cell. A silent
             // overwrite of the record past the end would be worse than
             // stopping, so the 32-bit rule stops and says where.
-            "ADDMESSPIPE" => {
+            Word::ADDMESSPIPE => {
                 let a = pop_n(stack, 6, "ADDMESSPIPE")?;
                 let (name1, name2) = (a[0], a[1]);
                 let (kind, first, second) = (a[2], a[3], a[4]);
-                let order = a[5] as u32;
+                let order = cell::unsigned(a[5]);
                 let cell = mem.cell_size();
                 let (queue, room, used) = (
                     mem.fetch_cell(at(mem, order, 0x1c0))?,
@@ -54,6 +56,7 @@ impl Engine {
                             "ADDMESSPIPE: the queue holds {room} and already has {used}; \
                              the original complains here and waits for a key"
                         ),
+                        binary: "ENGINE.EXE",
                         at: "0x7f26d",
                     });
                 }

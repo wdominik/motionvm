@@ -18,6 +18,7 @@
 
 use motionvm_motion_engine::Game;
 use motionvm_motion_forth::Address;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
 
@@ -245,7 +246,7 @@ fn asking_about_something_enters_the_conversation_at_its_info_answer() {
                     .unwrap_or(0)
             })
             .take_while(|b| *b != 0)
-            .map(|b| b as char)
+            .map(char::from)
             .collect()
     };
 
@@ -259,16 +260,17 @@ fn asking_about_something_enters_the_conversation_at_its_info_answer() {
         if record == 0 || fields == 0 {
             continue;
         }
-        let count = game.vm.fetch(field(Address(record), 8)).expect("answers") as i32;
+        let count = cell::signed(game.vm.fetch(field(Address(record), 8)).expect("answers"));
         for i in 0..count.min(32) {
-            let entry = field(Address(fields), i as u32 * 0x12).0;
+            let entry = field(Address(fields), cell::unsigned(i) * 0x12).0;
             if name_at(&game, field(Address(entry), 8).0) == "DINFO" {
                 // Answers sit 0x12 apart, so every other one starts mid-cell.
-                let line = game
-                    .vm
-                    .mem
-                    .fetch_unaligned(field(Address(entry), 0))
-                    .expect("its line") as i32;
+                let line = cell::signed(
+                    game.vm
+                        .mem
+                        .fetch_unaligned(field(Address(entry), 0))
+                        .expect("its line"),
+                );
                 wanted = Some((i, line));
             }
         }
@@ -291,8 +293,160 @@ fn asking_about_something_enters_the_conversation_at_its_info_answer() {
     // that answer names.
     assert!(index >= 0, "the answer was found");
     assert_eq!(
-        game.vm.fetch(field(o, 0x194)).expect("the node") as i32,
+        cell::signed(game.vm.fetch(field(o, 0x194)).expect("the node")),
         line,
         "INFO should have entered at the DINFO answer and stepped to its line"
+    );
+}
+
+/// A right click on the inventory bar during a conversation offers the two
+/// verbs that make sense there, and a left click on one of them runs it.
+///
+/// The classroom's opening scene ends in an answer menu, mode 14, and the bar
+/// is live under it: `ICTRL` still splits the pointer into the bar's own
+/// coordinates and `DOORDER` still sees the buttons. A fresh right press over a
+/// slot with something in it (0x7e52e) puts a strip of two icons over the bar
+/// — verbs 6 and 7, `INFO` and `GIVE`, their rest sprites out of the verb
+/// table — and the block goes to mode 17. Another right click takes the strip
+/// down and goes back to the answers; a left click on the first icon picks
+/// `INFO`, mode 18, which runs as a forced order as soon as the figure is free
+/// and hands back to the conversation.
+///
+/// Nothing is carried when the scene ends, so the player is handed an item
+/// through the game's own `ADDITEM` first.
+#[test]
+fn a_right_click_on_the_bar_during_a_conversation_offers_info_and_give() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let mut game = Game::open(&dir).expect("game opens");
+    game.start().expect("4:START");
+    while game.pump().expect("startup runs") {}
+    game.set_var(2, "_NEXTLOC", 1).expect("the classroom");
+    let o = order(&game);
+    let mode = |game: &Game<Vm>| game.vm.fetch(field(o, 0x0c)).expect("mode");
+    let at = |base: u32, off: u32| Address::new(base >> 16, (base & 0xffff) + off);
+
+    // Into the opening scene's first answer menu, on empty frames.
+    let mut guard = 0;
+    while mode(&game) != 14 {
+        game.set_input(0, 0, false, false, 0).expect("input");
+        game.step().expect("a frame of the opening scene");
+        guard += 1;
+        assert!(guard < 20_000, "the classroom never put an answer menu up");
+    }
+
+    // Something to click on: the first item whose record carries a sprite,
+    // added the way the game adds one.
+    game.call(2, "_FITEM", &[]).expect("_FITEM");
+    let items = cell::unsigned(game.vm.data.pop().expect("_FITEM pushes its address"));
+    let item = (1..200)
+        .find(|&n| {
+            game.vm
+                .fetch(at(items, cell::unsigned(n) * 20 + 8))
+                .is_ok_and(|s| cell::signed(s) > 0)
+        })
+        .expect("an item with a sprite");
+    game.call(5, "ADDITEM", &[item]).expect("ADDITEM");
+    let list = cell::unsigned(game.get_var(2, "_ACTINV").expect("_ACTINV"));
+    let scroll = game.vm.fetch(at(list, 0)).expect("the scroll offset");
+    let first = game
+        .vm
+        .fetch(at(list, 4 + scroll * 4))
+        .expect("the first slot");
+    assert_ne!(first, 0, "the bar's first slot holds something");
+
+    // The strip: the five bar-menu descriptors, and the verb table's rest
+    // sprites — three cells an entry, from verb 1.
+    let base = game.vm.fetch(field(o, 0x14)).expect("bar menu descriptors");
+    let rest = |game: &Game<Vm>, verb: u32| {
+        game.vm
+            .fetch(field(o, 0x18 + 12 * (verb - 1)))
+            .expect("rest")
+    };
+    let strip = |game: &Game<Vm>| -> Vec<(u32, i32, i32)> {
+        (0..5)
+            .filter_map(|i| {
+                game.engine
+                    .descriptors()
+                    .iter()
+                    .find(|d| d.handle == base + i)
+            })
+            .filter(|d| d.active)
+            .map(|d| (d.shows.graphic().unwrap_or(0), d.x, d.y))
+            .collect()
+    };
+
+    // A right click on the first slot: x 64 to 127 of the bar, which starts
+    // at y 400.
+    let (x, y) = (96, 440);
+    game.set_input(x, y, false, true, 0)
+        .expect("the right click");
+    game.step().expect("the frame with the click");
+    assert_eq!(mode(&game), 17, "the item menu is mode 17");
+    assert_eq!(
+        game.vm.fetch(field(o, 0x04)).expect("target"),
+        first,
+        "on the item under the pointer"
+    );
+    // Two icons, 0x30 apart, centered on the slot's middle at x 96 and 0x30
+    // down: 96 - 0x18 * 2 + 2 = 50, then 98.
+    assert_eq!(
+        strip(&game),
+        [(rest(&game, 6), 50, 0x30), (rest(&game, 7), 98, 0x30)],
+        "INFO and GIVE over the slot"
+    );
+
+    // A second right click is the way back to the answers.
+    game.set_input(x, y, false, false, 0).expect("input");
+    game.step().expect("a frame between the clicks");
+    game.set_input(x, y, false, true, 0)
+        .expect("the second right click");
+    game.step().expect("the frame with it");
+    assert_eq!(mode(&game), 14, "back to the answers");
+    assert!(strip(&game).is_empty(), "and the strip is gone");
+
+    // Up again, and the first icon picked: INFO on the item.
+    game.set_input(x, y, false, false, 0).expect("input");
+    game.step().expect("a frame between the clicks");
+    game.set_input(x, y, false, true, 0)
+        .expect("the third right click");
+    game.step().expect("the frame with it");
+    assert_eq!(mode(&game), 17);
+    game.set_input(60, 456, false, false, 0)
+        .expect("the pointer on the first icon");
+    game.step().expect("a frame between the clicks");
+    game.set_input(60, 456, true, false, 0)
+        .expect("the left click");
+    game.step().expect("the frame with it");
+    assert_eq!(mode(&game), 18, "the pick waits for the figure");
+    assert_eq!(game.vm.fetch(field(o, 0x00)).expect("verb"), 6, "INFO");
+    assert_eq!(game.vm.fetch(field(o, 0x04)).expect("target"), first);
+    assert!(strip(&game).is_empty());
+
+    // The order runs and the conversation carries on from the answer INFO
+    // names — a different node, and a line or the answers within a few
+    // hundred frames, never a frame the engine refuses. Mode 98 itself is not
+    // sampled: the forced order runs and re-enters the conversation inside
+    // one frame.
+    let node_before = game.vm.fetch(field(o, 0x194)).expect("node");
+    game.set_input(60, 456, false, false, 0).expect("input");
+    for frame in 0..600 {
+        game.step()
+            .unwrap_or_else(|e| panic!("frame {frame} after the pick: {e}"));
+        if (12..=14).contains(&mode(&game)) {
+            break;
+        }
+    }
+    assert!(
+        (12..=14).contains(&mode(&game)),
+        "the conversation went on after INFO: mode {}",
+        mode(&game)
+    );
+    assert_ne!(
+        game.vm.fetch(field(o, 0x194)).expect("node"),
+        node_before,
+        "INFO moved the conversation to the answer it names"
     );
 }

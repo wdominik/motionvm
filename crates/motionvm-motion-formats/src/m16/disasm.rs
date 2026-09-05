@@ -13,10 +13,11 @@
 //! data: `ALLOT` cells, never fetched as code. The decoder stops there rather
 //! than reading a table of coordinates as a run of calls.
 
-use crate::cp437_to_string;
+use crate::cursor::Cursor;
 use crate::kernel::Binding;
 use crate::m16::mz::{KERNEL_BIT, ORDINAL_MASK};
 use crate::m16::scr::{Entry, ScrModule};
+use crate::{cp437_to_string, nul_terminated};
 
 /// What a single cell turned out to be.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,7 +80,7 @@ impl Cell {
 /// later `learn` of the same id replaces the earlier name: learn the modules
 /// that would be resident together, and clone the disassembler before
 /// learning a location's own.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Disassembler<'a> {
     binding: &'a Binding,
     symbols: std::collections::HashMap<u16, String>,
@@ -104,23 +105,26 @@ impl<'a> Disassembler<'a> {
     /// Decodes one word's body.
     pub fn decode(&self, entry: &Entry) -> Vec<Cell> {
         let inline = &self.binding.inline;
-        let cells = &entry.body;
-        let mut out = Vec::with_capacity(cells.len());
-        let mut p = 0usize;
+        let raw: Vec<u8> = entry.body.iter().flat_map(|c| c.to_le_bytes()).collect();
+        let mut out = Vec::with_capacity(entry.body.len());
+        // The walk is over the body's bytes, and a position in cells is the
+        // byte position halved.
+        let mut c = Cursor::new(&raw, 0);
         // A variable or a constant: the opening word, its one cell, and data.
         let data_from = if entry.is_variable() || entry.is_constant() {
             2
         } else {
             usize::MAX
         };
-        while p < cells.len() {
+        loop {
+            let p = c.position() / 2;
+            let Ok(cell) = c.u16() else {
+                break;
+            };
             if p >= data_from {
-                out.push(Cell::Data(cells[p] as i16));
-                p += 1;
+                out.push(Cell::Data(crate::sign16(cell)));
                 continue;
             }
-            let cell = cells[p];
-            p += 1;
             if cell & KERNEL_BIT == 0 {
                 out.push(Cell::Call {
                     id: cell,
@@ -128,7 +132,7 @@ impl<'a> Disassembler<'a> {
                 });
                 continue;
             }
-            let ordinal = (cell & ORDINAL_MASK) as u32;
+            let ordinal = u32::from(cell & ORDINAL_MASK);
             let Some(name) = self.binding.name(ordinal) else {
                 out.push(Cell::UnknownKernel { ordinal });
                 continue;
@@ -138,28 +142,27 @@ impl<'a> Disassembler<'a> {
                 name: name.to_string(),
             });
             if inline.is_branch(ordinal) {
-                if let Some(&d) = cells.get(p) {
-                    let distance = d as i16;
+                let operand_at = c.position() / 2;
+                if let Ok(d) = c.u16() {
+                    let distance = crate::sign16(d);
                     let target = if inline.is_forward(ordinal) {
-                        p.wrapping_add(distance as usize)
+                        operand_at.wrapping_add_signed(isize::from(distance))
                     } else {
-                        p.wrapping_sub(distance as usize)
+                        operand_at.wrapping_add_signed(isize::from(distance).wrapping_neg())
                     };
                     out.push(Cell::Branch { distance, target });
-                    p += 1;
                 }
             } else if inline.takes_cell(ordinal) {
-                if let Some(&d) = cells.get(p) {
-                    out.push(Cell::Data(d as i16));
-                    p += 1;
+                if let Ok(d) = c.u16() {
+                    out.push(Cell::Data(crate::sign16(d)));
                 }
             } else if inline.takes_string(ordinal) {
-                let bytes: Vec<u8> = cells[p..].iter().flat_map(|c| c.to_le_bytes()).collect();
-                let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-                out.push(Cell::Text(cp437_to_string(&bytes[..end])));
+                let text = nul_terminated(c.remaining());
+                out.push(Cell::Text(cp437_to_string(text)));
                 // The terminator is included and the length rounded up to a
                 // cell — the compiler's rule.
-                p += (end + 2) / 2;
+                let after = c.position().saturating_add(text.len()).saturating_add(1);
+                c.seek(after.next_multiple_of(2));
             }
         }
         out
@@ -201,9 +204,9 @@ impl<'a> Disassembler<'a> {
             let cells = self.decode(e);
             // One line per eight cells, prefixed with the index of the first
             // — the same count the branch targets use.
-            for (i, chunk) in cells.chunks(8).enumerate() {
+            for (at, chunk) in (0..).step_by(8).zip(cells.chunks(8)) {
                 let rendered: Vec<String> = chunk.iter().map(Cell::render).collect();
-                let _ = writeln!(s, "{:>5}    {}", i * 8, rendered.join(" "));
+                let _ = writeln!(s, "{at:>5}    {}", rendered.join(" "));
             }
             let _ = writeln!(s, "      ;");
         }
@@ -214,16 +217,14 @@ impl<'a> Disassembler<'a> {
     ///
     /// Data cells are not counted: a variable's `ALLOT` storage may hold any
     /// value, and walking it as code would inflate `@`, `!` and `+`.
-    pub fn usage<'m>(
-        &self,
-        modules: impl IntoIterator<Item = &'m ScrModule>,
-    ) -> Vec<(String, usize)> {
+    pub fn usage(&self, modules: &[ScrModule]) -> Vec<(String, usize)> {
         let mut counts: std::collections::HashMap<String, usize> = Default::default();
         for m in modules {
             for e in &m.entries {
                 for c in self.decode(e) {
                     if let Cell::Kernel { name, .. } = c {
-                        *counts.entry(name).or_default() += 1;
+                        let count: &mut usize = counts.entry(name).or_default();
+                        *count = count.saturating_add(1);
                     }
                 }
             }

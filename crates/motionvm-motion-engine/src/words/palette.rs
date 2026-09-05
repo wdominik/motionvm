@@ -8,19 +8,21 @@
 
 use crate::Engine;
 use crate::stack::pop1;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
 
 use crate::stack::pop_n;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     pub(crate) fn words_palette(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // --- palette ----------------------------------------------------
             // Selects the palette a later draw uses. Loading it here keeps the
             // colors right even before anything is drawn.
@@ -40,33 +42,33 @@ impl Engine {
             // So while a fade is queued, the palette queues with it, onto the
             // one most recently asked for, and the display takes it when that
             // fade finishes — the script's order, kept on the screen.
-            "SETPAL" => {
+            Word::SETPAL => {
                 let id = pop1(stack, "SETPAL")?;
                 if let Some(p) = self.load_palette(id) {
-                    if let Some(w) = self.wipes.back_mut() {
+                    if let Some(w) = self.transitions.wipes.back_mut() {
                         w.palette_after = Some(p);
-                    } else if let Some(c) = self.curtains.back_mut() {
+                    } else if let Some(c) = self.transitions.curtains.back_mut() {
                         c.palette_after = Some(p);
                     } else {
                         self.display.palette = p;
                     }
                 }
             }
-            "CUTPAL" => {
+            Word::CUTPAL => {
                 pop1(stack, "CUTPAL")?;
-                self.note_no_effect(name);
+                self.note_no_effect(word);
             }
 
             // The handler pops blue, green, red and hands them to a lookup that
             // returns a single 16-bit value: a palette index, not a packed
             // color. Six-bit components, the same scale the palettes are
             // stored in.
-            "RGB->COL" => {
+            Word::RGB_TO_COL => {
                 let c = pop_n(stack, 3, "RGB->COL")?;
                 let want = [
-                    c[0].clamp(0, 63) as u8,
-                    c[1].clamp(0, 63) as u8,
-                    c[2].clamp(0, 63) as u8,
+                    cell::low8(c[0].clamp(0, 63)),
+                    cell::low8(c[1].clamp(0, 63)),
+                    cell::low8(c[2].clamp(0, 63)),
                 ];
                 // The script's palette, not the display's: after a `SETPAL`
                 // the original's lookup already searches the new entries,
@@ -81,13 +83,13 @@ impl Engine {
                         want.iter()
                             .zip(&pal.raw[o..o + 3])
                             .map(|(&a, &b)| {
-                                let d = a as i32 - (b & 63) as i32;
+                                let d = i32::from(a) - i32::from(b & 63);
                                 d * d
                             })
                             .sum::<i32>()
                     })
                     .unwrap_or(0);
-                stack.push(best as i32);
+                stack.push(cell::count(best));
             }
             _ => return Ok(None),
         }

@@ -163,7 +163,32 @@ must be writable (see [Execution model](execution-model.md)).
 | Word | Effect | Notes |
 |---|---|---|
 | `EXECUTE` | `( addr -- )` | call the word at the packed address |
-| `RANDOM` | `( n -- r )` | random value; exact generator and range behavior unverified |
+| `RANDOM` | `( n -- r )` | `r` in `0..n`, from the clock hash below |
+
+## `RANDOM`
+
+Not a generator with a seed: a hash of the clock. The handler (`0x65a4f`)
+hands the count on the stack to `0x24219`, which keeps one counter
+(`0xE7F4C`, 0 at start) and reads one clock — the raw tick count behind the
+pointer at `0xE7F38`, the same count the timers stamp
+([game loop](../engine/game-loop.md#where-the-200-hz-comes-from-and-where-it-stops)):
+
+```text
+s = s + 331;  if s = 0 then s = 1
+r = ((t + s) / s)  xor  ((t − s) mod s)      unsigned, 32 bits
+RANDOM = r mod n                              unsigned
+```
+
+Two calls in the same tick answer differently because `s` moved, and the
+same call a tick later answers differently because `t` did. The divisions
+are unsigned: a count of zero would fault the machine, and a negative count
+is a divisor above two billion, which leaves `r` as it is. No shipped
+module asks either — all 237 sites push a positive literal, 4 at 124 of
+them. The 16-bit engine carries the same generator to the word, on 16-bit
+values, over its millisecond counter divided by five
+([16-bit kernel words](../../motion16/vm/kernel-words.md#random)). What the
+rebuild does instead, and why, is on the [departures](../../departures.md)
+page.
 
 ## Open questions
 
@@ -172,7 +197,6 @@ must be writable (see [Execution model](execution-model.md)).
   signed one; unconfirmed.
 - `LEAVE`'s exact continuation point.
 - `/` and `MOD` with negative operands; division by zero.
-- `RANDOM`'s generator and distribution.
 
 ## See also
 

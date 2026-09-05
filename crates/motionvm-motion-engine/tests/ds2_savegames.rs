@@ -19,7 +19,7 @@
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_motion_engine::Game;
-use motionvm_motion_forth::Host;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::{gamedata_ds2, saves_dir};
 use std::path::{Path, PathBuf};
@@ -45,9 +45,10 @@ fn game_with_saves(dir: &Path, name: &str) -> (Game<Vm>, PathBuf, PathBuf) {
 /// Runs one kernel word with the given arguments and returns what it left.
 fn kernel(game: &mut Game<Vm>, word: &str, args: &[i32]) {
     game.vm.data.extend_from_slice(args);
-    game.engine
-        .word(word, &mut game.vm)
+    let ran = game
+        .kernel_word(word)
         .unwrap_or_else(|e| panic!("{word}: {e}"));
+    assert!(ran, "{word} is a word this engine implements");
 }
 
 /// `PUT` writes module memory to a file and `GET` reads it straight back.
@@ -69,6 +70,9 @@ fn put_writes_a_block_and_get_reads_it_back() {
         return;
     };
     let (mut game, _base, saves) = game_with_saves(&dir, "put_get");
+    // The two words are driven by hand, without the start that loads the
+    // module the address is in.
+    game.load_module(2).expect("module 2");
 
     // `_AKTLT` is where `ICTRL` parks the location number across a save.
     let at = game
@@ -77,7 +81,7 @@ fn put_writes_a_block_and_get_reads_it_back() {
         .next();
     game.vm.mem.store(at, 23).expect("the location number");
 
-    kernel(&mut game, "PUT", &[4, at.0 as i32, 701]);
+    kernel(&mut game, "PUT", &[4, cell::signed(at.0), 701]);
     assert!(
         game.vm.data.is_empty(),
         "PUT should leave nothing behind: {:?}",
@@ -97,7 +101,7 @@ fn put_writes_a_block_and_get_reads_it_back() {
     );
 
     game.vm.mem.store(at, 0).expect("clear it again");
-    kernel(&mut game, "GET", &[4, at.0 as i32, 701]);
+    kernel(&mut game, "GET", &[4, cell::signed(at.0), 701]);
     assert_eq!(
         game.vm.mem.fetch(at).unwrap(),
         23,
@@ -147,7 +151,11 @@ fn show_files_fills_the_slot_table() {
     std::fs::write(saves.join("701.blk"), 23i32.to_le_bytes()).expect("slot 0");
     std::fs::write(saves.join("704.blk"), 4i32.to_le_bytes()).expect("slot 3");
 
-    game.startup_only().expect("STARTUP runs");
+    // `4:START`, which runs `STARTUP` among everything else it does: what
+    // `SHOW_FILES` needs is `_LOADTABLE`, and the game's own way to have one
+    // is to have started.
+    game.start().expect("4:START");
+    while game.pump().expect("startup runs") {}
     game.call(5, "SHOW_FILES", &[]).expect("5:SHOW_FILES");
 
     let table = game
@@ -155,7 +163,7 @@ fn show_files_fills_the_slot_table() {
         .expect("module 2 has _LOADTABLE")
         .next();
     let slots: Vec<i32> = (0..5)
-        .map(|i| game.vm.mem.fetch(table.plus_cells(i)).expect("a slot") as i32)
+        .map(|i| cell::signed(game.vm.mem.fetch(table.plus_cells(i)).expect("a slot")))
         .collect();
     assert_eq!(slots, [1, 0, 0, 4, 0], "occupied slots carry id - 700");
 }
@@ -217,9 +225,9 @@ fn the_resident_modules_are_the_ones_the_original_would_have() {
                 6,
                 11,
                 13,
-                100 + location as u32,
-                200 + location as u32,
-                300 + location as u32
+                100 + cell::unsigned(location),
+                200 + cell::unsigned(location),
+                300 + cell::unsigned(location)
             ],
             "{label}: nine modules, the location's three in the slots 3 and 12 left behind"
         );
@@ -320,28 +328,124 @@ fn putas_writes_the_resident_modules_and_getas_puts_them_back() {
     );
 }
 
-/// The module numbers a `.FRZ` carries, in the order they are written.
+/// A slot missing one of its three files is refused as an incomplete slot.
+///
+/// `EXIST` answers off the `.blk` alone, as the original's does, so the game
+/// offers a slot whose two state files may not be there — and with each file
+/// now written whole or not at all, that is the one way a save can be
+/// half-made: the run that wrote it stopped between two of the three words.
+/// Saying "No such file or directory" leaves the player to work that out.
+///
+/// Both of the two are checked, because the two words that read them are
+/// different words on different paths.
+#[test]
+fn a_slot_missing_one_of_its_files_is_refused_as_incomplete() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    for (suffix, word) in [("FRZ", "=>GETAS"), ("anm", "GETANIM")] {
+        let (mut game, _base, saves) = started_in(&dir, &format!("torn-{suffix}"), 23);
+        kernel(&mut game, "=>PUTAS", &[701]);
+        kernel(&mut game, "PUTANIM", &[701]);
+        std::fs::remove_file(saves.join(format!("701.{suffix}"))).expect("one artifact removed");
+
+        game.vm.data.push(701);
+        let err = game
+            .kernel_word(word)
+            .expect_err("an incomplete slot must not load");
+        let said = err.to_string();
+        assert!(said.contains("incomplete"), "{word}: {said}");
+        assert!(said.contains(&format!("701.{suffix}")), "{word}: {said}");
+        assert!(said.contains("interrupted"), "{word}: {said}");
+    }
+}
+
+/// The head of a savegame file: magic, version, the body's length, the body's
+/// checksum.
+const HEAD: usize = 8 + 4 + 4 + 4;
+
+/// A four-byte word of `bytes` at `at`.
+fn word(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"))
+}
+
+/// CRC-32, the reflected IEEE 802.3 polynomial.
+///
+/// A second implementation on purpose: the engine's is what these files are
+/// sealed with, and a check that called it would agree with it however wrong
+/// both were.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for &byte in bytes {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ if crc & 1 == 1 { 0xedb8_8320 } else { 0 };
+        }
+    }
+    !crc
+}
+
+/// The body of a savegame file, checked whole, with the head read off it.
 ///
 /// Parsed here rather than through the engine on purpose: a reader that shares
-/// code with the writer agrees with it by construction, and this assertion is
-/// about the layout being what it says it is.
+/// code with the writer agrees with it by construction, and these assertions
+/// are about the layout being what the documentation says it is.
+fn body<'a>(bytes: &'a [u8], magic: &[u8; 8]) -> &'a [u8] {
+    assert_eq!(&bytes[..8], magic, "magic");
+    assert_eq!(word(bytes, 8), 1, "version");
+    let length = cell::index(word(bytes, 12));
+    assert_eq!(
+        HEAD + length,
+        bytes.len(),
+        "the body reaches the file's end"
+    );
+    let body = &bytes[HEAD..];
+    assert_eq!(
+        crc32(body),
+        word(bytes, 16),
+        "the body matches its checksum"
+    );
+    body
+}
+
+/// Steps over the two strings a body opens with — the game's slug and the
+/// version that wrote it — and answers where the sections start.
+fn sections_start(body: &[u8]) -> usize {
+    let mut at = 0;
+    for _ in 0..2 {
+        at += 4 + cell::index(word(body, at));
+    }
+    at
+}
+
+/// Where a section's own bytes begin in `body`, and how many there are.
+fn section(body: &[u8], tag: &[u8; 4]) -> (usize, usize) {
+    let mut at = sections_start(body);
+    while at < body.len() {
+        let n = cell::index(word(body, at + 4));
+        if &body[at..at + 4] == tag {
+            return (at + 8, n);
+        }
+        at += 8 + n;
+    }
+    panic!("no {} section", String::from_utf8_lossy(tag));
+}
+
+/// The module numbers a `.FRZ` carries, in the order they are written.
 fn frz_modules(bytes: &[u8]) -> Vec<u32> {
-    let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
-    assert_eq!(&bytes[..8], b"DS2FRZ\0\0", "magic");
-    assert_eq!(word(8), 1, "version");
-    let count = word(12) as usize;
-    let mut at = 16;
+    let body = body(bytes, b"DS2FRZ\0\0");
+    let (start, len) = section(body, b"MODS");
+    let mods = &body[start..start + len];
+    let count = cell::index(word(mods, 0));
+    let mut at = 4;
     let mut numbers = Vec::with_capacity(count);
     for _ in 0..count {
-        numbers.push(word(at));
-        let cells = word(at + 4) as usize;
+        numbers.push(word(mods, at));
+        let cells = cell::index(word(mods, at + 4));
         at += 8 + cells * 4;
     }
-    assert_eq!(
-        at,
-        bytes.len(),
-        "the records should account for the whole file"
-    );
+    assert_eq!(at, mods.len(), "the records fill the section exactly");
     numbers
 }
 
@@ -376,21 +480,26 @@ fn a_savegame_that_does_not_fit_is_refused_before_anything_changes() {
     // Point the last record at a module that does not exist, leaving every
     // length intact. Module 11 is the second record, so a loader that applied
     // as it went would have restored the flag before it noticed.
+    //
+    // The checksum is repaired afterwards, which is the point: a file that
+    // does not add up is refused as damaged before any record is looked at,
+    // and this test is about the record that is looked at.
     let path = saves.join("701.FRZ");
     let mut bytes = std::fs::read(&path).expect("701.FRZ");
-    let word = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().expect("4 bytes"));
-    let mut at = 16;
-    for _ in 0..word(&bytes, 12) as usize - 1 {
-        at += 8 + word(&bytes, at + 4) as usize * 4;
+    let (start, len) = section(body(&bytes, b"DS2FRZ\0\0"), b"MODS");
+    let mods = HEAD + start;
+    let mut at = mods + 4;
+    for _ in 0..cell::index(word(&bytes, mods)) - 1 {
+        at += 8 + cell::index(word(&bytes, at + 4)) * 4;
     }
+    assert!(at < mods + len, "the last record is inside the section");
     bytes[at..at + 4].copy_from_slice(&999u32.to_le_bytes());
+    let sealed = crc32(&bytes[HEAD..]);
+    bytes[16..20].copy_from_slice(&sealed.to_le_bytes());
     std::fs::write(&path, &bytes).expect("a tampered savegame");
 
     game.vm.data.push(701);
-    let err = game
-        .engine
-        .word("=>GETAS", &mut game.vm)
-        .expect_err("must be refused");
+    let err = game.kernel_word("=>GETAS").expect_err("must be refused");
     assert!(
         err.to_string().contains("module 999"),
         "the error should name it: {err}"
@@ -486,7 +595,7 @@ fn a_game_saves_and_loads_through_its_own_menu() {
     );
     let table = game.address(2, "_LOADTABLE").expect("_LOADTABLE").next();
     assert_eq!(
-        game.vm.mem.fetch(table).unwrap() as i32,
+        cell::signed(game.vm.mem.fetch(table).unwrap()),
         1,
         "slot 0 now shows as taken"
     );
@@ -630,7 +739,7 @@ fn a_savegame_loaded_into_a_fresh_game_hands_out_no_handle_twice() {
     );
 
     kernel(&mut fresh, "NEWSETDESC", &[0, 0, 0, 0, 0, 0]);
-    let handed_out = fresh.vm.data.pop().expect("a handle") as u32;
+    let handed_out = cell::unsigned(fresh.vm.data.pop().expect("a handle"));
     assert!(
         handed_out > restored,
         "a new descriptor got handle {handed_out}, which {restored} already reaches"

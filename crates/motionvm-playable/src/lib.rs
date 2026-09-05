@@ -7,7 +7,20 @@
 //! line; what a platform owns — the window, the devices, the event loop —
 //! stays on the window's.
 
-pub use motionvm_render::{Framebuffer, Palette};
+pub use motionvm_render::{Frame, Framebuffer, Palette};
+
+/// How big a game's picture is, in its own pixels.
+///
+/// A struct and not a pair for the reason [`PixelAspect`] is one: two numbers
+/// of the same type in a tuple invite each other's place, and a picture
+/// composed at the transposed size is plausible enough to ship.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Size {
+    /// Pixels per row.
+    pub width: u16,
+    /// Rows.
+    pub height: u16,
+}
 
 /// The shape of one of a game's pixels on its original monitor, as the
 /// familiar pixel aspect ratio: width to height. Square is 1:1; the era's
@@ -173,12 +186,12 @@ pub trait Playable: Send {
     /// Words and not a roster type, because the roster is the family's own:
     /// what a window does with the answer — a title bar — needs a string.
     fn name(&self) -> &str;
-    /// The size of the picture [`Playable::render`] answers with.
+    /// The size of the picture [`Playable::frame`] answers with.
     ///
     /// Constant for the game's lifetime, like [`Playable::pixel_aspect`]: a
     /// window may cache both, and a family whose original switches modes
     /// mid-run renders into one size and says so here.
-    fn display_size(&self) -> (u16, u16);
+    fn display_size(&self) -> Size;
     /// The shape of one of that picture's pixels on the game's own monitor.
     /// Square unless the game says otherwise: the display modes of the time
     /// were all shown on 4:3 screens, and a mode whose grid is not 4:3 had
@@ -188,6 +201,20 @@ pub trait Playable: Send {
     /// [`Playable::display_size`].
     fn pixel_aspect(&self) -> PixelAspect {
         PixelAspect::default()
+    }
+    /// Reseeds whatever the game draws random numbers from, called before
+    /// [`Playable::start`] and not again.
+    ///
+    /// The default body ignores it, which is right for a game with nothing
+    /// random in it. A game that has something is expected to be *repeatable*
+    /// without this call — the same seed, or none, gives the same run — because
+    /// that is what lets a scene be rendered twice and compared, which is how
+    /// an engine of this kind is checked at all. So the platform hands over a
+    /// seed rather than the engine reaching for a clock: a window wants a
+    /// different game every launch, and a test wants the same one every run,
+    /// and only the caller knows which it is.
+    fn seed(&mut self, seed: u64) {
+        let _ = seed;
     }
     /// Begins the game the way it begins itself, and returns once the game
     /// is parked in its own frame loop — everything after this is
@@ -211,16 +238,23 @@ pub trait Playable: Send {
     /// at the game's own pace. A press between two frames still lands, the
     /// way a keystroke in the buffer does.
     fn button(&mut self, which: Button, down: bool);
-    /// Takes one key transition — a press or a release, like
-    /// [`Playable::button`] for the keyboard.
+    /// Takes one key press.
     ///
     /// Nothing is answered on purpose: a press the game has no code for, or
     /// one arriving on a full buffer, is dropped as silently as the hardware
     /// of its day dropped it. What a press *means* is the engine's
-    /// translation, made behind this call; a game that reads only presses
-    /// ignores the releases, and the releases still cross so one that reads
-    /// held keys can.
-    fn key(&mut self, press: &KeyPress, down: bool);
+    /// translation, made behind this call.
+    fn key_down(&mut self, press: &KeyPress);
+    /// Takes one key release.
+    ///
+    /// Its own method because a release is not a press: it was the same call
+    /// with a `down: bool`, and every implementation opened by testing that
+    /// flag and dropping half the calls. A game that reads only presses
+    /// leaves this alone, which is the default body, and one that reads held
+    /// keys has the releases it needs.
+    fn key_up(&mut self, press: &KeyPress) {
+        let _ = press;
+    }
     /// The scroll wheel, in lines: positive `dy` rolls away from the hand,
     /// positive `dx` to the right. A game without anything to scroll leaves
     /// it alone, which is the default body.
@@ -240,14 +274,17 @@ pub trait Playable: Send {
     fn modifiers(&mut self, shift: bool, ctrl: bool, alt: bool) {
         let _ = (shift, ctrl, alt);
     }
-    /// The frame to show, pointer and all.
+    /// The frame to show, pointer and all — the picture and the palette its
+    /// indices mean, together.
     ///
-    /// By value on purpose: the window reads [`Playable::palette`] while it
-    /// holds the frame, which a borrowed return could not allow, and a frame
-    /// is small next to what presenting it costs.
-    fn render(&mut self) -> Framebuffer;
-    /// The palette the frame's indices mean.
-    fn palette(&self) -> &Palette;
+    /// Borrowed, and the two halves in one call, because that is the only
+    /// shape that can be: a picture handed over on its own would have to be
+    /// owned, since the palette would be fetched by a second borrow — and an
+    /// owned frame is 307 200 bytes allocated for every present.
+    ///
+    /// `&mut self` because a game composes the frame when it is asked for one
+    /// — the pointer goes on last, over whatever the drawer left.
+    fn frame(&mut self) -> Frame<'_>;
     /// How long the frame [`Playable::step`] is about to run should last on
     /// screen, or `None` for a frame the game wants no wait after at all —
     /// the window then paces the loop as it likes.
@@ -279,6 +316,16 @@ pub trait Playable: Send {
     fn saves(&self) -> Option<&std::path::Path> {
         None
     }
+    /// What the game noticed about its own run: see [`Diagnostic`]. The
+    /// default body has nothing to say.
+    ///
+    /// A pull rather than a sink handed in at open, so that a game reports
+    /// only when asked and a window decides when that is — at exit, or behind
+    /// a key. Calling it twice answers twice: it is the report as it stands,
+    /// not a queue that empties.
+    fn diagnostics(&self) -> Vec<Diagnostic> {
+        Vec::new()
+    }
     /// Whether the game has run to its end.
     fn finished(&self) -> bool;
     /// Asks the game to begin at location `n` — the game's own numbering of
@@ -291,6 +338,35 @@ pub trait Playable: Send {
     /// The location the game itself wants to begin at, if it says.
     fn start_location(&self) -> Option<i32> {
         None
+    }
+}
+
+/// Something a game noticed about its own run and could not act on.
+///
+/// Not an error: nothing here stopped anything. These are the things a
+/// reimplementation knows about itself that nobody else can — a resource it
+/// walked past, a read that went nowhere, a song it could not decode — and
+/// that would otherwise be lost the moment the run ends. An engine of this
+/// kind is a claim about another program, and a claim needs a way to say
+/// where it fell short of one.
+///
+/// The family collects them; the window decides what to do with them, which
+/// is why nothing here prints. A library that prints has chosen for its caller
+/// both where the report goes and when, and on a windowed build the answer to
+/// the first is *nowhere*.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diagnostic {
+    /// What this is about, in a word or two: a heading a reader can group by
+    /// and a window can use as a prefix. A literal, because a category is
+    /// always one.
+    pub subject: &'static str,
+    /// The sentence itself, in the family's own words.
+    pub detail: String,
+}
+
+impl std::fmt::Display for Diagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.subject, self.detail)
     }
 }
 
@@ -332,7 +408,13 @@ pub trait Family: Sync {
     /// The family's name, for prose.
     fn name(&self) -> &'static str;
     /// The games the family plays, in the order its documentation lists them.
-    fn games(&self) -> Vec<GameCard>;
+    ///
+    /// Borrowed and static: a roster is a fixed list, and it was rebuilt into
+    /// a fresh `Vec` every time a usage text was printed or a directory was
+    /// refused. That the cards are `&'static str` already constrains a roster
+    /// to static data, so answering a slice of them costs a family nothing it
+    /// was not already paying.
+    fn games(&self) -> &'static [GameCard];
     /// The game `dir` holds, if it holds one of this family's — answered
     /// from file names alone, so a window may ask every family cheaply
     /// before any of them opens anything, and told by its card, so what was

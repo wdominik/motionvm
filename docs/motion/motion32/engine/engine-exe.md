@@ -21,8 +21,9 @@ shipped file contains `4 =>GET` and `START` — load module 4, run its
 `START` word, which launches the game. Without a valid `START` the engine
 drops into the MOTION IDE instead and creates a project file `NONAME.PRJ`.
 
-The engine requires a VESA 640×480 256-color mode; plain VGA is not
-sufficient.
+The game asks for VESA mode `0x101` — 640×480 in 256 colors — through
+`640x480x256 SETRES`; the engine's own table knows seven modes, from plain
+VGA 320×200 to 1024×768 in 32K colors ([screens](screens.md#the-video-mode)).
 
 ## LE image structure
 
@@ -114,6 +115,23 @@ importers `FULLCUT`/`XYCUT`/`SCANCUT` (see
 [Kernel words](../vm/kernel-words.md)), the IDE, and the debugger. The
 `Scanning for ...` messages printed at startup while the resource files are
 indexed also come from this layer.
+
+## Open questions
+
+What is open about this binary as a binary, each kept in the
+[ledger](../../open-questions.md):
+
+- **Table 1's ordinal base**, the one of the three kernel tables whose base
+  is inferred rather than read ([kernel words](../vm/kernel-words.md#open-questions)).
+- **Who feeds the tick counter** behind the pointer at `0xE7F38`, and at
+  what rate: the binary programs no timer of its own, and its arithmetic
+  assumes a 1020 Hz master
+  ([game loop](game-loop.md#where-the-200-hz-comes-from-and-where-it-stops)).
+- **The handlers still unread**, word by word, under the ledger's
+  [*Remaining unmapped kernel words and handler regions*](../../open-questions.md#remaining-unmapped-kernel-words-and-handler-regions)
+  — and the seven the shipped game names and cannot reach, which stay
+  unbuilt with their reasons there.
+- **`RSC.INF`**, the resource metadata beside the containers, not analyzed.
 
 ## See also
 

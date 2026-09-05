@@ -6,6 +6,7 @@
 //! because a silently mis-implemented primitive would corrupt game state in a
 //! way that is very hard to trace back.
 
+use crate::cell;
 use motionvm_motion_formats::Binding;
 
 /// Which primitive an ordinal stands for.
@@ -176,10 +177,10 @@ pub(crate) fn prim_of(name: &str) -> Prim {
 /// kernel table whose name and ordinal disagreed has always run the ordinal.
 pub(crate) fn dispatch_table(binding: &Binding) -> Vec<Prim> {
     let inline = &binding.inline;
-    let top = binding.words.last().map_or(0, |&(o, _)| o) as usize;
+    let top = cell::index(binding.words.last().map_or(0, |&(o, _)| o));
     let mut table = vec![Prim::Absent; top + 1];
     for &(ordinal, ref name) in &binding.words {
-        table[ordinal as usize] = if inline.is_branch(ordinal) {
+        table[cell::index(ordinal)] = if inline.is_branch(ordinal) {
             Prim::Branch
         } else if ordinal == inline.put_lit {
             Prim::PutLit
@@ -330,12 +331,12 @@ mod tests {
             (inline::PUT_STRING_ADR, "_PutStringAdr"),
             (inline::LOOP_END, "_LoopEnd"),
         ]);
-        assert_eq!(t[inline::CHECK_IF as usize], Prim::Branch);
-        assert_eq!(t[inline::PUT_LIT as usize], Prim::PutLit);
-        assert_eq!(t[inline::PUT_ADR as usize], Prim::PutAdr);
-        assert_eq!(t[inline::PUT_CONST as usize], Prim::PutConst);
-        assert_eq!(t[inline::PUT_STRING_ADR as usize], Prim::PutStringAdr);
-        assert_eq!(t[inline::LOOP_END as usize], Prim::Branch);
+        assert_eq!(t[cell::index(inline::CHECK_IF)], Prim::Branch);
+        assert_eq!(t[cell::index(inline::PUT_LIT)], Prim::PutLit);
+        assert_eq!(t[cell::index(inline::PUT_ADR)], Prim::PutAdr);
+        assert_eq!(t[cell::index(inline::PUT_CONST)], Prim::PutConst);
+        assert_eq!(t[cell::index(inline::PUT_STRING_ADR)], Prim::PutStringAdr);
+        assert_eq!(t[cell::index(inline::LOOP_END)], Prim::Branch);
     }
 
     /// An empty kernel table is one `Absent` entry, not a panic.

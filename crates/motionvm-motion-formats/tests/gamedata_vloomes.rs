@@ -93,7 +93,7 @@ fn every_sprite_unpacks_to_exactly_its_header_plus_its_pixels() {
         let s = gfx::Sprite::parse(item).unwrap_or_else(|e| panic!("sprite {id}: {e}"));
         assert_eq!(
             item.len(),
-            gfx::HEADER_LEN + s.width as usize * s.height as usize,
+            gfx::HEADER_LEN + usize::from(s.width) * usize::from(s.height),
             "sprite {id}"
         );
         widest = widest.max(s.width);
@@ -166,7 +166,7 @@ fn every_module_parses_and_the_locations_come_in_pairs() {
     for id in &present {
         let m = scr::ScrModule::parse(c.item(Segment::Scr, *id).unwrap().unwrap())
             .unwrap_or_else(|e| panic!("module {id}: {e}"));
-        assert_eq!(m.module as usize, *id, "module number is its slot");
+        assert_eq!(usize::from(m.module), *id, "module number is its slot");
         for e in &m.entries {
             if e.is_variable() {
                 vars += 1;
@@ -252,7 +252,7 @@ fn the_kernel_binds_its_own_base_and_not_the_later_builds() {
     let ds = mz::kernel_words(&img)
         .first()
         .map(|w| {
-            let e = w.entry as usize;
+            let e = usize::try_from(w.entry).unwrap();
             u16::from_le_bytes([img.bytes()[e + 2], img.bytes()[e + 3]])
         })
         .unwrap();
@@ -305,6 +305,35 @@ fn this_builds_hot_area_test_has_no_hole_case() {
             "{}",
             exe.display()
         );
+    }
+}
+
+/// The hundred-descriptor test at the top of `NEWSETDESC` is the three later
+/// builds' and not this one's: `LL.EXE` (file `0x44ce`) takes a screen's
+/// count and raises it without looking.
+#[test]
+fn this_builds_newsetdesc_does_not_test_for_a_hundred() {
+    let Some(dir) = gamedata_vloomes() else {
+        eprintln!("skipping: no Victor Loomes gamedata directory");
+        return;
+    };
+    let img = mz::Image::open(game_file(&dir, "LL.EXE")).expect("LL.EXE opens");
+    let words = mz::kernel_words(&img);
+    assert!(!mz::newsetdesc_capped(&img, &words));
+
+    for other in [
+        motionvm_motion_testutil::gamedata_enviro(),
+        motionvm_motion_testutil::gamedata_jeffjet(),
+        motionvm_motion_testutil::gamedata_hfa(),
+    ] {
+        let Some(other) = other else { continue };
+        let exe = ["ENVIRO.EXE", "HPPLAY.EXE", "BMZ.EXE"]
+            .into_iter()
+            .find_map(|n| motionvm_motion_formats::find_ci(&other, n))
+            .expect("an engine binary");
+        let img = mz::Image::open(&exe).expect("the binary opens");
+        let words = mz::kernel_words(&img);
+        assert!(mz::newsetdesc_capped(&img, &words), "{}", exe.display());
     }
 }
 

@@ -65,7 +65,7 @@
 //! use.
 
 use crate::error::{Error, Result};
-use crate::{cp437_to_string, u32le};
+use crate::{Record, bytes, cp437_char, slice};
 
 /// The twelve bytes every script module starts with.
 pub const MAGIC: &[u8; 12] = b"USERDEF\0#F0\0";
@@ -101,7 +101,7 @@ pub struct Entry {
 impl Entry {
     /// Offset of the first body cell within the module.
     pub fn body_offset(&self) -> usize {
-        self.offset + HEADER_LEN
+        self.offset.saturating_add(HEADER_LEN)
     }
 
     /// The address other words use to call this one.
@@ -112,7 +112,7 @@ impl Entry {
     /// refer to each other settled it: bodies at 0x60, 0x7c and 0x98 came out
     /// as 0x0c, 0x13 and 0x1a, seven apart for words 28 bytes apart.
     pub fn call_offset(&self) -> u32 {
-        ((self.body_offset() - ADDRESS_BASE) / 4) as u32
+        crate::narrow(self.body_offset().saturating_sub(ADDRESS_BASE) / 4)
     }
 }
 
@@ -144,28 +144,20 @@ pub struct ScrModule {
 impl ScrModule {
     /// Reads a script module.
     pub fn parse(item: &[u8]) -> Result<Self> {
-        if item.len() < DICT_OFF {
-            return Err(Error::Truncated {
-                off: 0,
-                need: DICT_OFF,
-                have: item.len(),
-            });
-        }
-        if &item[..MAGIC.len()] != MAGIC {
+        let head = Record(bytes::<DICT_OFF>(item, 0)?);
+        let magic = head.bytes::<0, { MAGIC.len() }>();
+        if &magic != MAGIC {
             return Err(Error::Corrupt {
                 what: "script module",
-                detail: format!(
-                    "script magic is {:02x?}, expected USERDEF",
-                    &item[..MAGIC.len()]
-                ),
+                detail: format!("script magic is {magic:02x?}, expected USERDEF"),
             });
         }
 
-        let module = u32le(item, 0x10)?;
-        let declared_mem_len = u32le(item, 0x1c)? as usize;
-        let second_area_len = u32le(item, 0x20)? as usize;
-        let dp_cells = u32le(item, 0x24)? as usize;
-        let entry = u32le(item, 0x30)?;
+        let module = head.u32::<0x10>();
+        let declared_mem_len = head.u32at::<0x1c>();
+        let second_area_len = head.u32at::<0x20>();
+        let dp_cells = head.u32at::<0x24>();
+        let entry = head.u32::<0x30>();
         // Words run to the end of *module memory*, which is `DP * 4` bytes from
         // 0x30 — not to 0x50 + 16004. Stopping at the latter hid most of every
         // module: 65 words live in module 202's 45832 bytes, and the two the
@@ -177,25 +169,27 @@ impl ScrModule {
         // The upper bound is not cosmetic: past DP lies the second region,
         // which is not code and must not be walked as if it were. Measured over
         // all 86 modules, no word begins at or past it.
-        let dict_end = (ADDRESS_BASE + dp_cells * 4).min(item.len());
+        let mem_end = ADDRESS_BASE.saturating_add(dp_cells.saturating_mul(4));
+        let dict_end = mem_end.min(item.len());
 
         let mut entries = Vec::new();
         let mut off = DICT_OFF;
-        while off + HEADER_LEN <= dict_end {
+        while let Some(body_start) = off.checked_add(HEADER_LEN).filter(|&b| b <= dict_end) {
             // The dictionary is not one unbroken run: modules typically hold a
             // first group of words, then a stretch of padding, then more. So a
             // position that is not a header means skip ahead, not stop —
             // stopping there would silently drop most of a module.
             let Some(header) = read_header(item, off, dict_end) else {
-                off += 4;
+                off = off.saturating_add(4);
                 continue;
             };
-            let body_start = off + HEADER_LEN;
             let end = body_end(item, body_start, dict_end);
-            let body = (body_start..end)
-                .step_by(4)
-                .map(|o| u32le(item, o))
-                .collect::<Result<Vec<_>>>()?;
+            let body = slice(item, body_start, end.saturating_sub(body_start))?
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c))
+                .collect();
             entries.push(Entry {
                 name: header.0,
                 declared_len: header.1,
@@ -215,13 +209,13 @@ impl ScrModule {
             declared_mem_len,
             tail_len: item
                 .len()
-                .saturating_sub(ADDRESS_BASE + dp_cells * 4 + second_area_len),
+                .saturating_sub(mem_end.saturating_add(second_area_len)),
         })
     }
 
     /// Bytes of module memory: everything an address can reach, from 0x30 on.
     pub fn mem_len(&self) -> usize {
-        self.dp_cells * 4
+        self.dp_cells.saturating_mul(4)
     }
 
     /// Module number and offset of the entry point.
@@ -231,10 +225,12 @@ impl ScrModule {
 
     /// The word whose body covers `offset`, for resolving intra-module calls.
     pub fn entry_at(&self, offset: usize) -> Option<&Entry> {
-        self.entries
-            .iter()
-            .rev()
-            .find(|e| e.offset <= offset && offset < e.body_offset() + e.body.len() * 4)
+        self.entries.iter().rev().find(|e| {
+            e.offset <= offset
+                && offset
+                    .checked_sub(e.body_offset())
+                    .is_none_or(|into_body| into_body / 4 < e.body.len())
+        })
     }
 }
 
@@ -247,12 +243,18 @@ impl ScrModule {
 /// the header test only ever runs at a genuine cell boundary.
 fn body_end(item: &[u8], start: usize, limit: usize) -> usize {
     let mut p = start;
-    while p + 4 <= limit {
+    while let Some(next) = p.checked_add(4).filter(|&n| n <= limit) {
         if read_header(item, p, limit).is_some() {
             break;
         }
-        let cell = u32::from_le_bytes(item[p..p + 4].try_into().expect("4 bytes"));
-        p += 4;
+        // `limit` is at most the item's length, checked by the caller, so the
+        // four bytes are there; a limit that lied ends the walk rather than
+        // the process.
+        let Some(&bytes) = item.get(p..).and_then(|rest| rest.first_chunk::<4>()) else {
+            break;
+        };
+        let cell = u32::from_le_bytes(bytes);
+        p = next;
         // A zero cell is the return that closes a colon definition, but it also
         // occurs mid-body as an early return, so it cannot end the walk on its
         // own. What does end it is a return with nothing but padding behind it:
@@ -265,14 +267,18 @@ fn body_end(item: &[u8], start: usize, limit: usize) -> usize {
         }
         let ordinal = cell & 0xffff;
         if crate::m32::le::inline::takes_cell(ordinal) {
-            p += 4;
+            p = p.saturating_add(4);
         } else if crate::m32::le::inline::takes_string(ordinal) {
-            let end = item[p..limit]
-                .iter()
-                .position(|&b| b == 0)
-                .map_or(limit, |n| p + n + 1);
-            // Strings are padded out to the next cell boundary.
-            p = (end + 3) & !3;
+            let text = crate::nul_terminated(item.get(p..limit).unwrap_or_default());
+            // The terminator is included, and strings are padded out to the
+            // next cell boundary.
+            p = if text.len() == limit.saturating_sub(p) {
+                limit
+            } else {
+                p.saturating_add(text.len())
+                    .saturating_add(1)
+                    .next_multiple_of(4)
+            };
         }
     }
     p.min(limit)
@@ -286,8 +292,11 @@ fn body_end(item: &[u8], start: usize, limit: usize) -> usize {
 /// operand, and consecutive returns do not occur.
 fn rest_is_padding(item: &[u8], p: usize, limit: usize) -> bool {
     const LOOKAHEAD: usize = 4 * 4;
-    let end = (p + LOOKAHEAD).min(limit);
-    item[p..end].iter().all(|&b| b == 0)
+    item.get(p..limit)
+        .unwrap_or_default()
+        .iter()
+        .take(LOOKAHEAD)
+        .all(|&b| b == 0)
 }
 
 /// Reads a word header at `off`, or `None` if there is not one there.
@@ -299,22 +308,27 @@ fn rest_is_padding(item: &[u8], p: usize, limit: usize) -> bool {
 /// enough: a literal's bytes cannot pass it, because a plausible length byte
 /// would have to be followed by printable characters and then NUL padding.
 fn read_header(item: &[u8], off: usize, limit: usize) -> Option<(String, usize, u32)> {
-    if off + HEADER_LEN > limit {
+    if off.checked_add(HEADER_LEN).is_none_or(|end| end > limit) {
         return None;
     }
-    let declared_len = item[off] as usize;
+    let head = Record(bytes::<HEADER_LEN>(item, off).ok()?);
+    let declared_len = usize::from(head.u8::<0>());
     if declared_len == 0 || declared_len > 32 {
         return None;
     }
     let kept = declared_len.min(NAME_CAP);
-    let name_field = &item[off + 1..off + 1 + NAME_CAP];
+    let name_field = head.bytes::<1, NAME_CAP>();
     // The kept part must be printable, and anything beyond it must be padding.
-    if name_field[..kept].iter().any(|&b| b < 0x20) {
+    if name_field.iter().take(kept).any(|&b| b < 0x20) {
         return None;
     }
-    if name_field[kept..].iter().any(|&b| b != 0) {
+    if name_field.iter().skip(kept).any(|&b| b != 0) {
         return None;
     }
-    let flags = u32::from_le_bytes(item[off + 12..off + 16].try_into().ok()?);
-    Some((cp437_to_string(&name_field[..kept]), declared_len, flags))
+    let name = name_field
+        .iter()
+        .take(kept)
+        .map(|&b| cp437_char(b))
+        .collect();
+    Some((name, declared_len, head.u32::<12>()))
 }

@@ -40,7 +40,7 @@ impl Palette {
 
     /// The palette entry for `index`, widened from 6 to 8 bits per channel.
     pub fn rgb8(&self, index: u8) -> [u8; 3] {
-        let o = index as usize * 3;
+        let o = usize::from(index) * 3;
         [
             widen(self.raw[o]),
             widen(self.raw[o + 1]),
@@ -83,5 +83,43 @@ mod tests {
         assert_eq!(widen(0), 0);
         assert_eq!(widen(63), 255);
         assert_eq!(widen(32), 130);
+    }
+
+    /// Every one of the sixty-four values a channel can hold, checked rather
+    /// than three of them.
+    ///
+    /// A property over an exhaustive domain, which is what makes it a proof
+    /// and not a sample: a 6-bit channel has sixty-four values, so "for all"
+    /// is a loop. What it holds to is what widening is *for* — the bit pattern
+    /// repeated into the low bits, so that the range ends land on 0 and 255
+    /// and nothing in between jumps by more than the step below it.
+    #[test]
+    fn widening_is_monotone_and_reaches_both_ends() {
+        let widened: Vec<u8> = (0..64).map(widen).collect();
+        assert_eq!(widened[0], 0, "the darkest value is black");
+        assert_eq!(widened[63], 255, "the brightest is white");
+        for pair in widened.windows(2) {
+            assert!(
+                pair[1] > pair[0],
+                "widening should be strictly increasing, got {pair:?}"
+            );
+            // Four or five: 63 steps spanning 255 cannot all be equal, and a
+            // jump of six would mean a value the widening skips over twice.
+            let step = pair[1] - pair[0];
+            assert!((4..=5).contains(&step), "a step of {step} between {pair:?}");
+        }
+    }
+
+    /// Narrowing a widened value gives it back.
+    ///
+    /// The direction that matters for a comparison against the original: a
+    /// capture arrives as 8-bit colour and has to be reduced to the 6-bit
+    /// values the game's palette holds, and a reduction that did not invert
+    /// the widening would put a picture one shade off everywhere.
+    #[test]
+    fn narrowing_a_widened_value_gives_it_back() {
+        for v6 in 0..64u8 {
+            assert_eq!(widen(v6) >> 2, v6, "{v6} did not survive the round trip");
+        }
     }
 }

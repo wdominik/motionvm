@@ -16,7 +16,9 @@
 
 use motionvm_motion_engine::Display;
 use motionvm_motion_formats::m32::{Kind, Sprite, rsc::Bank};
+use motionvm_motion_forth::cell;
 use motionvm_motion_testutil::gamedata_ds2;
+use motionvm_playable::Size;
 use motionvm_render::Palette;
 use motionvm_render::{Framebuffer, Picture, TRANSPARENT};
 
@@ -108,8 +110,10 @@ fn transparency_is_honored_on_real_art() {
     let (mut kept, mut drawn) = (0, 0);
     for y in 0..masked.height {
         for x in 0..masked.width {
-            let src = masked.pixels[y as usize * masked.width as usize + x as usize];
-            let got = fb.get(x as i32, y as i32).expect("inside the buffer");
+            let src = masked.pixels[usize::from(y) * usize::from(masked.width) + usize::from(x)];
+            let got = fb
+                .get(i32::from(x), i32::from(y))
+                .expect("inside the buffer");
             if src == TRANSPARENT {
                 assert_eq!(
                     got, UNDER,
@@ -138,8 +142,12 @@ fn drawing_past_the_edge_clips() {
 
     for y in 0..64 {
         for x in 0..64 {
-            let want = big.pixels[(y + 32) * big.width as usize + (x + 32)];
-            assert_eq!(fb.get(x as i32, y as i32), Some(want), "at {x},{y}");
+            let want = big.pixels[(y + 32) * usize::from(big.width) + (x + 32)];
+            assert_eq!(
+                fb.get(cell::count(x), cell::count(y)),
+                Some(want),
+                "at {x},{y}"
+            );
         }
     }
 }
@@ -172,7 +180,10 @@ fn palette_expansion_matches_the_sprites_own_colors() {
 #[test]
 fn composing_the_games_screen_layout_keeps_each_layer_in_place() {
     let (big, _, _) = art_or_skip!();
-    let mut d = Display::with_size(640, 480);
+    let mut d = Display::with_size(Size {
+        width: 640,
+        height: 480,
+    });
 
     // Main picture, filling the top 400 rows.
     let main = d.new_screen();
@@ -201,7 +212,7 @@ fn composing_the_games_screen_layout_keeps_each_layer_in_place() {
     );
     assert_eq!(
         out.get(0, 399),
-        big.pixels.get(399 * big.width as usize).copied()
+        big.pixels.get(399 * usize::from(big.width)).copied()
     );
     assert_eq!(out.get(0, 400), Some(0x22), "status bar starts at row 400");
     assert_eq!(out.get(639, 479), Some(0x22));

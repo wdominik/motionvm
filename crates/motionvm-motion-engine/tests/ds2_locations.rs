@@ -15,7 +15,8 @@
 //!   built at run time and not something we have.
 //! - **6** calls `PSETWALK` on Gaby before her shadow record exists, so it
 //!   reads `0 + 44`.
-//! - **7 and 8** call `?INVINCL`.
+//! - **7 and 8** call `?INVINCL`. Those two stay inside loaded modules doing
+//!   it, in the frames the test below drives; the other three do not.
 //!
 //! Location 12 is left out on purpose: its entry in the location table is
 //! uninitialized in the shipped data, so entering it is a jump into nowhere in
@@ -26,13 +27,23 @@
 use motionvm_motion_engine::Game;
 use motionvm_motion_testutil::gamedata_ds2;
 
-/// All five load and keep running, stray reads and all.
+/// All five load and keep running, stray reads and all — and the run says
+/// afterwards which of them read past a module and how often.
+///
+/// The second half is what the departures ledger promises: such a read is
+/// "counted … and names the total at the end of a run". Which locations
+/// actually produce one is asserted rather than assumed, because that set is
+/// worth knowing and a new member of it is worth being told about. Three of
+/// the five do within the frames driven here — 5 and 10 through `KRSCHRZIEHE`,
+/// 6 through the shadow record that is not there yet. Locations 7 and 8 reach
+/// `?INVINCL` and stay inside loaded modules doing it.
 #[test]
 fn the_locations_that_read_through_stray_pointers_still_load() {
     let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
+    let mut strayed = Vec::new();
     for want in [5, 6, 7, 8, 10] {
         let mut game = Game::open(&dir).expect("game opens");
         game.start().expect("4:START");
@@ -52,7 +63,29 @@ fn the_locations_that_read_through_stray_pointers_still_load() {
             reached |= game.get_var(2, "_ACTLOC") == Some(want);
         }
         assert!(reached, "location {want} was never entered");
+
+        // And the run says so afterwards. The ledger's promise about these
+        // reads is that they are "counted … and names the total at the end of
+        // a run", which for a long time nothing outside a test ever asked for;
+        // these five locations are where the counting has something to count.
+        let notes = motionvm_motion_engine::Driven::diagnostics(&game);
+        if let Some(strays) = notes
+            .iter()
+            .find(|d| d.subject == "reads into modules that are not loaded")
+        {
+            assert!(
+                strays.detail.starts_with(|c: char| c.is_ascii_digit()),
+                "the line opens with the total: {}",
+                strays.detail
+            );
+            strayed.push(want);
+        }
     }
+    assert_eq!(
+        strayed,
+        [5, 6, 10],
+        "a location started or stopped reading past a module"
+    );
 }
 
 /// `=>GET` (0x64999) loads a module out of the resource file every time it
@@ -66,8 +99,6 @@ fn the_locations_that_read_through_stray_pointers_still_load() {
 /// out of context does not always let go again on request.
 #[test]
 fn a_locations_modules_come_back_pristine_on_re_entry() {
-    use motionvm_motion_forth::Host;
-
     let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
@@ -98,14 +129,23 @@ fn a_locations_modules_come_back_pristine_on_re_entry() {
     game.set_var(223, "_ZOOMIT", initial + 77).expect("write");
     assert_eq!(game.get_var(223, "_ZOOMIT"), Some(initial + 77));
 
-    // What `INCLLOC` does on the way out and back in.
+    // What `INCLLOC` does on the way out and back in: the memory goes with
+    // the slot, and comes back from the container.
     let depth = game.vm.data.len();
-    for (word, module) in [("=>ERASE", 223), ("=>GET", 223)] {
-        game.vm.data.push(module);
-        game.engine
-            .word(word, &mut game.vm)
-            .unwrap_or_else(|e| panic!("{word}: {e}"));
-    }
+    game.vm.data.push(223);
+    assert!(
+        game.kernel_word("=>ERASE").expect("=>ERASE"),
+        "=>ERASE is a word this engine implements"
+    );
+    assert!(
+        game.vm.module(223).is_none(),
+        "`=>ERASE` gives module 223's memory back"
+    );
+    game.vm.data.push(223);
+    assert!(
+        game.kernel_word("=>GET").expect("=>GET"),
+        "=>GET is a word this engine implements"
+    );
     assert_eq!(
         game.get_var(223, "_ZOOMIT"),
         Some(initial),

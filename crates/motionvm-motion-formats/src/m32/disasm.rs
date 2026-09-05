@@ -10,9 +10,10 @@
 //! Without that last rule a literal would be mistaken for a word reference,
 //! since a small integer looks exactly like an offset into module 0.
 
-use crate::cp437_to_string;
+use crate::cursor::Cursor;
 use crate::m32::le::{KernelWord, TAG_KERNEL, inline, ordinal_of};
 use crate::m32::scr::{Entry, ScrModule};
+use crate::{cp437_to_string, nul_terminated};
 
 /// What a single cell turned out to be.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +85,7 @@ impl Cell {
 ///
 /// Holds the kernel table for the primitives and a symbol table for calls;
 /// [`Disassembler::learn`] fills the second from a parsed module.
+#[derive(Debug)]
 pub struct Disassembler<'a> {
     words: &'a [KernelWord],
     /// Word names by `(module, body offset)`, so calls can be shown by name.
@@ -127,10 +129,8 @@ impl<'a> Disassembler<'a> {
     pub fn decode(&self, entry: &Entry) -> Vec<Cell> {
         let raw: Vec<u8> = entry.body.iter().flat_map(|c| c.to_le_bytes()).collect();
         let mut out = Vec::new();
-        let mut p = 0usize;
-        while p + 4 <= raw.len() {
-            let cell = u32::from_le_bytes(raw[p..p + 4].try_into().expect("4 bytes"));
-            p += 4;
+        let mut c = Cursor::new(&raw, 0);
+        while let Ok(cell) = c.u32() {
             if cell >> 16 != TAG_KERNEL >> 16 {
                 let (module, offset) = (cell >> 16, cell & 0xffff);
                 out.push(Cell::Call {
@@ -149,18 +149,16 @@ impl<'a> Disassembler<'a> {
                 ordinal,
                 name: name.to_string(),
             });
-            if inline::takes_cell(ordinal) && p + 4 <= raw.len() {
-                out.push(Cell::Data(u32::from_le_bytes(
-                    raw[p..p + 4].try_into().expect("4 bytes"),
-                )));
-                p += 4;
+            if inline::takes_cell(ordinal) {
+                if let Ok(operand) = c.u32() {
+                    out.push(Cell::Data(operand));
+                }
             } else if inline::takes_string(ordinal) {
-                let end = raw[p..]
-                    .iter()
-                    .position(|&b| b == 0)
-                    .map_or(raw.len(), |n| p + n);
-                out.push(Cell::Text(cp437_to_string(&raw[p..end])));
-                p = (end + 1 + 3) & !3;
+                let text = nul_terminated(c.remaining());
+                out.push(Cell::Text(cp437_to_string(text)));
+                // The terminator, then padding out to the next cell.
+                let after = c.position().saturating_add(text.len()).saturating_add(1);
+                c.seek(after.next_multiple_of(4));
             }
         }
         out
@@ -202,14 +200,9 @@ impl<'a> Disassembler<'a> {
             let cells = self.decode(e);
             // One line per eight cells keeps long threads readable while still
             // letting an offset be located quickly.
-            for (i, chunk) in cells.chunks(8).enumerate() {
+            for (at, chunk) in (e.body_offset()..).step_by(8 * 4).zip(cells.chunks(8)) {
                 let rendered: Vec<String> = chunk.iter().map(Cell::render).collect();
-                let _ = writeln!(
-                    s,
-                    "{:#07x}    {}",
-                    e.body_offset() + i * 8 * 4,
-                    rendered.join(" ")
-                );
+                let _ = writeln!(s, "{at:#07x}    {}", rendered.join(" "));
             }
             let _ = writeln!(s, "         ;");
         }
@@ -221,16 +214,14 @@ impl<'a> Disassembler<'a> {
     /// This is the number that decides how much of the kernel actually has to be
     /// reimplemented: the table has 356 entries, but a game only reaches for a
     /// fraction of them.
-    pub fn usage<'m>(
-        &self,
-        modules: impl IntoIterator<Item = &'m ScrModule>,
-    ) -> Vec<(String, usize)> {
+    pub fn usage(&self, modules: &[ScrModule]) -> Vec<(String, usize)> {
         let mut counts: std::collections::HashMap<String, usize> = Default::default();
         for m in modules {
             for e in &m.entries {
                 for c in self.decode(e) {
                     if let Cell::Kernel { name, .. } = c {
-                        *counts.entry(name).or_default() += 1;
+                        let count: &mut usize = counts.entry(name).or_default();
+                        *count = count.saturating_add(1);
                     }
                 }
             }

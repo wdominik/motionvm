@@ -83,6 +83,15 @@ Three absences in those tables are load-bearing:
 - **`motionvm-app` does not depend on `motionvm-motion-engine`.** The window
   drives a `Box<dyn Playable>` and holds a list of families; the only family
   crate it names is a front door, and only in `roster.rs`.
+- **What a build decides is a different type from what a frame changes.** The
+  engine holds a `Profile` — every capability its opener read off the shipped
+  binary, the savegame layout, the display mode — which is `Copy`, has no
+  method that changes it, and arrives whole through `Engine::new`. Everything
+  else is state, and it is grouped by subject rather than lying flat: `Scene`
+  (the descriptors and what a picture is drawn from), `Input`, `Transitions`,
+  `Cursor`, `Sound`, `Persistence`, `Dialogue`. So `self.profile.opaque_blocks`
+  is visibly a fact about the engine build and `self.input.polls` visibly is
+  not; on one flat struct neither would be visibly anything.
 - **There are no Cargo features anywhere in the workspace.** Family,
   generation, build and game variance is expressed in crates, modules, types
   and values read from the game's own files — so every configuration is always
@@ -112,14 +121,35 @@ in one sentence.
 
 ### Generation is a type
 
+There **is** one `Generation`, in `motionvm-motion-formats`, and what it
+selects is *formats*: which container the resources are in, how a script module
+is laid out, which savegame magic is written, which music stack plays. It never
+selects behavior. What the engine does differently is a capability, named for
+the behavior and carrying the address it was measured at — see below, and note
+that three of those already vary *within* a generation, which is the whole case
+for the split. One type and not one per crate: a roster's, a savegame
+layout's and a tool's own enum for the same question would agree by convention
+only. The one place two arms still say "which generation" is the engine's
+resource holder, and they stay because they hold two different container
+types — a place to put them rather than a question to ask.
+
 There is no `EngineVersion` enum and no `if version >= n` anywhere. The two
 machines are two concrete types — `motionvm_motion_forth::m16::Vm` and `m32::Vm` —
-behind three traits at that crate's root:
+and they are **two interpreters, not one parameterized by a width**, because
+the two originals are: the 32-bit engine keeps a loop's limit in a frame of its
+own, the 16-bit one keeps limit and index on the return stack, their `EXECUTE`s
+take different things, and each was read out of its own binary. What they do
+share is their own bookkeeping — the step budget, the trace, the counters, the
+generator, the nesting depth — and that lives in one `Core` both hold. They
+meet the rest of the workspace behind three traits at that crate's root:
 
 - **`Machine`** — start, resume and park an execution, look a word up, read a
-  variable. What the generic driver drives.
+  variable, and say how many cells and host words it has run. What the generic
+  driver drives.
 - **`Host<M>`** — how a kernel word the machine does not own reaches the
-  engine, *by name*.
+  engine, *by ordinal*. The engine resolves each of its kernel's ordinals into
+  one of its own words when the game opens, and indexes that table thereafter;
+  a name is materialized only to report one that is not implemented.
 - **`AddressSpace`** — machine-neutral memory access. `cell_size()` answers 2
   or 4, and the shared word groups take `&mut dyn AddressSpace`, so one
   implementation serves both cell widths.
@@ -185,10 +215,9 @@ in `motionvm-motion-engine` names a title.
 | `Machine` / `Host<M>` / `AddressSpace` | `motionvm-motion-forth`'s root | the engine from either machine |
 | `Generation` | `titles/mod.rs` | one family-internal answer — which container, savegame layout and music stack — off the roster's total match |
 | `Resources` | `resources.rs` | the only place engine code knows which container format is open |
-| `Engine::with_container` | `resources.rs` | the single generation switch: attaching a 16-bit container *is* the switch |
+| `Profile` | `profile.rs` | what a build decides when a game opens from what a frame changes; the two generations' readings are its two constructors |
 | `Player` | `motionvm-motion-audio`'s root | a song from the driver that sounds it |
 | `Picture` | `motionvm-render`'s root | a decoded picture from the container it was decoded out of |
-| `Hooks` | `game.rs` | the generic driver from what one game does that another does not |
 | `LocationScheme` | `game.rs` | one location mechanism from five sets of variable names |
 | `Rules` | `order.rs`, `words/` | one algorithm from the generation-different constants it runs on |
 
@@ -197,14 +226,16 @@ in `motionvm-motion-engine` names a title.
 Where the two generations really do behave differently, the engine carries
 thirteen named booleans and a savegame layout — `opaque_blocks`, `text_runs`,
 `per_screen_descriptors`, `skips_holes` and the rest — each documented with the
-disassembly address it was measured at. They default to the 32-bit reading and
-are flipped in one place, `Engine::with_container`, with three exceptions:
-`skips_holes`, `walk_defaults_shrink` and `walk_smooths_headings` are probed
-from the shipped binary, so the 16-bit opener writes what it read.
+disassembly address it was measured at. They live on the `Profile`, which is
+built whole before the engine exists: `Profile::motion32` and
+`Profile::motion16` are the two readings, and `skips_holes`,
+`walk_defaults_shrink` and `walk_smooths_headings` are probed out of the
+shipped binary by the 16-bit opener, which puts what it read into the profile
+rather than into a built engine.
 
 Ten of them are, today, two-valued functions of "is this the 16-bit engine",
-and collapsing them into a generation enum would lose nothing that is currently
-true. It is deliberately not done. Each was *measured separately*, each names a
+and folding them into the `Generation` above would lose nothing that is
+currently true. It is deliberately not done. Each was *measured separately*, each names a
 behavior rather than a version, and `skips_holes` and the walk builder's two
 already vary within a generation — which is the whole case for capabilities
 over version tests in a family whose next build is unknown.
@@ -234,10 +265,80 @@ function is never right either way. Between the layers the same discipline
 holds a different way: what an engine measured is said on the engine's side,
 and the neutral layer states only its own contract.
 
+## Rejected alternatives
+
+The shapes a reader would want to reach for, gathered from the guard
+comments beside the code so that what was weighed is visible without a
+search. Each names what it would buy and what it would cost, in the present
+tense, because the cost is still there.
+
+- **A loop over function pointers for the kernel-word groups.** `word32` and
+  `word16` in `words/mod.rs` ask fifteen or seventeen groups in turn, written
+  out. A table of function pointers would fold that to five lines and put a
+  layer between the reader and the list of groups — and the list, in the
+  original's own section order, is the reader's map of the kernel.
+- **Kernel words dispatched by name.** A `match name` per group, the first to
+  recognize a string winning, makes the order of the groups load-bearing with
+  nothing checking it: eleven names mean a different handler on the two
+  machines, and a call order would be the only thing telling them apart. A
+  word is one value of an enum instead, resolved once per kernel when the
+  game opens, and a duplicate name is a compile error (`words/word.rs`).
+- **One primitive set generic over a cell width.** About twenty-six of the
+  two machines' arms are the same one-liners; the rest are two engines read
+  separately — the 16-bit one keeps a loop's limit and index on the return
+  stack, the 32-bit one in a frame of its own, and `EXECUTE`, `LEAVE`,
+  `WHILE` and both string skips differ with it. A `Cell` trait would write
+  the twenty-six once and turn the other twenty-one into trait methods, an
+  indirection between every measured address and the code it explains. What
+  is genuinely one thing — the step budget, the trace, the counters, the
+  generator, the nesting depth — is one `Core` (`motionvm-motion-forth`).
+- **A `Rules`-parameterized dialogue machine.** The sharing rule above says
+  it: the two conversation machines are the same machine *read twice*, and
+  a parameterized one would have to pretend that two speaker words and a
+  speaker table are the same shape with different numbers.
+- **One type for a picture and a framebuffer.** Same three fields; a source
+  and a target. Nothing converts one into the other and `Picture` has no
+  methods, so folding them would remove three declarations and one compiler
+  check — the one that stops a surface being blitted as a sprite
+  (`motionvm-render`).
+- **Accessors over `Game.vm` and `Game.engine`.** The two are public because
+  the test suites are the inspection point. The guarantee accessors would
+  hold — that nothing outside replaces an engine — is held by the crate
+  graph already: the only crate depending on the engine is the front door,
+  and what it hands a window is a `Box<dyn Playable>` (`game.rs`).
+- **A `Cell` in place of the stray-read `RefCell`.** The 32-bit memory counts
+  reads into modules that are not loaded behind a `&self` fetch. A `Cell`
+  total with a fixed array of the first addresses would be one borrow that
+  cannot fail and a few allocations saved on a cold path, at the cost of the
+  tail of the report; and it is not what keeps the machine `Send` and not
+  `Sync` — the music sink is `Send` alone (`m32/mod.rs`).
+- **Handing a finished song back to the game thread.** The old song is
+  dropped on the audio thread when a new one arrives. A second channel would
+  avoid even that free, for a location change that happens every few
+  minutes; more machinery than the problem is worth (`motionvm-motion/src/music.rs`).
+- **A generation enum that selects behavior.** Ten of the thirteen
+  capabilities are two-valued functions of "is this the 16-bit engine" today
+  and could be folded into `Generation`. Each was measured separately, three
+  already vary within a generation, and the next build is unknown; the
+  section above says the rest.
+- **The inspection CLI depending on the engine.** It could then say which
+  kernel words the engine implements. It reads more games than the player
+  plays, and the narrowing would be silent — both crates are the family's,
+  so the boundary test would not object. The coverage question is answered
+  by the engine's own suite instead (`motionvm-motion-tools/src/main.rs`).
+- **`pedantic` as a group.** Two thirds of what it would say is a
+  mechanical `#[must_use]` pass and an errors section the `Result` type
+  already documents; the manifest carries the numbers, and the three of its
+  lints the tree does hold to are on one at a time. The casts, which were
+  most of the group, are named instead: every `as` is inside a function
+  whose `#[expect]` says which rule it applies, and `as_conversions` is
+  denied (`motionvm-motion-forth/src/cell.rs`).
+
 ## Extending the tree
 
-The step-by-step procedures live in `CONTRIBUTING.md`; this is the shape they
-follow.
+The step-by-step procedures live in `CONTRIBUTING.md`, and what the contract
+asks of a family, method by method, in `docs/writing-a-family.md`; this is
+the shape they follow.
 
 **A further game of a family the tree already plays** is a `Title` variant —
 whose total matches then refuse to compile until every answer about the game

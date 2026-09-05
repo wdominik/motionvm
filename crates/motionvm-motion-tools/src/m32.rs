@@ -192,8 +192,9 @@ pub(crate) fn extract(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::
         crate::over_claimed(over)
     );
 
-    // Which primitives the game actually reaches for. This is the number that
-    // decides how much of the 356-word kernel has to be reimplemented.
+    // Which kernel words the game reaches for, and which the 32-bit machine
+    // implements itself; the rest are the engine's, and whether the engine has
+    // them is the engine's own suite's to say — these tools know no engine.
     let usage = dis.usage(&modules);
     let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("kernel-usage.txt"))?);
     writeln!(f, "{:<16} {:>8}  VM", "WORD", "USES")?;
@@ -210,10 +211,10 @@ pub(crate) fn extract(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::
         writeln!(f, "{name:<16} {n:>8}  {}", if have { "yes" } else { "" })?;
     }
     println!(
-        "{:>6} of {} kernel words used; {done} implemented, covering {:.0}% of all uses -> {}",
+        "{:>6} of {} kernel words used; {done} implemented by the machine, covering {:.0}% of all uses -> {}",
         usage.len(),
         kernel.len(),
-        100.0 * done_uses as f64 / total_uses.max(1) as f64,
+        crate::percent(done_uses, total_uses),
         out.join("kernel-usage.txt").display()
     );
 
@@ -260,7 +261,7 @@ pub(crate) fn script(dir: &Path, id: usize) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-fn write_module(f: &mut impl Write, m: &ScrModule, dis: &Disassembler) -> std::io::Result<()> {
+fn write_module(f: &mut impl Write, m: &ScrModule, dis: &Disassembler<'_>) -> std::io::Result<()> {
     write!(f, "{}", dis.module(m))
 }
 
@@ -272,12 +273,13 @@ fn write_module(f: &mut impl Write, m: &ScrModule, dis: &Disassembler) -> std::i
 fn write_png(path: &Path, sprite: &Sprite) -> Result<(), Box<dyn std::error::Error>> {
     motionvm_render::write_indexed_png(
         path,
-        sprite.width as u32,
-        sprite.height as u32,
+        u32::from(sprite.width),
+        u32::from(sprite.height),
         &sprite.pixels,
         Palette::from_6bit(&sprite.palette).to_rgb8(),
         Some(motionvm_render::TRANSPARENT),
     )
+    .map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -295,7 +297,7 @@ mod tests {
         let counts = [3u32, 1, 1, 1, 1, 1];
         let total = 2 * counts[0] + counts[1..].iter().sum::<u32>();
         let table_end = 0x30 + total * 4;
-        let mut offsets = vec![table_end + 12; total as usize];
+        let mut offsets = vec![table_end + 12; usize::try_from(total).unwrap()];
         offsets[0] = table_end; // slot 0: six bytes
         offsets[1] = table_end + 6; // slot 1: starts after slot 2 ends
         offsets[2] = table_end + 5;
@@ -307,7 +309,7 @@ mod tests {
         for o in &offsets {
             v.extend_from_slice(&o.to_le_bytes());
         }
-        v.resize(table_end as usize + 12, 0xaa);
+        v.resize(usize::try_from(table_end).unwrap() + 12, 0xaa);
         v
     }
 

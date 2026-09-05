@@ -21,6 +21,7 @@
 //! changes no pixel, so the picture is the same; where the two could
 //! differ is a departure.
 
+use motionvm_motion_forth::cell;
 use motionvm_render::Framebuffer;
 use std::collections::BTreeMap;
 
@@ -53,7 +54,7 @@ impl Buffers {
             self.by_id.remove(&id);
             return;
         }
-        let (w, h) = (width as u16, height as u16);
+        let (w, h) = (cell::low16(width), cell::low16(height));
         self.by_id.insert(
             id,
             Buffer {

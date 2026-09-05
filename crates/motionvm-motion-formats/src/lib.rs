@@ -15,8 +15,21 @@
 //! there is one, and the corpus the reading was checked against — which is
 //! always one game's, and named.
 
+// The readers are this crate's whole surface toward a file a player supplies,
+// and a damaged one is refused, never crashed on — `tests/mutation.rs` cuts
+// and flips the shipped files to check it. These two lints hold that by
+// construction rather than by corpus: an index has been bounds-checked or is a
+// constant, and a sum says what it does at the edge. The tests are outside
+// the rule, because a test indexes what it built.
+#![cfg_attr(
+    not(test),
+    deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)
+)]
+
+mod cursor;
 pub mod error;
 pub mod font;
+pub mod generation;
 pub mod kernel;
 pub mod lzw;
 pub mod m16;
@@ -24,6 +37,7 @@ pub mod m32;
 pub mod text;
 
 pub use error::{Error, Result};
+pub use generation::Generation;
 pub use kernel::{Binding, Inline, KernelWord};
 pub use text::TextTable;
 
@@ -72,36 +86,180 @@ pub fn find_ci(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> 
 /// stops the reservation itself from aborting the process before the loop gets
 /// a chance to report the real problem.
 pub(crate) fn reserve<T>(count: usize, have: usize, per_item: usize) -> Vec<T> {
-    Vec::with_capacity(count.min(have / per_item.max(1) + 1))
+    let fit = have.checked_div(per_item).unwrap_or(have);
+    Vec::with_capacity(count.min(fit.saturating_add(1)))
+}
+
+/// The refusal for a read of `need` bytes at `off` that `d` does not hold.
+pub(crate) fn past_end(d: &[u8], off: usize, need: usize) -> Error {
+    Error::Truncated {
+        off,
+        need,
+        have: d.len(),
+    }
+}
+
+/// `N` bytes at `off`, or `Err` if they would run past the end.
+pub(crate) fn bytes<const N: usize>(d: &[u8], off: usize) -> Result<&[u8; N]> {
+    d.get(off..)
+        .and_then(|rest| rest.first_chunk())
+        .ok_or_else(|| past_end(d, off, N))
+}
+
+/// `len` bytes at `off`, or `Err` if they would run past the end.
+pub(crate) fn slice(d: &[u8], off: usize, len: usize) -> Result<&[u8]> {
+    d.get(off..)
+        .and_then(|rest| rest.get(..len))
+        .ok_or_else(|| past_end(d, off, len))
+}
+
+/// Everything from `off` on — nothing, when `off` is the end — or `Err` if
+/// `off` is past it.
+pub(crate) fn tail(d: &[u8], off: usize) -> Result<&[u8]> {
+    d.get(off..).ok_or_else(|| past_end(d, off, 0))
+}
+
+/// `count` records of `N` bytes each, back to back from `off`, or `Err` if
+/// the last of them would run past the end.
+pub(crate) fn records<const N: usize>(d: &[u8], off: usize, count: usize) -> Result<&[[u8; N]]> {
+    d.get(off..)
+        .and_then(|rest| rest.as_chunks().0.get(..count))
+        .ok_or_else(|| past_end(d, off, count.saturating_mul(N)))
+}
+
+/// `N` little-endian `u16`s back to back at `off`.
+pub(crate) fn words<const N: usize>(d: &[u8], off: usize) -> Result<[u16; N]> {
+    let raw = records::<2>(d, off, N)?;
+    let mut out = [0u16; N];
+    for (word, bytes) in out.iter_mut().zip(raw) {
+        *word = u16::from_le_bytes(*bytes);
+    }
+    Ok(out)
+}
+
+/// `N` little-endian `u32`s back to back at `off`.
+pub(crate) fn dwords<const N: usize>(d: &[u8], off: usize) -> Result<[u32; N]> {
+    let raw = records::<4>(d, off, N)?;
+    let mut out = [0u32; N];
+    for (word, bytes) in out.iter_mut().zip(raw) {
+        *word = u32::from_le_bytes(*bytes);
+    }
+    Ok(out)
+}
+
+/// A record read whole, whose fields sit at constant offsets inside it.
+///
+/// A field is named by its offset and width as constants, and the pair is
+/// held inside the record at compile time — which is the proof a bare index
+/// into the array cannot give, since a slice index is checked at run time
+/// whatever it was computed from.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Record<'a, const LEN: usize>(pub(crate) &'a [u8; LEN]);
+
+impl<const LEN: usize> Record<'_, LEN> {
+    /// The `N` bytes at `AT`, which the constants place inside the record.
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        reason = "held inside the record by the assertion on the constants"
+    )]
+    pub(crate) fn bytes<const AT: usize, const N: usize>(self) -> [u8; N] {
+        const {
+            assert!(AT + N <= LEN, "a field lies inside its record");
+        }
+        std::array::from_fn(|i| self.0[AT + i])
+    }
+
+    pub(crate) fn u8<const AT: usize>(self) -> u8 {
+        self.bytes::<AT, 1>()[0]
+    }
+
+    pub(crate) fn u16<const AT: usize>(self) -> u16 {
+        u16::from_le_bytes(self.bytes::<AT, 2>())
+    }
+
+    pub(crate) fn i16<const AT: usize>(self) -> i16 {
+        i16::from_le_bytes(self.bytes::<AT, 2>())
+    }
+
+    pub(crate) fn u32<const AT: usize>(self) -> u32 {
+        u32::from_le_bytes(self.bytes::<AT, 4>())
+    }
+
+    /// A `u32` field as what it is used for next: an offset into, or a count
+    /// of things in, the file it came out of.
+    pub(crate) fn u32at<const AT: usize>(self) -> usize {
+        wide(self.u32::<AT>())
+    }
+}
+
+/// The bytes before the first NUL, or all of them when there is none: a
+/// C string as the formats store one.
+pub(crate) fn nul_terminated(bytes: &[u8]) -> &[u8] {
+    bytes.split(|&b| b == 0).next().unwrap_or_default()
 }
 
 /// Reads one byte at `off`, or `Err` if that is past the end.
 pub(crate) fn u8at(d: &[u8], off: usize) -> Result<u8> {
-    d.get(off).copied().ok_or(Error::Truncated {
-        off,
-        need: 1,
-        have: d.len(),
-    })
+    Ok(bytes::<1>(d, off)?[0])
 }
 
 /// Reads a little-endian `u16` at `off`, or `Err` if it would run past the end.
 pub(crate) fn u16le(d: &[u8], off: usize) -> Result<u16> {
-    let b = d.get(off..off + 2).ok_or(Error::Truncated {
-        off,
-        need: 2,
-        have: d.len(),
-    })?;
-    Ok(u16::from_le_bytes([b[0], b[1]]))
+    Ok(u16::from_le_bytes(*bytes(d, off)?))
 }
 
 /// Reads a little-endian `u32` at `off`, or `Err` if it would run past the end.
 pub(crate) fn u32le(d: &[u8], off: usize) -> Result<u32> {
-    let b = d.get(off..off + 4).ok_or(Error::Truncated {
-        off,
-        need: 4,
-        have: d.len(),
-    })?;
-    Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    Ok(u32::from_le_bytes(*bytes(d, off)?))
+}
+
+/// Reads a little-endian `i16` at `off` — a field the format keeps signed.
+pub(crate) fn i16le(d: &[u8], off: usize) -> Result<i16> {
+    Ok(i16::from_le_bytes(*bytes(d, off)?))
+}
+
+/// Reads a little-endian `u32` at `off` as what it is used for next: an
+/// offset into, or a count of things in, the file it came out of.
+pub(crate) fn u32at(d: &[u8], off: usize) -> Result<usize> {
+    u32le(d, off).map(wide)
+}
+
+/// A 32-bit offset or count read out of a file, as an index into it.
+///
+/// Lossless on every target this workspace builds for, all of which have a
+/// `usize` at least 32 bits wide; `usize` has no `From<u32>` because Rust
+/// does not promise that for every target it has.
+#[expect(
+    clippy::as_conversions,
+    reason = "a widening on every target this builds for; `usize` has no `From<u32>`"
+)]
+pub(crate) fn wide(n: u32) -> usize {
+    n as usize
+}
+
+/// An offset inside a file the reader holds whole, as the 32-bit number the
+/// format writes it as. Every file these readers open is far smaller than
+/// 4 GiB — the largest container in the corpus is 7.6 MB — so the value is
+/// the offset and not a truncation of it.
+#[expect(
+    clippy::as_conversions,
+    reason = "an offset inside a file held in memory, smaller than 4 GiB by the corpus"
+)]
+pub(crate) fn narrow(n: usize) -> u32 {
+    n as u32
+}
+
+/// A 16-bit cell read signed: the machine's own reading of an inline operand
+/// or a field the format keeps signed.
+pub(crate) fn sign16(cell: u16) -> i16 {
+    i16::from_le_bytes(cell.to_le_bytes())
+}
+
+/// The low sixteen bits of a word: a code out of a bit buffer.
+pub(crate) fn low_word(v: u32) -> u16 {
+    let [a, b, ..] = v.to_le_bytes();
+    u16::from_le_bytes([a, b])
 }
 
 /// Decodes a NUL-terminated CP437 byte string into a Rust `String`.
@@ -121,10 +279,14 @@ pub fn cp437_to_string(bytes: &[u8]) -> String {
 /// umlaut twice. `a_decoded_string_has_one_char_per_byte` holds this down.
 ///
 /// Maps one CP437 byte to its Unicode code point.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a byte less 0x80 is below 128, the table's length"
+)]
 pub fn cp437_char(b: u8) -> char {
-    if b < 0x80 {
-        return b as char;
-    }
+    let Some(high) = b.checked_sub(0x80) else {
+        return char::from(b);
+    };
     const HIGH: [char; 128] = [
         'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å', 'É', 'æ',
         'Æ', 'ô', 'ö', 'ò', 'û', 'ù', 'ÿ', 'Ö', 'Ü', '¢', '£', '¥', '₧', 'ƒ', 'á', 'í', 'ó', 'ú',
@@ -135,7 +297,7 @@ pub fn cp437_char(b: u8) -> char {
         '∞', 'φ', 'ε', '∩', '≡', '±', '≥', '≤', '⌠', '⌡', '÷', '≈', '°', '∙', '·', '√', 'ⁿ', '²',
         '■', '\u{a0}',
     ];
-    HIGH[(b - 0x80) as usize]
+    HIGH[usize::from(high)]
 }
 
 #[cfg(test)]

@@ -10,19 +10,20 @@ use crate::Engine;
 use crate::TextTemplate;
 use crate::stack::pop_n;
 use crate::stack::pop1;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
 
 impl Engine {
     pub(crate) fn words_text(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // --- fonts and text ---------------------------------------------
-            "+FONT" => {
+            Word::PLUS_FONT => {
                 let n = pop1(stack, "+FONT")?;
                 stack.push(self.load_font(n).unwrap_or(-1));
             }
@@ -42,12 +43,12 @@ impl Engine {
             // `=>ERASE`). Appending instead left the intro's entry first
             // in line with a font that no longer existed, and every text
             // on templates 2 and 6 lost its outline for the whole game.
-            "DEFTDT" => {
+            Word::DEFTDT => {
                 let args = pop_n(stack, 9, "DEFTDT")?;
                 let id = *args.last().unwrap_or(&0);
-                match self.templates.iter_mut().find(|t| t.id == id) {
+                match self.scene.templates.iter_mut().find(|t| t.id == id) {
                     Some(t) => t.args = args,
-                    None => self.templates.push(TextTemplate { id, args }),
+                    None => self.scene.templates.push(TextTemplate { id, args }),
                 }
             }
 

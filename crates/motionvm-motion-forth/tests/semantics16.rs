@@ -12,6 +12,7 @@
 
 use motionvm_motion_formats::m16::scr::ScrModule;
 use motionvm_motion_formats::{Binding, Inline};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m16::{Vm, word_address};
 use motionvm_motion_forth::{Address, Error, Host, NullHost, Result, Run};
 
@@ -108,7 +109,7 @@ fn binding() -> Binding {
     let mut words: Vec<(u32, String)> = CORE
         .iter()
         .enumerate()
-        .map(|(i, n)| (i as u32 + 1, n.to_string()))
+        .map(|(i, n)| (cell::narrow(i) + 1, n.to_string()))
         .collect();
     words.push((105, "TOGFX".into()));
     words.push((106, "GFXTO".into()));
@@ -120,7 +121,7 @@ fn ordinal(name: &str) -> u16 {
     let o = binding()
         .ordinal(name)
         .unwrap_or_else(|| panic!("{name} is not in the kernel"));
-    0x8000 | o as u16
+    0x8000 | cell::module(o)
 }
 
 // --------------------------------------------------------------- the assembler
@@ -140,7 +141,7 @@ enum C {
 fn module(number: u16, words: &[(u16, &str, &[C])]) -> Vec<u8> {
     let first = words.first().map_or(0, |w| w.0);
     let last = words.last().map_or(0, |w| w.0);
-    let n = words.len() as u16;
+    let n = cell::flat(words.len());
     let mut v = Vec::new();
     for x in [first, last, n, first, last, n] {
         v.extend_from_slice(&x.to_le_bytes());
@@ -154,13 +155,13 @@ fn module(number: u16, words: &[(u16, &str, &[C])]) -> Vec<u8> {
     for (_, _, cells) in words {
         cursor += 8;
         offsets.push(cursor);
-        cursor += cells.len() as u16;
+        cursor += cell::flat(cells.len());
     }
     for o in &offsets {
         v.extend_from_slice(&o.to_le_bytes());
     }
     for (id, name, cells) in words {
-        v.push(name.len() as u8);
+        v.push(u8::try_from(name.len()).unwrap());
         let mut nm = name.as_bytes().to_vec();
         nm.resize(11, 0);
         v.extend_from_slice(&nm);
@@ -170,7 +171,7 @@ fn module(number: u16, words: &[(u16, &str, &[C])]) -> Vec<u8> {
             let cell: u16 = match c {
                 C::K(n) => ordinal(n),
                 C::Id(id) => *id,
-                C::N(n) => *n as u16,
+                C::N(n) => cell::unsigned16(*n),
             };
             v.extend_from_slice(&cell.to_le_bytes());
         }
@@ -248,7 +249,7 @@ fn a_variable_pushes_the_address_of_its_cell_and_returns() {
     vm.data.clear();
     // The address `X` leaves is the flat address of its data cell, and it
     // lies inside module 1.
-    let addr = run(&mut vm, 1, "X").unwrap()[0] as u16;
+    let addr = cell::low16(run(&mut vm, 1, "X").unwrap()[0]);
     assert_eq!(vm.mem.locate(addr).map(|a| a.module()), Some(1));
     vm.data.clear();
     // A constant pushes its value and returns without touching the cell
@@ -345,14 +346,59 @@ fn arithmetic_wraps_at_sixteen_bits_and_flags_are_one() {
     vm.data.clear();
     assert_eq!(run(&mut vm, 1, "NEG").unwrap(), [-15]);
     vm.data.clear();
-    // True is 1 — the 32-bit engine's measured flag, the hypothesis here.
+    // True is 1, read at `12c8:03f2` and its siblings.
     assert_eq!(run(&mut vm, 1, "CMP").unwrap(), [1]);
     vm.data.clear();
     // `AND` is logical, `&` bitwise: 2 AND 1 is 1, 2 & 1 is 0.
     assert_eq!(run(&mut vm, 1, "LOG").unwrap(), [1, 0]);
     vm.data.clear();
-    // Our choice, as on the 32-bit side: truncating division and remainder.
-    assert_eq!(run(&mut vm, 1, "DIV").unwrap(), [-3, 1]);
+    // Read: `/` divides the low words unsigned (`12c8:0030`), so −7 is
+    // 0xfff9 and the quotient 32764; `MOD` the same (`12c8:0072`).
+    assert_eq!(run(&mut vm, 1, "DIV").unwrap(), [32764, 1]);
+}
+
+/// `/` and `MOD` divide the low words unsigned (`12c8:0030`, `12c8:0072`:
+/// `xor dx, dx` then `div`), so a negative dividend is a large one; `/`
+/// answers 0 for a zero divisor where `MOD` is the processor's own fault.
+#[test]
+fn division_is_unsigned_and_a_zero_divisor_answers_zero_or_faults() {
+    let word = |a: i16, b: i16, op: &'static str| -> [C; 6] {
+        [
+            C::K("_PutLit"),
+            C::N(a),
+            C::K("_PutLit"),
+            C::N(b),
+            C::K(op),
+            RET,
+        ]
+    };
+    let (neg_div, neg_mod, by_zero, mod_zero) = (
+        word(-6, 2, "/"),
+        word(-7, 4, "MOD"),
+        word(5, 0, "/"),
+        word(5, 0, "MOD"),
+    );
+    let mut vm = machine(
+        1,
+        &[
+            (400, "NEGDIV", &neg_div),
+            (401, "NEGMOD", &neg_mod),
+            (402, "BYZERO", &by_zero),
+            (403, "MODZERO", &mod_zero),
+        ],
+    );
+    // 0xfffa / 2 = 0x7ffd, and 0xfff9 % 4 = 1: what an unsigned divide of
+    // the cell's bits gives, not −3 and −3.
+    assert_eq!(run(&mut vm, 1, "NEGDIV").unwrap(), [0x7ffd]);
+    vm.data.clear();
+    assert_eq!(run(&mut vm, 1, "NEGMOD").unwrap(), [1]);
+    vm.data.clear();
+    assert_eq!(run(&mut vm, 1, "BYZERO").unwrap(), [0]);
+    vm.data.clear();
+    assert!(
+        matches!(run(&mut vm, 1, "MODZERO"), Err(Error::DivideByZero { .. })),
+        "MOD by zero is a fault"
+    );
 }
 
 #[test]
@@ -453,6 +499,29 @@ fn do_loop_takes_limit_then_index_and_i_reads_the_return_stack() {
     ];
     let mut vm = machine(1, &[(400, "RCOPY", body)]);
     assert_eq!(run(&mut vm, 1, "RCOPY").unwrap(), [-2, -2]);
+}
+
+#[test]
+fn a_loop_index_steps_in_sixteen_bits_and_wraps_where_the_add_does() {
+    // `-32768 32767 DO I 1 +LOOP`: the body runs once with I at the top of
+    // the range, the step carries the index round to -32768 — a 16-bit `add`,
+    // not a 32-bit one — and the loop leaves because the limit is not above
+    // it. A machine stepping in 32 bits would either run on or refuse.
+    let body: &[C] = &[
+        C::K("_PutLit"),
+        C::N(-32768),
+        C::K("_PutLit"),
+        C::N(32767),        // 0..3
+        C::K("_LoopStart"), // 4
+        C::K("I"),          // 5
+        C::K("_PutLit"),
+        C::N(1), // 6 7
+        C::K("_AddLoop"),
+        C::N(4), // 8 9 -> 5
+        RET,
+    ];
+    let mut vm = machine(1, &[(400, "EDGE", body)]);
+    assert_eq!(run(&mut vm, 1, "EDGE").unwrap(), [32767]);
 }
 
 #[test]
@@ -560,8 +629,8 @@ fn a_host_word_gets_the_machine_and_an_unknown_one_is_named() {
     /// A host that answers `TOGFX` by pushing a marker.
     struct Togfx;
     impl Host<Vm> for Togfx {
-        fn word(&mut self, name: &str, vm: &mut Vm) -> Result<bool> {
-            if name == "TOGFX" {
+        fn word(&mut self, ordinal: u32, vm: &mut Vm) -> Result<bool> {
+            if vm.ordinal_name(ordinal) == Some("TOGFX") {
                 vm.data.push(0x7777);
                 return Ok(true);
             }
@@ -601,7 +670,7 @@ fn a_string_operand_is_skipped_whole_and_its_address_pushed() {
     );
     let stack = run(&mut vm, 1, "S").unwrap();
     assert_eq!(stack[1], 9);
-    let addr = stack[0] as u16;
+    let addr = cell::low16(stack[0]);
     assert_eq!(vm.mem.read_bytes(addr, 2).unwrap(), b"Hi");
 }
 
@@ -610,8 +679,8 @@ fn a_pause_yields_and_resumes_where_it_stood() {
     /// Pauses after `TOGFX`, once.
     struct Pauser(bool);
     impl Host<Vm> for Pauser {
-        fn word(&mut self, name: &str, _vm: &mut Vm) -> Result<bool> {
-            if name == "TOGFX" {
+        fn word(&mut self, ordinal: u32, vm: &mut Vm) -> Result<bool> {
+            if vm.ordinal_name(ordinal) == Some("TOGFX") {
                 self.0 = true;
                 return Ok(true);
             }

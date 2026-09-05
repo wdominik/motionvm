@@ -58,11 +58,12 @@ The mode at +0x0C is the interaction state machine:
 | 6 / 7 | Waiting for the figure to walk up, and what follows the walk |
 | 8 | Execute the verb the menu picked |
 | 9 | Exit chosen — runs the leave verb, but on the **next** frame |
-| 0x11 | The yes/no menu (slots 0 and 1 are verbs 6 and 7) |
 | 12 / 13 | A spoken line stands on screen (13 = with a named speaker) |
 | 14 | Answer menu awaiting a pick |
-| 15, 17, 18 | Dialogue sub-states (unmapped) |
+| 15 | The conversation's last line — a branch only the routine `0x7b120` enters, and nothing reaches that routine; the shipped game cannot take it |
 | 16 | Conversation ending |
+| 17 | The item menu, mid-conversation: `INFO` and `GIVE` — verbs 6 and 7 — over the bar slot a right click landed on while the answers were up ([Dialogue machine](dialogue-machine.md#the-item-menu-modes-17-and-18)) |
+| 18 | The item menu's pick, waiting for the figure to be free before it runs as a forced order |
 | 97 → 99, 98 | Forced orders (see below) |
 
 `?DIALON`'s range 12–18 is exactly the dialogue modes.
@@ -264,6 +265,16 @@ menu modes (2/4/5) it does nothing. A last-mode global (`0xdbd5c`)
 forces a redraw when the case changes, and every branch ends by
 tail-calling the cursor callback.
 
+Two call sites, both in module 5 — `SCANITEM` (`0x02a90`) and `FSCANITEM`
+(`0x02bf0`) — and they push the same twenty-four save two: the thirteenth is
+`_IINFO` in one and `_MINFO` in the other, and the twenty-third, the redraw
+flag, is 0 in one and 1 in the other. The handler pops all twenty-four into
+locals (`0x798ea`–`0x79a1f`) and never reads four of them again: the bar's y
+(the second), `_ITEM` (the eleventh), `_IS` (the twelfth) and the thirteenth.
+So the one descriptor the two call sites disagree on is one the handler does
+not look at, and `FSCANITEM`'s forced redraw is the whole difference between
+them.
+
 ## The pointer draws itself
 
 The cursor is the mouse layer's own drawing, not a descriptor.
@@ -283,11 +294,7 @@ behind it, and above every descriptor regardless of level.
 
 ## Open questions
 
-- The verb-menu interaction chain (modes 2–8) beyond the initial build.
-- The case bodies of verbs 1–4 and 6–8 (only skeletons and callback
-  slots are mapped).
 - The meaning of the pending fields +0x134/+0x1CC.
-- Helper routines `0x7ad26`, `0x7a759`, `0x7a552`, `0x7b053` (unread).
 
 ## See also
 

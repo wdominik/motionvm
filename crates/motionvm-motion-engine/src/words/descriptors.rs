@@ -8,22 +8,24 @@
 
 use crate::Descriptor;
 use crate::Engine;
+use crate::Field;
 use crate::Placement;
 use crate::Shows;
-use crate::descriptor::DESCRIPTOR_SETTERS;
 use crate::stack::pop_n;
 use crate::stack::pop1;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     pub(crate) fn words_descriptors(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
-        mem: &mut dyn AddressSpace,
+        mem: &dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // --- descriptors ------------------------------------------------
             // Six arguments, not the three the call sites suggest. The handler
             // pops six in a row (0x70c08 onwards): x, y, level, a graphic id,
@@ -49,11 +51,29 @@ impl Engine {
             // the frame walk would fire it on the very first frame and turn
             // every descriptor off before anything was drawn. The two belong
             // together.
-            "NEWSETDESC" => {
+            Word::NEWSETDESC => {
+                // A 16-bit screen has room for a hundred descriptors, and the
+                // three later builds' handler (`05f1:0ad4`) jumps past every
+                // pop and the push when the count stands at a hundred: the
+                // six arguments stay on the stack and no handle comes back.
+                // `LL.EXE`'s does not look, which the profile says. Nothing in
+                // the shipped games gets near it.
+                if self.profile.screen_holds_a_hundred {
+                    let screen = self.display.current.unwrap_or(0);
+                    let on_screen = self
+                        .scene
+                        .descriptors
+                        .iter()
+                        .filter(|d| d.screen == screen)
+                        .count();
+                    if on_screen >= 100 {
+                        return Ok(Some(()));
+                    }
+                }
                 let a = pop_n(stack, 6, "NEWSETDESC")?;
                 let handle = self.next_handle();
                 let stamp = self.next_stamp();
-                self.descriptors.push(Descriptor {
+                self.scene.descriptors.push(Descriptor {
                     handle,
                     stamp,
                     screen: self.display.current.unwrap_or(0),
@@ -75,38 +95,38 @@ impl Engine {
                     wait: -1,
                     ..Default::default()
                 });
-                self.selected = Some(self.descriptors.len() - 1);
-                stack.push(handle as i32);
+                self.scene.selected = Some(self.scene.descriptors.len() - 1);
+                stack.push(cell::signed(handle));
             }
             // `( -- handle )`: a bare descriptor, as the 16-bit `NEWDESC` (file
             // `0x9bb8`) makes one — the screen's next number, selected, with
             // nothing set. No script of Dunkle Schatten 2 calls it.
-            "NEWDESC" => {
+            Word::NEWDESC => {
                 let handle = self.next_handle();
                 let stamp = self.next_stamp();
-                self.descriptors.push(Descriptor {
+                self.scene.descriptors.push(Descriptor {
                     handle,
                     stamp,
                     screen: self.display.current.unwrap_or(0),
                     wait: -1,
                     ..Default::default()
                 });
-                self.selected = Some(self.descriptors.len() - 1);
-                self.selected_handle = Some(handle);
-                stack.push(handle as i32);
+                self.scene.selected = Some(self.scene.descriptors.len() - 1);
+                self.scene.selected_handle = Some(handle);
+                stack.push(cell::signed(handle));
             }
-            "ACTDESC" => {
-                let h = pop1(stack, "ACTDESC")? as u32;
+            Word::ACTDESC => {
+                let h = cell::unsigned(pop1(stack, "ACTDESC")?);
                 self.select_descriptor(h);
             }
-            "SDINACTIVE" => self.set_active(false),
-            "SDACTIVE" => self.set_active(true),
+            Word::SDINACTIVE => self.set_active(false),
+            Word::SDACTIVE => self.set_active(true),
             // Not a toggle: `0x72104` hands the descriptor a buffer number out
             // of a counter at 0xDB4B4, writes it to +0x1C and sets flag 0x08.
             // What hangs off that number is the save-under the drawer fills —
             // and having one is the only way anything in this engine is ever
             // erased. See [`Descriptor::buffer`](crate::Descriptor::buffer).
-            "SDAUTOBUF" => {
+            Word::SDAUTOBUF => {
                 if let Some(d) = self.descriptor_mut() {
                     d.auto_buffer = true;
                 }
@@ -118,25 +138,11 @@ impl Engine {
             // `SDV%SHR` with it. Setting the two named fields as well keeps a
             // later `SDH%SHR` from being undone by an earlier `SD%SHR`'s
             // fallback, and an earlier one from surviving it.
-            "SD%SHR" => {
+            Word::SD_PCT_SHR => {
                 let v = pop1(stack, "SD%SHR")?;
-                self.set_field("SD%SHR", v);
-                self.set_field("SDH%SHR", v);
-                self.set_field("SDV%SHR", v);
-            }
-            // The rest of the one-argument setters. Their names are kept as
-            // given; what each controls is measurable with the `GD*` getters
-            // when it matters, and a meaning guessed ahead of a measurement
-            // is a `KILLNDESC`-shaped trap: plausible, silent, and wrong.
-            _ if DESCRIPTOR_SETTERS.contains(&name) => {
-                let v = pop1(stack, "descriptor setter")?;
-                // The `&'static str` from the table rather than the borrowed
-                // `name`, because that is what the field map is keyed on. The
-                // search cannot miss — the guard just walked the same slice —
-                // but it says so by not answering rather than by asserting.
-                if let Some(&key) = DESCRIPTOR_SETTERS.iter().find(|k| **k == name) {
-                    self.set_field(key, v);
-                }
+                self.set_field(Field::SD_PCT_SHR, v);
+                self.set_field(Field::SDH_PCT_SHR, v);
+                self.set_field(Field::SDV_PCT_SHR, v);
             }
             // How long the current text is, in characters, newlines counted.
             //
@@ -153,11 +159,11 @@ impl Engine {
             // `_TSPEED` percent. With zero the first branch always won, and
             // every line in the game stood for the same two seconds instead of
             // a time that follows what it says.
-            "GDTEXTLEN" | "GDTXTLEN" => {
+            Word::GDTEXTLEN | Word::GDTXTLEN => {
                 let d = self.descriptor_mut().cloned().unwrap_or_default();
                 let n = self
                     .descriptor_text(&d)
-                    .map_or(0, |s| s.chars().count() as i32);
+                    .map_or(0, |s| cell::count(s.chars().count()));
                 stack.push(n);
             }
             // `SDBLK` (16-bit file `0xa625`) sets bit 0x2000 of the text
@@ -167,24 +173,24 @@ impl Engine {
             // the block's left edge and its inner spaces stretch to the
             // widest line (`14ee:11cf`, `14ee:111c`) — the newspaper's
             // module 615 is the caller.
-            "SDBLK" => {
+            Word::SDBLK => {
                 if let Some(d) = self.descriptor_mut() {
-                    d.fields.insert("SDBLK", 1);
+                    d.fields.set(Field::SDBLK, 1);
                 }
             }
-            "SDNORM" => {
+            Word::SDNORM => {
                 if let Some(d) = self.descriptor_mut() {
-                    d.fields.remove("SDBLK");
+                    d.fields.clear(Field::SDBLK);
                     d.x_mode = Placement::Edge;
                     d.y_mode = Placement::Edge;
                 }
             }
             // A toggle with no argument.
-            "SDPOS" => self.note_no_effect(name),
-            "SDINSERT" => {
+            Word::SDPOS => self.note_no_effect(word),
+            Word::SDINSERT => {
                 let a = pop_n(stack, 3, "SDINSERT")?;
                 if let Some(d) = self.descriptor_mut() {
-                    d.fields.insert("INSERT", a[0]);
+                    d.fields.set(Field::INSERT, a[0]);
                 }
                 // What it inserts is part of what the descriptor shows, so the
                 // change is marked like any other (0x6ab6e).
@@ -194,69 +200,95 @@ impl Engine {
             // original encodes exactly that as a mode next to the coordinate.
             // Which axis and which mode is all these arms carry; the store is
             // [`Engine::place_x`] and [`Engine::place_y`].
-            "SDX" => {
+            Word::SDX => {
                 let v = pop1(stack, "placement")?;
                 self.place_x(v, Placement::Edge)?;
             }
-            "SDCX" | "SDCEN" => {
+            Word::SDCX | Word::SDCEN => {
                 let v = pop1(stack, "placement")?;
                 self.place_x(v, Placement::Center)?;
             }
-            "SDOX" => {
+            Word::SDOX => {
                 let v = pop1(stack, "placement")?;
                 self.place_x(v, Placement::FarEdge)?;
             }
-            "SDY" => {
+            Word::SDY => {
                 let v = pop1(stack, "placement")?;
                 self.place_y(v, Placement::Edge)?;
             }
-            "SDCY" | "SDVCEN" => {
+            Word::SDCY | Word::SDVCEN => {
                 let v = pop1(stack, "placement")?;
                 self.place_y(v, Placement::Center)?;
             }
-            "SDOY" => {
+            Word::SDOY => {
                 let v = pop1(stack, "placement")?;
                 self.place_y(v, Placement::FarEdge)?;
             }
             // Every one of these takes exactly one value. The arm is the stack
             // ABI and nothing else — what each one means is on the method.
-            "SDLEV" | "SDLV" | "SDZ" | "SDSPR" | "SDBL" | "SDTXT" | "SDTB" | "SDCOL" | "SDFNT"
-            | "SDTDT" | "SDWAIT" | "SDWORD" => {
+            Word::SDLEV
+            | Word::SDLV
+            | Word::SDZ
+            | Word::SDSPR
+            | Word::SDBL
+            | Word::SDTXT
+            | Word::SDTB
+            | Word::SDCOL
+            | Word::SDFNT
+            | Word::SDTDT
+            | Word::SDWAIT
+            | Word::SDWORD => {
                 let v = pop1(stack, "descriptor setter")?;
-                match name {
-                    "SDLEV" | "SDLV" | "SDZ" => self.set_level(v)?,
-                    "SDSPR" => self.set_sprite(v)?,
-                    "SDBL" => self.set_block(v)?,
-                    "SDTXT" => self.set_text(v)?,
-                    "SDTB" => self.set_text_table(v)?,
-                    "SDCOL" => self.set_color(v)?,
-                    "SDFNT" => self.set_font(v)?,
-                    "SDTDT" => self.set_template(v)?,
-                    "SDWAIT" => self.set_wait(v)?,
+                match word {
+                    Word::SDLEV | Word::SDLV | Word::SDZ => self.set_level(v)?,
+                    Word::SDSPR => self.set_sprite(v)?,
+                    Word::SDBL => self.set_block(v)?,
+                    Word::SDTXT => self.set_text(v)?,
+                    Word::SDTB => self.set_text_table(v)?,
+                    Word::SDCOL => self.set_color(v)?,
+                    Word::SDFNT => self.set_font(v)?,
+                    Word::SDTDT => self.set_template(v)?,
+                    Word::SDWAIT => self.set_wait(v)?,
                     // The screening is the machine's, so it happens here.
                     _ => self.set_callback(mem.callable(v))?,
                 }
             }
             // Getters, for completeness and for the oracle round-trips. Each
             // answers with one value; what each one means is on its method.
-            "GDX" | "GDY" | "GDLEV" | "GDLV" | "GDZ" | "GDSPR" | "GDACTIVE" | "GDBL" | "GDTXT"
-            | "GDTB" | "GDCX" | "GDCY" | "GDWIDTH" | "GDHEIGHT" | "GDXLEN" | "GDYLEN" | "GDOX"
-            | "GDOY" | "GDCOL" => {
-                let v = match name {
-                    "GDX" => self.descriptor_x(),
-                    "GDY" => self.descriptor_y(),
-                    "GDLEV" | "GDLV" | "GDZ" => self.descriptor_level(),
-                    "GDACTIVE" => self.descriptor_active(),
-                    "GDBL" => self.descriptor_block(),
-                    "GDTXT" => self.descriptor_text_entry(),
-                    "GDTB" => self.descriptor_table(),
-                    "GDCOL" => self.descriptor_color(),
-                    "GDCX" => self.descriptor_center_x(),
-                    "GDCY" => self.descriptor_center_y(),
-                    "GDWIDTH" | "GDXLEN" => self.descriptor_width(),
-                    "GDHEIGHT" | "GDYLEN" => self.descriptor_height(),
-                    "GDOX" => self.descriptor_far_x(),
-                    "GDOY" => self.descriptor_far_y(),
+            Word::GDX
+            | Word::GDY
+            | Word::GDLEV
+            | Word::GDLV
+            | Word::GDZ
+            | Word::GDSPR
+            | Word::GDACTIVE
+            | Word::GDBL
+            | Word::GDTXT
+            | Word::GDTB
+            | Word::GDCX
+            | Word::GDCY
+            | Word::GDWIDTH
+            | Word::GDHEIGHT
+            | Word::GDXLEN
+            | Word::GDYLEN
+            | Word::GDOX
+            | Word::GDOY
+            | Word::GDCOL => {
+                let v = match word {
+                    Word::GDX => self.descriptor_x(),
+                    Word::GDY => self.descriptor_y(),
+                    Word::GDLEV | Word::GDLV | Word::GDZ => self.descriptor_level(),
+                    Word::GDACTIVE => self.descriptor_active(),
+                    Word::GDBL => self.descriptor_block(),
+                    Word::GDTXT => self.descriptor_text_entry(),
+                    Word::GDTB => self.descriptor_table(),
+                    Word::GDCOL => self.descriptor_color(),
+                    Word::GDCX => self.descriptor_center_x(),
+                    Word::GDCY => self.descriptor_center_y(),
+                    Word::GDWIDTH | Word::GDXLEN => self.descriptor_width(),
+                    Word::GDHEIGHT | Word::GDYLEN => self.descriptor_height(),
+                    Word::GDOX => self.descriptor_far_x(),
+                    Word::GDOY => self.descriptor_far_y(),
                     _ => self.descriptor_sprite(),
                 };
                 stack.push(v);
@@ -271,8 +303,8 @@ impl Engine {
             // The group half has nothing to do here yet: nothing models group
             // membership, `SDINSERT` only files a value away under its name. It
             // is the first thing to revisit when groups arrive.
-            "KILLDESC" => {
-                let handle = pop1(stack, "KILLDESC")? as u32;
+            Word::KILLDESC => {
+                let handle = cell::unsigned(pop1(stack, "KILLDESC")?);
                 self.forget_descriptors(|d| d.handle == handle);
             }
             // Not one descriptor but a *tail*: this one and every later one on
@@ -298,20 +330,25 @@ impl Engine {
             // A handle that names no descriptor does nothing, as in the
             // original: the search ends with `i == count` and the kill loop
             // never starts (0x710ac).
-            "KILLNDESC" => {
-                let handle = pop1(stack, "KILLNDESC")? as u32;
+            Word::KILLNDESC => {
+                let handle = cell::unsigned(pop1(stack, "KILLNDESC")?);
                 // The 16-bit handler (file `0x9d3a`) frees the active screen's
                 // descriptors from the number up and sets the count back, so
                 // the next `NEWSETDESC` takes that number again.
-                if self.per_screen_descriptors {
+                if self.profile.per_screen_descriptors {
                     let screen = self.display.current.unwrap_or(0);
                     self.forget_descriptors(|d| d.screen == screen && d.handle >= handle);
                     return Ok(Some(()));
                 }
-                let Some(from) = self.descriptors.iter().position(|d| d.handle == handle) else {
+                let Some(from) = self
+                    .scene
+                    .descriptors
+                    .iter()
+                    .position(|d| d.handle == handle)
+                else {
                     return Ok(Some(()));
                 };
-                let screen = self.descriptors[from].screen;
+                let screen = self.scene.descriptors[from].screen;
                 let mut i = 0;
                 self.forget_descriptors(|d| {
                     let doomed = i >= from && d.screen == screen;
@@ -329,14 +366,30 @@ impl Engine {
             // push, at 0x71652 and 0x720c2. That cell holds the handle; the
             // resolved record lives separately in 0xF2AF0, which is what every
             // other `GD…` reads.
-            "?ACTDESC" | "GDNR" => {
+            Word::Q_ACTDESC | Word::GDNR => {
                 let h = self
+                    .scene
                     .selected
-                    .and_then(|i| self.descriptors.get(i))
+                    .and_then(|i| self.scene.descriptors.get(i))
                     .map(|d| d.handle);
-                stack.push(h.unwrap_or(0) as i32);
+                stack.push(cell::signed(h.unwrap_or(0)));
             }
-            _ => return Ok(None),
+            // The rest of the one-argument setters, which are also the field
+            // keys they write. Their names are kept as given; what each
+            // controls is measurable with the `GD*` getters when it matters,
+            // and a meaning guessed ahead of a measurement is a
+            // `KILLNDESC`-shaped trap: plausible, silent, and wrong.
+            //
+            // The key comes off the word, so one lookup answers both whether
+            // this is a setter and which field it writes — the arm and the
+            // field map cannot name different things.
+            _ => {
+                let Some(key) = word.descriptor_field() else {
+                    return Ok(None);
+                };
+                let v = pop1(stack, "descriptor setter")?;
+                self.set_field(key, v);
+            }
         }
         Ok(Some(()))
     }

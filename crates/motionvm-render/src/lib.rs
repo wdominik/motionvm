@@ -10,9 +10,167 @@
 //! the engines this serves animate their palettes and draw through a
 //! transparent index, so converting to true color early would throw away
 //! exactly the information their drawing operates on.
+//!
+//! It depends on nothing. The PNG writer is a hundred lines in `png.rs`
+//! rather than an encoder crate, because the file this writes has one shape
+//! and every field of it is decided here — that module says what the choice
+//! costs, which is a screenshot ten times the size and no compression at all.
+//! The reader beside it is wider, by as much as a capture of the original
+//! needs, and brings its own inflate in `inflate.rs` for the same reason.
 
+mod inflate;
 mod pal;
+mod png;
+pub use inflate::BadStream;
 pub use pal::Palette;
+pub use png::{Decoded, Pixels, Unreadable, crc32};
+
+/// A coordinate the caller has clipped to the surface, as an index into it.
+///
+/// Every blit tests `x < 0 || y < 0` before it indexes, so nothing negative
+/// reaches here. A cast rather than `try_from`, because the fallback
+/// `try_from` would want is a value that cannot occur, and the blits are
+/// checked pixel for pixel against the original with this arithmetic.
+#[expect(
+    clippy::as_conversions,
+    reason = "a coordinate already clipped to the surface, so never negative"
+)]
+fn at(coord: i32) -> usize {
+    coord as usize
+}
+
+/// A picture dimension as an index. Lossless on every target this workspace
+/// builds for, all of which have a `usize` at least 32 bits wide.
+#[expect(
+    clippy::as_conversions,
+    reason = "a widening on every target this builds for; `usize` has no `From<u32>`"
+)]
+pub(crate) fn wide(n: u32) -> usize {
+    n as usize
+}
+
+/// A count of pixels in the arithmetic the scaled blit does in 64 bits.
+#[expect(
+    clippy::as_conversions,
+    reason = "a widening on every target this builds for; `u64` has no `From<usize>`"
+)]
+fn long(n: usize) -> u64 {
+    n as u64
+}
+
+/// A count of pixels as a coordinate. A picture wider than `i32::MAX` cannot
+/// be addressed by one, and saturating is what keeps the arithmetic finite if
+/// a caller ever asks for it.
+fn coord(n: usize) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}
+
+/// What can go wrong writing a PNG, or reading one back.
+///
+/// Three cases, and they want different answers from a caller: a file that
+/// could not be created, written or opened is the caller's business — a
+/// directory that is not there, a disk that is full — while an encoder that
+/// refused is this crate's, and means the pixels and the palette handed in
+/// did not agree with each other; and a file that could not be read is the
+/// file's, which the refusal names.
+///
+/// A named type rather than a boxed one, because this crate is the neutral
+/// layer and a box there would make every caller's error type a box too. The
+/// one boxed error in the workspace is the one the contract asks for.
+#[derive(Debug)]
+pub enum PngError {
+    /// The file could not be created, written or read.
+    Io(std::io::Error),
+    /// The picture and the palette handed in did not agree with each other.
+    Refused(Refusal),
+    /// A file to read was not a PNG this crate reads; see [`read_png`].
+    Unreadable(Unreadable),
+}
+
+/// What can be wrong with a picture before it is written.
+///
+/// Four things, and they are the four the format cannot express rather than
+/// a general validation: an index has eight bits, a palette entry has three
+/// bytes, `IHDR` has no way to say "no pixels", and a chunk's length has
+/// thirty-two bits. Everything else about an indexed PNG is decided by this
+/// crate and cannot come out wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// `pixels` is not `width × height` bytes.
+    WrongSize {
+        /// How many the size asks for.
+        want: usize,
+        /// How many were handed in.
+        got: usize,
+    },
+    /// A palette that is not whole RGB triples, or reaches past the 256
+    /// entries an eight-bit index can name.
+    BadPalette {
+        /// How many bytes it holds.
+        bytes: usize,
+    },
+    /// A width or a height of zero, which `IHDR` cannot carry.
+    Empty {
+        /// The width asked for.
+        width: u32,
+        /// The height asked for.
+        height: u32,
+    },
+    /// More pixels than one `IDAT` chunk can carry: a chunk's length is
+    /// thirty-two bits, and the picture goes into one chunk with a filter
+    /// byte a row and five bytes of framing per 65 535.
+    TooLarge {
+        /// How many bytes of pixels were handed in.
+        bytes: usize,
+    },
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WrongSize { want, got } => {
+                write!(f, "the size asks for {want} pixels and {got} were given")
+            }
+            Self::BadPalette { bytes } => write!(
+                f,
+                "a palette of {bytes} bytes is not whole RGB triples, or holds \
+                 more than the 256 entries an index can reach"
+            ),
+            Self::Empty { width, height } => write!(f, "a picture {width} by {height}"),
+            Self::TooLarge { bytes } => {
+                write!(
+                    f,
+                    "a picture of {bytes} bytes is more than one IDAT can carry"
+                )
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for PngError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "{e}"),
+            Self::Refused(why) => write!(f, "{why}"),
+            Self::Unreadable(why) => write!(f, "{why}"),
+        }
+    }
+}
+
+impl std::error::Error for PngError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Refused(_) | Self::Unreadable(_) => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for PngError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
 
 /// One decoded picture, ready to blit: one byte per pixel, `width * height` of
 /// them, top row first, each an index into whatever palette is installed.
@@ -23,6 +181,17 @@ pub use pal::Palette;
 /// things in every case. So this is what the blits take, and turning a
 /// reader's output into one is the caller's business. Nothing here has to
 /// know which container the pixels came out of.
+///
+/// **The same three fields as [`Framebuffer`], and deliberately not the same
+/// type.** A picture is a *source* and a framebuffer is a *target*; nothing in
+/// the workspace ever converts one into the other, and no behavior is shared,
+/// because a picture has no methods at all. What the split buys is that a
+/// surface cannot be blitted as if it were a sprite and a sprite cannot be
+/// returned where a frame is promised — the same argument [`PixelAspect`] is
+/// two named fields rather than a pair. Folding them together would remove ten
+/// lines of declaration and one compiler check.
+///
+/// [`PixelAspect`]: https://docs.rs/motionvm-playable
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Picture {
     /// Pixels per row.
@@ -37,10 +206,30 @@ pub struct Picture {
 /// a color.
 pub const TRANSPARENT: u8 = 0;
 
-/// An indexed image. One byte per pixel, top row first.
+/// One frame ready to show: the picture, and the palette its indices mean.
+///
+/// The two travel together because they are only meaningful together — an
+/// indexed frame under the wrong palette is not a worse picture, it is a
+/// different one — and because handing both over as one borrow is what lets
+/// the picture be borrowed at all: returned on its own, a frame would have to
+/// be owned, since the palette would be a second borrow behind it. Owned, a
+/// frame is 307 200 bytes, up to a hundred times a second — the largest
+/// allocation anywhere on the path.
+#[derive(Debug, Clone, Copy)]
+pub struct Frame<'a> {
+    /// The picture: one palette index per pixel.
+    pub pixels: &'a Framebuffer,
+    /// What those indices mean.
+    pub palette: &'a Palette,
+}
+
+/// A surface being drawn on: one byte per pixel, top row first.
 ///
 /// The default is a frame of no size, which is what a save-under buffer holds
 /// before the drawer has ever filled it.
+///
+/// The *target* half of the pair [`Picture`] explains: same three fields,
+/// different role, and everything that draws is here rather than there.
 #[derive(Debug, Clone, Default)]
 pub struct Framebuffer {
     /// Pixels per row.
@@ -61,7 +250,7 @@ impl Framebuffer {
         Self {
             width,
             height,
-            pixels: vec![0; width as usize * height as usize],
+            pixels: vec![0; usize::from(width) * usize::from(height)],
         }
     }
 
@@ -76,8 +265,8 @@ impl Framebuffer {
     /// painted afresh and only the places that asked for it are taken from the
     /// result. See `Engine::draw_screens`.
     pub fn paste_rect(&mut self, src: &Self, x: i32, y: i32, w: i32, h: i32) {
-        for row in y.max(0)..(y + h).min(self.height as i32) {
-            for col in x.max(0)..(x + w).min(self.width as i32) {
+        for row in y.max(0)..(y + h).min(i32::from(self.height)) {
+            for col in x.max(0)..(x + w).min(i32::from(self.width)) {
                 if let Some(p) = src.get(col, row) {
                     self.set(col, row, p);
                 }
@@ -101,10 +290,10 @@ impl Framebuffer {
     }
 
     fn offset(&self, x: i32, y: i32) -> Option<usize> {
-        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+        if x < 0 || y < 0 || x >= i32::from(self.width) || y >= i32::from(self.height) {
             return None;
         }
-        Some(y as usize * self.width as usize + x as usize)
+        Some(at(y) * usize::from(self.width) + at(x))
     }
 
     /// Draws a sprite with its top-left corner at `(x, y)`.
@@ -118,18 +307,18 @@ impl Framebuffer {
     /// Like [`blit`](Self::blit) but with the transparent index chosen, or
     /// `None` for an opaque copy.
     pub fn blit_masked(&mut self, sprite: &Picture, x: i32, y: i32, transparent: Option<u8>) {
-        for sy in 0..sprite.height as i32 {
-            let dy = y + sy;
-            if dy < 0 || dy >= self.height as i32 {
+        for sy in 0..sprite.height {
+            let dy = y + i32::from(sy);
+            if dy < 0 || dy >= i32::from(self.height) {
                 continue;
             }
-            let row = sy as usize * sprite.width as usize;
-            for sx in 0..sprite.width as i32 {
-                let p = sprite.pixels[row + sx as usize];
+            let row = usize::from(sy) * usize::from(sprite.width);
+            for sx in 0..sprite.width {
+                let p = sprite.pixels[row + usize::from(sx)];
                 if Some(p) == transparent {
                     continue;
                 }
-                self.set(x + sx, dy, p);
+                self.set(x + i32::from(sx), dy, p);
             }
         }
     }
@@ -144,22 +333,34 @@ impl Framebuffer {
         if h_mille == 0 || v_mille == 0 {
             return;
         }
-        let w = (sprite.width as u64 * h_mille as u64 / 1000) as i32;
-        let h = (sprite.height as u64 * v_mille as u64 / 1000) as i32;
+        // The per-mille arithmetic runs in 64 bits, where it cannot overflow.
+        // A scaled size past `usize` is not a size; saturating one lands the
+        // loops on their `>=` checks at the first step rather than anywhere
+        // else.
+        let scaled = |pixels: u16, mille: u32| {
+            usize::try_from(u64::from(pixels) * u64::from(mille) / 1000).unwrap_or(usize::MAX)
+        };
+        let source = |dest: usize, mille: u32| {
+            usize::try_from(long(dest) * 1000 / u64::from(mille)).unwrap_or(usize::MAX)
+        };
+        let (w, h) = (
+            scaled(sprite.width, h_mille),
+            scaled(sprite.height, v_mille),
+        );
         for dy in 0..h {
-            let sy = (dy as u64 * 1000 / v_mille as u64) as usize;
-            if sy >= sprite.height as usize {
+            let sy = source(dy, v_mille);
+            if sy >= usize::from(sprite.height) {
                 break;
             }
-            let row = sy * sprite.width as usize;
+            let row = sy * usize::from(sprite.width);
             for dx in 0..w {
-                let sx = (dx as u64 * 1000 / h_mille as u64) as usize;
-                if sx >= sprite.width as usize {
+                let sx = source(dx, h_mille);
+                if sx >= usize::from(sprite.width) {
                     break;
                 }
                 let p = sprite.pixels[row + sx];
                 if p != TRANSPARENT {
-                    self.set(x + dx, y + dy, p);
+                    self.set(x + coord(dx), y + coord(dy), p);
                 }
             }
         }
@@ -181,25 +382,25 @@ impl Framebuffer {
         // area, what is actually inside `src`, and what is inside `self`.
         let cols = {
             let lo = 0.max(-area.x).max(-dx);
-            let hi = (area.w as i32)
-                .min(src.width as i32 - area.x)
-                .min(self.width as i32 - dx);
+            let hi = i32::from(area.w)
+                .min(i32::from(src.width) - area.x)
+                .min(i32::from(self.width) - dx);
             lo..hi
         };
         let rows = {
             let lo = 0.max(-area.y).max(-dy);
-            let hi = (area.h as i32)
-                .min(src.height as i32 - area.y)
-                .min(self.height as i32 - dy);
+            let hi = i32::from(area.h)
+                .min(i32::from(src.height) - area.y)
+                .min(i32::from(self.height) - dy);
             lo..hi
         };
         if cols.is_empty() || rows.is_empty() {
             return;
         }
-        let run = (cols.end - cols.start) as usize;
+        let run = at(cols.end - cols.start);
         for row in rows {
-            let s = (area.y + row) as usize * src.width as usize + (area.x + cols.start) as usize;
-            let d = (dy + row) as usize * self.width as usize + (dx + cols.start) as usize;
+            let s = at(area.y + row) * usize::from(src.width) + at(area.x + cols.start);
+            let d = at(dy + row) * usize::from(self.width) + at(dx + cols.start);
             self.pixels[d..d + run].copy_from_slice(&src.pixels[s..s + run]);
         }
     }
@@ -211,15 +412,11 @@ impl Framebuffer {
     /// display's color profile and comes back with every channel off by one,
     /// so an RGB diff reports seventy percent of the picture as different and
     /// buries a real two-pixel shift in the noise.
-    pub fn write_png(
-        &self,
-        path: &std::path::Path,
-        palette: &Palette,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn write_png(&self, path: &std::path::Path, palette: &Palette) -> Result<(), PngError> {
         write_indexed_png(
             path,
-            self.width as u32,
-            self.height as u32,
+            u32::from(self.width),
+            u32::from(self.height),
             &self.pixels,
             palette.to_rgb8(),
             None,
@@ -269,22 +466,52 @@ pub fn write_indexed_png(
     pixels: &[u8],
     palette: Vec<u8>,
     transparent: Option<u8>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let file = std::io::BufWriter::new(std::fs::File::create(path)?);
-    let mut enc = png::Encoder::new(file, width, height);
-    enc.set_color(png::ColorType::Indexed);
-    enc.set_depth(png::BitDepth::Eight);
-    let entries = palette.len() / 3;
-    enc.set_palette(palette);
-    if let Some(index) = transparent {
-        let mut alpha = vec![255u8; entries];
-        if let Some(a) = alpha.get_mut(index as usize) {
-            *a = 0;
-        }
-        enc.set_trns(alpha);
+) -> Result<(), PngError> {
+    if width == 0 || height == 0 {
+        return Err(PngError::Refused(Refusal::Empty { width, height }));
     }
-    enc.write_header()?.write_image_data(pixels)?;
+    let want = wide(width) * wide(height);
+    if pixels.len() != want {
+        return Err(PngError::Refused(Refusal::WrongSize {
+            want,
+            got: pixels.len(),
+        }));
+    }
+    if !palette.len().is_multiple_of(3) || palette.len() > 256 * 3 {
+        return Err(PngError::Refused(Refusal::BadPalette {
+            bytes: palette.len(),
+        }));
+    }
+    // The picture plus a filter byte a row, held under half a chunk's
+    // thirty-two-bit length, which leaves the framing more room than it
+    // takes; the writer counts on this having been asked.
+    if pixels.len() + wide(height) > wide(u32::MAX / 2) {
+        return Err(PngError::Refused(Refusal::TooLarge {
+            bytes: pixels.len(),
+        }));
+    }
+    // The whole file is built before anything is opened, so a picture that
+    // cannot be written leaves no file at all rather than a truncated one.
+    let bytes = png::encode(width, height, pixels, &palette, transparent);
+    std::fs::write(path, bytes)?;
     Ok(())
+}
+
+/// Reads a PNG back: the indexed kind this crate writes, or the true-color
+/// kind a capture of the original arrives as.
+///
+/// This is the other half of a comparison. F12 writes the frame as indices
+/// and a palette; the original's side is DOSBox-X's own capture, indexed when
+/// the emulator was in a 256-color mode and RGB when it was a screenshot of a
+/// window. Both come back through here, and the tool that compares them
+/// decides what to make of the colors — see `motionvm-motion-tools
+/// compare-frame`.
+///
+/// Eight bits a sample, not interlaced, any filter, any compression: the
+/// readers under [`Unreadable`] say what is refused and why.
+pub fn read_png(path: &std::path::Path) -> Result<Decoded, PngError> {
+    let file = std::fs::read(path)?;
+    png::decode(&file).map_err(PngError::Unreadable)
 }
 
 #[cfg(test)]
@@ -295,7 +522,7 @@ mod tests {
         Picture {
             width: w,
             height: h,
-            pixels: vec![fill; w as usize * h as usize],
+            pixels: vec![fill; usize::from(w) * usize::from(h)],
         }
     }
 

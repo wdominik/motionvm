@@ -10,6 +10,8 @@
 //! engine's side of them. `words/screens.rs` is the stack ABI over what is here.
 
 use crate::Engine;
+use crate::words::Word;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     /// `ACTSCR`: makes a screen the current one.
@@ -22,10 +24,11 @@ impl Engine {
         self.display.set_current(handle);
         // In the per-screen scheme the number `ACTDESC` stored now names a
         // descriptor of this screen; see [`Engine::select_descriptor`].
-        if self.per_screen_descriptors
-            && let Some(h) = self.selected_handle
+        if self.profile.per_screen_descriptors
+            && let Some(h) = self.scene.selected_handle
         {
-            self.selected = self
+            self.scene.selected = self
+                .scene
                 .descriptors
                 .iter()
                 .position(|d| d.screen == handle && d.handle == h);
@@ -58,10 +61,10 @@ impl Engine {
     /// cannot pass unnoticed if that ever changes.
     pub(crate) fn set_screen_origin_x(&mut self, v: i32) {
         if v != 0 {
-            self.note_unhandled("SCRX (non-zero)".into());
+            self.note_unhandled(Word::SCRX, Some("non-zero".into()));
         }
         if let Some(s) = self.display.current_mut() {
-            s.origin.0 = v as i16;
+            s.origin.0 = cell::short(v);
         }
     }
 
@@ -81,6 +84,6 @@ impl Engine {
     /// coordinate. That ordering belongs to the stack ABI and stays in the arm.
     pub(crate) fn screen_view_size(&mut self) -> (i32, i32) {
         let (w, h) = self.display.current_mut().map(|s| s.view).unwrap_or((0, 0));
-        (w as i32, h as i32)
+        (i32::from(w), i32::from(h))
     }
 }

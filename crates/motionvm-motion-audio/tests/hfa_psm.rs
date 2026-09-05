@@ -17,10 +17,15 @@
 
 use motionvm_motion_audio::m16::{Driver, Sequencer};
 use motionvm_motion_formats::m16::{Container, Segment, psm::Plx};
-use motionvm_motion_testutil::gamedata_hfa;
+use motionvm_motion_testutil::{Digests, digest::Digest, gamedata_hfa};
 
 /// The block numbers under a PSM tag — every tune the game ships.
 const TUNES: std::ops::RangeInclusive<usize> = 1..=4;
+
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    Digests::of(env!("CARGO_MANIFEST_DIR"), "hfa")
+}
 
 #[test]
 fn every_shipped_tune_plays_notes() {
@@ -59,6 +64,15 @@ fn every_shipped_tune_plays_notes() {
             seq.playing(),
             "tune {tune} stopped although its loop count is endless"
         );
+        // The whole stream, not a property of it: twenty thousand ticks of
+        // register writes in the order the chip would have seen them. The
+        // assertions above say the tune is music at all; this says it is the
+        // same music, write for write, as the last time anyone looked.
+        let mut d = Digest::new();
+        for w in &writes {
+            d.byte(w.bank).byte(w.reg).byte(w.value);
+        }
+        digests().check(&format!("tune_{tune}"), d.value());
     }
 }
 
@@ -74,7 +88,7 @@ fn the_section_table_is_read_and_not_assumed() {
         let block = container.item(Segment::Blk, tune).unwrap().unwrap();
         let sections =
             motionvm_motion_formats::m16::psm::sections(block).expect("the section table");
-        let plx = sections[0] as usize;
+        let plx = usize::try_from(sections[0]).unwrap();
         assert!(
             plx > 0 && plx < block.len(),
             "tune {tune}: the PLX section is outside the block"

@@ -14,9 +14,11 @@
 //!
 //! The game this file drives is Hilfe für Amajambere (MOTION 16-bit).
 
+mod common;
+
 use motionvm_motion_engine::{Game, titles};
 use motionvm_motion_forth::m16::Vm;
-use motionvm_motion_testutil::gamedata_hfa;
+use motionvm_motion_testutil::{Digests, digest, gamedata_hfa};
 use std::path::Path;
 
 /// Words `CTRL`'s frames may walk past without effect: the sprite and text
@@ -95,8 +97,9 @@ fn out_of_the_menu(dir: &Path) -> Game<Vm> {
     game
 }
 
-fn lit(game: &mut Game<Vm>) -> usize {
-    game.render().pixels.iter().filter(|&&p| p != 0).count()
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("hfa")
 }
 
 /// Asks for `n` and runs frames until the game is standing in it.
@@ -124,7 +127,11 @@ fn run_plays_through_the_intro_into_location_20() {
     // where Die Enviro-Kids greifen ein begins at 1 and Jeff Jet at 13.
     // Nothing in the engine assumes any of them.
     assert_eq!(game.get_var(601, "ACTLOC"), Some(20));
-    assert!(lit(&mut game) > 40_000, "the room is drawn");
+    assert!(common::lit(&mut game) > 40_000, "the room is drawn");
+    // The room `RUN` leaves the game standing in, reached by the game's own
+    // steps and by no shortcut, so the picture is the same on any machine
+    // that has the game.
+    digests().check("location_20", digest::frame(&game.render()));
     // Two screens, and between them the whole display: a room 960×544 seen
     // through a 320×165 window that scrolls, and the 320×35 strip the verbs
     // and the inventory stand on. 165 + 35 = 200. The same geometry as Jeff
@@ -152,7 +159,7 @@ fn every_location_with_an_item_table_is_entered_through_nextloc_and_draws() {
         }
         assert!(walk_to(&mut game, n), "location {n} was never entered");
         assert!(
-            lit(&mut game) > 40_000,
+            common::lit(&mut game) > 40_000,
             "location {n} was entered but drew almost nothing"
         );
     }
@@ -203,9 +210,8 @@ fn walking_the_locations_reaches_no_word_the_engine_lacks() {
     // noted by the engine's own conversation path, where the original resets a
     // descriptor motionvm never gave a template to. `enviro_locations.rs`
     // allows it in the same way and for the same reason.
-    let walked: Vec<&String> = game
-        .engine
-        .stubbed()
+    let stubbed = game.engine.stubbed();
+    let walked: Vec<&String> = stubbed
         .keys()
         .filter(|w| w != &"SDNORM" && !INERT.contains(&w.as_str()))
         .collect();

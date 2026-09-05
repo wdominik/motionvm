@@ -95,7 +95,11 @@ this much of what the handles stand for (addresses in `ENVIRO.EXE`):
   different pair, hanging off the screen.
 - **Descriptors are numbered per screen.** `NEWDESC` and `NEWSETDESC`
   (file `0x9bb8`, `0x9bd8`) hand back the active screen's count and raise
-  it (a hundred at most); `ACTDESC` (file `0x9b92`) stores the number and
+  it — a hundred at most: at a hundred, `NEWSETDESC` (`05f1:0ad4`; the same
+  test in `HPPLAY.EXE` at file `0x9b2e` and `BMZ.EXE` at `0x9bd5`) jumps past
+  every pop and the push, so its six arguments stay on the stack and no
+  handle comes back, where `LL.EXE` (file `0x44ce`) raises the count without
+  looking; `ACTDESC` (file `0x9b92`) stores the number and
   nothing else — the pair screen and number is resolved when a word
   touches the descriptor, so `ACTDESC` before `ACTSCR` means the same as
   after; `KILLNDESC n` (file `0x9d3a`) frees the active screen's

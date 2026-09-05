@@ -9,6 +9,7 @@
 //! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_motion_engine::{Game, titles};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m16::Vm;
 use motionvm_motion_testutil::gamedata_enviro;
 use std::path::Path;
@@ -62,7 +63,7 @@ fn a_spoken_line_wears_its_outline_all_around() {
         game.step().expect("a frame under CTRL");
         let fb = game.render();
         let pal = game.palette().clone();
-        let w = fb.width as usize;
+        let w = usize::from(fb.width);
         let mut codes = vec![0u8; w * 40];
         for y in 8..48 {
             for x in 0..w {
@@ -93,21 +94,21 @@ fn a_spoken_line_wears_its_outline_all_around() {
         // the letters' box, appeared or not, because part of it can stand
         // where the room already was that color.
         let near_ring = |i: usize| {
-            let (x, y) = ((i % w) as i32, (i / w) as i32);
+            let (x, y) = (cell::count(i % w), cell::count(i / w));
             (-2..=2i32).any(|dy| {
                 (-2..=2i32).any(|dx| {
-                    let (nx, ny) = (x + dx, y + dy);
-                    nx >= 0
-                        && (nx as usize) < w
-                        && (0..40).contains(&ny)
-                        && now[ny as usize * w + nx as usize] == 2
+                    let (Ok(nx), Ok(ny)) = (usize::try_from(x + dx), usize::try_from(y + dy))
+                    else {
+                        return false;
+                    };
+                    nx < w && ny < 40 && now[ny * w + nx] == 2
                 })
             })
         };
         let mut face = Vec::new();
         for (i, (&n, &b)) in now.iter().zip(before.iter()).enumerate() {
             if n == 1 && b != 1 && near_ring(i) {
-                face.push(((i % w) as i32, (i / w) as i32 + 8));
+                face.push((cell::count(i % w), cell::count(i / w) + 8));
             }
         }
         if face.len() < 300 {
@@ -121,7 +122,7 @@ fn a_spoken_line_wears_its_outline_all_around() {
         );
         let mut ring = Vec::new();
         for (i, &n) in now.iter().enumerate() {
-            let (x, y) = ((i % w) as i32, (i / w) as i32 + 8);
+            let (x, y) = (cell::count(i % w), cell::count(i / w) + 8);
             if n == 2 && x >= fx.0 - 1 && x <= fx.1 + 1 && y >= fx.2 - 1 && y <= fx.3 + 1 {
                 ring.push((x, y));
             }
@@ -155,8 +156,8 @@ fn a_spoken_line_wears_its_outline_all_around() {
 /// there: location 1's scene plays itself out and moves on to location 11.
 fn settled_in_the_game(dir: &Path) -> Game<Vm> {
     let mut game = into_the_game(dir);
-    let ms = game.get_var(601, "_MS").expect("_MS") as u32;
-    let walker = game.get_var(601, "_WALKER").expect("_WALKER") as u32;
+    let ms = cell::unsigned(game.get_var(601, "_MS").expect("_MS"));
+    let walker = cell::unsigned(game.get_var(601, "_WALKER").expect("_WALKER"));
     for frame in 1..=3000 {
         let active = game
             .engine
@@ -209,7 +210,7 @@ fn a_morning_scene_line_keeps_its_ring_past_the_intros_font_teardown() {
         game.step()
             .unwrap_or_else(|e| panic!("frame {frame} stopped: {e}"));
         let fb = game.render();
-        let w = fb.width as usize;
+        let w = usize::from(fb.width);
         // The band the spoken lines stand in: `y 52` centered, three lines
         // at most. Indices, not colors — the face is palette index 12, the
         // ring index 16, straight from the script.
@@ -231,7 +232,7 @@ fn a_morning_scene_line_keeps_its_ring_past_the_intros_font_teardown() {
             .zip(before.iter())
             .enumerate()
             .filter(|&(_, (&n, &b))| n == 12 && b != 12)
-            .map(|(i, _)| ((i % w) as i32, (i / w) as i32))
+            .map(|(i, _)| (cell::count(i % w), cell::count(i / w)))
             .collect();
         if face.len() < 250 {
             continue;
@@ -246,10 +247,10 @@ fn a_morning_scene_line_keeps_its_ring_past_the_intros_font_teardown() {
             .iter()
             .enumerate()
             .filter(|&(i, &n)| {
-                let (x, y) = ((i % w) as i32, (i / w) as i32);
+                let (x, y) = (cell::count(i % w), cell::count(i / w));
                 n == 16 && x >= f.0 - 1 && x <= f.1 + 1 && y >= f.2 - 1 && y <= f.3 + 1
             })
-            .map(|(i, _)| ((i % w) as i32, (i / w) as i32))
+            .map(|(i, _)| (cell::count(i % w), cell::count(i / w)))
             .collect();
         if ring.len() < 100 {
             continue;

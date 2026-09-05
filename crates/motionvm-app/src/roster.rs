@@ -10,7 +10,7 @@ use motionvm_playable::Family;
 use std::path::Path;
 
 /// Every family this build knows, in the order they are asked.
-pub static FAMILIES: &[&dyn Family] = &[&motionvm_motion::MOTION];
+pub(crate) static FAMILIES: &[&dyn Family] = &[&motionvm_motion::MOTION];
 
 /// The family for `dir`: the first whose `detect` claims it, or `None` when
 /// nobody does — and the caller then answers with [`nobodys`], built from
@@ -21,13 +21,13 @@ pub static FAMILIES: &[&dyn Family] = &[&motionvm_motion::MOTION];
 /// and with one family on the list that costs nothing: the claimer's own
 /// refusal explains itself. With a second family, a claim that another
 /// family could have opened becomes the case to handle here.
-pub fn find(dir: &Path) -> Option<&'static dyn Family> {
+pub(crate) fn find(dir: &Path) -> Option<&'static dyn Family> {
     FAMILIES.iter().copied().find(|f| f.detect(dir).is_some())
 }
 
 /// The complaint for a directory no family claims: what every game this
 /// build plays would need, whichever family it belongs to.
-pub fn nobodys(dir: &Path) -> String {
+pub(crate) fn nobodys(dir: &Path) -> String {
     let mut message = format!("{} is not a game motionvm can open\n", dir.display());
     for family in FAMILIES {
         for card in family.games() {

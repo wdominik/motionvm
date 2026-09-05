@@ -12,10 +12,15 @@
 //! a picture: it means the frame handler is installed, the menu is on screen,
 //! and the game is waiting for a click rather than walking a room.
 //!
+//! That this directory is told apart and opens as this game is asked in
+//! `titles_detected.rs`, one row per game; here the game is already open.
+//!
 //! The game this file drives is Hilfe für Amajambere (MOTION 16-bit).
 
-use motionvm_motion_engine::{Title, titles};
-use motionvm_motion_testutil::gamedata_hfa;
+mod common;
+
+use motionvm_motion_engine::titles;
+use motionvm_motion_testutil::{Digests, digest, digest::Digest, gamedata_hfa};
 
 /// Words `CTRL`'s frames may walk past without effect: the sprite and text
 /// status tables, which the 16-bit handlers keep for their own loader and
@@ -23,39 +28,9 @@ use motionvm_motion_testutil::gamedata_hfa;
 /// because they are the engine's and not the game's.
 const INERT: &[&str] = &["TXTSTAT", "XGFXSTAT", "XGFXSTAT+"];
 
-#[test]
-fn the_directory_is_told_apart_by_its_engine_binary() {
-    let Some(dir) = gamedata_hfa() else {
-        eprintln!("skipping: no Hilfe für Amajambere gamedata directory");
-        return;
-    };
-    // All four 16-bit games ship a DATA.-1-; only this one ships BMZ.EXE.
-    assert_eq!(titles::detect(&dir), Some(Title::HilfeFuerAmajambere));
-    let game = titles::open(&dir).expect("opens");
-    assert_eq!(game.name(), "Hilfe für Amajambere");
-    assert_eq!(game.display_size(), (320, 200));
-    assert_eq!(
-        game.pixel_aspect(),
-        motionvm_playable::PixelAspect {
-            width: 5,
-            height: 6
-        }
-    );
-}
-
-#[test]
-fn a_directory_holding_a_container_but_no_engine_binary_is_not_a_game() {
-    let Some(dir) = gamedata_hfa() else {
-        eprintln!("skipping: no Hilfe für Amajambere gamedata directory");
-        return;
-    };
-    let tmp = std::env::temp_dir().join("motionvm-hfa-detect");
-    let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).expect("a scratch directory");
-    std::fs::copy(dir.join("DATA.-1-"), tmp.join("DATA.-1-")).expect("the container copies");
-    assert_eq!(titles::detect(&tmp), None);
-    assert!(titles::open(&tmp).is_err());
-    let _ = std::fs::remove_dir_all(&tmp);
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("hfa")
 }
 
 #[test]
@@ -81,11 +56,18 @@ fn run_reaches_the_intro_loop_and_the_first_frames_draw_a_picture() {
         "a palette was installed"
     );
     let mut lit_frames = 0;
+    // Every frame of the intro folded into one digest, rather than the last
+    // one alone: the intro is an animation, and a still from the end of it
+    // would say nothing about the fourteen hundred pictures before it. The
+    // frames are rendered here either way, so this costs the fold and nothing
+    // else.
+    let mut intro = Digest::new();
     for frame in 1..=1500 {
         game.step()
             .unwrap_or_else(|e| panic!("the intro stopped at frame {frame}: {e}"));
         let picture = game.render();
         assert_eq!((picture.width, picture.height), (320, 200));
+        intro.number(digest::frame(&picture));
         if picture.pixels.iter().any(|&p| p != 0) {
             lit_frames += 1;
         }
@@ -94,13 +76,13 @@ fn run_reaches_the_intro_loop_and_the_first_frames_draw_a_picture() {
         lit_frames > 1000,
         "only {lit_frames} of 1500 frames drew anything"
     );
+    digests().check("intro", intro.value());
     // `TXTSTAT` is one of the three the 16-bit handlers keep for their own
     // loader and a lazy loader has no use for — the engine's, not this game's.
     // Anything else walked past would be a word the intro needs and does not
     // get.
-    let walked: Vec<&String> = game
-        .engine
-        .stubbed()
+    let stubbed = game.engine.stubbed();
+    let walked: Vec<&String> = stubbed
         .keys()
         .filter(|w| !INERT.contains(&w.as_str()))
         .collect();

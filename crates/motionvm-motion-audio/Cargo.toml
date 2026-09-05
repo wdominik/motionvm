@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+publish.workspace = true
 description = "The music: the FM driver, the HMI and PSM 2 sequencers, and the OPL3 they share"
 
 [dependencies]

@@ -15,17 +15,18 @@
 
 use crate::Engine;
 use crate::stack::pop1;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
 
 impl Engine {
     pub(crate) fn words_input(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // The key that is waiting, or zero for none.
             //
             // **An ASCII code, not a flag.** `ICTRL` opens with
@@ -39,25 +40,25 @@ impl Engine {
             // The `0 >` form the game also uses is the "any key" test, and it
             // reads correctly either way — which is how a boolean can sit here
             // looking as if it works.
-            "?KEY" => {
+            Word::Q_KEY => {
                 self.polled();
-                stack.push(self.key);
+                stack.push(self.input.key);
             }
             // How far the walker moves in one step. Zero means one — the
             // handler substitutes it — and the walk is the only thing that
             // reads it back, in both halves: see [`walk`].
-            "STEPMULTI" => {
+            Word::STEPMULTI => {
                 let n = pop1(stack, "STEPMULTI")?;
                 self.step_multi = if n == 0 { 1 } else { n };
             }
             // Clears `ANIMPLAY`'s running flag at 0xdb4a4, which is what ends
             // the game's main loop and lets `START` run on into `ENDGAME`.
-            "QUITANIM" => self.main_loop = false,
+            Word::QUITANIM => self.main_loop = false,
             // Not a wait, despite the name. The handler divides: 0xdb4b8
             // becomes 200/n, or -1 for n = -1. With `START`'s `25 DELAY` that
             // is 8 ticks a frame out of a 200-tick second — the game asks to
             // run at 25 frames a second, and `n` is simply that rate.
-            "DELAY" => {
+            Word::DELAY => {
                 let n = pop1(stack, "DELAY")?;
                 self.frame_ticks = if n == -1 {
                     -1
@@ -81,7 +82,7 @@ impl Engine {
             //
             // With no controller registered the handler jumps straight to its
             // exit, so there is nothing to enter.
-            "ANIMPLAY" => {
+            Word::ANIMPLAY => {
                 if self.controller.is_some() {
                     self.main_loop = true;
                     self.entering_loop = true;

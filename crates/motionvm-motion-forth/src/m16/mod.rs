@@ -15,13 +15,12 @@
 //! returns; branches land on the operand cell's index plus or minus the
 //! distance, and `DO` is `limit index DO`. All of that is measured.
 //!
-//! What the modules cannot establish is **handler-level behavior**, and the
-//! handlers in `ENVIRO.EXE` are unread. Where this machine needs such a rule
-//! it takes the 32-bit engine's measured one as the hypothesis — true is 1,
-//! `WHILE` leaves on true, `LOOP` compares the stepped index against the
-//! limit the same way, `@` and `!` align to a cell — and says so at the
-//! spot. Two things are this machine's own choice, with no original to
-//! match: modules are placed first-fit from `0x100` upward (where the
+//! What the modules cannot establish is **handler-level behavior**, and
+//! that is read in `ENVIRO.EXE` wherever this machine needs a rule — true
+//! is 1, `WHILE` leaves on true, `LOOP` steps in sixteen bits, `/` divides
+//! unsigned — with the address at the spot (`prims16.rs`). Two things are
+//! this machine's own choice, with no original to match: modules are
+//! placed first-fit from `0x100` upward (where the
 //! original puts them is open), and the data stack holds its 16-bit cells
 //! sign-extended in `i32` so that the engine's words see one stack type for
 //! both machines; every push wraps to 16 bits first.
@@ -42,7 +41,9 @@ use motionvm_motion_formats::Binding;
 use motionvm_motion_formats::m16::mz::{KERNEL_BIT, ORDINAL_MASK};
 use motionvm_motion_formats::m16::scr::ScrModule;
 
-use crate::{Address, Error, Host, Result, Run, prims};
+use crate::cell;
+use crate::core::Core;
+use crate::{Address, Counters, Error, Host, Result, Run, prims};
 
 mod prims16;
 
@@ -58,6 +59,7 @@ pub const SPACE: usize = 0x1_0000;
 const FIRST_BASE: u16 = 0x100;
 
 /// One loaded module: where it sits and what it defines.
+#[derive(Debug)]
 pub struct Module {
     /// The module number, as the container and `=>GET` name it.
     pub number: u16,
@@ -87,7 +89,7 @@ impl Module {
 
     /// Whether `flat` lies inside this module's image.
     fn contains(&self, flat: u16) -> bool {
-        flat >= self.base && (flat as usize) < self.base as usize + self.len as usize
+        flat >= self.base && usize::from(flat) < usize::from(self.base) + usize::from(self.len)
     }
 }
 
@@ -108,6 +110,18 @@ impl Default for Memory {
     }
 }
 
+impl std::fmt::Debug for Memory {
+    /// The modules and the free list, not the 64 KiB arena or the word table
+    /// — those are what a trace reads one cell at a time.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Memory")
+            .field("modules", &self.modules)
+            .field("bound", &self.table.iter().filter(|&&b| b != 0).count())
+            .field("free", &self.free)
+            .finish()
+    }
+}
+
 impl Memory {
     /// An empty space with nothing loaded.
     pub fn new() -> Self {
@@ -115,7 +129,7 @@ impl Memory {
             bytes: vec![0; SPACE],
             modules: BTreeMap::new(),
             table: vec![0; SPACE],
-            free: vec![(FIRST_BASE, (SPACE - FIRST_BASE as usize) as u16)],
+            free: vec![(FIRST_BASE, cell::flat(SPACE - usize::from(FIRST_BASE)))],
         }
     }
 
@@ -129,13 +143,13 @@ impl Memory {
     /// defines are bound to its bodies, taking over from whatever held them.
     pub fn load(&mut self, item: &[u8], parsed: &ScrModule) -> Result<u16> {
         let number = parsed.module;
-        if item.len() > SPACE - FIRST_BASE as usize {
+        if item.len() > SPACE - usize::from(FIRST_BASE) {
             return Err(Error::OutOfMemory {
-                module: number as u32,
+                module: u32::from(number),
                 need: item.len(),
             });
         }
-        let len = item.len() as u16;
+        let len = cell::flat(item.len());
         let base = match self.modules.get(&number) {
             Some(m) if m.len == len => m.base,
             Some(_) => {
@@ -144,14 +158,14 @@ impl Memory {
             }
             None => self.take(len, number)?,
         };
-        self.bytes[base as usize..base as usize + item.len()].copy_from_slice(item);
+        self.bytes[usize::from(base)..usize::from(base) + item.len()].copy_from_slice(item);
         let mut names = BTreeMap::new();
         let mut ids = Vec::with_capacity(parsed.entries.len());
         for e in &parsed.entries {
-            let body = base + e.body_offset() as u16;
+            let body = base + cell::flat(e.body_offset());
             names.insert(body, e.name.clone());
             ids.push(e.id);
-            self.table[e.id as usize] = body;
+            self.table[usize::from(e.id)] = body;
         }
         self.modules.insert(
             number,
@@ -170,8 +184,8 @@ impl Memory {
     fn take(&mut self, len: u16, number: u16) -> Result<u16> {
         let Some(i) = self.free.iter().position(|&(_, l)| l >= len) else {
             return Err(Error::OutOfMemory {
-                module: number as u32,
-                need: len as usize,
+                module: u32::from(number),
+                need: usize::from(len),
             });
         };
         let (start, have) = self.free[i];
@@ -194,35 +208,36 @@ impl Memory {
             return false;
         };
         for &id in &m.ids {
-            if m.contains(self.table[id as usize]) {
-                self.table[id as usize] = 0;
+            if m.contains(self.table[usize::from(id)]) {
+                self.table[usize::from(id)] = 0;
             }
         }
-        self.bytes[m.base as usize..m.base as usize + m.len as usize].fill(0);
+        self.bytes[usize::from(m.base)..usize::from(m.base) + usize::from(m.len)].fill(0);
         self.give(m.base, m.len);
         true
     }
 
     /// Returns a range to the free list, merging with its neighbors.
     fn give(&mut self, start: u16, len: u16) {
-        let end = start as usize + len as usize;
+        let end = usize::from(start) + usize::from(len);
         let i = self
             .free
-            .partition_point(|&(s, _)| (s as usize) < start as usize);
-        let mut start = start as usize;
+            .partition_point(|&(s, _)| usize::from(s) < usize::from(start));
+        let mut start = usize::from(start);
         let mut end = end;
         // Merge with the range after.
-        if i < self.free.len() && self.free[i].0 as usize == end {
-            end += self.free[i].1 as usize;
+        if i < self.free.len() && usize::from(self.free[i].0) == end {
+            end += usize::from(self.free[i].1);
             self.free.remove(i);
         }
         // Merge with the range before.
-        if i > 0 && self.free[i - 1].0 as usize + self.free[i - 1].1 as usize == start {
-            start = self.free[i - 1].0 as usize;
+        if i > 0 && usize::from(self.free[i - 1].0) + usize::from(self.free[i - 1].1) == start {
+            start = usize::from(self.free[i - 1].0);
             self.free.remove(i - 1);
         }
-        let i = self.free.partition_point(|&(s, _)| (s as usize) < start);
-        self.free.insert(i, (start as u16, (end - start) as u16));
+        let i = self.free.partition_point(|&(s, _)| usize::from(s) < start);
+        self.free
+            .insert(i, (cell::flat(start), cell::flat(end - start)));
     }
 
     /// Whether module `n` is loaded.
@@ -242,7 +257,7 @@ impl Memory {
 
     /// The body a global id is bound to, if any.
     pub fn resolve(&self, id: u16) -> Option<u16> {
-        let body = self.table[id as usize];
+        let body = self.table[usize::from(id)];
         (body != 0).then_some(body)
     }
 
@@ -251,15 +266,15 @@ impl Memory {
         self.modules
             .values()
             .find(|m| m.contains(flat))
-            .map(|m| Address::new(m.number as u32, (flat - m.base) as u32))
+            .map(|m| Address::new(u32::from(m.number), u32::from(flat - m.base)))
     }
 
     /// The flat address a module-relative location names, if the module is
     /// loaded.
     pub fn flat(&self, addr: Address) -> Option<u16> {
-        let m = self.modules.get(&(addr.module() as u16))?;
-        let flat = m.base as usize + addr.offset() as usize;
-        (flat < SPACE).then_some(flat as u16)
+        let m = self.modules.get(&cell::module(addr.module()))?;
+        let flat = usize::from(m.base) + cell::index(addr.offset());
+        (flat < SPACE).then_some(cell::flat(flat))
     }
 
     /// The address of a word's body by name alone, across the resident
@@ -274,21 +289,21 @@ impl Memory {
             .values()
             .filter_map(|m| m.word(name).map(|flat| (m.base, m.number, flat)))
             .max_by_key(|&(base, _, _)| base)
-            .map(|(base, number, flat)| Address::new(number as u32, (flat - base) as u32))
+            .map(|(base, number, flat)| Address::new(u32::from(number), u32::from(flat - base)))
     }
 
     /// The address of a word's body, by module and name.
     pub fn word(&self, module: u16, name: &str) -> Option<Address> {
         let m = self.modules.get(&module)?;
         m.word(name)
-            .map(|flat| Address::new(module as u32, (flat - m.base) as u32))
+            .map(|flat| Address::new(u32::from(module), u32::from(flat - m.base)))
     }
 
     /// Reads a cell at the address as given, odd or even: the `@` handler
     /// (`ENVIRO.EXE` file `0x1c9af`) adds the address to the arena base and
     /// reads there, with no mask. `!` is the one that aligns.
     pub fn fetch(&self, flat: u16) -> u16 {
-        let a = flat as usize;
+        let a = usize::from(flat);
         u16::from_le_bytes([self.bytes[a], self.bytes[(a + 1) % SPACE]])
     }
 
@@ -298,7 +313,7 @@ impl Memory {
     /// their pointers from the same rule (the helper at file `0x17690` masks
     /// bit 0), which is why [`crate::AddressSpace`] reads aligned too.
     pub fn store(&mut self, flat: u16, value: u16) {
-        let a = (flat & !1) as usize;
+        let a = usize::from(flat & !1);
         let [lo, hi] = value.to_le_bytes();
         self.bytes[a] = lo;
         self.bytes[(a + 1) % SPACE] = hi;
@@ -306,42 +321,46 @@ impl Memory {
 
     /// Reads one byte.
     pub fn fetch_byte(&self, flat: u16) -> u8 {
-        self.bytes[flat as usize]
+        self.bytes[usize::from(flat)]
     }
 
     /// Writes one byte.
     pub fn store_byte(&mut self, flat: u16, value: u8) {
-        self.bytes[flat as usize] = value;
+        self.bytes[usize::from(flat)] = value;
     }
 
     /// `n` bytes from `flat`, or an error if they run past the end of the
     /// space.
     pub fn read_bytes(&self, flat: u16, n: usize) -> Result<&[u8]> {
         self.bytes
-            .get(flat as usize..flat as usize + n)
+            .get(usize::from(flat)..usize::from(flat) + n)
             .ok_or_else(|| Error::OutOfRange {
-                addr: self.locate(flat).unwrap_or(Address::new(0, flat as u32)),
+                addr: self
+                    .locate(flat)
+                    .unwrap_or_else(|| Address::new(0, u32::from(flat))),
                 at: None,
             })
     }
 
     /// Writes raw bytes at `flat` — what `GET` does with a block.
     pub fn write_bytes(&mut self, flat: u16, bytes: &[u8]) -> Result<()> {
-        let end = flat as usize + bytes.len();
+        let end = usize::from(flat) + bytes.len();
         if end > SPACE {
             return Err(Error::OutOfRange {
-                addr: self.locate(flat).unwrap_or(Address::new(0, flat as u32)),
+                addr: self
+                    .locate(flat)
+                    .unwrap_or_else(|| Address::new(0, u32::from(flat))),
                 at: None,
             });
         }
-        self.bytes[flat as usize..end].copy_from_slice(bytes);
+        self.bytes[usize::from(flat)..end].copy_from_slice(bytes);
         Ok(())
     }
 
     /// A module's whole image as it stands in memory.
     pub fn image(&self, number: u16) -> Option<&[u8]> {
         let m = self.modules.get(&number)?;
-        Some(&self.bytes[m.base as usize..m.base as usize + m.len as usize])
+        Some(&self.bytes[usize::from(m.base)..usize::from(m.base) + usize::from(m.len)])
     }
 
     /// Puts a module image back — the length must match to the byte.
@@ -351,20 +370,23 @@ impl Memory {
                 what: format!("module {number} is not loaded"),
             });
         };
-        if image.len() != m.len as usize {
-            return Err(Error::Unsupported(format!(
-                "module {number}: the saved image is {} bytes where the module is {}",
-                image.len(),
-                m.len
-            )));
+        if image.len() != usize::from(m.len) {
+            return Err(Error::Savegame {
+                what: format!(
+                    "module {number}: the saved image is {} bytes where the module is {}",
+                    image.len(),
+                    m.len
+                ),
+            });
         }
-        let base = m.base as usize;
+        let base = usize::from(m.base);
         self.bytes[base..base + image.len()].copy_from_slice(image);
         Ok(())
     }
 }
 
 /// An execution set aside by [`Vm::park`], to be resumed later.
+#[derive(Debug)]
 pub struct Context {
     ip: u16,
     ret: Vec<u16>,
@@ -372,6 +394,7 @@ pub struct Context {
 }
 
 /// The interpreter: two stacks, the flat memory, and where it is.
+#[derive(Debug)]
 pub struct Vm {
     /// The memory, the modules and the word table.
     pub mem: Memory,
@@ -381,15 +404,9 @@ pub struct Vm {
     pub data: Vec<i32>,
     ret: Vec<u16>,
     ip: u16,
-    steps: u64,
-    /// Guards against a runaway program; generous but finite.
-    pub step_limit: u64,
-    trace: Option<Vec<String>>,
-    /// Deterministic source for `RANDOM`: a seeded LCG, never the clock or
-    /// the operating system's entropy — see the 32-bit machine's, which says
-    /// what that buys.
-    rng: u32,
-    nested: u32,
+    /// The step budget, the trace, the counters, the generator and the nesting
+    /// depth — the bookkeeping both machines do the same way.
+    core: Core,
 }
 
 impl Vm {
@@ -402,11 +419,7 @@ impl Vm {
             data: Vec::new(),
             ret: Vec::new(),
             ip: 0,
-            steps: 0,
-            step_limit: 5_000_000,
-            trace: None,
-            rng: 0x1234_5678,
-            nested: 0,
+            core: Core::default(),
         }
     }
 
@@ -432,12 +445,17 @@ impl Vm {
 
     /// Starts recording every executed word, with where it was.
     pub fn start_trace(&mut self) {
-        self.trace.get_or_insert_with(Vec::new);
+        self.core.start_trace();
     }
 
     /// What has been recorded, oldest first, or `None` if nothing is.
     pub fn trace(&self) -> Option<&[String]> {
-        self.trace.as_deref()
+        self.core.trace()
+    }
+
+    /// Raises or lowers the guard against a runaway program.
+    pub fn set_step_limit(&mut self, steps: u64) {
+        self.core.set_step_limit(steps);
     }
 
     /// Where the machine stands, as a module-relative location — module 0
@@ -445,13 +463,13 @@ impl Vm {
     pub fn here(&self) -> Address {
         self.mem
             .locate(self.ip)
-            .unwrap_or(Address::new(0, self.ip as u32))
+            .unwrap_or_else(|| Address::new(0, u32::from(self.ip)))
     }
 
     /// The flat address of a location, or the error for a module that is not
     /// loaded.
     fn flat_of(&self, addr: Address) -> Result<u16> {
-        self.mem.flat(addr).ok_or(Error::NoSuchModule {
+        self.mem.flat(addr).ok_or_else(|| Error::NoSuchModule {
             module: addr.module(),
             at: self.here(),
             cell: addr.0,
@@ -462,7 +480,7 @@ impl Vm {
     pub fn start(&mut self, start: Address) -> Result<()> {
         self.ip = self.flat_of(start)?;
         self.ret.clear();
-        self.steps = 0;
+        self.core.restart();
         Ok(())
     }
 
@@ -496,7 +514,7 @@ impl Vm {
         Context {
             ip: self.ip,
             ret: std::mem::take(&mut self.ret),
-            steps: self.steps,
+            steps: self.core.steps(),
         }
     }
 
@@ -504,7 +522,7 @@ impl Vm {
     pub fn unpark(&mut self, saved: Context) {
         self.ip = saved.ip;
         self.ret = saved.ret;
-        self.steps = saved.steps;
+        self.core.set_steps(saved.steps);
     }
 
     /// Runs a word to completion on the machine's own memory and data stack,
@@ -515,14 +533,14 @@ impl Vm {
         let saved = self.park();
         self.ip = flat;
         self.ret.clear();
-        self.steps = 0;
-        self.nested += 1;
+        self.core.restart();
+        self.core.enter_nested();
         let outcome = match self.resume(host) {
             Ok(Run::Done) => Ok(()),
             Ok(Run::Yielded) => Err(Error::Suspended { at: self.here() }),
             Err(e) => Err(e),
         };
-        self.nested -= 1;
+        self.core.leave_nested();
         self.unpark(saved);
         outcome
     }
@@ -530,17 +548,18 @@ impl Vm {
     /// Runs until the word returns or the host asks to pause.
     pub fn resume(&mut self, host: &mut dyn Host<Vm>) -> Result<Run> {
         loop {
-            self.steps += 1;
-            if self.steps > self.step_limit {
-                return Err(Error::StepLimit(self.step_limit));
-            }
+            self.core.tick()?;
             let here = self.here();
             let cell = self.mem.fetch(self.ip);
             self.ip = self.ip.wrapping_add(CELL);
 
             if cell & KERNEL_BIT != 0 {
-                let ordinal = (cell & ORDINAL_MASK) as u32;
-                let done = self.step_primitive(ordinal, here, host)?;
+                let ordinal = u32::from(cell & ORDINAL_MASK);
+                // Whatever came back without a place gets one here: this is
+                // the only frame that knows both the word and where it stood.
+                let done = self
+                    .step_primitive(ordinal, here, host)
+                    .map_err(|e| e.located(here))?;
                 if done {
                     match self.ret.pop() {
                         Some(a) => self.ip = a,
@@ -550,7 +569,7 @@ impl Vm {
                 if let Some((raw, args)) = host.pending_call() {
                     let Some(target) = crate::Machine::callback_target(self, raw) else {
                         return Err(Error::UnboundWord {
-                            id: raw as u16,
+                            id: cell::low16(raw),
                             at: self.here(),
                         });
                     };
@@ -561,7 +580,7 @@ impl Vm {
                     self.ret.push(self.ip);
                     self.ip = flat;
                 }
-                if self.nested == 0 && host.wants_pause() {
+                if !self.core.nested() && host.wants_pause() {
                     return Ok(Run::Yielded);
                 }
                 continue;
@@ -578,40 +597,51 @@ impl Vm {
 
     /// Records an executed word, with where it was.
     fn note(&mut self, ordinal: u32) {
-        if self.trace.is_none() {
+        if !self.core.tracing() {
             return;
         }
         let here = self.here();
         let what = self.ordinal_name(ordinal).unwrap_or("?").to_string();
-        if let Some(t) = self.trace.as_mut() {
-            t.push(format!("{here:>12}  {what}"));
-        }
+        self.core.push_trace(format!("{here:>12}  {what}"));
     }
 
     fn pop(&mut self, word: &'static str) -> Result<i32> {
-        self.data.pop().ok_or(Error::StackUnderflow {
+        self.data.pop().ok_or_else(|| Error::StackUnderflow {
             word,
-            at: self.here(),
+            at: Some(self.here()),
         })
     }
 
     /// Pushes a value, wrapped to the 16-bit cell and sign-extended.
     fn push(&mut self, v: i32) {
-        self.data.push((v as i16) as i32);
+        self.data.push(cell::wrap16(v));
     }
 
     /// Reads the inline operand that follows the current instruction:
     /// its flat address and its value.
-    fn operand(&mut self) -> (u16, i16) {
+    fn operand(&mut self) -> (u16, i32) {
         let at = self.ip;
-        let v = self.mem.fetch(at) as i16;
+        let v = cell::sign16(self.mem.fetch(at));
         self.ip = at.wrapping_add(CELL);
         (at, v)
     }
 
+    /// Reseeds `RANDOM`'s generator.
+    ///
+    /// The state is 32 bits wide, so the low half of the seed is what reaches
+    /// it and the rest is dropped rather than folded in: a caller with real
+    /// entropy has it in the low bits, and a fold would make two seeds that
+    /// look different behave the same in a way nothing would report.
+    ///
+    /// Not called at all by the test suites, which is the point of it being a
+    /// call: without one the generator stays on the constant it is built with
+    /// and a scene reached the same way twice composes the same bytes twice.
+    pub fn seed(&mut self, seed: u64) {
+        self.core.seed(seed);
+    }
+
     fn next_rng(&mut self) -> u32 {
-        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        self.rng
+        self.core.next_rng()
     }
 }
 
@@ -622,33 +652,33 @@ pub fn word_address(vm: &Vm, module: u16, word: &str) -> Option<Address> {
 
 impl crate::AddressSpace for Memory {
     fn fetch_cell(&self, raw: i32) -> Result<i32> {
-        Ok((self.fetch(raw as u16 & !1) as i16) as i32)
+        Ok(cell::sign16(self.fetch(cell::low16(raw) & !1)))
     }
 
     fn store_cell(&mut self, raw: i32, value: i32) -> Result<()> {
-        self.store(raw as u16, value as u16);
+        self.store(cell::low16(raw), cell::low16(value));
         Ok(())
     }
 
     fn fetch_byte(&self, raw: i32) -> Result<u8> {
-        Ok(Memory::fetch_byte(self, raw as u16))
+        Ok(Memory::fetch_byte(self, cell::low16(raw)))
     }
 
     fn read_bytes(&self, raw: i32, n: usize) -> Result<Vec<u8>> {
-        Memory::read_bytes(self, raw as u16, n).map(<[u8]>::to_vec)
+        Memory::read_bytes(self, cell::low16(raw), n).map(<[u8]>::to_vec)
     }
 
     fn write_bytes(&mut self, raw: i32, bytes: &[u8]) -> Result<()> {
-        Memory::write_bytes(self, raw as u16, bytes)
+        Memory::write_bytes(self, cell::low16(raw), bytes)
     }
 
     /// Flat addresses add and wrap at 16 bits, like the stack cells they are.
     fn offset(&self, raw: i32, bytes: i32) -> i32 {
-        ((raw as u16).wrapping_add(bytes as u16) as i16) as i32
+        cell::sign16(cell::low16(raw).wrapping_add(cell::low16(bytes)))
     }
 
     fn cell_size(&self) -> i32 {
-        CELL as i32
+        i32::from(CELL)
     }
 
     /// A callback is a global word id: it can be run if a loaded module
@@ -660,19 +690,19 @@ impl crate::AddressSpace for Memory {
         if raw == 0 || raw == -1 {
             return 0;
         }
-        self.resolve(raw as u16).map_or(0, |_| raw)
+        self.resolve(cell::low16(raw)).map_or(0, |_| raw)
     }
 
     fn is_live(&self, raw: i32) -> bool {
-        self.locate(raw as u16).is_some()
+        self.locate(cell::low16(raw)).is_some()
     }
 
     fn module_image(&self, module: u32) -> Option<Vec<u8>> {
-        self.image(module as u16).map(|b| b.to_vec())
+        self.image(cell::module(module)).map(|b| b.to_vec())
     }
 
     fn restore_module(&mut self, module: u32, image: &[u8]) -> Result<()> {
-        self.restore(module as u16, image)
+        self.restore(cell::module(module), image)
     }
 }
 
@@ -700,29 +730,29 @@ impl crate::Machine for Vm {
     }
 
     fn word_address(&self, module: u32, name: &str) -> Option<Address> {
-        word_address(self, module as u16, name)
+        word_address(self, cell::module(module), name)
     }
 
     /// A variable's body is `_PutAdr` and its cell: the value is one cell
     /// past the body's start.
     fn variable(&self, word: Address) -> Option<i32> {
         let flat = self.mem.flat(word)?;
-        Some((self.mem.fetch(flat.wrapping_add(CELL)) as i16) as i32)
+        Some(cell::sign16(self.mem.fetch(flat.wrapping_add(CELL))))
     }
 
     fn set_variable(&mut self, word: Address, value: i32) -> Result<()> {
-        let flat = self.mem.flat(word).ok_or(Error::NoSuchModule {
+        let flat = self.mem.flat(word).ok_or_else(|| Error::NoSuchModule {
             module: word.module(),
             at: self.here(),
             cell: word.0,
         })?;
-        self.mem.store(flat.wrapping_add(CELL), value as u16);
+        self.mem.store(flat.wrapping_add(CELL), cell::low16(value));
         Ok(())
     }
 
     /// A stored callback is a global word id, resolved through the table.
     fn callback_target(&self, raw: i32) -> Option<Address> {
-        let flat = self.mem.resolve(raw as u16)?;
+        let flat = self.mem.resolve(cell::low16(raw))?;
         self.mem.locate(flat)
     }
 
@@ -736,5 +766,13 @@ impl crate::Machine for Vm {
 
     fn space_mut(&mut self) -> &mut dyn crate::AddressSpace {
         &mut self.mem
+    }
+
+    fn counters(&self) -> Counters {
+        self.core.counters()
+    }
+
+    fn seed(&mut self, seed: u64) {
+        Vm::seed(self, seed);
     }
 }

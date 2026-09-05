@@ -157,12 +157,13 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
         let s = gfx::Sprite::parse(item)?;
         motionvm_render::write_indexed_png(
             &sprite_dir.join(format!("{id:04}.png")),
-            s.width as u32,
-            s.height as u32,
+            u32::from(s.width),
+            u32::from(s.height),
             &s.pixels,
             rgb.clone(),
             Some(motionvm_render::TRANSPARENT),
         )
+        .map_err(Into::into)
     })?;
     println!(
         "{n_sprites:>6} sprites (palette {pal}) -> {}{}",
@@ -214,8 +215,8 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
                 n_songs += 1;
                 format!(
                     "PSM 2 song (MDH at {}, SM8 at {})",
-                    tags.mdh.map_or("-".into(), |o| o.to_string()),
-                    tags.sm8.map_or("-".into(), |o| o.to_string())
+                    tags.mdh.map_or_else(|| "-".into(), |o| o.to_string()),
+                    tags.sm8.map_or_else(|| "-".into(), |o| o.to_string())
                 )
             }
             // The earlier games store the Ad Lib section on its own, with no
@@ -296,7 +297,8 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
     );
 
     // Which kernel words the game reaches for, and which the 16-bit machine
-    // implements itself; the rest are the engine's.
+    // implements itself; the rest are the engine's, and whether the engine has
+    // them is the engine's own suite's to say — these tools know no engine.
     let usage = library.usage(&modules);
     let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("kernel-usage.txt"))?);
     writeln!(f, "{:<16} {:>8}  VM", "WORD", "USES")?;
@@ -316,7 +318,7 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
         "{:>6} of {} kernel words used; {done} implemented by the machine, covering {:.0}% of all uses -> {}",
         usage.len(),
         binding.len(),
-        100.0 * done_uses as f64 / total_uses.max(1) as f64,
+        crate::percent(done_uses, total_uses),
         out.join("kernel-usage.txt").display()
     );
 
@@ -350,8 +352,8 @@ pub(crate) fn one_sprite(dir: &Path, id: usize, out: &Path, pal: usize) -> Res {
     );
     motionvm_render::write_indexed_png(
         out,
-        s.width as u32,
-        s.height as u32,
+        u32::from(s.width),
+        u32::from(s.height),
         &s.pixels,
         palette(&c, pal)?.to_rgb8(),
         Some(motionvm_render::TRANSPARENT),
@@ -370,10 +372,10 @@ pub(crate) fn script(dir: &Path, number: usize) -> Res {
     let mut dis = Disassembler::new(&binding);
     // Names from the library and, for a location module, from its siblings.
     for other in c.present(Segment::Scr) {
-        let same_location = is_location(other as u16)
+        let same_location = u16::try_from(other).is_ok_and(is_location)
             && is_location(m.module)
-            && other % 100 == m.module as usize % 100;
-        if (!is_location(other as u16) || same_location)
+            && other % 100 == usize::from(m.module) % 100;
+        if (!u16::try_from(other).is_ok_and(is_location) || same_location)
             && let Some(raw) = c.item(Segment::Scr, other)?
             && let Ok(parsed) = scr::ScrModule::parse(raw)
         {
@@ -406,10 +408,9 @@ fn write_symbols(f: &mut impl Write, m: &scr::ScrModule, bytes: usize) -> std::i
             ":"
         };
         let value = match kind {
-            "VAR" | "CONST" => e
-                .body
-                .get(1)
-                .map_or(String::new(), |v| format!("  = {}", *v as i16)),
+            "VAR" | "CONST" => e.body.get(1).map_or(String::new(), |v| {
+                format!("  = {}", i16::from_le_bytes(v.to_le_bytes()))
+            }),
             _ => String::new(),
         };
         writeln!(
@@ -459,9 +460,9 @@ mod tests {
         v[4..6].copy_from_slice(&3u16.to_le_bytes()); // three GFX slots
         v[18..20].copy_from_slice(&1u16.to_le_bytes()); // one volume
         v.extend_from_slice(&[1u16, 0, 1].map(u16::to_le_bytes).concat());
-        let first = (v.len() + 3 * 4) as u32;
+        let first = u32::try_from(v.len() + 3 * 4).unwrap();
         let items: [&[u8]; 2] = [&[1, 0, 1, 0, 0, 0], &[2, 0, 1, 0, 0, 0, 7, 8]];
-        let second = first + items[0].len() as u32;
+        let second = first + u32::try_from(items[0].len()).unwrap();
         v.extend_from_slice(&[first, second, second].map(u32::to_le_bytes).concat());
         v.extend_from_slice(items[0]);
         v.extend_from_slice(items[1]);

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+publish.workspace = true
 description = "Command line tools for inspecting and extracting a MOTION game's resources"
 
 [[bin]]
@@ -14,14 +15,22 @@ path = "src/main.rs"
 
 [dependencies]
 motionvm-motion-formats.workspace = true
-# For `IMPLEMENTED`: `extract` reports which of the kernel words the game
-# reaches for are built, which is the number that says how much of the engine
-# a reimplementation still owes.
+# For `IMPLEMENTED`: `extract` marks which of the kernel words a game reaches
+# for the interpreter itself owns. The rest are the engine's, and these tools
+# deliberately know no engine — `generation` in main.rs says why — so what the
+# engine implements is the engine's own suite's to report.
 motionvm-motion-forth.workspace = true
 # For `write_indexed_png`: the pictures these tools write are the same kind the
-# game draws, down to the transparent index.
+# game draws, down to the transparent index. And for `read_png`, which is how
+# `compare-frame` gets both pictures back.
 motionvm-render.workspace = true
-png.workspace = true
+# For `registers`: the sequencer and the OPL drivers the player runs, fed a
+# song straight out of the container. The audio layer knows no game and no
+# engine — it plays a block by number — so this narrows nothing.
+motionvm-motion-audio.workspace = true
+
+[dev-dependencies]
+motionvm-motion-testutil.workspace = true
 
 [lints]
 workspace = true

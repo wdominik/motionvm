@@ -26,6 +26,7 @@
 //!   seek: the engine kills the track's sounding notes, replays the marker's
 //!   controller snapshot, and resets the track's tick from the marker.
 
+use crate::num;
 use motionvm_motion_formats::m32::hmi::{Event, Song};
 
 /// What the sequencer emits. One MIDI message, on the channel the track owns.
@@ -115,6 +116,7 @@ struct TrackState {
 const RUNAWAY_TRACK: u32 = 10_000;
 
 /// One song being played: where each track has got to, and what is still ringing.
+#[derive(Debug)]
 pub struct Sequencer {
     song: Song,
     tracks: Vec<TrackState>,
@@ -135,9 +137,38 @@ pub struct Sequencer {
     runaway: Option<usize>,
 }
 
+/// Whether a track that names `designations` plays on `device`, as the song
+/// open decides it (`0x9c8a6`): the track goes to the first installed device
+/// one of its names matches, where `0xA000` also matches `0xA001` and
+/// `0xA008`, and `0xA002` also matches `0xA009`, the OPL3. With one device
+/// installed that is a yes or a no.
+pub fn plays_on(designations: &[u16], device: u32) -> bool {
+    designations.iter().any(|&named| match named {
+        0xa000 => matches!(device, 0xa000 | 0xa001 | 0xa008),
+        0xa002 => matches!(device, 0xa002 | 0xa009),
+        other => u32::from(other) == device,
+    })
+}
+
 impl Sequencer {
-    /// Starts a song at tick zero, with every track at its first event.
-    pub fn new(song: Song) -> Self {
+    /// Starts a song at tick zero on `device`, with every track the song
+    /// designates for that device at its first event.
+    ///
+    /// The other tracks are not loaded at all. The original's song open
+    /// (`0x9c8a6`) gives each track to a device by the list at `track+0x99`
+    /// and drops one that no installed device serves; Dunkle Schatten 2's
+    /// opening tune carries a bass and a second guitar for other devices,
+    /// and on the OPL3 they are silent, which is what a recording of the
+    /// original shows.
+    pub fn new(song: Song, device: u32) -> Self {
+        let song = Song {
+            tracks: song
+                .tracks
+                .into_iter()
+                .filter(|t| plays_on(&t.devices, device))
+                .collect(),
+            ..song
+        };
         let tracks = song
             .tracks
             .iter()
@@ -269,7 +300,7 @@ impl Sequencer {
                 self.tracks[i].done = true;
                 return;
             };
-            let channel = self.song.tracks[i].channel as u8 & 0x0f;
+            let channel = num::lo(self.song.tracks[i].channel) & 0x0f;
             let event = timed.event.clone();
             self.tracks[i].next = index + 1;
             self.dispatch(i, channel, &event, out);
@@ -312,7 +343,7 @@ impl Sequencer {
                 // 105, reaches the chip as attenuation 0x10. Only 80·105/127 =
                 // 66 followed by the driver's (105·66)>>7 = 54 gives that.
                 let velocity = if channel == 9 {
-                    (velocity as u32 * self.volume[9] as u32 / 127) as u8
+                    num::byte(u32::from(velocity) * u32::from(self.volume[9]) / 127)
                 } else {
                     velocity
                 };
@@ -381,7 +412,7 @@ impl Sequencer {
     /// twice over, which only happens if the driver has it too.
     fn control(&mut self, channel: u8, controller: u8, value: u8, out: &mut Vec<Message>) {
         if controller == 7 {
-            self.volume[(channel & 0x0f) as usize] = value;
+            self.volume[usize::from(channel & 0x0f)] = value;
         }
         match controller {
             // 103, 104, 106 and 107 are the sequencer's own bookkeeping, 105
@@ -405,7 +436,7 @@ impl Sequencer {
         let Some(index) = track.events.iter().position(|e| e.at == point.offset) else {
             return;
         };
-        let channel = track.channel as u8 & 0x0f;
+        let channel = num::lo(track.channel) & 0x0f;
 
         // Controller 108: every note this track has sounding is killed. The
         // original walks the pending list and drops the entries whose channel
@@ -447,5 +478,24 @@ impl Sequencer {
         self.tracks[i].next = index + 1;
         self.tracks[i].delta = track.events.get(index + 1).map_or(0, |e| e.delta);
         self.tracks[i].done = false;
+    }
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::plays_on;
+
+    /// The matching `0x9c8a6` does, with its two families: a track for
+    /// `0xA000` plays on `0xA001` and `0xA008` too, one for `0xA002` on the
+    /// OPL3, and any other name only on the device it names.
+    #[test]
+    fn a_track_plays_on_the_devices_its_list_names() {
+        assert!(plays_on(&[0xa000, 0xa004, 0xa00a, 0xa002], 0xa009));
+        assert!(!plays_on(&[0xa000, 0xa004, 0xa00a], 0xa009), "no OPL3 name");
+        assert!(plays_on(&[0xa000], 0xa001));
+        assert!(plays_on(&[0xa000], 0xa008));
+        assert!(!plays_on(&[0xa000], 0xa009));
+        assert!(plays_on(&[0xa00a], 0xa00a));
+        assert!(!plays_on(&[], 0xa009), "a track for nothing plays nowhere");
     }
 }

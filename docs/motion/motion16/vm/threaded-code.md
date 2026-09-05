@@ -46,11 +46,11 @@ begins:
 The string payload occupies `(len + 2) / 2` cells counted from the cell after
 the opcode — the terminator is included and the length rounded up to a cell,
 so a string of even length costs one cell more than its characters. This is
-the compiler's rule; whether the 16-bit `_PutStringAdr` handler skips the
-same number of cells (the 32-bit handler skips one fewer when the length
-divides by four, see
-[threaded code (MOTION 32-bit)](../../motion32/vm/threaded-code.md)) is
-unread.
+the compiler's rule, and the handler's: `_PutStringAdr` (`12c8:134c`) takes
+the string's length, adds two and halves it, and moves the instruction
+pointer by that many cells — where the 32-bit handler skips one fewer when
+the length divides by four, see
+[threaded code (MOTION 32-bit)](../../motion32/vm/threaded-code.md).
 
 ## Branches
 
@@ -94,7 +94,6 @@ that are *calls*, not literals.
 
 ## Open questions
 
-- Whether `_PutStringAdr`'s handler follows the compiler's padding rule.
 - `_ChElseDup`'s exact semantics (the `ELSEDUP` runtime); no site in
   Die Enviro-Kids greifen ein reaches it.
 

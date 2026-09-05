@@ -9,21 +9,23 @@
 use crate::Engine;
 use crate::stack::pop1;
 use crate::walk;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     pub(crate) fn words_dowalk(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // A figure's walk is a command queue plus a gate, and both live in
             // [`walk`] — see there for the whole of it.
-            "DOWALK" => {
-                let person = pop1(stack, "DOWALK")? as u32;
+            Word::DOWALK => {
+                let person = cell::unsigned(pop1(stack, "DOWALK")?);
                 walk::do_walk(self, mem, person)?;
             }
             _ => return Ok(None),

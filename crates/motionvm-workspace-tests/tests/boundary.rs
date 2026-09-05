@@ -9,7 +9,8 @@
 //! which names each family's front door — the crate called `motionvm-<family>`
 //! with nothing after it — and nothing deeper.
 //!
-//! Needs no game data: it reads the workspace's own manifests and sources.
+//! Needs no game data: it asks Cargo what the workspace is and reads the
+//! sources.
 //! It lives in the rig crate — outside both layers, depending on nothing —
 //! because no crate inside a layer can judge the layers impartially, and
 //! because the evidence list below may one day carry several families'
@@ -78,89 +79,120 @@ fn crates_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
-/// The member paths, read out of the root manifest's own list — the walk
-/// sees exactly what Cargo sees, wherever a member lives.
-fn member_paths() -> Vec<PathBuf> {
-    let root = crates_dir().join("..").join("Cargo.toml");
-    let text = fs::read_to_string(&root).expect("the root manifest is readable");
-    let mut paths = Vec::new();
-    let mut in_members = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with("members") {
-            in_members = true;
-            continue;
-        }
-        if in_members {
-            if line.starts_with(']') {
-                break;
-            }
-            if let Some(path) = line.strip_prefix('"').and_then(|l| l.strip_suffix("\",")) {
-                paths.push(crates_dir().join("..").join(path));
-            }
-        }
-    }
-    assert!(!paths.is_empty(), "the members list should parse");
-    paths
+/// Runs `cargo` with these arguments and answers its lines.
+///
+/// Asking Cargo rather than reading the manifests, and the difference is not
+/// tidiness: a hand-written scanner sees the shape of the file it was written
+/// against. The one here missed a `[dependencies.name]` section header until
+/// it was taught about them, would have missed a `[target.'cfg(unix)'
+/// .dependencies]` table, and could not have seen a dependency renamed with
+/// `package =`. Cargo has already resolved all of that by the time a test
+/// runs, so this asks it.
+///
+/// `CARGO` is set for anything cargo runs, which is how a test finds the same
+/// toolchain that built it. Still no dependency: the output is lines, and
+/// lines are what this reads.
+fn cargo(args: &[&str]) -> Vec<String> {
+    let exe = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let out = std::process::Command::new(exe)
+        .args(args)
+        .current_dir(crates_dir().join(".."))
+        .output()
+        .expect("cargo runs");
+    assert!(
+        out.status.success(),
+        "cargo {}: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout)
+        .expect("cargo speaks UTF-8")
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
-/// Every member crate as (name, workspace dependencies), read straight out
-/// of the manifests.
-fn members() -> Vec<(String, Vec<String>)> {
-    let mut out = Vec::new();
-    for dir in member_paths() {
-        let manifest = dir.join("Cargo.toml");
-        let text = fs::read_to_string(&manifest)
-            .unwrap_or_else(|_| panic!("{} names no manifest", dir.display()));
-        let name = text
-            .lines()
-            .find_map(|l| l.trim().strip_prefix("name = "))
-            .expect("every manifest names its package")
-            .trim_matches('"')
-            .to_string();
-        let mut deps = Vec::new();
-        let mut in_deps = false;
-        for line in text.lines() {
-            let line = line.trim();
-            if line.starts_with('[') {
-                // Every table of dependencies counts — regular, dev, build,
-                // and the target-specific ones: a crossing in any of them is
-                // a crossing. The section form `[dependencies.NAME]` names
-                // its dependency in the header itself.
-                in_deps = line.ends_with("dependencies]");
-                if let Some(header) = line.strip_suffix(']')
-                    && let Some(i) = header.find("dependencies.")
-                {
-                    deps.push(header[i + "dependencies.".len()..].to_string());
-                }
-                continue;
-            }
-            if in_deps && line.starts_with("motionvm") {
-                let dep = line
-                    .split(['.', ' ', '='])
-                    .next()
-                    .expect("a dependency line starts with its name");
-                deps.push(dep.to_string());
-            }
-        }
-        out.push((name, deps));
+/// The crate a `cargo tree` line names — the first word of it.
+fn crate_of(line: &str) -> &str {
+    line.split_whitespace().next().unwrap_or("")
+}
+
+/// Every member of the workspace, by name.
+fn members() -> Vec<String> {
+    cargo(&["tree", "--workspace", "--depth", "0", "--prefix", "none"])
+        .iter()
+        .map(|l| crate_of(l).to_owned())
+        .collect()
+}
+
+/// The workspace crates `name` depends on, in any table — normal, build or
+/// dev. A crossing in any of them is a crossing.
+fn dependencies(name: &str) -> Vec<String> {
+    cargo(&[
+        "tree",
+        "-p",
+        name,
+        "--depth",
+        "1",
+        "--prefix",
+        "none",
+        "-e",
+        "normal,build,dev",
+    ])
+    .iter()
+    .map(|l| crate_of(l).to_owned())
+    .filter(|d| d != name && d.starts_with("motionvm"))
+    .collect()
+}
+
+/// What the two checks below rest on: Cargo really is answering, and the
+/// answers really do carry dependencies.
+///
+/// A rule enforced by a walk over an empty list passes for the wrong reason,
+/// and rewriting this file's source of truth is exactly the change that could
+/// have made it empty. So the walk is held to what the workspace is known to
+/// contain.
+#[test]
+fn cargo_answers_what_the_workspace_is() {
+    let members = members();
+    assert!(
+        members.len() >= 11,
+        "cargo named {} members: {members:?}",
+        members.len()
+    );
+    for expected in ["motionvm-app", "motionvm-playable", "motionvm-motion"] {
+        assert!(members.iter().any(|m| m == expected), "no {expected}");
     }
-    out
+    // The front door is the crate that knows both halves, so it is the one
+    // whose dependencies must be visible for the rules to mean anything.
+    let front = dependencies("motionvm-motion");
+    for expected in ["motionvm-motion-engine", "motionvm-motion-audio"] {
+        assert!(
+            front.iter().any(|d| d == expected),
+            "motionvm-motion should depend on {expected}, got {front:?}"
+        );
+    }
+    // And a dev-dependency is seen, which is the table a hand-written scanner
+    // is likeliest to miss.
+    assert!(
+        dependencies("motionvm-motion-formats")
+            .iter()
+            .any(|d| d == "motionvm-motion-testutil"),
+        "a dev-dependency should be visible"
+    );
 }
 
 #[test]
 fn no_neutral_crate_depends_on_a_family() {
     let members = members();
-    assert_eq!(
-        members.len(),
-        member_paths().len(),
-        "every member's manifest should have been read"
-    );
-    for (name, deps) in &members {
+    assert!(members.len() > 1, "cargo should name every member");
+    for name in &members {
         if layer(name) != Layer::Neutral {
             continue;
         }
-        for dep in deps {
+        for dep in &dependencies(name) {
             match layer(dep) {
                 Layer::Neutral => {}
                 Layer::FrontDoor => assert_eq!(
@@ -180,11 +212,14 @@ fn no_neutral_crate_depends_on_a_family() {
 
 #[test]
 fn no_family_reaches_into_another() {
-    for (name, deps) in members() {
+    for name in members() {
         let Some(family) = family_of(&name) else {
             continue;
         };
-        for dep in deps.iter().filter(|d| layer(d) != Layer::Neutral) {
+        for dep in dependencies(&name)
+            .iter()
+            .filter(|d| layer(d) != Layer::Neutral)
+        {
             assert_eq!(
                 family_of(dep),
                 Some(family),
@@ -217,7 +252,7 @@ fn the_window_names_a_family_only_in_its_roster() {
 
 #[test]
 fn the_neutral_sources_carry_no_family_evidence() {
-    for (name, _) in members() {
+    for name in members() {
         if layer(&name) != Layer::Neutral {
             continue;
         }
@@ -241,7 +276,7 @@ fn the_neutral_sources_carry_no_family_evidence() {
             // `motionvm`/`MOTIONVM_*`: any bare `MOTION` is the family's.
             for (i, _) in text.match_indices("MOTION") {
                 assert!(
-                    text[i + 6..].starts_with("VM"),
+                    text.get(i + 6..).is_some_and(|rest| rest.starts_with("VM")),
                     "{} names the MOTION family",
                     file.display()
                 );
@@ -266,4 +301,44 @@ fn sources(dir: &Path) -> Vec<PathBuf> {
     }
     out.sort();
     out
+}
+
+/// Every game on the roster has a module of its own, named for its slug.
+///
+/// The third roster, and the one nothing else could see: `Title::ALL` is the
+/// list, `motion16::GAMES` is what `detect` walks, and `titles/<slug>.rs` is
+/// where a game's own files and words live. A game with a line in the first
+/// two and no file here would open when named and have nothing to open with.
+///
+/// Read off the directory rather than from the engine, because this crate
+/// depends on nothing — which is also why the slugs are spelled out. They are
+/// the names of files in a tree, and a test that took them from the enum could
+/// not fail when the enum was the thing that was wrong.
+#[test]
+fn every_game_has_a_module_of_its_own() {
+    let dir = crates_dir()
+        .join("motionvm-motion-engine")
+        .join("src")
+        .join("titles");
+    for slug in ["ds2", "enviro", "hfa", "jeffjet", "vloomes"] {
+        let path = dir.join(format!("{slug}.rs"));
+        assert!(
+            path.is_file(),
+            "{} is on the roster and has no module",
+            path.display()
+        );
+    }
+    // And nothing else in there is a game module masquerading as one: what is
+    // left is the two generations' shared halves and the module list.
+    let mut extra: Vec<String> = sources(&dir)
+        .iter()
+        .filter_map(|p| p.file_stem()?.to_str().map(str::to_owned))
+        .filter(|n| !["ds2", "enviro", "hfa", "jeffjet", "vloomes"].contains(&n.as_str()))
+        .collect();
+    extra.sort();
+    assert_eq!(
+        extra,
+        ["mod", "motion16", "motion32"],
+        "an unexpected module sits among the games'"
+    );
 }

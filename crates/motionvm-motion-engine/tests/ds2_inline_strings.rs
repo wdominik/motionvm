@@ -16,6 +16,7 @@
 
 use motionvm_motion_engine::Game;
 use motionvm_motion_forth::Address;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
 
@@ -28,7 +29,7 @@ fn name_at(game: &Game<Vm>, packed: u32) -> String {
             game.vm.mem.fetch_byte(at).unwrap_or(0)
         })
         .take_while(|b| *b != 0)
-        .map(|b| b as char)
+        .map(char::from)
         .collect()
 }
 
@@ -45,11 +46,17 @@ fn a_word_can_answer_with_a_string_built_into_it() {
     };
     for (word, want) in [("CALCINFO", "DINFO"), ("CALCGIVE", "DGIVE")] {
         let mut game = Game::open(&dir).expect("game opens");
+        // The word is driven without the game's own start, so the library
+        // `START` loads — `2 5 6 11 13 =>GET` — is loaded by hand; the word
+        // reads module 2's hooks before it falls back to its own string.
+        for module in [2, 5, 6, 11, 13] {
+            game.load_module(module).expect("a library module");
+        }
         // One value for the `DROP` that stands in front of the string.
         game.call(5, word, &[0])
             .unwrap_or_else(|e| panic!("5:{word}: {e}"));
 
-        let answered = game.vm.data.pop().expect("one address") as u32;
+        let answered = cell::unsigned(game.vm.data.pop().expect("one address"));
         assert_eq!(
             name_at(&game, answered),
             want,
@@ -92,6 +99,12 @@ fn a_string_whose_length_divides_by_four_still_lands_on_a_return() {
         return;
     };
     let mut game = Game::open(&dir).expect("game opens");
+    // The words are driven without the game's own start and without entering
+    // location 15, so the library `START` loads and the location's module
+    // are loaded by hand.
+    for module in [2, 5, 6, 11, 13, 215] {
+        game.load_module(module).expect("the module");
+    }
     // The arm that offers the answering machine: the location's dialogue phase
     // is 1, and the thing being given is that machine.
     game.set_var(215, "_?ACTDIALPA", 1)
@@ -103,7 +116,7 @@ fn a_string_whose_length_divides_by_four_still_lands_on_a_return() {
     };
     game.call(215, "DO_GIVE", &[machine]).expect("215:DO_GIVE");
 
-    let answered = game.vm.data.pop().expect("one address") as u32;
+    let answered = cell::unsigned(game.vm.data.pop().expect("one address"));
     assert_eq!(name_at(&game, answered), "GANRUFBA");
     assert!(
         game.vm.data.is_empty(),

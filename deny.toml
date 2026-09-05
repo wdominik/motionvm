@@ -1,0 +1,106 @@
+# What the dependency list is allowed to be, checked by `cargo deny`.
+#
+# The list is short on purpose — five packages to run at all — and every entry
+# in `[workspace.dependencies]` carries a comment saying what it is for and
+# what license it carries. That comment is a promise nobody was checking. This
+# is the check: an advisory against anything in the tree, a license outside the
+# list below, or a second version of a package that was not already there, and
+# CI is red.
+#
+# `cargo deny check` runs all of it. CONTRIBUTING.md says when a new dependency
+# needs a line here.
+
+[graph]
+# Every platform the program is built for, so a duplicate that only appears on
+# one of them is still seen. Without this the check would answer for the
+# machine it happened to run on, and the Apple and the Linux windowing stacks
+# do not bring the same packages.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[advisories]
+# Anything RustSec knows about, in anything the build reaches.
+yanked = "deny"
+
+# A *vulnerability* is denied wherever it is; that check is always on and has
+# no setting here. "Unmaintained" is scoped to what this workspace chose,
+# because that is the part it can act on: an unmaintained crate five levels
+# down inside winit — `ttf-parser`, under the Wayland decorations, with no
+# safe upgrade — is winit's to replace, and an ignore entry for it would be a
+# line nobody revisits. A direct dependency going unmaintained is a decision
+# to make, and this is where it becomes visible.
+unmaintained = "workspace"
+
+# No exceptions are in force. When one has to be, it goes here with the
+# advisory number, why the code is not affected, and what would remove it.
+ignore = []
+
+[licenses]
+# Permissive, plus the one copyleft license the project carries knowingly.
+#
+# `nuked-opl3` is LGPL-2.1-or-later, as every derivative of Nuked-OPL3 is, and
+# NOTICE says what that obliges a distributor to do. It is here by name below
+# rather than by allowing the license generally, so a *second* LGPL dependency
+# would be a decision and not an accident.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+[[licenses.exceptions]]
+name = "nuked-opl3"
+allow = ["LGPL-2.1-or-later"]
+
+[bans]
+# A second version of a package is not free: it is compiled twice, shipped
+# twice, and audited twice. It is denied so that a *new* one is visible, and
+# the ones already here are skipped by name below.
+multiple-versions = "deny"
+
+# A dependency without a version is one nobody can pin. The workspace's own
+# crates are the exception — they are path dependencies of each other and none
+# of them is published — which is what `allow-wildcard-paths` says.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# The duplicates the Apple windowing stack carries today, every one of them
+# because `winit 0.30` pins the older `objc2` generation while `cpal`, `rfd`
+# and `softbuffer` have moved to the newer one. The workspace manifest records
+# why winit stays where it is; re-evaluate this list at the next stable winit,
+# and delete what it no longer needs.
+skip = [
+    { name = "bitflags", version = "1" },
+    # The rest are not the Apple stack's: several crates in the Linux and
+    # Windows halves of the same dependency set pin different generations of
+    # the same bindings and the same proc-macro parser. None of them is this
+    # workspace's dependency, none is reachable from anything it wrote, and
+    # none can be moved without moving winit, cpal or rfd.
+    { name = "linux-raw-sys" },
+    { name = "rustix" },
+    { name = "syn" },
+    { name = "windows-sys" },
+    { name = "block2", version = "0.5" },
+    { name = "objc2", version = "0.5" },
+    { name = "objc2-app-kit", version = "0.2" },
+    { name = "objc2-foundation", version = "0.2" },
+]
+
+[sources]
+# Everything comes from crates.io. A git dependency is a version nobody can
+# pin and a source nobody audits, so one would have to be argued for here
+# first.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

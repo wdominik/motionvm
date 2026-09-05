@@ -1,0 +1,21 @@
+# Reference digests for vloomes, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+tune_0  0x3de77b62e97e13f1
+tune_1  0x23c992f27c00c111
+tune_10  0x8d8d6d36a33ae82e
+tune_11  0x0a1767e3ddfffc50
+tune_12  0x77ba44974469d3df
+tune_13  0xcc5a10cf30412b08
+tune_2  0xf9f8241ba52f47d7
+tune_3  0xf9b3a25fc998fbc8
+tune_4  0x1005d8fe52b7d4d6
+tune_5  0xe0816620a77da655
+tune_6  0x3de77b62e97e13f1
+tune_7  0x1d336bb799758688
+tune_8  0x6a49f8051e56debc
+tune_9  0x69b0c63a152b00f0

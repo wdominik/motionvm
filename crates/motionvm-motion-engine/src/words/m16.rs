@@ -11,17 +11,20 @@ use crate::Engine;
 use crate::Fade;
 use crate::Wipe;
 use crate::stack::{pop_n, pop1};
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
+use motionvm_motion_forth::Error;
 use motionvm_motion_forth::Result;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     pub(crate) fn words_m16(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // `( n -- flag )`: whether save slot `n` exists — `706 701 DO I
             // =>EXIST LOOP` in `RUN`. The 32-bit kernel asks the same of a
             // file with `EXIST`; here it is the `=>` family's word, so the
@@ -37,10 +40,10 @@ impl Engine {
             // 32-bit handler it leaves the screen's surface untouched —
             // only the display goes black. Mode 0 is the same effect all at
             // once; the game passes `1 50 8` at every one of its sites.
-            "FADEOUT" | "FADEIN" => {
+            Word::FADEOUT_16 | Word::FADEIN_16 => {
                 let a = pop_n(stack, 3, "FADEIN/FADEOUT")?;
                 let (mode, duration, step) = (a[0], a[1], a[2]);
-                let opening = name == "FADEIN";
+                let opening = word == Word::FADEIN_16;
                 let screen = self.display.current.unwrap_or(0);
                 let was = self
                     .display
@@ -49,17 +52,19 @@ impl Engine {
                     .find(|s| s.handle == screen)
                     .map(|s| s.active);
                 let showing = self
+                    .scene
                     .descriptors
                     .iter()
                     .filter(|d| d.active && d.screen == screen)
                     .count();
                 let background = self
+                    .scene
                     .descriptors
                     .iter()
                     .find(|d| d.active && d.screen == screen && d.shows.table().is_some())
                     .and_then(|d| d.shows.graphic());
-                self.fades.push(Fade {
-                    name: name.to_string(),
+                self.transitions.fades.push(Fade {
+                    name: word.name().to_string(),
                     screen,
                     was_active: was.unwrap_or(false),
                     showing,
@@ -89,7 +94,7 @@ impl Engine {
                 if mode != 0 && mode != 1 {
                     // `05f1:284e`, `05f1:2a1c`: any other mode skips the
                     // effect; the flag work above has already happened.
-                    self.note_unhandled(format!("{name} (mode {mode})"));
+                    self.note_unhandled(word, Some(format!("mode {mode}")));
                     return Ok(Some(()));
                 }
                 let area = self
@@ -99,13 +104,20 @@ impl Engine {
                     .find(|s| s.handle == screen)
                     .map(|s| {
                         (
-                            s.view_pos.0 as i32,
-                            s.view_pos.1 as i32,
-                            s.view.0 as i32,
-                            s.view.1 as i32,
+                            i32::from(s.view_pos.0),
+                            i32::from(s.view_pos.1),
+                            i32::from(s.view.0),
+                            i32::from(s.view.1),
                         )
                     })
-                    .unwrap_or((0, 0, self.display.size.0 as i32, self.display.size.1 as i32));
+                    .unwrap_or_else(|| {
+                        (
+                            0,
+                            0,
+                            i32::from(self.display.size.width),
+                            i32::from(self.display.size.height),
+                        )
+                    });
                 if mode == 0 {
                     // All at once: `FADEOUT` fills the view with black
                     // (`05f1:286b`), `FADEIN` copies it whole out of the
@@ -115,32 +127,46 @@ impl Engine {
                     self.paint_wipe_now(&wipe);
                     return Ok(Some(()));
                 }
-                self.wipes
+                self.transitions
+                    .wipes
                     .push_back(Wipe::new(opening, screen, area, duration, step));
             }
-            "=>EXIST" => {
+            Word::RES_EXIST => {
                 let n = pop1(stack, "=>EXIST")?;
                 let found = self.save_path(n, "blk").is_some_and(|p| p.exists());
                 stack.push(if found { -1 } else { 0 });
             }
             // `( handle -- )`: the intro's teardown releases the shadow font
             // it loaded — `_SHFONT @ -FONT`.
-            "-FONT" => {
+            Word::MINUS_FONT => {
                 let handle = pop1(stack, "-FONT")?;
-                self.fonts.remove(&handle);
+                self.scene.fonts.remove(&handle);
             }
-            // `( n -- )`: `0 SFT` before the first `+FONT`, in `RUN` and in
-            // the intro, and nowhere with another argument. Read as a reset
-            // of the font stack — of a stack that starts out reset.
-            "SFT" => {
+            // `( n -- )`: selects font reference table `n`. The handler
+            // (`05f1:1813`) spells the number into the engine's file template
+            // (`#F0R3i.frt` at `ds:0xf81`), fetches that item through the
+            // container hook (`0362:0bf9`), and installs it as the table the
+            // text drawer maps characters through (`14ee:10ae`, the pointer at
+            // `ds:0x18d8`), freeing the one before. `0 SFT` before the first
+            // `+FONT`, in `RUN` and in the intro, is the one call the games
+            // make, and table 0 is the one the opener installed.
+            Word::SFT => {
                 let n = pop1(stack, "SFT")?;
-                if n != 0 {
-                    self.note_unhandled(format!("SFT {n}"));
-                }
+                let table = self
+                    .resources
+                    .as_ref()
+                    .and_then(|r| r.font_ref_table(cell::unsigned(n.max(0))))
+                    .ok_or(Error::MissingResource {
+                        kind: "font reference table",
+                        id: n,
+                        word: "SFT",
+                        at: None,
+                    })?;
+                self.scene.font_refs = Some(table);
             }
             // Called once, before `BUFON`, with nothing on the stack to take:
             // a reset of the animation system, which starts out reset.
-            "NEWANIM" => {}
+            Word::NEWANIM => {}
             // `( screen x step -- )` and `( screen y step -- )`: scroll a
             // screen's window over its surface to a new origin, `step`
             // pixels a tick. Read from `ENVIRO.EXE` (`->SCRX` at file
@@ -152,12 +178,12 @@ impl Engine {
             // `SETBUSY`/`SETNOBUSY`. Run here as a transition: the slide is
             // queued, the interpreter is held the way a fade holds it, and
             // each frame moves one step and presents.
-            "->SCRX" | "->SCRY" => {
+            Word::TO_SCRX | Word::TO_SCRY => {
                 let a = pop_n(stack, 3, "->SCRX")?;
                 let (screen, to, step) = (a[0], a[1], a[2]);
-                self.scroll = Some(crate::Scroll {
-                    screen: screen as u32,
-                    vertical: name == "->SCRY",
+                self.transitions.scroll = Some(crate::Scroll {
+                    screen: cell::unsigned(screen),
+                    vertical: word == Word::TO_SCRY,
                     target: to,
                     step,
                 });
@@ -170,13 +196,13 @@ impl Engine {
             // scripts scroll a wide location with it (`34 SCRX`, `152 SCRX`
             // in the location macros) and add it to the mouse for world
             // coordinates.
-            "SCRX" | "SCRY" => {
+            Word::SCRX_16 | Word::SCRY => {
                 let v = pop1(stack, "SCRX")?;
                 if let Some(s) = self.display.current_mut() {
-                    if name == "SCRX" {
-                        s.pos.0 = v as i16;
+                    if word == Word::SCRX_16 {
+                        s.pos.0 = cell::short(v);
                     } else {
-                        s.pos.1 = v as i16;
+                        s.pos.1 = cell::short(v);
                     }
                 }
                 self.rebuild_current_screen();
@@ -185,15 +211,15 @@ impl Engine {
             // bit 0 of the screen's flags, which the frame loop answers by
             // clearing the surface and drawing every active descriptor
             // again (`016a:0821`). `SCRX`/`SCRY` above go through it.
-            "SCRPOS" => {
+            Word::SCRPOS_16 => {
                 let a = pop_n(stack, 2, "SCRPOS")?;
                 if let Some(s) = self.display.current_mut() {
-                    s.pos = (a[0] as i16, a[1] as i16);
+                    s.pos = (cell::short(a[0]), cell::short(a[1]));
                 }
                 self.rebuild_current_screen();
             }
-            "GSCRX" => {
-                let v = self.display.current_mut().map_or(0, |s| s.pos.0 as i32);
+            Word::GSCRX_16 => {
+                let v = self.display.current_mut().map_or(0, |s| i32::from(s.pos.0));
                 stack.push(v);
             }
             // `( -- y x )`: the pair `SCRPOS` sets, read back. The two words
@@ -201,11 +227,11 @@ impl Engine {
             // this leaves x on top (`0104:13bf` in `LL.EXE` pushes the cell at
             // `+2` and then the one at `+0`) — so feeding one into the other
             // swaps them. Only Victor Loomes calls it.
-            "GSCRPOS" => {
+            Word::GSCRPOS => {
                 let (x, y) = self
                     .display
                     .current_mut()
-                    .map_or((0, 0), |s| (s.pos.0 as i32, s.pos.1 as i32));
+                    .map_or((0, 0), |s| (i32::from(s.pos.0), i32::from(s.pos.1)));
                 stack.push(y);
                 stack.push(x);
             }
@@ -216,9 +242,9 @@ impl Engine {
             // `REQUEST`, which fills its box with the first and draws the
             // frame, the button outlines and the text in the second. Kept
             // rather than acted on until `REQUEST` is built.
-            "SYSFC" | "SYSBC" => {
+            Word::SYSFC | Word::SYSBC => {
                 let color = pop1(stack, "SYSFC/SYSBC")?;
-                if name == "SYSFC" {
+                if word == Word::SYSFC {
                     self.system_fg = color;
                 } else {
                     self.system_bg = color;
@@ -229,7 +255,7 @@ impl Engine {
             // [`crate::cycle`] for the handler (`0104:5319`) and its tick.
             // With `first >= last` the handler only disarms the rotation,
             // leaving the DAC as the last turn left it.
-            "SETCYCLE" => {
+            Word::SETCYCLE => {
                 let a = pop_n(stack, 3, "SETCYCLE")?;
                 let (delay, last, first) = (a[0], a[1], a[2]);
                 self.palette_cycle =
@@ -241,7 +267,7 @@ impl Engine {
             // mention of either address. `RUN` calls it once, `-1 16
             // SETSHADE`. Taking the two cells is the whole of it; anything
             // else would be inventing an effect the original does not have.
-            "SETSHADE" => {
+            Word::SETSHADE => {
                 pop_n(stack, 2, "SETSHADE")?;
             }
             // `( room steps shadow routes aux -- )`: the step buffer between
@@ -252,21 +278,26 @@ impl Engine {
             // What this build's routine does differently — no default for a
             // zero shrink, a closing pass over the headings — is read off
             // the binary when the game opens, see
-            // [`Engine::walk_defaults_shrink`] and
-            // [`Engine::walk_smooths_headings`].
-            "CROUTE" => {
+            // [`crate::Profile::walk_defaults_shrink`] and
+            // [`crate::Profile::walk_smooths_headings`].
+            Word::CROUTE => {
                 let a = pop_n(stack, 5, "CROUTE")?;
                 // `pop_n` hands them back deepest first, and the handler pops
                 // the aux table first, so the aux table is the top of the
                 // stack and the room is the deepest.
-                let (room, steps, shadow, routes, aux) =
-                    (a[0], a[1] as u32, a[2] as u32, a[3] as u32, a[4] as u32);
+                let (room, steps, shadow, routes, aux) = (
+                    a[0],
+                    cell::unsigned(a[1]),
+                    cell::unsigned(a[2]),
+                    cell::unsigned(a[3]),
+                    cell::unsigned(a[4]),
+                );
                 crate::walk::croute_with(self, _mem, shadow, steps, routes, aux, room)?;
             }
             // `( -- 0 )`: the last word of the domain table, four
             // instructions long, pushing a constant zero (`0104:0002`). A
             // placeholder in every build; no module calls it.
-            "_POOR" => stack.push(0),
+            Word::POOR => stack.push(0),
             // The music, with this kernel's own stack effects — they differ
             // from the 32-bit engine's. `STARTTUNE ( loop n -- )` (file
             // `0xbf89`) pops the block number and the loop flag and answers
@@ -280,12 +311,12 @@ impl Engine {
             // stop — and only then hands the driver the new song. Victor
             // Loomes changes its music that way at every location, with no
             // `ENDTUNE` between: the new tune is queued behind the wait.
-            "STARTTUNE" => {
+            Word::STARTTUNE_16 => {
                 let a = pop_n(stack, 2, "STARTTUNE")?;
                 let (looping, tune) = (a[0], a[1]);
-                if self.tune_playing {
+                if self.sound.playing {
                     self.end_tune16();
-                    if let Some(hold) = self.wipes.back_mut() {
+                    if let Some(hold) = self.transitions.wipes.back_mut() {
                         hold.then_tune = Some((tune, looping));
                     }
                 } else {
@@ -300,28 +331,34 @@ impl Engine {
             // its own thread; the spin is a [`Wipe::hold`], queued where the
             // script stands so that the room change waits for it as the
             // original's does.
-            "ENDTUNE" => {
-                if self.tune_playing {
+            Word::ENDTUNE_16 => {
+                if self.sound.playing {
                     self.end_tune16();
                 }
             }
-            "GSCRY" => {
-                let v = self.display.current_mut().map_or(0, |s| s.pos.1 as i32);
+            Word::GSCRY_16 => {
+                let v = self.display.current_mut().map_or(0, |s| i32::from(s.pos.1));
                 stack.push(v);
             }
             // The text-console words, on a debug path in `CTRL`: `.` prints a
             // number, `EMIT` a character. There is no console behind a 320×200
             // game; both take their argument and print nothing.
-            "." | "EMIT" => {
+            Word::DOT | Word::EMIT => {
                 pop1(stack, "console")?;
-                self.note_unhandled(name.to_string());
+                self.note_unhandled(word, None);
             }
-            // `( -- c )`: blocks for a key in the original, on the same debug
-            // path. Answering the key that is waiting, or 0, is the reading
-            // that does not stall a run; hypothesis.
-            "KEY" => {
+            // `( -- c )`: blocks for a key. The handler (`12c8:061c`) loops on
+            // the keyboard translator until it answers something other than
+            // 0 — `LL.EXE`'s (file `0xd6f8`) also gives up when Ctrl-Break
+            // has been pressed. The one place a shipped script reaches it is
+            // Victor Loomes' `PRINT` (`DUP . 32 EMIT KEY DROP`), the hook
+            // its assertions call, and this engine answers the key that is
+            // waiting, or 0, rather than holding the game with no prompt on
+            // the screen: a departure the ledger carries, with the question
+            // it raises.
+            Word::KEY => {
                 self.polled();
-                stack.push(self.key);
+                stack.push(self.input.key);
             }
             _ => return Ok(None),
         }
@@ -336,7 +373,8 @@ impl Engine {
     pub(crate) fn rebuild_current_screen(&mut self) {
         if let Some(s) = self.display.current_mut() {
             let (handle, (w, h)) = (s.handle, s.size);
-            self.rebuild.push((handle, (0, 0, w as i32, h as i32)));
+            self.rebuild
+                .push((handle, (0, 0, i32::from(w), i32::from(h))));
         }
         self.dirty = true;
     }
@@ -349,10 +387,12 @@ impl Engine {
     /// The audio side keeps the pair's own timing — the fade at once, the
     /// hard stop 500 ms in — so what is queued here is only the wait.
     pub(crate) fn end_tune16(&mut self) {
-        self.tune_playing = false;
-        if let Some(music) = self.music.as_mut() {
+        self.sound.playing = false;
+        if let Some(music) = self.sound.sink.as_mut() {
             music.stop(0);
         }
-        self.wipes.push_back(Wipe::hold(Self::ENDTUNE_HOLD_TICKS));
+        self.transitions
+            .wipes
+            .push_back(Wipe::hold(Self::ENDTUNE_HOLD_TICKS));
     }
 }

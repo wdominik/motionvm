@@ -17,10 +17,15 @@
 
 use motionvm_motion_audio::m16::{Driver, Sequencer};
 use motionvm_motion_formats::m16::{Container, Segment, psm, psm::Plx};
-use motionvm_motion_testutil::gamedata_vloomes;
+use motionvm_motion_testutil::{Digests, digest::Digest, gamedata_vloomes};
 
 /// The block numbers the songs sit in — every tune the game ships.
 const TUNES: std::ops::RangeInclusive<usize> = 0..=13;
+
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    Digests::of(env!("CARGO_MANIFEST_DIR"), "vloomes")
+}
 
 #[test]
 fn every_shipped_tune_plays_notes() {
@@ -59,6 +64,15 @@ fn every_shipped_tune_plays_notes() {
             seq.playing(),
             "tune {tune} stopped although its loop count is endless"
         );
+        // The whole stream, not a property of it: twenty thousand ticks of
+        // register writes in the order the chip would have seen them. The
+        // assertions above say the tune is music at all; this says it is the
+        // same music, write for write, as the last time anyone looked.
+        let mut d = Digest::new();
+        for w in &writes {
+            d.byte(w.bank).byte(w.reg).byte(w.value);
+        }
+        digests().check(&format!("tune_{tune}"), d.value());
     }
 }
 

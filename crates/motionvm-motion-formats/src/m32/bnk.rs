@@ -31,7 +31,8 @@
 //! `Kick` — and only 34 of the 128 records are distinct; the rest are named
 //! `Blank`.
 
-use crate::{Error, Result, u16le, u32le};
+use crate::{Error, Result, u16le, u32at};
+use crate::{Record, nul_terminated, slice, tail};
 
 /// One instrument, as the thirty bytes on disk.
 ///
@@ -137,58 +138,36 @@ impl Bank {
         }
         let used = u16le(data, 8)?;
         let _named = u16le(data, 10)?;
-        let names_at = u32le(data, 12)? as usize;
-        let data_at = u32le(data, 16)? as usize;
-        if data_at < names_at || data_at > data.len() {
-            return Err(Error::BankTablesOutOfRange {
+        let names_at = u32at(data, 12)?;
+        let data_at = u32at(data, 16)?;
+        let name_bytes = data_at
+            .checked_sub(names_at)
+            .filter(|_| data_at <= data.len())
+            .ok_or(Error::BankTablesOutOfRange {
                 names: names_at,
                 data: data_at,
                 have: data.len(),
-            });
-        }
+            })?;
 
         // Sized from the offsets rather than from the counts, because the
         // counts are one short: both files say 127 and hold 128.
-        let count = (data_at - names_at) / Self::NAME_BYTES;
-        let mut names = Vec::with_capacity(count);
-        for i in 0..count {
-            let o = names_at + i * Self::NAME_BYTES;
-            let raw = data.get(o..o + Self::NAME_BYTES).ok_or(Error::Truncated {
-                off: o,
-                need: Self::NAME_BYTES,
-                have: data.len(),
-            })?;
-            let text = &raw[3..];
-            let end = text.iter().position(|&b| b == 0).unwrap_or(text.len());
-            names.push(Name {
-                index: u16::from_le_bytes([raw[0], raw[1]]),
-                key: raw[2],
-                name: String::from_utf8_lossy(&text[..end]).into_owned(),
-            });
-        }
+        let names = slice(data, names_at, name_bytes)?
+            .as_chunks::<{ Self::NAME_BYTES }>()
+            .0
+            .iter()
+            .map(|raw| {
+                let raw = Record(raw);
+                Name {
+                    index: raw.u16::<0>(),
+                    key: raw.u8::<2>(),
+                    name: String::from_utf8_lossy(nul_terminated(&raw.bytes::<3, 9>()))
+                        .into_owned(),
+                }
+            })
+            .collect();
 
-        let records = (data.len() - data_at) / Self::INSTRUMENT_BYTES;
-        let mut instruments = Vec::with_capacity(records);
-        let mut raw = Vec::with_capacity(records);
-        for i in 0..records {
-            let o = data_at + i * Self::INSTRUMENT_BYTES;
-            let r = data
-                .get(o..o + Self::INSTRUMENT_BYTES)
-                .ok_or(Error::Truncated {
-                    off: o,
-                    need: Self::INSTRUMENT_BYTES,
-                    have: data.len(),
-                })?;
-            instruments.push(Instrument {
-                percussive: r[0],
-                voice: r[1],
-                op: [operator(&r[2..15]), operator(&r[15..28])],
-                wave: [r[28], r[29]],
-            });
-            let mut bytes = [0u8; Self::INSTRUMENT_BYTES];
-            bytes.copy_from_slice(r);
-            raw.push(bytes);
-        }
+        let raw: Vec<[u8; Self::INSTRUMENT_BYTES]> = tail(data, data_at)?.as_chunks().0.to_vec();
+        let instruments = raw.iter().map(instrument).collect();
 
         Ok(Self {
             names,
@@ -200,25 +179,50 @@ impl Bank {
 
     /// The instrument a name-table entry points at.
     pub fn instrument(&self, slot: usize) -> Option<&Instrument> {
-        let index = self.names.get(slot)?.index as usize;
+        let index = usize::from(self.names.get(slot)?.index);
         self.instruments.get(index)
     }
 }
 
-fn operator(b: &[u8]) -> Operator {
+fn instrument(r: &[u8; Bank::INSTRUMENT_BYTES]) -> Instrument {
+    let r = Record(r);
+    Instrument {
+        percussive: r.u8::<0>(),
+        voice: r.u8::<1>(),
+        op: [operator(r.bytes::<2, 13>()), operator(r.bytes::<15, 13>())],
+        wave: r.bytes::<28, 2>(),
+    }
+}
+
+fn operator(b: [u8; 13]) -> Operator {
+    let [
+        key_scale_level,
+        frequency_multiplier,
+        feedback,
+        attack,
+        sustain,
+        sustaining,
+        decay,
+        release,
+        output_level,
+        amplitude_vibrato,
+        frequency_vibrato,
+        key_scale_rate,
+        connection,
+    ] = b;
     Operator {
-        key_scale_level: b[0],
-        frequency_multiplier: b[1],
-        feedback: b[2],
-        attack: b[3],
-        sustain: b[4],
-        sustaining: b[5],
-        decay: b[6],
-        release: b[7],
-        output_level: b[8],
-        amplitude_vibrato: b[9],
-        frequency_vibrato: b[10],
-        key_scale_rate: b[11],
-        connection: b[12],
+        key_scale_level,
+        frequency_multiplier,
+        feedback,
+        attack,
+        sustain,
+        sustaining,
+        decay,
+        release,
+        output_level,
+        amplitude_vibrato,
+        frequency_vibrato,
+        key_scale_rate,
+        connection,
     }
 }

@@ -38,8 +38,27 @@ pub mod titles;
 mod walk;
 mod words;
 pub use display::{Display, Screen};
+mod transitions;
+mod video;
+pub(crate) use transitions::Transitions;
+mod sound;
+pub(crate) use sound::Sound;
+mod persistence;
+pub(crate) use persistence::Persistence;
+mod cursor;
+pub(crate) use cursor::Cursor;
+mod dialogue;
+pub(crate) use dialogue::Dialogue;
+mod scene;
+pub(crate) use scene::Scene;
+mod field;
+pub use field::{Field, Fields};
+mod input;
+pub(crate) use input::Input;
+mod profile;
 pub use error::{Error, Result};
 pub use game::Game;
+pub use profile::Profile;
 pub use titles::{Driven, Title};
 // The engine's side of the music seam: bytes leave over it, never a parsed
 // song, and the crate that implements it is the one that knows the codecs —
@@ -57,8 +76,10 @@ pub use descriptor::{Descriptor, Placement, Shows, TextTemplate};
 use crate::geometry::line_height;
 use std::collections::BTreeMap;
 
-use motionvm_motion_formats::TextTable;
+use crate::words::Word;
 use motionvm_motion_formats::font::{Font, FontRefTable};
+use motionvm_motion_formats::{Binding, Generation};
+use motionvm_playable::Size;
 use motionvm_render::Picture;
 // The machine's own `Error` and `Result` are *not* imported here, and this
 // crate's `Error` and `Result` — re-exported just above — are what the bare
@@ -68,9 +89,10 @@ use motionvm_render::Picture;
 // itself rather than picking up whatever a `use` in this file happens to name.
 // The five signatures below that really do answer the machine spell it out.
 use motionvm_motion_forth::Address;
+use motionvm_motion_forth::cell;
 use motionvm_render::Framebuffer;
 
-/// A window slide the 16-bit `->SCRX`/`->SCRY` started; see [`Engine::scroll`].
+/// A window slide the 16-bit `->SCRX`/`->SCRY` started; see [`Transitions::scroll`].
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Scroll {
     pub(crate) screen: u32,
@@ -93,76 +115,41 @@ pub(crate) struct Scroll {
 /// outside it is read-only: see the accessors below, and `Engine::set_music`
 /// for the one exception.
 pub struct Engine {
+    /// The descriptor list and what a picture is drawn out of. See
+    /// [`Scene`].
+    pub(crate) scene: Scene,
+    /// The dialogue machine's two globals. See [`Dialogue`].
+    pub(crate) dialogue: Dialogue,
+    /// The pointer's shape, visibility and show counter. See
+    /// [`Cursor`].
+    pub(crate) cursor_state: Cursor,
+    /// Where saves go, the module slot table, and the flips. See
+    /// [`Persistence`].
+    pub(crate) persistence: Persistence,
+    /// The music sink, the handles it hands out, and whether a tune is
+    /// playing. See [`Sound`].
+    pub(crate) sound: Sound,
+    /// The curtains, wipes and scroll in flight, and the fade log.
+    /// See [`Transitions`].
+    pub(crate) transitions: Transitions,
+    /// The frame's input: the mouse record, the key cell, the type-ahead
+    /// buffer and the poll budget. See [`Input`].
+    pub(crate) input: Input,
+    /// What the opener read off the engine build this game runs on, and
+    /// nothing changes after: see [`Profile`].
+    pub(crate) profile: Profile,
     pub(crate) display: Display,
-    pub(crate) descriptors: Vec<Descriptor>,
-    pub(crate) selected: Option<usize>,
-    pub(crate) templates: Vec<TextTemplate>,
-    /// Fonts by the handle `+FONT` handed out.
-    pub(crate) fonts: BTreeMap<i32, Font>,
-    pub(crate) font_refs: Option<FontRefTable>,
-    /// `000.FNT`, which a text descriptor uses when nothing chose a font.
-    pub(crate) system_font: Option<Font>,
-    pub(crate) sprites: BTreeMap<u32, Picture>,
-    /// Video mode requested through `SETRES`.
-    pub(crate) mode: i32,
-    pub(crate) graphics: bool,
-    next_descriptor: u32,
-    next_font: i32,
-    resources: Option<crate::resources::Resources>,
+    /// The video mode: what `SETRES` selected and `TOGFX` entered. See
+    /// [`video::Video`].
+    pub(crate) mode: video::Video,
+    resources: Option<resources::Resources>,
     /// Words that were reached but do nothing yet, with how often.
-    pub(crate) stubbed: BTreeMap<String, usize>,
-    /// Every fade that has been started, in order — see [`Fade`].
-    pub(crate) fades: Vec<Fade>,
-    /// `0xdbd64`: an offset queued for the next conversation step, spent when
-    /// it is taken (0x7b644).
-    dialog_offset: i32,
-    /// `0xdbd60`: the answer node the player was last on, so that the node 4000
-    /// can send the conversation back to it (0x7b675, 0x7b6a9).
-    dialog_return: i32,
-    /// The mouse pointer: sprite and hotspot, as `XATMOUSE` sets it.
-    pub(crate) cursor: Option<(u32, i32, i32)>,
-    pub(crate) pointer_visible: bool,
-    /// The 16-bit pointer's show counter (`ds:0x16B4`): `SHOWMOUSE` adds
-    /// one, `HIDEMOUSE` takes one, the pointer shows while it stands at one
-    /// or more — and neither moves it before a shape armed the pointer
-    /// (`ds:0x16AA`; both handlers leave without it, `14ee:0877`,
-    /// `14ee:094e`). Zero at power-on: the pointer is invisible until the
-    /// first `SHOWMOUSE` after `FATMOUSE`, which is why the intro shows
-    /// none — `RUN` arms the shape before `STARTINTRO` but shows only
-    /// after it.
-    pub(crate) pointer_shows: i32,
-    /// Whether this machine's `SHOWMOUSE`/`HIDEMOUSE` keep that counter —
-    /// the read 16-bit behavior. The 32-bit pair is unread and keeps the
-    /// plain on/off it always had here.
-    pub(crate) pointer_counted: bool,
+    pub(crate) stubbed: BTreeMap<Stub, usize>,
     /// The palette rotation `SETCYCLE` asked for, or `None` where it asked
     /// for none — turned once a frame by [`Engine::tick_palette_cycle`].
     pub(crate) palette_cycle: Option<cycle::PaletteCycle>,
     /// The message box the game is waiting on, if it is waiting on one.
-    pub(crate) request: Option<crate::request::Request>,
-    /// Whether `?XINSIDE` passes over a hot area whose four corners are all
-    /// zero. This is the build's and not the format's: `ENVIRO.EXE`
-    /// (`0a40:1b37`) and `BMZ.EXE` test for it, `HPPLAY.EXE` and `LL.EXE` do
-    /// not — 101 instructions against 71, and the older two have no `cmpw $0`
-    /// in the handler at all. Set from the binary the game was opened with;
-    /// the default is the 32-bit reading, where the area search treats a
-    /// record of four zeros as a hole and `?XINSIDE` applies the same rule
-    /// (the click dispatch at `0x7ce73` and its area walk).
-    pub(crate) skips_holes: bool,
-    /// Whether `CROUTE` takes a shadow record's zero shrink as 1000 for the
-    /// walk's first step. The 32-bit routine does (`0x778ca`) and so does
-    /// `ENVIRO.EXE` (`0a40:1176`); `HPPLAY.EXE`, `BMZ.EXE` and `LL.EXE` copy
-    /// the field as it stands. Read off the binary the game was opened with
-    /// ([`motionvm_motion_formats::m16::mz::croute_defaults_shrink`]); the
-    /// default is the 32-bit reading.
-    pub(crate) walk_defaults_shrink: bool,
-    /// Whether `CROUTE` ends with `LL.EXE`'s pass over the finished buffer
-    /// (`0104:516d`), which rewrites the heading of a run of one or two
-    /// steps that sits between a run of three or more and a run of one or
-    /// more heading the same way, when the short run's heading and theirs
-    /// fall on different sides of 2. No other build has it
-    /// ([`motionvm_motion_formats::m16::mz::croute_smooths_headings`]).
-    pub(crate) walk_smooths_headings: bool,
+    pub(crate) request: Option<request::Request>,
     /// Set when the game asks for a redraw. A still frame is composed on
     /// demand, so this only records that it was asked for.
     pub(crate) dirty: bool,
@@ -172,93 +159,6 @@ pub struct Engine {
     /// The original remembers a copy of the picture instead and pastes it back
     /// (0x6ac33); see [`Descriptor::auto_buffer`].
     pub(crate) rebuild: Vec<(u32, (i32, i32, i32, i32))>,
-    /// Whether a block descriptor — `SDBL`, a picture by the same id pool as
-    /// a sprite — is copied onto its screen with every pixel, index 0
-    /// included.
-    ///
-    /// The 16-bit drawer (`ENVIRO.EXE` `016a:0aac`) keeps the two kinds
-    /// apart by bit 15 of the descriptor's picture cell and takes two paths:
-    /// a sprite goes through the keyed blit at `14ee:0d1e`, a block through
-    /// the plain copy at `14ee:0d47` — the one the save-under restores with.
-    /// Die Enviro-Kids greifen ein builds its backgrounds out of 80-pixel
-    /// block strips that are dark where they hold index 0, and drawing those
-    /// keyed let the previous location show through. The 32-bit drawer's
-    /// block path is not read on this point; the 32-bit game keeps the keyed
-    /// blit it has always had.
-    ///
-    /// Read on the latest build and set for the whole 16-bit generation,
-    /// which the earlier framing confirms rather than assumes: Victor Loomes'
-    /// intro is eight full-screen block pictures, and all eight match a
-    /// recording of the original pixel for pixel. A keyed block path would
-    /// have shown the picture before through every index 0 in them.
-    pub(crate) opaque_blocks: bool,
-    /// Whether text is drawn and measured the run drawer's way
-    /// (`ENVIRO.EXE` `016a:0aac` and `14ee:11cf`): the shadow pass shifted by
-    /// the template's x/y offsets on an axis that is not centered, `#` eaten
-    /// by the run drawer, `SDBLK` justifying a block, and the `GD*` sizes
-    /// measured bare — where the 32-bit engine stores them padded by 4.
-    ///
-    /// Confirmed on the earlier framing the same way as
-    /// [`Engine::opaque_blocks`]: three of the eight intro pictures Victor
-    /// Loomes holds are text over a picture, and they match to the pixel.
-    pub(crate) text_runs: bool,
-    /// Whether `SDTB` allocates the text record itself, marking the
-    /// descriptor as `SDTXT` would (`0x71d45`). Where it does not, the value
-    /// is read as a block until `SDTXT` runs (`05f1:0d7b`).
-    pub(crate) sdtb_allocates_text: bool,
-    /// Whether `SDTDT` takes only templates 1..=20 (`05f1:0c78`: `cmp $1` /
-    /// `jl`, `cmp $0x14` / `jg` skip the store and the dirty mark alike), so
-    /// `0 SDTDT` cannot clear a template. The 32-bit handler has no such
-    /// gate.
-    pub(crate) templates_gated: bool,
-    /// Whether `GDTB` answers a sprite with its bit 15 still on
-    /// (`05f1:0d5c` reads `+0x10` and masks nothing). Only that machine
-    /// keeps the marker in the value; the other has a type field of its own.
-    pub(crate) table_marks_sprites: bool,
-    /// Whether `SDLEV` re-inserts into the level chain even when the level
-    /// does not change — the 16-bit engine's read behavior; see
-    /// [`Descriptor::stamp`].
-    pub(crate) level_chain: bool,
-    /// The stamp counter behind [`Descriptor::stamp`].
-    pub(crate) level_stamp: u64,
-    /// Whether the `SD*` setters mark the descriptor dirty even when the
-    /// value does not change — the 16-bit handlers write and set the bit
-    /// unconditionally (`SDX` `05f1:0df2`, `SDFNT` `05f1:1038`, `SDLEV`,
-    /// `SDNORM`), where the read 32-bit ones skip an unchanged value
-    /// (`SDX` 0x7111a, `SDSPR` 0x71715, `SD%SHR` 0x721e5).
-    pub(crate) sd_marks_always: bool,
-    /// Whether a descriptor's `SDWORD` callback fires only while the
-    /// descriptor is **active**. The 16-bit frame loop's callback walk
-    /// (`016a:05d6`–`06da`) gates on `cb != -1 && (flags & 0x80) &&
-    /// wait != -1` — flag bit 0x80 is `SDACTIVE` — and it runs with the
-    /// descriptor made current (`DS:0x5de2`/`DS:0x3058`), so a skipped
-    /// callback also leaves the script's own `SMDESC` selection
-    /// standing. The intro leans on that: its `_DINFO` text descriptor
-    /// carries `1082 SDWORD` from birth but stays `SDINACTIVE` through
-    /// the motif phases, whose per-frame `SDH%SHR`/`SDSPR` writes come
-    /// without a re-select.
-    pub(crate) callbacks_need_active: bool,
-    /// Whether descriptor handles are indices into the *active screen's*
-    /// list, as the 16-bit kernel has them: `NEWDESC`/`NEWSETDESC` (`ENVIRO.EXE`
-    /// file `0x9bb8`, `0x9bd8`) hand back the screen's count and raise it,
-    /// `ACTDESC` (file `0x9b92`) stores the number and nothing else — the pair
-    /// screen and number is resolved when a word touches the descriptor — and
-    /// `KILLNDESC n` (file `0x9d3a`) frees the active screen's descriptors
-    /// from `n` up and sets its count back to `n`. So the same number names
-    /// one descriptor on each screen, and a number the scripts compute —
-    /// `?LPD 1 +`, the slot after the permanent ones — means what it means
-    /// on whichever screen is active. The 32-bit engine's handles are unique
-    /// across screens and stay as they were.
-    pub(crate) per_screen_descriptors: bool,
-    /// Which game's savegame files this engine writes and reads.
-    pub(crate) save_layout: save::Layout,
-    /// A `->SCRX`/`->SCRY` scroll in flight — the 16-bit engine's blocking
-    /// window slide, run here as a transition: one step a frame, the
-    /// interpreter held, the way the fades are.
-    pub(crate) scroll: Option<Scroll>,
-    /// The number `ACTDESC` last stored, for the re-resolution a later
-    /// `ACTSCR` does in the per-screen scheme.
-    pub(crate) selected_handle: Option<u32>,
     /// The word `CTRL` was handed: the game's own per-frame controller.
     ///
     /// `START` ends with `0x42150 CTRL`, and that address is `ICTRL` in module
@@ -283,21 +183,6 @@ pub struct Engine {
     /// so it would have paused after every primitive it executed and crawled
     /// forward one step a frame.
     pub(crate) entering_loop: bool,
-    /// How often this frame's bytecode has asked for the pointer or a key.
-    ///
-    /// The original's input words read live hardware, so a script may wait in
-    /// a loop of its own — `RUN`'s start-up page does (`BEGIN … MOUSELK …
-    /// MOUSEX … UNTIL`), location 5's newspaper does — and the loop turns as
-    /// the player moves. Here a frame's input is fixed for the frame, so such
-    /// a loop would spin forever. Past [`Engine::POLL_BUDGET`] polls in one
-    /// frame the word is taken to be waiting, and from then on every poll
-    /// yields the frame: the loop turns once per frame, with the frame's
-    /// input. A frame of `CTRL` polls a handful of times and never gets
-    /// near the budget.
-    pub(crate) polls: u32,
-    /// Set once a frame has spent its poll budget; every later poll in the
-    /// same word yields. Cleared when the word has finished.
-    pub(crate) polling: bool,
     /// Ticks between frames, as `DELAY` sets them.
     ///
     /// `ANIMPLAY` waits out this many before each frame: it resets a timer and
@@ -309,56 +194,6 @@ pub struct Engine {
     pub(crate) frame_ticks: i32,
     /// Where the game data is, for the few words that touch files directly.
     dir: Option<std::path::PathBuf>,
-    /// Where savegames go, and the only directory anything here ever writes to.
-    ///
-    /// The original has no such notion: `PUT`, `=>PUTAS` and `PUTANIM` build
-    /// their names from bare templates (`"#F0R3i.blk"` at 0xd4872 and its
-    /// siblings) with no path component, so a save lands beside `ENGINE.EXE` —
-    /// in among the game's own data. That is exactly what must not happen here,
-    /// so the directory is explicit, it is separate, and [`Engine::set_saves`]
-    /// refuses one that lies inside the game data.
-    ///
-    /// `None` means no saving: the reading words answer as if the slot were
-    /// empty, and the writing words stop by name rather than pick a directory
-    /// of their own.
-    saves: Option<std::path::PathBuf>,
-    /// Which module sits in each of the resource manager's descriptor slots.
-    ///
-    /// Bookkeeping only. Every module is loaded here from the start and none is
-    /// ever evicted, so `=>GET` and `=>ERASE` have nothing to load or free —
-    /// but *which* modules the original would have resident, and in what order,
-    /// is not a detail: `=>PUTAS` writes exactly that set, in exactly that
-    /// order, and a savegame that carried more would restore state the original
-    /// throws away on every change of location.
-    ///
-    /// Slot 0 is the kernel's own `Basismodul` and never holds a game module;
-    /// `=>PUTAS` starts its walk at 1, which is why the array is indexed the
-    /// same way. Thirty-two slots, from `[0xDB027]`.
-    ///
-    /// The sequence is fixed by the bytecode, not guessed. `SYSTEM.RSC` is two
-    /// lines, `4 =>GET` and `START`; `4:START` at 0x5420 does `2 5 6 11 13 3
-    /// =>GET`, runs `STARTUP`, `3 =>ERASE`, `12 =>GET`, `DS_INIT`, `12
-    /// =>ERASE`; and `5:INCLLOC` frees the old location's three modules before
-    /// it takes the new one's, so those keep slots 7, 8 and 9 across every
-    /// change of location. In a running game that comes out as
-    /// `[4, 2, 5, 6, 11, 13, L+100, L+200, L+300]`.
-    slots: [Option<u32>; 32],
-    /// Every sprite `GFXVFLIP` has mirrored, as `(source, destination)`.
-    ///
-    /// The mirrored copy lands in the graphics pool under an id that no
-    /// resource file contains, so it cannot be loaded again — a savegame has to
-    /// carry the instruction to make it. Only the ids: the source is a real
-    /// resource, so redoing the flip costs nothing and keeps a savegame from
-    /// carrying pixels.
-    flips: Vec<(u32, u32)>,
-    /// Where the pointer is and which buttons are down.
-    ///
-    /// Every `MOUSE…` word fills the same four-field record at 0x253d4 and
-    /// reads one field back out: x at +0, y at +4, the left button at +8 and
-    /// the right at +12. So the mouse does reach the game through kernel
-    /// words, not only through the `_MLK` and `_MRK` variables the location
-    /// handler reads — `ICTRL` calls `MOUSELK` itself and stores the result.
-    pub(crate) mouse: Mouse,
     /// The mode `MOUSEINFO` last saw, in the global the handler keeps at
     /// 0xdbd5c. A mode switch counts as a change even if nothing moved.
     last_info_mode: Option<i32>,
@@ -377,54 +212,16 @@ pub struct Engine {
     /// lays out by it, and the stepper advances the walk cycle by it. The
     /// options menu is what turns it, through `_GSMODE`.
     pub(crate) step_multi: i32,
-    /// The key waiting to be read, or 0 for none.
-    ///
-    /// The mouse reaches the game through module variables, because the native
-    /// loop wrote them and no bytecode does. The keyboard does not: `?KEY` and
-    /// its relatives are kernel words that asked the BIOS directly, so the
-    /// state has to live here instead.
-    pub(crate) key: i32,
-    /// The keystrokes the game has not taken yet, oldest first — the BIOS
-    /// type-ahead buffer `?KEY` reads through INT 16h, [`keys::SLOTS`] deep,
-    /// drained one keystroke per frame the way the original's loop drains it.
-    pub(crate) keys: std::collections::VecDeque<i32>,
-    pub(crate) palettes: BTreeMap<i32, motionvm_render::Palette>,
-    /// Text tables by resource id, as `SDTB` names them.
-    pub(crate) texts: BTreeMap<i32, TextTable>,
-    /// Transitions waiting to play, oldest first.
-    ///
-    /// A queue rather than a single one because a phase of the intro calls
-    /// `FADEOUT`, swaps what is on the screen and calls `FADEIN` all within one
-    /// invocation — the original blocks inside each handler, so both run in
-    /// full before the phase is over. `DO_INVSEL` does it three deep: its
-    /// documents branch fades the bar in, the picture out and the picture in
-    /// again (module 4, 0x01c44–0x01ca8), and it can, because it runs as a
-    /// descriptor callback through `m32::Vm::call_nested`, where the interpreter
-    /// does not pause.
-    pub(crate) curtains: std::collections::VecDeque<Curtain>,
-    /// The 16-bit engine's transitions, queued the same way — box wipes,
-    /// not band curtains; see [`Wipe`].
-    pub(crate) wipes: std::collections::VecDeque<Wipe>,
-    /// Where `STARTTUNE` sends its songs, if anywhere.
-    pub(crate) music: Option<Box<dyn MusicSink>>,
-    /// Handles are ours, counted from 1, the way descriptor handles are. The
-    /// original answers with its SOS sequence handle; nothing in the game does
-    /// anything with the number except hand it back to `ENDTUNE`.
-    next_tune: i32,
-    /// Whether a tune has been started and not yet ended — the 16-bit stop
-    /// routine's own flag (`ENVIRO.EXE` `ds:18f4`, `LL.EXE` `ds:13dc`), set
-    /// when a song starts and cleared by `ENDTUNE`, which does nothing at
-    /// all — no fade, no wait — while it is clear. Whether the driver clears
-    /// it when a non-looping song plays out is unread; every stop the games
-    /// ask for comes while a song is still playing, and Victor Loomes'
-    /// jingle, played once, still gets its fade.
-    pub(crate) tune_playing: bool,
+    /// Which word each kernel ordinal is, resolved once when the game opened.
+    /// See [`Engine::bind_words`]. Empty until then, which is what a test that
+    /// drives the words directly leaves it as.
+    pub(crate) words: Vec<Option<Word>>,
     /// The off-screen buffers of the 16-bit kernel's `SETBUF`/`SDBUF`/`BUFON`
     /// family — see [`buffer::Buffers`]. Empty for the 32-bit game, whose
     /// `SETBUF` is inert.
-    pub(crate) buffers: buffer::Buffers,
+    pub(crate) buffers: Buffers,
     /// The text backing's remap row, kept until the palette changes.
-    backing: crate::draw::BackingCache,
+    backing: draw::BackingCache,
     /// What is on the screen — the original's video memory.
     ///
     /// Kept rather than composed afresh every frame because the original keeps
@@ -433,98 +230,34 @@ pub struct Engine {
     /// curtain marks its bands and nothing else, so what it does not touch
     /// stays standing. See [`Self::present`] and [`Self::advance_curtain`].
     pub(crate) video: Framebuffer,
+    /// The frame handed out, composed into rather than allocated afresh.
+    ///
+    /// [`Engine::frame`] paints the video surface, the request box and the
+    /// pointer into this and lends it out; it is 307 200 bytes and a window
+    /// asks for one up to a hundred times a second, so a fresh one per present
+    /// was the largest allocation on the path.
+    presented: Framebuffer,
 }
 
-/// Words that genuinely have no effect in a silent, still-frame run.
-///
-/// This list exists because the alternative bit twice. A stub that pops and
-/// pushes the right number of values but does nothing is indistinguishable from
-/// a working word — until something far downstream reads the state it should
-/// have written. `=>GET` left a stray value that became a jump address two
-/// hundred steps later, and `GET` looked harmless while being the resource
-/// loader the whole location system depends on.
-///
-/// So a word may only be inert if there is a reason, stated here. Anything else
-/// is implemented or fails loudly with its name.
-///
-/// * `RESETTI` — timers, and a still frame has no time passing.
-/// * The `…STAT`, `…STAT+` and `…STAT-` family, plain and `X`-prefixed — hints
-///   about which resource ranges are wanted, may be dropped, or are pinned.
-///   Nothing here evicts anything, so every one of them is inert. Their arities
-///   are not uniform (`GFXSTAT+` takes three where its siblings take two, and
-///   `XGFXSTAT+` four), which is why they are listed with counts rather than
-///   handled by name pattern.
-/// * `RESETANIM`, `RESETFONT` — reset subsystems that start out reset.
-/// * `CUTPAL`, `SETBUF`, `RESETBUF` — palette and buffer bookkeeping for the
-///   engine's double buffering, which a composed still frame does not use.
-/// * `SDNORM`, `SDPOS` — descriptor modes with no argument whose effect only
-///   shows in animation.
-/// * `SDBLK` — sets bit 7 of the descriptor's byte +0x17 (its only writer, at
-///   0x73099). That bit makes the output routine center the whole text block on
-///   one width rather than each line on its own (0x25833). Nothing on the paths
-///   walked so far calls it, so the behavior is unobserved; when something
-///   does, this entry has to go and the two centering modes have to be built.
-/// * `ERRORLEVEL` — sets the exit code DOS would report. There is no DOS here,
-///   and nothing in the game reads it back.
-/// * `DREQUEST` — hands three values to the diagnostic call at `0x5294d`
-///   under category 0x1b, the same one `ANIMPLAY` uses to complain about being
-///   entered twice. There is no debug channel here for it to reach.
-/// * `SPEEDMODE` — writes a flag at `0xd6608`. All 356 kernel words were
-///   scanned for that address and `SPEEDMODE` is the only one that touches it,
-///   so no word can read it back; whatever consumes it lives in the native
-///   loop, which is replaced here by a frame clock of our own.
-/// * `GFXCRUNCH`, `XGFXCRUNCH` — read, not assumed: the routine behind them
-///   (`0x59768`) walks a range of graphics and does nothing but `orb $8,7(%eax)`
-///   or `andb $0xf7,7(%eax)` on a 22-byte record each. One bit, no pixels. The
-///   sibling `GFXVFLIP` at `0x595be` does transform, which is why the two are
-///   treated differently despite looking alike at the call site.
-/// * `FADEIN`, `FADEOUT` **in mode 2** — mode 1 is implemented as a curtain;
-///   the handlers' second branch has not been read, and nothing reaches it.
-///
-/// `SDINSERT` and `XATMOUSE` are deliberately absent: they do something.
-///
-/// `=>GET` and `=>ERASE` are deliberately *not* here, although they look like
-/// candidates: they move no memory, because every module is resident from the
-/// start, but they keep the descriptor-slot table that decides what a savegame
-/// contains. Inert in what they load, load-bearing in what they record.
-const NO_EFFECT: &[&str] = &[
-    "RESETTI",
-    "RESETANIM",
-    "RESETFONT",
-    "CUTPAL",
-    "SETBUF",
-    "RESETBUF",
-    "SDBLK",
-    "SDNORM",
-    "SDPOS",
-    "GFXCRUNCH",
-    "XGFXCRUNCH",
-    "ERRORLEVEL",
-    "SPEEDMODE",
-    "DREQUEST",
-];
-
-/// The resource status hints, with how many arguments each takes.
-///
-/// One word family per row — the plain, the `-` and the `+` form of each. The
-/// layout is the table's index: reading down the first column lists the
-/// families, reading across a row lists the three forms of one. Left to itself
-/// rustfmt would set thirty-six entries one to a line and that is gone.
-#[rustfmt::skip]
-const STATUS_HINTS: &[(&str, usize)] = &[
-    ("GFXSTAT", 2), ("GFXSTAT-", 2), ("GFXSTAT+", 3),
-    ("XGFXSTAT", 3), ("XGFXSTAT-", 3), ("XGFXSTAT+", 4),
-    ("BLKSTAT", 2), ("BLKSTAT-", 2), ("BLKSTAT+", 2),
-    ("XBLKSTAT", 3), ("XBLKSTAT-", 3), ("XBLKSTAT+", 3),
-    ("PALSTAT", 2), ("PALSTAT-", 2), ("PALSTAT+", 2),
-    ("XPALSTAT", 3), ("XPALSTAT-", 3), ("XPALSTAT+", 3),
-    ("TXTSTAT", 2), ("TXTSTAT-", 2), ("TXTSTAT+", 2),
-    ("XTXTSTAT", 3), ("XTXTSTAT-", 3), ("XTXTSTAT+", 3),
-    ("FNTSTAT", 2), ("FNTSTAT-", 2), ("FNTSTAT+", 2),
-    ("XFNTSTAT", 3), ("XFNTSTAT-", 3), ("XFNTSTAT+", 3),
-    ("SCRSTAT", 1), ("SCRSTAT-", 2), ("SCRSTAT+", 2),
-    ("XSCRSTAT", 3), ("XSCRSTAT-", 3), ("XSCRSTAT+", 3),
-];
+impl std::fmt::Debug for Engine {
+    /// The frame's standing — mode, screens, descriptors, the controller —
+    /// rather than every cached sprite and font: what a failing test wants
+    /// to see is where the engine stands, and the picture is its own thing.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Engine")
+            .field("profile", &self.profile)
+            .field("mode", &self.mode)
+            .field("screens", &self.display.screens.len())
+            .field("descriptors", &self.scene.descriptors.len())
+            .field("selected", &self.scene.selected)
+            .field("controller", &self.controller)
+            .field("main_loop", &self.main_loop)
+            .field("frame_ticks", &self.frame_ticks)
+            .field("transitions", &self.transitions)
+            .field("input", &self.input)
+            .finish_non_exhaustive()
+    }
+}
 
 /// The pointer, as the engine's mouse record holds it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -538,17 +271,6 @@ pub(crate) struct Mouse {
     /// The right button, +12.
     pub right: i32,
 }
-
-/// The numbers the three video-mode words push.
-///
-/// Read at the handlers, not inferred: each word is four instructions that
-/// push a small ordinal — 1, 2 and 4 at 0x6f023, 0x6f047 and 0x6f06b. Packing
-/// width and height into a word is the plausible guess, on the reasoning that
-/// only `SETRES` ever sees them again, and nothing in the game would catch it:
-/// `SETRES` only stores the value.
-const MODE_320X200X256: i32 = 1;
-const MODE_640X480X256: i32 = 2;
-const MODE_640X480X32K: i32 = 4;
 
 /// What the engine shows the outside world.
 ///
@@ -581,12 +303,14 @@ impl Engine {
     /// and the drawer's palette-derived tables are built from them, the
     /// way the original rebuilds its tables inside `SETPAL` itself.
     pub(crate) fn script_palette(&self) -> &motionvm_render::Palette {
-        self.wipes
+        self.transitions
+            .wipes
             .iter()
             .rev()
             .find_map(|w| w.palette_after.as_ref())
             .or_else(|| {
-                self.curtains
+                self.transitions
+                    .curtains
                     .iter()
                     .rev()
                     .find_map(|c| c.palette_after.as_ref())
@@ -595,12 +319,12 @@ impl Engine {
     }
 
     /// The size of the composed picture.
-    pub fn display_size(&self) -> (u16, u16) {
+    pub fn display_size(&self) -> Size {
         self.display.size
     }
 
     /// The off-screen buffers a 16-bit game has asked for.
-    pub fn buffers(&self) -> &buffer::Buffers {
+    pub fn buffers(&self) -> &Buffers {
         &self.buffers
     }
 
@@ -621,27 +345,27 @@ impl Engine {
 
     /// The descriptor list, unsorted — see `frame_order` for drawing order.
     pub fn descriptors(&self) -> &[Descriptor] {
-        &self.descriptors
+        &self.scene.descriptors
     }
 
     /// The text templates `DEFTDT` has defined.
     pub fn templates(&self) -> &[TextTemplate] {
-        &self.templates
+        &self.scene.templates
     }
 
     /// Fonts by the handle `+FONT` handed out.
     pub fn fonts(&self) -> &BTreeMap<i32, Font> {
-        &self.fonts
+        &self.scene.fonts
     }
 
     /// The glyph reference table, once a font has been loaded.
     pub fn font_refs(&self) -> Option<&FontRefTable> {
-        self.font_refs.as_ref()
+        self.scene.font_refs.as_ref()
     }
 
     /// `000.FNT`, which a text descriptor uses when nothing chose a font.
     pub fn system_font(&self) -> Option<&Font> {
-        self.system_font.as_ref()
+        self.scene.system_font.as_ref()
     }
 
     /// A sprite that has already been decoded, without decoding one.
@@ -649,7 +373,7 @@ impl Engine {
     /// Deliberately not the loading path: that one is `&mut self` because a
     /// load can set the palette. See the note on `Engine::sprite`.
     pub fn cached_sprite(&self, id: u32) -> Option<&Picture> {
-        self.sprites.get(&id)
+        self.scene.sprites.get(&id)
     }
 
     /// Every fade that has been started, in order — see [`Fade`].
@@ -658,7 +382,7 @@ impl Engine {
     /// fade is otherwise invisible to a test, being over before a frame is
     /// asked for.
     pub fn fades(&self) -> &[Fade] {
-        &self.fades
+        &self.transitions.fades
     }
 
     /// Every screen's controller word id, in screen order, `-1` for a screen
@@ -686,22 +410,130 @@ impl Engine {
         self.request.is_some()
     }
 
-    /// Words that were reached but do nothing yet, with how often.
+    /// Words that were reached but do nothing yet, with how often — by the
+    /// kernel's own spelling, a case in parentheses where only a case of the
+    /// word is inert (`FADEIN (mode 2)`).
     ///
     /// The other half of the instrumentation. A run can be asked afterwards
     /// what it walked past; the inert words are listed on `NO_EFFECT`.
-    pub fn stubbed(&self) -> &BTreeMap<String, usize> {
-        &self.stubbed
+    pub fn stubbed(&self) -> BTreeMap<String, usize> {
+        self.stubbed
+            .iter()
+            .map(|(stub, &n)| (stub.to_string(), n))
+            .collect()
+    }
+
+    /// Resolves this kernel's ordinals into the words the engine implements,
+    /// once, for the machine the game runs on.
+    ///
+    /// The same shape and the same moment as the interpreter's own dispatch
+    /// table — a `Vec` indexed by ordinal, built when the game opens. One
+    /// index per kernel word, where resolving by name would be a map lookup
+    /// and then up to seventeen string matches, on every kernel word of every
+    /// frame.
+    ///
+    /// Per generation because a word's *meaning* is: eleven names have a
+    /// different handler on the two machines, and which resolver ran is what
+    /// says which one this ordinal is. See [`words::Word`].
+    ///
+    /// An ordinal the engine does not implement stays `None` and reaches
+    /// [`motionvm_motion_forth::Error::Unimplemented`] with its name, as
+    /// before.
+    pub(crate) fn bind_words(&mut self, binding: &Binding, m32: bool) {
+        let resolve = if m32 { Word::of_m32 } else { Word::of_m16 };
+        let top = cell::index(binding.words.last().map_or(0, |&(o, _)| o));
+        self.words = vec![None; top + 1];
+        for (ordinal, name) in &binding.words {
+            self.words[cell::index(*ordinal)] = resolve(name);
+        }
+    }
+
+    /// The word an ordinal stands for, or `None` for one this engine does not
+    /// implement.
+    pub(crate) fn word_of(&self, ordinal: u32) -> Option<Word> {
+        self.words.get(cell::index(ordinal)).copied().flatten()
+    }
+
+    /// Whether this engine implements the kernel word `name` on `generation`'s
+    /// machine — the same question `Engine::bind_words` asks for every
+    /// ordinal when a game opens, asked by name.
+    ///
+    /// For the suite that holds the engine to what the shipped games reach
+    /// for: a word a module calls is either one of the interpreter's own
+    /// primitives, one of these, or a word the run stops on with
+    /// [`motionvm_motion_forth::Error::Unimplemented`]. The inspection CLI
+    /// cannot ask this — it deliberately knows no engine — so the answer is
+    /// given here, where both resolvers are.
+    pub fn implements(name: &str, generation: Generation) -> bool {
+        match generation {
+            Generation::Motion32 => Word::of_m32(name).is_some(),
+            Generation::Motion16 => Word::of_m16(name).is_some(),
+        }
+    }
+
+    /// The ordinal this game's kernel gives `name`, if the engine implements
+    /// it — the inverse of [`Engine::word_of`].
+    ///
+    /// For a caller that has a name and needs to reach a word the way the
+    /// bytecode does, which is a test: loading a savegame by hand is `GET`,
+    /// `INCLLOC`, `GETANIM` and `=>GETAS` in that order, and reproducing a
+    /// reported state is far quicker from a savegame than from an hour of
+    /// play. A linear scan, because nothing on a frame comes this way.
+    pub(crate) fn ordinal_of(&self, name: &str) -> Option<u32> {
+        let want = [Word::of_m32(name), Word::of_m16(name)];
+        self.words
+            .iter()
+            .position(|w| w.is_some() && want.contains(w))
+            .map(cell::narrow)
+    }
+
+    /// What this run has to report about itself: the inert words it walked
+    /// past, and whatever the music sink has to say.
+    ///
+    /// The machine's own findings are not here, because they are not the
+    /// engine's to know — a stray read is the 32-bit memory's bookkeeping, and
+    /// the 16-bit machine has no such notion at all. The generation's `Driven`
+    /// impl adds them, which is where the machine is named.
+    ///
+    /// This is what makes the departures ledger's promise true. It says a
+    /// stray read is "counted … and names the total at the end of a run", and
+    /// for a long time nothing outside the test suite ever asked.
+    pub fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic> {
+        let mut out = Vec::new();
+        if !self.stubbed.is_empty() {
+            // One line, not one per word: the interesting number is how many
+            // kinds, and the list is short enough to read on it.
+            let words: Vec<String> = self
+                .stubbed
+                .iter()
+                .map(|(stub, n)| format!("{stub} ×{n}"))
+                .collect();
+            out.push(motionvm_playable::Diagnostic {
+                subject: "words reached that do nothing",
+                detail: words.join(", "),
+            });
+        }
+        out.extend(
+            self.sound
+                .sink
+                .iter()
+                .flat_map(|sink| sink.diagnostics())
+                .map(|detail| motionvm_playable::Diagnostic {
+                    subject: "music",
+                    detail,
+                }),
+        );
+        out
     }
 
     /// The pointer's shape and hotspot, as `XATMOUSE` set them.
     pub fn cursor(&self) -> Option<(u32, i32, i32)> {
-        self.cursor
+        self.cursor_state.shape
     }
 
     /// Whether the pointer is drawn.
     pub fn pointer_visible(&self) -> bool {
-        self.pointer_visible
+        self.cursor_state.visible
     }
 
     /// The word `CTRL` was handed: the game's own per-frame controller.
@@ -725,7 +557,7 @@ impl Engine {
     /// sound never initialized — so this is what turns sound on rather than a
     /// switch that defaults to it.
     pub fn set_music(&mut self, sink: Box<dyn MusicSink>) {
-        self.music = Some(sink);
+        self.sound.sink = Some(sink);
     }
 
     /// Takes one press into the keyboard buffer, translated on the way in.
@@ -736,17 +568,17 @@ impl Engine {
     /// its own, a media key — is never enqueued, because it never reached the
     /// BIOS buffer either.
     pub fn push_key(&mut self, press: &motionvm_playable::KeyPress) {
-        if self.keys.len() < keys::SLOTS
+        if self.input.buffer.len() < keys::SLOTS
             && let Some(code) = keys::code(press)
         {
-            self.keys.push_back(code);
+            self.input.buffer.push_back(code);
         }
     }
 
     /// Takes the oldest waiting keystroke out of the buffer, or 0 for none —
     /// `?KEY`'s own answer when nothing waits.
     pub fn pop_key(&mut self) -> i32 {
-        self.keys.pop_front().unwrap_or(0)
+        self.input.buffer.pop_front().unwrap_or(0)
     }
 }
 
@@ -769,13 +601,13 @@ impl Engine {
     /// Adds a ready-made descriptor and answers with its handle.
     pub fn add_descriptor(&mut self, d: Descriptor) -> u32 {
         let handle = d.handle;
-        self.descriptors.push(d);
+        self.scene.descriptors.push(d);
         handle
     }
 
     /// The descriptor list, to be changed in place.
     pub fn descriptors_mut(&mut self) -> &mut [Descriptor] {
-        &mut self.descriptors
+        &mut self.scene.descriptors
     }
 
     /// Adds a ready-made screen.
@@ -785,61 +617,41 @@ impl Engine {
 
     /// Puts a sprite in the graphics cache under an id, without a resource file.
     pub fn cache_sprite(&mut self, id: u32, sprite: Picture) {
-        self.sprites.insert(id, sprite);
+        self.scene.sprites.insert(id, sprite);
     }
 }
 
 impl Engine {
     /// An engine with nothing loaded — no resources, no screens, no
-    /// descriptors — and a display of the given size: 640×480 for the 32-bit
-    /// engine's game, 320×200 for the 16-bit engine's, whose `TOGFX` enters
-    /// that mode and which has no `SETRES`.
+    /// descriptors — on the engine build `profile` describes.
     ///
     /// Usable on its own for anything that does not need the game's files —
     /// the descriptor list, the wait arithmetic, the curtain queue. A game
     /// comes from [`Game::open`], which builds one of these and points it at a
-    /// directory. This is the only constructor: a display size belongs to a
-    /// generation, so whoever builds an engine says which one they mean.
-    pub fn with_display(width: u16, height: u16) -> Self {
+    /// directory. The only constructor, and it takes the whole profile at
+    /// once: everything a generation decides arrives before the engine exists,
+    /// so there is no moment at which a half-configured engine is reachable.
+    pub fn new(profile: Profile) -> Self {
         Self {
-            display: Display::with_size(width, height),
-            descriptors: Vec::new(),
-            selected: None,
-            templates: Vec::new(),
-            fonts: BTreeMap::new(),
-            font_refs: None,
-            system_font: None,
-            sprites: BTreeMap::new(),
-            mode: 0,
-            graphics: false,
-            next_descriptor: 1,
-            next_font: 1,
+            scene: Scene::default(),
+            dialogue: Dialogue::default(),
+            cursor_state: Cursor::starting(profile.pointer_starts_visible),
+            persistence: Persistence::default(),
+            sound: Sound::default(),
+            transitions: Transitions::default(),
+            input: Input::default(),
+            display: Display::with_size(profile.display),
+            profile,
+            mode: video::Video::default(),
             resources: None,
-            saves: None,
-            slots: [None; 32],
-            flips: Vec::new(),
             stubbed: BTreeMap::new(),
-            fades: Vec::new(),
-            dialog_offset: 0,
-            dialog_return: 0,
-            cursor: None,
-            pointer_visible: true,
-            pointer_shows: 0,
-            pointer_counted: false,
             palette_cycle: None,
             request: None,
-            // The 32-bit handler's own walk tests for it; the 16-bit opener
-            // overrides this from the build it read.
-            skips_holes: true,
-            walk_defaults_shrink: true,
-            walk_smooths_headings: false,
             dirty: false,
             rebuild: Vec::new(),
             controller: None,
             main_loop: false,
             entering_loop: false,
-            polls: 0,
-            polling: false,
             // The 32-bit `START`'s `25 DELAY`; a 16-bit game's own `DELAY`
             // overwrites it during startup.
             frame_ticks: 8,
@@ -848,80 +660,45 @@ impl Engine {
             system_fg: 0,
             system_bg: 2,
             pending_call: None,
-            opaque_blocks: false,
-            text_runs: false,
-            sdtb_allocates_text: true,
-            templates_gated: false,
-            table_marks_sprites: false,
-            level_chain: false,
-            level_stamp: 0,
-            sd_marks_always: false,
-            callbacks_need_active: false,
-            per_screen_descriptors: false,
-            save_layout: save::Layout::Motion32,
-            scroll: None,
-            selected_handle: None,
             step_multi: 1,
-            key: 0,
-            keys: std::collections::VecDeque::with_capacity(keys::SLOTS),
-            mouse: Mouse::default(),
-            palettes: BTreeMap::new(),
-            texts: BTreeMap::new(),
-            curtains: std::collections::VecDeque::new(),
-            wipes: std::collections::VecDeque::new(),
-            music: None,
-            next_tune: 1,
-            tune_playing: false,
-            buffers: buffer::Buffers::default(),
-            backing: crate::draw::BackingCache::default(),
-            video: Framebuffer::new(width, height),
+            words: Vec::new(),
+            buffers: Buffers::default(),
+            backing: draw::BackingCache::default(),
+            video: Framebuffer::new(profile.display.width, profile.display.height),
+            presented: Framebuffer::new(profile.display.width, profile.display.height),
         }
     }
 
     /// Records a word that ran but deliberately did nothing.
     ///
-    /// Only for words on [`NO_EFFECT`]. Everything else must either be
-    /// implemented or fail — see that list's documentation for why.
-    pub(crate) fn note_no_effect(&mut self, name: &str) {
+    /// Only for words [`Word::inert`] admits. Everything else must either be
+    /// implemented or fail — see there for why.
+    pub(crate) fn note_no_effect(&mut self, word: Word) {
         debug_assert!(
-            NO_EFFECT.contains(&name),
-            "{name} was treated as inert but is not on the NO_EFFECT list"
+            word.inert(),
+            "{} was treated as inert but [`Word::inert`] does not say so",
+            word.name()
         );
-        self.note_unhandled(name.to_string());
+        self.note_unhandled(word, None);
     }
 
     /// A word that pops its arguments and does nothing else.
     ///
-    /// The two halves belong together and were written out four times: take
-    /// the arity off the stack, then count the word as inert. Saying it once
-    /// puts the contract in one place — `name` must be on [`NO_EFFECT`], and
-    /// [`Engine::note_no_effect`] asserts it in a debug build.
+    /// The two halves belong together: take the arity off the stack, then
+    /// count the word as inert. Saying it once puts the contract in one place
+    /// — the word has to be one
+    /// [`words::Word::inert`] admits, and [`Engine::note_no_effect`] asserts
+    /// it in a debug build.
     pub(crate) fn inert(
         &mut self,
         stack: &mut Vec<i32>,
         arity: usize,
-        name: &'static str,
+        word: Word,
     ) -> motionvm_motion_forth::Result<()> {
-        crate::stack::pop_n(stack, arity, name)?;
-        self.note_no_effect(name);
+        stack::pop_n(stack, arity, word.name())?;
+        self.note_no_effect(word);
         Ok(())
     }
-
-    /// Records a *case* that was reached and is not built.
-    ///
-    /// Different from [`Engine::note_no_effect`], which is about a word being
-    /// inert as a whole. This is about one argument reaching a word that
-    /// handles the rest of them: `FADEIN` with mode 2, `SCRX` with something
-    /// other than zero. The word is implemented; that case is not, and it is
-    /// counted so a run can be asked afterwards whether it happened.
-    ///
-    /// Separate from that function rather than sharing it, because its
-    /// `debug_assert!` checks the name against `NO_EFFECT`. The strings here
-    /// are cases, not words — `SCRX (non-zero)` can never be on that list — so
-    /// routing them through it kills a debug build on ordinary game data.
-    /// Polls of the pointer or a key one frame may make before the word is
-    /// taken to be waiting for input; see [`Engine::polls`].
-    pub(crate) const POLL_BUDGET: u32 = 256;
 
     /// How long `ENDTUNE` holds the 16-bit game after starting the music's
     /// fade-out: the stop routine spins until the 200 Hz tick reads 100
@@ -930,45 +707,73 @@ impl Engine {
 
     /// One poll of the pointer or the key buffer by the bytecode.
     pub(crate) fn polled(&mut self) {
-        self.polls += 1;
-        if self.polls > Self::POLL_BUDGET {
-            self.polling = true;
+        self.input.polls += 1;
+        if self.input.polls > Input::BUDGET {
+            self.input.polling = true;
         }
     }
 
     /// Whether the running word should yield the frame because it is
     /// polling for input that cannot change until the next one.
     fn poll_yield(&mut self) -> bool {
-        if self.polling && self.polls > 0 {
+        if self.input.polling && self.input.polls > 0 {
             // Spent: the next poll after the resume counts afresh.
-            self.polls = 0;
+            self.input.polls = 0;
             return true;
         }
         false
     }
 
-    fn note_unhandled(&mut self, what: String) {
-        *self.stubbed.entry(what).or_default() += 1;
+    /// Counts a word that was reached and did nothing — the whole word, or
+    /// the one case of it that is inert.
+    fn note_unhandled(&mut self, word: Word, case: Option<String>) {
+        *self.stubbed.entry(Stub { word, case }).or_default() += 1;
+    }
+}
+
+/// A word reached that does nothing here: which word, and which case of it
+/// where only a case is inert — `FADEIN` in mode 2, `SCRX` with a non-zero
+/// argument. Keyed by the word as a value, so that a stub's identity is the
+/// kernel's and not a spelling; the spelling is what [`Engine::stubbed`]
+/// answers.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Stub {
+    word: Word,
+    case: Option<String>,
+}
+
+impl std::fmt::Display for Stub {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.case {
+            Some(case) => write!(f, "{} ({case})", self.word.name()),
+            None => f.write_str(self.word.name()),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::descriptor::{DESCRIPTOR_FIELDS, DESCRIPTOR_SETTERS};
     use motionvm_motion_forth::m32;
 
-    /// Every one-argument setter is also a field a savegame may carry.
+    /// Every one-argument setter names a field, and every field survives a
+    /// savegame.
     ///
-    /// The two tables are separate because `INSERT` is a field and not a
-    /// setter; this is what keeps that the only difference between them.
+    /// A match over the setters and a separate list of the names a savegame
+    /// may carry would be two lists nothing holds together, and the way they
+    /// drift is silent: a field written by its word and missing from the
+    /// loader's list is a slot that saves and then refuses to load, by name.
+    /// [`Field`] is one list, and [`Field::of`] is its own inverse, so the
+    /// only thing left to check here is that a setter names one at all.
     #[test]
-    fn every_descriptor_setter_is_a_descriptor_field() {
-        for s in DESCRIPTOR_SETTERS {
-            assert!(
-                DESCRIPTOR_FIELDS.contains(s),
-                "{s} sets a field a savegame cannot name"
-            );
+    fn every_descriptor_setter_names_a_field() {
+        let setters: Vec<Field> = Word::ALL
+            .iter()
+            .filter_map(|w| w.descriptor_field())
+            .collect();
+        assert_eq!(setters.len(), 8, "the setter set changed");
+        for f in setters {
+            assert_eq!(Field::of(f.name()), Some(f));
         }
     }
 
@@ -980,19 +785,19 @@ mod tests {
     #[test]
     fn newsetdesc_takes_six_and_returns_a_handle() {
         let mut mem = mem();
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(Profile::motion32());
         // x y lev spr 0 0 — the shape XYLSITEM. builds.
         let mut stack = vec![10, 20, 3, 99, 0, 0];
         assert!(e.plain_word32("NEWSETDESC", &mut stack, &mut mem).unwrap());
         assert_eq!(stack, vec![1], "should leave just the handle");
-        let d = &e.descriptors[0];
+        let d = &e.scene.descriptors[0];
         assert_eq!((d.x, d.y, d.level), (10, 20, 3));
     }
 
     #[test]
     fn descriptor_setters_reach_the_selected_descriptor() {
         let mut mem = mem();
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(Profile::motion32());
         let mut stack = vec![0, 0, 0, 0, 0, 0];
         e.plain_word32("NEWSETDESC", &mut stack, &mut mem).unwrap();
         stack.clear();
@@ -1096,7 +901,7 @@ mod tests {
     /// number, so a block id coming back there would be animated.
     #[test]
     fn a_descriptor_shows_a_sprite_or_a_block_and_says_which() {
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(Profile::motion32());
         let handle = e.add_descriptor(Descriptor {
             handle: 1,
             active: true,
@@ -1123,8 +928,10 @@ mod tests {
     #[test]
     fn a_16_bit_block_covers_what_a_sprite_lets_through() {
         let paint = |as_block: bool| {
-            let mut e = Engine::with_display(640, 480);
-            e.opaque_blocks = true;
+            let mut e = Engine::new(Profile {
+                opaque_blocks: true,
+                ..Profile::motion32()
+            });
             let mut s = Screen::new(1);
             s.size = (4, 4);
             s.view = (4, 4);
@@ -1132,7 +939,7 @@ mod tests {
             s.active = true;
             e.display.screens.push(s);
             for (id, color) in [(7u32, 0u8), (8, 9)] {
-                e.sprites.insert(
+                e.scene.sprites.insert(
                     id,
                     Picture {
                         width: 4,
@@ -1154,9 +961,9 @@ mod tests {
                 });
                 e.select_descriptor(h);
                 if id == 8 || as_block {
-                    e.set_block(id as i32).expect("SDBL");
+                    e.set_block(cell::signed(id)).expect("SDBL");
                 } else {
-                    e.set_sprite(id as i32).expect("SDSPR");
+                    e.set_sprite(cell::signed(id)).expect("SDSPR");
                 }
             }
             e.draw();
@@ -1180,7 +987,13 @@ mod tests {
     /// literal 8, so a screen has to be at least a few bands tall for a fade to
     /// have a middle at all. Thirty-two rows is three steps a direction.
     fn two_screens(top: u8, bottom: u8) -> Engine {
-        let mut e = Engine::with_display(640, 480);
+        two_screens_on(Profile::motion32(), top, bottom)
+    }
+
+    /// The same, on a stated engine build — for the tests that are about what
+    /// one build does differently.
+    fn two_screens_on(profile: Profile, top: u8, bottom: u8) -> Engine {
+        let mut e = Engine::new(profile);
         for (handle, y) in [(1u32, 0i16), (2, 32)] {
             let mut s = Screen::new(handle);
             s.size = (16, 32);
@@ -1191,7 +1004,7 @@ mod tests {
             e.display.screens.push(s);
         }
         for (id, color) in [(10u32, top), (11, bottom)] {
-            e.sprites.insert(
+            e.scene.sprites.insert(
                 id,
                 Picture {
                     width: 16,
@@ -1201,7 +1014,7 @@ mod tests {
             );
         }
         for (handle, screen, sprite) in [(1u32, 1u32, 10u32), (2, 2, 11)] {
-            e.descriptors.push(Descriptor {
+            e.scene.descriptors.push(Descriptor {
                 handle,
                 screen,
                 shows: Shows::Sprite(sprite),
@@ -1228,8 +1041,14 @@ mod tests {
     /// order stays creation order; its chain handler is unread.
     #[test]
     fn a_fresh_sdlev_draws_on_top_of_its_equals() {
-        let mut e = two_screens(3, 7);
-        e.level_chain = true;
+        let mut e = two_screens_on(
+            Profile {
+                level_chain: true,
+                ..Profile::motion32()
+            },
+            3,
+            7,
+        );
         // The fixture wires its screens by hand; the damage map behind the
         // marks `SDLEV` makes has to exist for this path.
         for s in &mut e.display.screens {
@@ -1238,7 +1057,7 @@ mod tests {
         }
         // A second sprite on screen 1, same level as the first: creation
         // order paints it on top.
-        e.sprites.insert(
+        e.scene.sprites.insert(
             12,
             Picture {
                 width: 16,
@@ -1247,7 +1066,7 @@ mod tests {
             },
         );
         let stamp = e.next_stamp();
-        e.descriptors.push(Descriptor {
+        e.scene.descriptors.push(Descriptor {
             handle: 3,
             screen: 1,
             shows: Shows::Sprite(12),
@@ -1263,7 +1082,7 @@ mod tests {
 
         // `SDLEV` on the first, to the same level it already holds: on the
         // chain that moves it after its equal, and it draws on top now.
-        e.selected = e.descriptors.iter().position(|d| d.handle == 1);
+        e.scene.selected = e.scene.descriptors.iter().position(|d| d.handle == 1);
         e.set_level(0).expect("SDLEV");
         e.repaint_screen(1);
         e.draw();
@@ -1283,30 +1102,41 @@ mod tests {
     /// `.DRAWNEW` is a value written over itself for exactly that mark.
     #[test]
     fn a_sixteen_bit_setter_marks_even_the_unchanged() {
-        let mut e = two_screens(3, 7);
-        for s in &mut e.display.screens {
-            let (w, h) = s.view;
-            s.set_view(w, h);
-        }
-        let i = e
-            .descriptors
-            .iter()
-            .position(|d| d.handle == 1)
-            .expect("the fixture's descriptor");
-        e.selected = Some(i);
-        let (x, mode) = (e.descriptors[i].x, e.descriptors[i].x_mode);
-        e.draw();
-        assert!(!e.descriptors[i].dirty, "drawing settles the descriptor");
-
-        e.place_x(x, mode).expect("SDX");
+        // Draw the descriptor settled, then set a field to the value it
+        // already holds. Two engines rather than one with a flag flipped
+        // under it: a capability is decided when a game opens and never
+        // after, so the two readings are two builds.
+        let settled_then_set = |profile| {
+            let mut e = two_screens_on(profile, 3, 7);
+            for s in &mut e.display.screens {
+                let (w, h) = s.view;
+                s.set_view(w, h);
+            }
+            let i = e
+                .scene
+                .descriptors
+                .iter()
+                .position(|d| d.handle == 1)
+                .expect("the fixture's descriptor");
+            e.scene.selected = Some(i);
+            let (x, mode) = (e.scene.descriptors[i].x, e.scene.descriptors[i].x_mode);
+            e.draw();
+            assert!(
+                !e.scene.descriptors[i].dirty,
+                "drawing settles the descriptor"
+            );
+            e.place_x(x, mode).expect("SDX");
+            e.scene.descriptors[i].dirty
+        };
         assert!(
-            !e.descriptors[i].dirty,
+            !settled_then_set(Profile::motion32()),
             "the 32-bit setter skips an unchanged value"
         );
-        e.sd_marks_always = true;
-        e.place_x(x, mode).expect("SDX");
         assert!(
-            e.descriptors[i].dirty,
+            settled_then_set(Profile {
+                sd_marks_always: true,
+                ..Profile::motion32()
+            }),
             "the 16-bit setter marks whatever the value"
         );
     }
@@ -1322,29 +1152,38 @@ mod tests {
     /// `TOJEFF`, which is where `SETSAY` runs).
     #[test]
     fn a_sixteen_bit_template_outside_the_table_is_ignored() {
-        let mut e = two_screens(3, 7);
+        let mut e = two_screens_on(
+            Profile {
+                templates_gated: true,
+                ..Profile::motion32()
+            },
+            3,
+            7,
+        );
         for s in &mut e.display.screens {
             let (w, h) = s.view;
             s.set_view(w, h);
         }
-        e.templates_gated = true;
-        e.selected = e.descriptors.iter().position(|d| d.handle == 1);
+        e.scene.selected = e.scene.descriptors.iter().position(|d| d.handle == 1);
         e.set_template(2).expect("SDTDT");
         for outside in [0, -1, 21] {
             e.set_template(outside).expect("SDTDT");
             assert_eq!(
-                e.descriptors[e.selected.unwrap()].template,
+                e.scene.descriptors[e.scene.selected.unwrap()].template,
                 Some(2),
                 "{outside} SDTDT left the template standing"
             );
         }
         e.set_template(9).expect("SDTDT");
-        assert_eq!(e.descriptors[e.selected.unwrap()].template, Some(9));
+        assert_eq!(
+            e.scene.descriptors[e.scene.selected.unwrap()].template,
+            Some(9)
+        );
     }
 
     /// Repaints screen 1's descriptor in `color`, ready for a fade to reveal.
     fn repaint(e: &mut Engine, color: u8) {
-        let sprite = e.sprites.get_mut(&10).expect("the top sprite");
+        let sprite = e.scene.sprites.get_mut(&10).expect("the top sprite");
         sprite.pixels.fill(color);
     }
 
@@ -1428,14 +1267,14 @@ mod tests {
         repaint(&mut e, 5);
         fade(&mut e, &mut mem, "FADEIN", 1);
         assert_eq!(
-            e.curtains.len(),
+            e.transitions.curtains.len(),
             2,
             "both curtains are queued before either plays"
         );
 
         let mut closing = true;
         while e.in_transition() {
-            if closing && e.curtains.front().map(|c| c.opening) == Some(true) {
+            if closing && e.transitions.curtains.front().map(|c| c.opening) == Some(true) {
                 closing = false;
             }
             e.advance_curtain();
@@ -1471,15 +1310,15 @@ mod tests {
 
         fade(&mut e, &mut mem, "FADEIN", 1);
         assert_eq!(
-            e.curtains.front().expect("a curtain").area.2,
+            e.transitions.curtains.front().expect("a curtain").area.2,
             16,
             "a fade in spans SCRSIZE"
         );
-        e.curtains.clear();
+        e.transitions.curtains.clear();
 
         fade(&mut e, &mut mem, "FADEOUT", 1);
         assert_eq!(
-            e.curtains.front().expect("a curtain").area.2,
+            e.transitions.curtains.front().expect("a curtain").area.2,
             8,
             "a fade out spans SCRVSIZE"
         );
@@ -1493,7 +1332,7 @@ mod tests {
     fn the_pointer_stays_away_while_a_curtain_runs() {
         let mut mem = mem();
         let mut e = two_screens(3, 7);
-        e.sprites.insert(
+        e.scene.sprites.insert(
             99,
             Picture {
                 width: 2,
@@ -1501,10 +1340,10 @@ mod tests {
                 pixels: vec![9; 4],
             },
         );
-        e.cursor = Some((99, 0, 0));
-        e.pointer_visible = true;
-        e.mouse.x = 0;
-        e.mouse.y = 0;
+        e.cursor_state.shape = Some((99, 0, 0));
+        e.cursor_state.visible = true;
+        e.input.mouse.x = 0;
+        e.input.mouse.y = 0;
         assert_eq!(
             e.render().get(0, 0),
             Some(9),
@@ -1517,7 +1356,10 @@ mod tests {
             Some(3),
             "and not while a curtain is up"
         );
-        assert!(e.pointer_visible, "the script's own state is left alone");
+        assert!(
+            e.cursor_state.visible,
+            "the script's own state is left alone"
+        );
     }
 
     /// Mode 2 is a different effect, and asking for it must not bring us down.
@@ -1537,7 +1379,7 @@ mod tests {
         e.plain_word32("FADEIN", &mut stack, &mut mem).unwrap();
         assert!(!e.in_transition(), "mode 2 is not the curtain");
         assert_eq!(
-            e.stubbed.get("FADEIN (mode 2)"),
+            e.stubbed().get("FADEIN (mode 2)"),
             Some(&1),
             "and it is reported, not swallowed"
         );
@@ -1565,17 +1407,17 @@ mod tests {
         // height -> ticks a band, passes, ticks in total
         for (height, per, passes, total) in [(480, 1, 31, 31), (400, 2, 26, 52), (80, 10, 6, 60)] {
             let mut mem = mem();
-            let mut e = Engine::with_display(640, 480);
+            let mut e = Engine::new(Profile::motion32());
             let mut s = Screen::new(1);
-            s.size = (640, height as u16);
-            s.view = (640, height as u16);
-            s.buffer = Framebuffer::new(640, height as u16);
+            s.size = (640, cell::low16(height));
+            s.view = (640, cell::low16(height));
+            s.buffer = Framebuffer::new(640, cell::low16(height));
             e.display.screens.push(s);
             e.display.set_current(1);
 
             let mut stack = vec![1, 50, 8];
             e.plain_word32("FADEOUT", &mut stack, &mut mem).unwrap();
-            let c = e.curtains.front().expect("a curtain").clone();
+            let c = e.transitions.curtains.front().expect("a curtain").clone();
             assert_eq!(c.ticks_per_band, per, "{height} rows: 50 / ({height}/16)");
             assert_eq!(e.step_ticks(), per, "and a step is one band's worth");
 
@@ -1594,7 +1436,7 @@ mod tests {
     #[test]
     fn actdesc_selects_by_handle() {
         let mut mem = mem();
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(Profile::motion32());
         for x in [1, 2] {
             let mut s = vec![x, 0, 0, 0, 0, 0];
             e.plain_word32("NEWSETDESC", &mut s, &mut mem).unwrap();
@@ -1633,7 +1475,7 @@ mod tests {
     #[test]
     fn centering_a_text_round_trips_through_gdcx() {
         let mut mem = mem();
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(Profile::motion32());
         let mut stack = vec![0, 0, 0, 0, 0, 0];
         e.plain_word32("NEWSETDESC", &mut stack, &mut mem).unwrap();
         stack.clear();
@@ -1664,7 +1506,7 @@ mod tests {
     #[test]
     fn screen_words_configure_the_newest_screen() {
         let mut mem = mem();
-        let mut e = Engine::with_display(640, 480);
+        let mut e = Engine::new(Profile::motion32());
         let mut stack = Vec::new();
         e.plain_word32("NEWSCREEN", &mut stack, &mut mem).unwrap();
         assert_eq!(stack, vec![1]);

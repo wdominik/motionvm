@@ -1,4 +1,5 @@
-//! Where the test suites find the games' files.
+//! Where the test suites find the games' files, and what they hold their
+//! output against.
 //!
 //! No game data ships with this repository and none can, so every test that
 //! needs a sprite or a song has to be told where a copy of the original
@@ -46,6 +47,18 @@
 //! four 16-bit games all ship a `DATA.-1-`, so a container probe would let
 //! `MOTIONVM_GAMEDATA_ENVIRO` accept a Jeff Jet directory and then fail deep
 //! inside a suite instead of at the variable.
+//!
+//! Beside the lookup, [`digest`]: the reference digests the suites hold their
+//! scenes and their register streams against.
+//!
+//! **This crate may depend on the neutral layer and on nothing of the
+//! family's.** `motionvm-motion-formats` dev-depends on it, so a dependency
+//! the other way would be a cycle — which is what the rule protects, rather
+//! than a count of dependencies for its own sake.
+
+pub mod digest;
+
+pub use digest::Digests;
 
 use std::path::PathBuf;
 
@@ -155,9 +168,9 @@ fn game(var: &str, fallback: &str, probe: &str) -> Option<PathBuf> {
 /// would accept such an install (see [`gamedata_ds2`]) and then fail reading the
 /// very files it just found.
 ///
-/// Written out rather than calling `motionvm_motion_formats::find_ci`, which is the
-/// same rule: this crate has no dependencies on purpose, and `motionvm-motion-formats`
-/// already dev-depends on *it*.
+/// Written out rather than calling `motionvm_motion_formats::find_ci`, which is
+/// the same rule: `motionvm-motion-formats` already dev-depends on this crate,
+/// so this crate cannot depend on it — see the module header.
 pub fn find_ci(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
     let exact = dir.join(name);
     if exact.is_file() {

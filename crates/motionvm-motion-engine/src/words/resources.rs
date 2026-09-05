@@ -8,21 +8,21 @@
 
 use crate::Engine;
 use crate::stack::pop1;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
 
 use crate::stack::pop_n;
-
-use crate::STATUS_HINTS;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     pub(crate) fn words_resources(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // Installs mirror aliases for a run of sprites: `1880 1889 9`
             // makes 1889..1897 the mirrors of 1880..1888. The original
             // (`05f1:221b`; `GFXVFLIP` `05f1:21f2` is the count-1 form)
@@ -38,8 +38,8 @@ impl Engine {
             // and what "vertikal spiegeln" means in German — about the
             // vertical axis. If a character ever faces the wrong way,
             // this is the line to turn.
-            "XGFXVFLIP" | "GFXVFLIP" => {
-                let (src, dst, count) = if name == "GFXVFLIP" {
+            Word::XGFXVFLIP | Word::GFXVFLIP => {
+                let (src, dst, count) = if word == Word::GFXVFLIP {
                     let a = pop_n(stack, 2, "GFXVFLIP")?;
                     (a[0], a[1], 1)
                 } else {
@@ -47,12 +47,12 @@ impl Engine {
                     (a[0], a[1], a[2].max(0))
                 };
                 for i in 0..count {
-                    let from = (src + i).max(0) as u32;
+                    let from = cell::unsigned((src + i).max(0));
                     let Some(sprite) = self.sprite(from) else {
                         continue;
                     };
                     let mut flipped = sprite.clone();
-                    let w = sprite.width as usize;
+                    let w = usize::from(sprite.width);
                     for (row, out) in sprite
                         .pixels
                         .chunks_exact(w)
@@ -62,22 +62,24 @@ impl Engine {
                             out[w - 1 - x] = *p;
                         }
                     }
-                    let to = (dst + i).max(0) as u32;
-                    self.sprites.insert(to, flipped);
+                    let to = cell::unsigned((dst + i).max(0));
+                    self.scene.sprites.insert(to, flipped);
                     // Kept so a savegame can put it back. The mirrored sprite
                     // goes into the pool under an id no resource file holds, so
                     // nothing can load it again — only doing the flip once more
                     // can. Recorded as a recipe rather than as pixels: the
                     // source is a real resource and always available.
-                    self.flips.retain(|(_, existing)| *existing != to);
-                    self.flips.push((from, to));
+                    self.persistence
+                        .flips
+                        .retain(|(_, existing)| *existing != to);
+                    self.persistence.flips.push((from, to));
                 }
             }
-            "GFXCRUNCH" => {
-                self.inert(stack, 2, "GFXCRUNCH")?;
+            Word::GFXCRUNCH => {
+                self.inert(stack, 2, Word::GFXCRUNCH)?;
             }
-            "XGFXCRUNCH" => {
-                self.inert(stack, 3, "XGFXCRUNCH")?;
+            Word::XGFXCRUNCH => {
+                self.inert(stack, 3, Word::XGFXCRUNCH)?;
             }
             // Whether a savegame slot is taken. The name comes from the
             // template at 0xd4872, "#F0R3i.blk" — three digits, zero-padded —
@@ -94,24 +96,24 @@ impl Engine {
             // side and 0x66b77 stores 0 on the other. Nothing in the game can
             // tell the difference, because `SHOW_FILES` only asks `IF` — but a
             // word that was read has no business guessing.
-            "EXIST" => {
+            Word::EXIST => {
                 let n = pop1(stack, "EXIST")?;
                 let found = self.save_path(n, "blk").is_some_and(|p| p.exists());
                 stack.push(if found { -1 } else { 0 });
             }
-            // One lookup, not two: the arity comes back from the same search
-            // that decided the arm applies, so there is no `expect` here for the
-            // two to disagree about.
-            _ if STATUS_HINTS.iter().any(|(n, _)| *n == name) => {
-                let (_, arity) = STATUS_HINTS
-                    .iter()
-                    .find(|(n, _)| *n == name)
-                    .copied()
-                    .unwrap_or((name, 0));
+            // The status hints, which are inert here but not free: each pops
+            // its own number of arguments, and the counts are not uniform.
+            // The arity comes off the word rather than out of a table searched
+            // by name, so the arm and the count cannot disagree — and one
+            // lookup answers both whether this is a hint and how deep it
+            // reaches.
+            _ => {
+                let Some(arity) = word.status_hint() else {
+                    return Ok(None);
+                };
                 pop_n(stack, arity, "resource status hint")?;
-                self.note_unhandled(name.to_string());
+                self.note_unhandled(word, None);
             }
-            _ => return Ok(None),
         }
         Ok(Some(()))
     }

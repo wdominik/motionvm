@@ -11,11 +11,19 @@
 //! format, no driver: a line on stderr and play on in silence.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+use crate::scale::wide;
 use motionvm_playable::AudioSource;
+
+/// The two sides of a frame mixed for one speaker: their mean, rounded toward
+/// zero.
+fn mono(left: i16, right: i16) -> i16 {
+    left.midpoint(right)
+}
 
 /// Holds the stream open. Dropping it stops the music, so it has to live as
 /// long as the game does.
-pub struct Sound {
+pub(crate) struct Sound {
     _stream: cpal::Stream,
 }
 
@@ -32,26 +40,31 @@ fn tell_output(rate: u32, channels: usize, format: cpal::SampleFormat) {
 /// One value instead of loose pieces, because the channel count and the rate
 /// are the config's own facts: carried separately they could disagree with
 /// it, and the accessors make that impossible.
-pub struct Output {
+pub(crate) struct Output {
     device: cpal::Device,
     config: cpal::StreamConfig,
     format: cpal::SampleFormat,
+    /// The largest block this device says it will ask the callback for, in
+    /// frames. Read from the device rather than guessed, so the scratch
+    /// buffer is made once on the game thread and never grown on the audio
+    /// one.
+    most_frames: usize,
 }
 
 impl Output {
     /// The device's channel count.
     fn channels(&self) -> usize {
-        self.config.channels as usize
+        usize::from(self.config.channels)
     }
 
     /// The device's sample rate, which the game's music is built for.
-    pub fn rate(&self) -> u32 {
+    pub(crate) fn rate(&self) -> u32 {
         self.config.sample_rate
     }
 }
 
 /// The default output device and what it wants to be fed.
-pub fn output() -> Result<Output, String> {
+pub(crate) fn output() -> Result<Output, String> {
     let device = cpal::default_host()
         .default_output_device()
         .ok_or("no output device")?;
@@ -59,24 +72,46 @@ pub fn output() -> Result<Output, String> {
         .default_output_config()
         .map_err(|e| format!("no output format: {e}"))?;
     let format = supported.sample_format();
+    // The largest block this device will ever ask for, so the scratch buffer
+    // can be made once and never grown on the audio thread. A device that
+    // will not say gets a generous guess; the callback checks either way,
+    // because a resize is far better than a panic and the check costs a
+    // comparison.
+    let most_frames = match supported.buffer_size() {
+        cpal::SupportedBufferSize::Range { max, .. } => wide(*max),
+        cpal::SupportedBufferSize::Unknown => 8192,
+    };
     let config: cpal::StreamConfig = supported.into();
     Ok(Output {
         device,
         config,
         format,
+        most_frames,
     })
 }
 
 /// Builds and starts the stream for whichever sample format the device
 /// settled on, wraps it in the guard that keeps it alive, and reports what
 /// the device settled on.
-pub fn spawn(out: &Output, source: Box<dyn AudioSource>) -> Result<Sound, String> {
+pub(crate) fn spawn(out: &Output, source: Box<dyn AudioSource>) -> Result<Sound, String> {
     let (channels, rate) = (out.channels(), out.rate());
     let stream = match out.format {
-        cpal::SampleFormat::F32 => build(&out.device, out.config, source, channels, |s| {
-            s as f32 / 32768.0
-        }),
-        cpal::SampleFormat::I16 => build(&out.device, out.config, source, channels, |s| s),
+        cpal::SampleFormat::F32 => build(
+            &out.device,
+            out.config,
+            out.most_frames,
+            source,
+            channels,
+            |s| f32::from(s) / 32768.0,
+        ),
+        cpal::SampleFormat::I16 => build(
+            &out.device,
+            out.config,
+            out.most_frames,
+            source,
+            channels,
+            |s| s,
+        ),
         other => return Err(format!("unsupported sample format {other:?}")),
     }?;
     stream
@@ -91,6 +126,7 @@ pub fn spawn(out: &Output, source: Box<dyn AudioSource>) -> Result<Sound, String
 fn build<T>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
+    most_frames: usize,
     mut source: Box<dyn AudioSource>,
     channels: usize,
     convert: fn(i16) -> T,
@@ -98,9 +134,11 @@ fn build<T>(
 where
     T: cpal::SizedSample + Send + 'static,
 {
-    // Generous enough that the callback never reaches the allocator after the
-    // first block, whatever buffer size the device settles on.
-    let mut stereo = vec![0i16; 8192];
+    // Made here, on the game thread, at the size the device said it would
+    // ask for. The check below stays as a guard rather than as the plan: a
+    // device that asks for more than it declared gets one resize instead of a
+    // panic, and it has never happened.
+    let mut stereo = vec![0i16; most_frames * 2];
     device
         .build_output_stream(
             config,
@@ -120,7 +158,7 @@ where
                         // One speaker gets the two sides mixed rather than the
                         // left one only — a hard-panned voice would otherwise
                         // vanish.
-                        1 => out[0] = convert(((frame[0] as i32 + frame[1] as i32) / 2) as i16),
+                        1 => out[0] = convert(mono(frame[0], frame[1])),
                         _ => {
                             out[0] = convert(frame[0]);
                             out[1] = convert(frame[1]);

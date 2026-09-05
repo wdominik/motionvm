@@ -25,7 +25,8 @@
 //! (blocks 1–5 and 7–11).
 
 use crate::error::{Error, Result};
-use crate::{u16le, u32le};
+use crate::u16le;
+use crate::{dwords, words};
 
 /// The sixteen bytes every PSM 2 module starts with.
 pub const MAGIC: &[u8; 16] = b"MTCVTS PSM 2.00\0";
@@ -73,11 +74,7 @@ pub fn sections(item: &[u8]) -> Result<[u32; 9]> {
             detail: "the MTCVTS tag is missing".into(),
         });
     }
-    let mut out = [0u32; 9];
-    for (i, slot) in out.iter_mut().enumerate() {
-        *slot = u32le(item, 0x10 + 4 * i)?;
-    }
-    Ok(out)
+    dwords::<9>(item, 0x10)
 }
 
 /// The Ad Lib song: section 0, parsed the way the driver reads it.
@@ -107,10 +104,10 @@ impl Plx {
             return Self::from_section(item.to_vec());
         }
         let sections = sections(item)?;
-        let start = sections[0] as usize;
+        let start = crate::wide(sections[0]);
         let end = sections
             .iter()
-            .map(|&o| o as usize)
+            .map(|&o| crate::wide(o))
             .filter(|&o| o > start)
             .min()
             .unwrap_or(item.len())
@@ -143,10 +140,7 @@ impl Plx {
             have: bytes.len(),
         })?;
         let tempo = u16le(&bytes, 5)?;
-        let mut channels = [0u16; 9];
-        for (i, c) in channels.iter_mut().enumerate() {
-            *c = u16le(&bytes, 7 + 2 * i)?;
-        }
+        let channels = words::<9>(&bytes, 7)?;
         Ok(Self {
             speed,
             tempo,

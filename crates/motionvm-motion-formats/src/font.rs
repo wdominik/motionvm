@@ -23,8 +23,9 @@
 //! to glyph 0; and glyph 0, 26 and 52 of Die Enviro-Kids greifen ein's font 0
 //! are `A`, `Ä` and `x`.
 
-use crate::error::{Error, Result};
-use crate::u16le;
+use crate::cursor::Cursor;
+use crate::error::Result;
+use crate::slice;
 
 /// `000.FRT` (32-bit) / FRT slot 0 (16-bit) — maps a CP437 character code
 /// to a glyph index. The two are laid out identically, 516 bytes each.
@@ -45,20 +46,24 @@ pub struct FontRefTable {
 impl FontRefTable {
     /// Reads a font reference table.
     pub fn parse(data: &[u8]) -> Result<Self> {
-        let slots = u16le(data, 0)? as usize;
-        let glyph_count = u16le(data, 2)? as usize;
-        let mut map = Vec::with_capacity(slots);
-        for i in 0..slots {
-            let v = u16le(data, 4 + i * 2)?;
-            map.push(if v == 0xffff { None } else { Some(v) });
-        }
+        let mut c = Cursor::new(data, 0);
+        let slots = usize::from(c.u16()?);
+        let glyph_count = usize::from(c.u16()?);
+        let map = c
+            .records::<2>(slots)?
+            .iter()
+            .map(|e| {
+                let v = u16::from_le_bytes(*e);
+                (v != 0xffff).then_some(v)
+            })
+            .collect();
         Ok(Self { glyph_count, map })
     }
 
     /// The glyph index for one character code, or `None` where the font has
     /// none. Codes are CP437 bytes, one byte to one character.
     pub fn glyph_for(&self, ch: u8) -> Option<u16> {
-        self.map.get(ch as usize).copied().flatten()
+        self.map.get(usize::from(ch)).copied().flatten()
     }
 }
 
@@ -76,7 +81,7 @@ pub struct Glyph {
 impl Glyph {
     /// Bytes per row of [`Glyph::bits`], rounded up.
     pub fn stride(&self) -> usize {
-        (self.width as usize).div_ceil(8)
+        crate::wide(self.width.into()).div_ceil(8)
     }
 
     /// Whether the pixel at `(x, y)` is set. Out-of-range reads as unset.
@@ -84,9 +89,12 @@ impl Glyph {
         if x >= self.width || y >= self.height {
             return false;
         }
-        let byte = y as usize * self.stride() + x as usize / 8;
+        let byte = usize::from(y)
+            .checked_mul(self.stride())
+            .and_then(|row| row.checked_add(usize::from(x) / 8));
         // Least significant bit first, established by rendering known letters.
-        self.bits.get(byte).is_some_and(|b| b >> (x % 8) & 1 == 1)
+        byte.and_then(|byte| self.bits.get(byte))
+            .is_some_and(|b| ((b >> (x % 8)) & 1) == 1)
     }
 }
 
@@ -103,35 +111,22 @@ impl Font {
     /// Reads the decoded glyph table — the layout both generations share
     /// once any compression is undone.
     pub fn from_glyph_table(raw: &[u8]) -> Result<Self> {
-        let count = u16le(raw, 0)? as usize;
-        let height = u16le(raw, 2)?;
-        let table_end = 4 + count * 4;
-        if table_end > raw.len() {
-            return Err(Error::Truncated {
-                off: 4,
-                need: count * 4,
-                have: raw.len(),
-            });
-        }
+        let mut c = Cursor::new(raw, 0);
+        let count = usize::from(c.u16()?);
+        let height = c.u16()?;
+        let table = c.records::<4>(count)?;
 
         let mut glyphs = Vec::with_capacity(count);
-        for i in 0..count {
-            let offset = u16le(raw, 4 + i * 4)? as usize;
-            let width = u16le(raw, 6 + i * 4)?;
-            let stride = (width as usize).div_ceil(8);
-            let len = stride * height as usize;
-            let bits = raw
-                .get(offset..offset + len)
-                .ok_or(Error::Truncated {
-                    off: offset,
-                    need: len,
-                    have: raw.len(),
-                })?
-                .to_vec();
+        for entry in table {
+            let offset = usize::from(u16::from_le_bytes([entry[0], entry[1]]));
+            let width = u16::from_le_bytes([entry[2], entry[3]]);
+            let stride = crate::wide(width.into()).div_ceil(8);
+            // As many bytes as the glyph needs, which the table must hold.
+            let len = stride.saturating_mul(usize::from(height));
             glyphs.push(Glyph {
                 width,
                 height,
-                bits,
+                bits: slice(raw, offset, len)?.to_vec(),
             });
         }
 
@@ -144,7 +139,7 @@ impl Font {
     /// confirms the table has exactly `glyph_count` entries and no header
     /// fields were missed.
     pub fn table_end(&self) -> usize {
-        4 + self.glyphs.len() * 4
+        self.glyphs.len().saturating_mul(4).saturating_add(4)
     }
 
     /// Total width of `text` on screen, for laying out a line.
@@ -155,8 +150,8 @@ impl Font {
         let total: u32 = text
             .bytes()
             .filter_map(|b| refs.glyph_for(b))
-            .filter_map(|g| self.glyphs.get(g as usize))
-            .map(|g| g.width as u32 + 1)
+            .filter_map(|g| self.glyphs.get(usize::from(g)))
+            .map(|g| u32::from(g.width) + 1)
             .sum();
         total.saturating_sub(1)
     }

@@ -1,22 +1,28 @@
 //! The kernel words, one file per group.
 //!
-//! `Engine::plain_word32` is a single match of ninety-odd arms; the groups here
-//! are that match cut into files, nothing more. How many there are is the
-//! `mod` list below and nowhere else — fifteen of them are asked on the
-//! 32-bit machine and seventeen on the 16-bit one, and a count written into
-//! each file would be a count to maintain in each file.
+//! A word arrives as an **ordinal** and is turned into a [`Word`] by a table
+//! the opener built — see [`crate::Engine::bind_words`] and [`word`], which is
+//! the whole of the name → meaning map. What is left here is the routing: each
+//! group is a match over `Word`, and a group that does not know a value
+//! answers `None` so the next is asked.
 //!
-//! **The order of the groups is the order of the original's match, and it is
-//! load-bearing.** Two arms match on table membership rather than on a literal,
-//! so an arm that moves across one of them changes which words it catches — and
-//! a duplicate name in two groups is resolved by nothing but this order; see
-//! the note on [`Engine::plain_word32`](crate::Engine::plain_word32). The match
-//! itself — both `Host` impls and the two dispatchers — stands at the end of
-//! this file, beside the rule it has to keep.
+//! **The order of those calls decides nothing.** It would if a word arrived
+//! as a `&str` and each group matched it against string literals, the first
+//! to recognize one winning: two groups claiming a name would be resolved by
+//! nothing but the order of the calls, and nothing would detect it. Eleven
+//! names really are two words apiece, one per machine, and a call order is
+//! how a name-keyed dispatch would tell them apart. Here they are two values
+//! apiece, decided by which resolver ran, and the two arms that would
+//! otherwise match on *table membership* — the resource status hints and the
+//! descriptor setters — are ordinary values too. What is left of the order is
+//! taste.
 //!
-//! Within that constraint a group is one subject — descriptors, screens, the
-//! inventory bar, the dialogue queue — because the original's own section
-//! order is not one: it visits screens twice and palette twice.
+//! A group is one subject — descriptors, screens, the inventory bar, the
+//! dialogue queue — because the original's own section order is not one: it
+//! visits screens twice and palette twice.
+
+pub(crate) mod word;
+pub(crate) use word::Word;
 
 mod buffers;
 mod descriptors;
@@ -42,16 +48,15 @@ mod state;
 mod text;
 mod transitions;
 
-// The dispatchers themselves, beside the rule they must keep: the order of
-// the groups above is the order of the original's match, and these are that
-// match.
+// The dispatchers: the two `Host` impls, which answer the words that need the
+// machine itself, and the two chains behind them.
 
 use crate::Engine;
 use crate::order;
-use motionvm_motion_formats::m32::ScrModule;
 use motionvm_motion_forth as forth;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32;
-use motionvm_motion_forth::{Address, Host, Machine};
+use motionvm_motion_forth::{Host, Machine};
 
 impl Host<m32::Vm> for Engine {
     /// Stops the interpreter while a transition plays, which is what the
@@ -64,121 +69,125 @@ impl Host<m32::Vm> for Engine {
         self.in_transition() || self.entering_loop || self.poll_yield()
     }
 
-    fn word(&mut self, name: &str, vm: &mut m32::Vm) -> motionvm_motion_forth::Result<bool> {
-        // The interaction machine runs bytecode of its own and therefore needs
-        // the machine, not just its stack and memory.
-        if name == "DOORDER" {
-            return self.do_order(vm, order::M32_RULES);
-        }
-        // `( module -- )`: `=>GET` (0x64999) loads `%03d.SCR` out of the
-        // resource file into the first free descriptor slot — a fresh copy
-        // every time, so a location's modules come back pristine on every
-        // re-entry and their variables start over. The machine here holds
-        // every module from the start, so what the word does is put the
-        // container's image back over the one in memory, which is the same
-        // reset; the slot bookkeeping is [`Engine::mark_resident`]. A module
-        // the container does not hold is only marked, as before: the first
-        // `INCLLOC` asks for 100, 200 and 300 while `_ACTLOC` is still zero.
-        if name == "=>GET" {
-            let n = crate::stack::pop1(&mut vm.data, "=>GET")?;
-            let n = n.max(0) as u32;
-            self.mark_resident(n);
-            if let Some(item) = self.resources.as_ref().and_then(|r| r.script(n))
-                && let Ok(parsed) = ScrModule::parse(&item)
-            {
-                vm.load(&item, &parsed);
+    /// The ordinal is resolved through the table the opener built; an ordinal
+    /// this engine has no word for is not ours, and the machine reports it by
+    /// name.
+    fn word(&mut self, ordinal: u32, vm: &mut m32::Vm) -> motionvm_motion_forth::Result<bool> {
+        let Some(word) = self.word_of(ordinal) else {
+            return Ok(false);
+        };
+        match word {
+            // The interaction machine runs bytecode of its own and therefore
+            // needs the machine, not just its stack and memory.
+            Word::DOORDER => return self.do_order(vm, order::M32_RULES),
+            // `( module -- )`: `=>GET` (0x64999) loads `%03d.SCR` out of the
+            // resource file into the first free descriptor slot — a fresh copy
+            // every time, so a location's modules come back pristine on every
+            // re-entry and their variables start over — and `=>ERASE` gives
+            // the memory back and frees the slot. Both need the machine, which
+            // is why they are answered here rather than in a group. The slot
+            // table is not decoration: `=>PUTAS` writes the modules these two
+            // leave marked, in the order they leave them in, and a savegame
+            // that carried the other seventy-odd modules would restore state
+            // the original discards at every change of location.
+            //
+            // `=>GET` leaves nothing on the stack: the handler has no call to
+            // the push helper anywhere in its body. The arity table's single
+            // push came from the scan running past the function's end, which
+            // is a reminder that its boundaries are inferred from the next
+            // handler's address, not from the code.
+            Word::RES_GET => {
+                let n = crate::stack::pop1(&mut vm.data, "=>GET")?;
+                self.get_module(&mut vm.mem, cell::unsigned(n.max(0)))?;
+                return Ok(true);
             }
-            return Ok(true);
+            // A module that is not loaded is nothing to give back: the first
+            // `INCLLOC` after boot erases 100, 200 and 300 while `_ACTLOC` is
+            // still zero.
+            Word::RES_ERASE => {
+                let n = crate::stack::pop1(&mut vm.data, "=>ERASE")?;
+                let n = cell::unsigned(n.max(0));
+                vm.unload(n);
+                self.mark_gone(n);
+                return Ok(true);
+            }
+            _ => {}
         }
         let m32::Vm { data, mem, .. } = vm;
-        self.plain_word32(name, data, mem)
+        self.word32(word, data, mem)
     }
 }
 
 impl Engine {
-    /// Runs one kernel word by name, with its arguments on `stack`.
+    /// Offers a resolved word to the groups until one takes it.
     ///
     /// Every word that does not need the machine itself — which is all of them
-    /// so far. A word that has to run bytecode of its own gets `&mut m32::Vm` in
-    /// [`Host::word`] above and is handled there instead.
+    /// but two. A word that has to run bytecode of its own gets
+    /// `&mut m32::Vm` in [`Host::word`] above and is handled there instead.
     ///
-    /// Public so a test can drive the same words the bytecode does — loading a
-    /// savegame, for instance, is `GET`, `INCLLOC`, `GETANIM` and `=>GETAS` in
-    /// that order, and reproducing a reported state is far quicker from a
-    /// savegame than from an hour of play.
+    /// The order of these calls is not load-bearing: a [`Word`] is one value
+    /// and exactly one group matches it, whichever order they are asked in.
+    /// It is kept as the original's own section order because that is a
+    /// reader's map of the kernel, and because changing it would gain nothing.
     ///
-    /// **The order of these calls is the order of the original's own match, and
-    /// it has to stay that way.** Two of the arms match on table membership
-    /// rather than on a literal — the descriptor setters and the resource
-    /// status hints — so where they sit decides what reaches them. A
-    /// duplicate sitting earlier in the match wins silently — nothing
-    /// detects one; the sequence below is the whole defense. Splitting the
-    /// match into files is exactly the change that invites one in.
-    ///
-    /// Which is why the fifteen near-identical `if` blocks below — seventeen
-    /// in [`Engine::plain_word16`] — are written out rather than folded. The
-    /// repetition has been examined and kept. A loop over function pointers or
-    /// a map keyed by name would destroy the property outright: neither has an
-    /// order a reader can see. A two-line macro would keep the order visible
-    /// and still cost something real — the one thing a reader of this function
-    /// must check is the sequence of group names against the original's match,
-    /// and a macro puts a layer between them for no gain but height. Thirty-two
-    /// lines of the same shape are what a hand-checkable order looks like.
-    pub fn plain_word32(
+    /// The fifteen near-identical blocks are written out rather than folded:
+    /// a loop over function pointers would put a layer between the reader and
+    /// the list of groups, and the list is the only thing here worth reading.
+    pub(crate) fn word32(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         mem: &mut m32::Memory,
     ) -> motionvm_motion_forth::Result<bool> {
-        if self.words_state(name, stack, mem)?.is_some() {
+        if self.words_state(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_screens(name, stack, mem)?.is_some() {
+        if self.words_screens(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_descriptors(name, stack, mem)?.is_some() {
+        if self.words_descriptors(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_text(name, stack, mem)?.is_some() {
+        if self.words_text(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_saves(name, stack, mem)?.is_some() {
+        if self.words_saves(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_resources(name, stack, mem)?.is_some() {
+        if self.words_resources(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_transitions(name, stack, mem)?.is_some() {
+        if self.words_transitions(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_dowalk(name, stack, mem)?.is_some() {
+        if self.words_dowalk(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_input(name, stack, mem)?.is_some() {
+        if self.words_input(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_inventory(name, stack, mem, M32_RULES)?.is_some() {
+        if self.words_inventory(word, stack, mem, M32_RULES)?.is_some() {
             return Ok(true);
         }
         if self
-            .words_dialogue(name, stack, mem, order::M32_RULES)?
+            .words_dialogue(word, stack, mem, order::M32_RULES)?
             .is_some()
         {
             return Ok(true);
         }
-        if self.words_sound(name, stack, mem)?.is_some() {
+        if self.words_sound(word, stack, mem)?.is_some() {
             return Ok(true);
         }
         if self
-            .words_pointer(name, stack, mem, pointer::M32_RULES)?
+            .words_pointer(word, stack, mem, pointer::M32_RULES)?
             .is_some()
         {
             return Ok(true);
         }
-        if self.words_palette(name, stack, mem)?.is_some() {
+        if self.words_palette(word, stack, mem)?.is_some() {
             return Ok(true);
         }
-        if self.words_redraw(name, stack, mem)?.is_some() {
+        if self.words_redraw(word, stack, mem)?.is_some() {
             return Ok(true);
         }
         Ok(false)
@@ -201,35 +210,43 @@ impl Host<forth::m16::Vm> for Engine {
     /// that load and drop modules, and the one that installs the frame
     /// handler by word id — and are answered here; the rest go to
     /// [`Engine::plain_word16`] with the stack and the memory.
-    fn word(&mut self, name: &str, vm: &mut forth::m16::Vm) -> motionvm_motion_forth::Result<bool> {
-        match name {
+    fn word(
+        &mut self,
+        ordinal: u32,
+        vm: &mut forth::m16::Vm,
+    ) -> motionvm_motion_forth::Result<bool> {
+        let Some(word) = self.word_of(ordinal) else {
+            return Ok(false);
+        };
+        match word {
             // `( module -- )`: loads a module out of the container and binds
             // its ids — which the machine does; what the engine keeps is the
             // residency list, the same bookkeeping `=>GET` keeps on the 32-bit
             // machine.
-            "=>GET" => {
+            Word::RES_GET => {
                 let n = crate::stack::pop1(&mut vm.data, "=>GET")?;
                 let item = self
                     .resources
                     .as_ref()
-                    .and_then(|r| r.script(n.max(0) as u32))
-                    .ok_or_else(|| motionvm_motion_forth::Error::Unimplemented {
-                        ordinal: 0,
-                        name: format!("=>GET: module {n} is not in the container"),
-                        at: Address(0),
+                    .and_then(|r| r.script(cell::unsigned(n.max(0))))
+                    .ok_or(motionvm_motion_forth::Error::MissingResource {
+                        kind: "module",
+                        id: n,
+                        word: "=>GET",
+                        at: None,
                     })?;
                 let parsed =
                     motionvm_motion_formats::m16::scr::ScrModule::parse(&item).map_err(|e| {
                         motionvm_motion_forth::Error::Unsupported(format!("=>GET {n}: {e}"))
                     })?;
                 vm.load(&item, &parsed)?;
-                self.mark_resident(n.max(0) as u32);
+                self.mark_resident(cell::unsigned(n.max(0)));
                 Ok(true)
             }
-            "=>ERASE" => {
+            Word::RES_ERASE_16 => {
                 let n = crate::stack::pop1(&mut vm.data, "=>ERASE")?;
-                vm.unload(n.max(0) as u16);
-                self.mark_gone(n.max(0) as u32);
+                vm.unload(cell::low16(n.max(0)));
+                self.mark_gone(cell::unsigned(n.max(0)));
                 Ok(true)
             }
             // `( word-id -- )`: the per-frame handler `ANIMPLAY` runs —
@@ -237,7 +254,7 @@ impl Host<forth::m16::Vm> for Engine {
             // The 32-bit kernel's `CTRL` takes a packed address instead.
             // The interaction machine runs bytecode of its own and needs the
             // machine, as on the 32-bit side.
-            "DOORDER" => self.do_order(vm, order::M16_RULES),
+            Word::DOORDER => self.do_order(vm, order::M16_RULES),
             // `( x y w h block string n default cap[n] -- answer )`: the
             // system's message box. The handler (`0104:35a0`) pops eight and
             // then `n` captions — `n` is the seventh, the eighth is the
@@ -250,7 +267,7 @@ impl Host<forth::m16::Vm> for Engine {
             // frames that draw it and read the pointer go by. See
             // [`crate::request`] for the geometry, all of it read from the
             // drawer.
-            "REQUEST" => {
+            Word::REQUEST => {
                 if let Some(answer) = self.request.as_ref().and_then(|r| r.answer) {
                     self.request = None;
                     vm.data.push(answer);
@@ -274,7 +291,7 @@ impl Host<forth::m16::Vm> for Engine {
                 // at index 1 (`0104:8103`, the offset is the index doubled).
                 let text = |eng: &mut Engine, n: i32| {
                     eng.text_table(block)
-                        .and_then(|t| t.get(n.max(1) as usize - 1))
+                        .and_then(|t| t.get(cell::at(n.max(1) - 1)?))
                         .unwrap_or_default()
                         .to_string()
                 };
@@ -296,7 +313,7 @@ impl Host<forth::m16::Vm> for Engine {
                 vm.repeat_word();
                 Ok(true)
             }
-            "SCRCTRL" => {
+            Word::SCRCTRL => {
                 let id = crate::stack::pop1(&mut vm.data, "SCRCTRL")?;
                 // The handler is a store and nothing else — `0104:165d` in
                 // `LL.EXE` pops the id and writes it to the screen's `+0x14`
@@ -313,7 +330,7 @@ impl Host<forth::m16::Vm> for Engine {
                 }
                 let Some(target) = vm.callback_target(id) else {
                     return Err(motionvm_motion_forth::Error::UnboundWord {
-                        id: id as u16,
+                        id: cell::low16(id),
                         at: vm.here(),
                     });
                 };
@@ -322,91 +339,124 @@ impl Host<forth::m16::Vm> for Engine {
             }
             _ => {
                 let forth::m16::Vm { data, mem, .. } = vm;
-                self.plain_word16(name, data, mem)
+                self.word16(word, data, mem)
             }
         }
     }
 }
 
 impl Engine {
-    /// Runs one kernel word by name on the 16-bit machine's stack and memory.
+    /// The same for the 16-bit machine's stack and memory.
     ///
-    /// The 16-bit-only words go first — they include the buffer words the
-    /// 32-bit path treats as inert — and then the groups both generations
-    /// share: the walk with its offsets scaled to 2-byte cells, the
-    /// inventory with the rules read from `ENVIRO.EXE`, the savegame words
-    /// over the 16-bit arena. Their order is *almost*
-    /// [`Engine::plain_word32`]'s — the saves, input and walk groups sit
-    /// later here — and the difference is safe to hold: none of the moved
-    /// groups shares a word with anything it moved across, which is the one
-    /// thing the ordering rule protects.
+    /// The 16-bit-only groups go first — `m16` and the real buffer words —
+    /// and then the groups both generations share: the walk with its offsets
+    /// scaled to 2-byte cells, the inventory with the rules read from
+    /// `ENVIRO.EXE`, the savegame words over the 16-bit arena. That the two
+    /// chains are in slightly different orders needs no argument: the
+    /// resolver has already decided which of the eleven two-meaning names
+    /// this is, so no group can take a word another group wanted.
+    pub(crate) fn word16(
+        &mut self,
+        word: Word,
+        stack: &mut Vec<i32>,
+        mem: &mut motionvm_motion_forth::m16::Memory,
+    ) -> motionvm_motion_forth::Result<bool> {
+        if self.words_m16(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_buffers(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_state(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_screens(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_descriptors(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_text(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_resources(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_transitions(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_input(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_saves(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_dowalk(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_inventory(word, stack, mem, M16_RULES)?.is_some() {
+            return Ok(true);
+        }
+        if self
+            .words_dialogue(word, stack, mem, order::M16_RULES)?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        if self.words_sound(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self
+            .words_pointer(word, stack, mem, pointer::M16_RULES)?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        if self.words_palette(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_redraw(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+}
+
+impl Engine {
+    /// Runs one kernel word **by name**, for a caller that has a name and no
+    /// kernel — which is every test that drives the words directly.
     ///
-    /// Written out one call per line for the reason [`Engine::plain_word32`]
-    /// gives: the sequence is the thing to be checked, and it has to be
-    /// readable without expanding anything.
+    /// The engine itself never comes this way: a word reaches it as an
+    /// ordinal, resolved through a table filled when the game opened. This is
+    /// the same resolution done one word at a time, so a test spells the word
+    /// the way the disassembly does.
+    ///
+    /// Loading a savegame, for instance, is `GET`, `INCLLOC`, `GETANIM` and
+    /// `=>GETAS` in that order, and reproducing a reported state is far
+    /// quicker from a savegame than from an hour of play.
+    pub fn plain_word32(
+        &mut self,
+        name: &str,
+        stack: &mut Vec<i32>,
+        mem: &mut m32::Memory,
+    ) -> motionvm_motion_forth::Result<bool> {
+        match Word::of_m32(name) {
+            Some(word) => self.word32(word, stack, mem),
+            None => Ok(false),
+        }
+    }
+
+    /// [`Engine::plain_word32`] for the 16-bit machine, whose kernel gives ten
+    /// of these names a different meaning.
     pub fn plain_word16(
         &mut self,
         name: &str,
         stack: &mut Vec<i32>,
         mem: &mut motionvm_motion_forth::m16::Memory,
     ) -> motionvm_motion_forth::Result<bool> {
-        if self.words_m16(name, stack, mem)?.is_some() {
-            return Ok(true);
+        match Word::of_m16(name) {
+            Some(word) => self.word16(word, stack, mem),
+            None => Ok(false),
         }
-        if self.words_buffers(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_state(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_screens(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_descriptors(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_text(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_resources(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_transitions(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_input(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_saves(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_dowalk(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_inventory(name, stack, mem, M16_RULES)?.is_some() {
-            return Ok(true);
-        }
-        if self
-            .words_dialogue(name, stack, mem, order::M16_RULES)?
-            .is_some()
-        {
-            return Ok(true);
-        }
-        if self.words_sound(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self
-            .words_pointer(name, stack, mem, pointer::M16_RULES)?
-            .is_some()
-        {
-            return Ok(true);
-        }
-        if self.words_palette(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        if self.words_redraw(name, stack, mem)?.is_some() {
-            return Ok(true);
-        }
-        Ok(false)
     }
 }

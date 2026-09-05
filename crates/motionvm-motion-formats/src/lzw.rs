@@ -42,10 +42,7 @@ pub fn decode(data: &[u8], max_bits: u32, expected: usize) -> Result<Vec<u8>, Lz
         return Err(LzwError::BadWidth { max_bits });
     }
     let capacity = 1usize << max_bits;
-    // Dictionary as a prefix/suffix chain rather than owned byte strings: entry
-    // `c` is entry `prefix[c]` followed by the single byte `suffix[c]`.
-    let mut prefix = vec![0u16; capacity];
-    let mut suffix = vec![0u8; capacity];
+    let mut dictionary = Chain::new(capacity);
     // Scratch for walking a chain, which yields bytes in reverse.
     let mut chain = Vec::with_capacity(capacity);
     let mut out = Vec::with_capacity(expected.min(MAX_PREALLOC));
@@ -54,17 +51,20 @@ pub fn decode(data: &[u8], max_bits: u32, expected: usize) -> Result<Vec<u8>, Lz
     let mut next = FIRST_FREE;
     let mut prev: Option<u16> = None;
     let mut bit_pos = 0usize;
-    let total_bits = data.len() * 8;
 
     while out.len() < expected {
-        if bit_pos + width as usize > total_bits {
+        // The field's last bit has to lie inside the data.
+        let Some(end) = bit_pos
+            .checked_add(crate::wide(width))
+            .filter(|&end| end.div_ceil(8) <= data.len())
+        else {
             return Err(LzwError::UnexpectedEof {
                 produced: out.len(),
                 expected,
             });
-        }
+        };
         let code = read_bits(data, bit_pos, width);
-        bit_pos += width as usize;
+        bit_pos = end;
 
         match code {
             CLEAR => {
@@ -74,9 +74,8 @@ pub fn decode(data: &[u8], max_bits: u32, expected: usize) -> Result<Vec<u8>, Lz
                 continue;
             }
             BUMP => {
-                if width < max_bits {
-                    width += 1;
-                }
+                // Codes grow to `max_bits` and no further.
+                width = width.saturating_add(1).min(max_bits);
                 continue;
             }
             _ => {}
@@ -85,7 +84,7 @@ pub fn decode(data: &[u8], max_bits: u32, expected: usize) -> Result<Vec<u8>, Lz
         // Expand `code` into `chain`, reversed.
         chain.clear();
         let mut cursor = code;
-        if cursor as usize >= next {
+        if usize::from(cursor) >= next {
             // The KwKwK case: the encoder referenced the entry it is about to
             // create, which is the previous string plus its own first byte.
             let Some(p) = prev else {
@@ -95,36 +94,37 @@ pub fn decode(data: &[u8], max_bits: u32, expected: usize) -> Result<Vec<u8>, Lz
                     produced: out.len(),
                 });
             };
-            if cursor as usize != next {
+            if usize::from(cursor) != next {
                 return Err(LzwError::BadCode {
                     code,
                     next,
                     produced: out.len(),
                 });
             }
-            chain.push(first_byte(p, &prefix, &suffix));
+            chain.push(dictionary.first_byte(p));
             cursor = p;
         }
-        loop {
-            if (cursor as usize) < 256 {
-                chain.push(cursor as u8);
-                break;
+        // Walk the chain down to its root, which is a literal byte — the
+        // string's first — and is what ends the loop, so it is what the loop
+        // answers with.
+        let first = loop {
+            if let Some(byte) = literal(cursor) {
+                chain.push(byte);
+                break byte;
             }
-            chain.push(suffix[cursor as usize]);
-            cursor = prefix[cursor as usize];
-        }
-        // `chain` is reversed, so its last element is the string's first byte.
-        let first = *chain.last().expect("chain always gets at least one byte");
+            let (prefix, suffix) = dictionary.entry(cursor);
+            chain.push(suffix);
+            cursor = prefix;
+        };
+        // `chain` is reversed: the root came last.
         out.extend(chain.iter().rev().copied());
 
         if let Some(p) = prev {
-            if next < capacity {
-                prefix[next] = p;
-                suffix[next] = first;
-            }
+            dictionary.set(next, p, first);
             // Keep counting past the table end so the KwKwK check stays in sync
-            // with the encoder; codes that large can never be read back anyway.
-            next += 1;
+            // with the encoder; codes that large can never be read back anyway,
+            // so a count that saturates is no different from one that runs on.
+            next = next.saturating_add(1);
         }
         prev = Some(code);
     }
@@ -138,34 +138,89 @@ pub fn decode(data: &[u8], max_bits: u32, expected: usize) -> Result<Vec<u8>, Lz
     Ok(out)
 }
 
-/// Walks a dictionary chain to its root to find the string's first byte.
-fn first_byte(mut code: u16, prefix: &[u16], suffix: &[u8]) -> u8 {
-    while code as usize >= 256 {
-        let next = prefix[code as usize];
-        if next == code {
-            // Defensive: a self-referential entry would loop forever. Cannot
-            // happen for well-formed streams.
-            return suffix[code as usize];
+/// The dictionary as a prefix/suffix chain rather than owned byte strings:
+/// entry `c` is entry `prefix[c]` followed by the single byte `suffix[c]`.
+struct Chain {
+    prefix: Vec<u16>,
+    suffix: Vec<u8>,
+}
+
+impl Chain {
+    fn new(capacity: usize) -> Self {
+        Self {
+            prefix: vec![0; capacity],
+            suffix: vec![0; capacity],
         }
-        code = next;
     }
-    code as u8
+
+    /// The prefix code and the last byte of entry `code`. A code has at most
+    /// `max_bits` bits and the tables have `1 << max_bits` entries, so every
+    /// code the stream can carry names an entry.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "a code has at most `max_bits` bits, and the tables have `1 << max_bits` entries"
+    )]
+    fn entry(&self, code: u16) -> (u16, u8) {
+        (
+            self.prefix[usize::from(code)],
+            self.suffix[usize::from(code)],
+        )
+    }
+
+    /// Defines entry `at` — or nothing, past the end of the tables, which is
+    /// where the count goes on to but no code can reach.
+    fn set(&mut self, at: usize, prefix: u16, suffix: u8) {
+        if let (Some(p), Some(s)) = (self.prefix.get_mut(at), self.suffix.get_mut(at)) {
+            *p = prefix;
+            *s = suffix;
+        }
+    }
+
+    /// Walks entry `code` down to its root to find the string's first byte.
+    fn first_byte(&self, mut code: u16) -> u8 {
+        loop {
+            if let Some(byte) = literal(code) {
+                return byte;
+            }
+            let (prefix, suffix) = self.entry(code);
+            if prefix == code {
+                // Defensive: a self-referential entry would loop forever.
+                // Cannot happen for well-formed streams.
+                return suffix;
+            }
+            code = prefix;
+        }
+    }
+}
+
+/// The byte a code names when it is a literal — every code below 256 — and
+/// `None` for a dictionary entry. `u8::try_from` is exactly that test.
+fn literal(code: u16) -> Option<u8> {
+    u8::try_from(code).ok()
 }
 
 /// Reads `width` bits (at most 12) MSB-first from an arbitrary bit offset.
+///
+/// Three bytes always cover a 12-bit field at any alignment (7 + 12 <= 24),
+/// and the caller has checked that the field lies inside the data; a byte past
+/// the end is one the field does not reach, and reads as zero.
 #[inline]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "a shift of at most 7 + 12 out of 24 bits"
+)]
 fn read_bits(data: &[u8], bit_pos: usize, width: u32) -> u16 {
-    let byte = bit_pos >> 3;
-    // Three bytes always cover a <=12-bit field at any alignment (7 + 12 <= 24).
-    let mut acc = (data[byte] as u32) << 16;
-    if byte + 1 < data.len() {
-        acc |= (data[byte + 1] as u32) << 8;
-    }
-    if byte + 2 < data.len() {
-        acc |= data[byte + 2] as u32;
-    }
-    let shift = 24 - (bit_pos & 7) - width as usize;
-    ((acc >> shift) & ((1 << width) - 1)) as u16
+    let window = data.get(bit_pos >> 3..).unwrap_or_default();
+    let at = |i: usize| u32::from(window.get(i).copied().unwrap_or(0));
+    let acc = (at(0) << 16) | (at(1) << 8) | at(2);
+    let shift = 24 - (bit_pos & 7) - crate::wide(width);
+    crate::low_word((acc >> shift) & ((1 << width) - 1))
+}
+
+/// The low byte of the test encoder's bit buffer — what it emits.
+#[cfg(test)]
+fn low_byte(v: u32) -> u8 {
+    v.to_le_bytes()[0]
 }
 
 #[cfg(test)]
@@ -183,7 +238,7 @@ mod tests {
     #[test]
     fn literals_pass_through() {
         // Three 9-bit literal codes: 'A', 'B', 'C'.
-        let codes = [b'A' as u16, b'B' as u16, b'C' as u16];
+        let codes = [u16::from(b'A'), u16::from(b'B'), u16::from(b'C')];
         let mut bits = Vec::new();
         for c in codes {
             for i in (0..9).rev() {
@@ -192,8 +247,176 @@ mod tests {
         }
         let mut data = vec![0u8; bits.len().div_ceil(8)];
         for (i, b) in bits.iter().enumerate() {
-            data[i / 8] |= (*b as u8) << (7 - i % 8);
+            data[i / 8] |= u8::try_from(*b).unwrap() << (7 - i % 8);
         }
         assert_eq!(decode(&data, 11, 3).unwrap(), b"ABC");
+    }
+}
+
+#[cfg(test)]
+mod round_trip {
+    use super::{BUMP, CLEAR, FIRST_FREE, INITIAL_WIDTH, decode, low_byte};
+    use std::collections::HashMap;
+
+    /// An encoder for this variant, written for the tests and nowhere else.
+    ///
+    /// The decoder is checked against all 1678 shipped sprites, which says it
+    /// reads what `GFXCRUNCH` wrote. It does not say what it does with a
+    /// stream that game never produced, and the shipped corpus cannot be made
+    /// to produce one: every sprite is the same encoder's output. So the tests
+    /// grow an encoder of their own and feed the decoder streams the game
+    /// never made — a dictionary that fills exactly at a bump, a clear in the
+    /// middle, one byte repeated past the widest code.
+    ///
+    /// Deliberately plain: greedy longest-match with an owned-`Vec` dictionary,
+    /// which is the slow shape the decoder avoids. An oracle that shared the
+    /// decoder's cleverness would agree with it for the decoder's reasons.
+    fn encode(input: &[u8], max_bits: u32) -> Vec<u8> {
+        let mut out = BitWriter::default();
+        let mut dict: HashMap<Vec<u8>, u16> = HashMap::new();
+        let mut next = u16::try_from(FIRST_FREE).unwrap();
+        let mut width = INITIAL_WIDTH;
+        let mut current: Vec<u8> = Vec::new();
+
+        for &b in input {
+            let mut wider = current.clone();
+            wider.push(b);
+            let known = wider.len() == 1 || dict.contains_key(&wider);
+            if known {
+                current = wider;
+                continue;
+            }
+            out.put(code_of(&current, &dict), width);
+            // The dictionary learns the string that did not fit, and the
+            // encoder says out loud when the next code would not fit the
+            // current width — the bump this variant has and ordinary LZW
+            // does not.
+            if u32::from(next) < (1u32 << max_bits) {
+                dict.insert(wider, next);
+                next += 1;
+                if u32::from(next) == 1u32 << width && width < max_bits {
+                    out.put(BUMP, width);
+                    width += 1;
+                }
+            }
+            current = vec![b];
+        }
+        if !current.is_empty() {
+            out.put(code_of(&current, &dict), width);
+        }
+        out.finish()
+    }
+
+    /// The code a string stands for: its byte, for a string of one, else the
+    /// slot the dictionary gave it.
+    fn code_of(s: &[u8], dict: &HashMap<Vec<u8>, u16>) -> u16 {
+        if s.len() == 1 {
+            u16::from(s[0])
+        } else {
+            *dict
+                .get(s)
+                .expect("the encoder only emits what it has learned")
+        }
+    }
+
+    /// MSB-first, which is what the decoder reads.
+    #[derive(Default)]
+    struct BitWriter {
+        out: Vec<u8>,
+        acc: u32,
+        bits: u32,
+    }
+
+    impl BitWriter {
+        fn put(&mut self, code: u16, width: u32) {
+            self.acc = (self.acc << width) | u32::from(code);
+            self.bits += width;
+            while self.bits >= 8 {
+                self.bits -= 8;
+                self.out.push(low_byte(self.acc >> self.bits));
+            }
+        }
+
+        fn finish(mut self) -> Vec<u8> {
+            if self.bits > 0 {
+                self.out.push(low_byte(self.acc << (8 - self.bits)));
+            }
+            self.out
+        }
+    }
+
+    /// A seeded generator, so a failure is reproducible and no dependency is
+    /// needed. The same LCG the machines use for `RANDOM`.
+    struct Lcg(u32);
+
+    impl Lcg {
+        fn next(&mut self) -> u32 {
+            self.0 = self.0.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            self.0
+        }
+    }
+
+    fn round_trip(input: &[u8], max_bits: u32) {
+        let encoded = encode(input, max_bits);
+        let decoded = decode(&encoded, max_bits, input.len())
+            .unwrap_or_else(|e| panic!("{} bytes at {max_bits} bits: {e}", input.len()));
+        assert_eq!(decoded, input, "{} bytes at {max_bits} bits", input.len());
+    }
+
+    /// What comes out is what went in, over inputs of every shape the codec
+    /// can meet.
+    #[test]
+    fn what_is_encoded_decodes_back() {
+        for max_bits in 9..=12 {
+            round_trip(&[], max_bits);
+            round_trip(b"a", max_bits);
+            round_trip(b"aaaaaaaaaaaaaaaa", max_bits);
+            round_trip(b"abababababababab", max_bits);
+            // Every byte once: no string is ever learned twice.
+            let all: Vec<u8> = (0..=255).collect();
+            round_trip(&all, max_bits);
+            // Long enough to fill the dictionary at nine bits and to keep
+            // going after it is full at twelve.
+            let mut rng = Lcg(0x1234_5678);
+            for len in [255usize, 1000, 5000] {
+                let noise: Vec<u8> = (0..len).map(|_| low_byte(rng.next() >> 24)).collect();
+                round_trip(&noise, max_bits);
+                // A run of one byte is the case the decoder's KwKwK branch
+                // exists for, and it is the one a random input almost never
+                // produces.
+                let runs: Vec<u8> = (0..len)
+                    .map(|i| u8::try_from((i / 17) % 4).unwrap())
+                    .collect();
+                round_trip(&runs, max_bits);
+            }
+        }
+    }
+
+    /// A width outside the codec's range is refused rather than used as a
+    /// shift distance.
+    #[test]
+    fn an_impossible_width_is_refused() {
+        for bad in [0, 1, 8, 13, 32, 64] {
+            assert!(decode(&[0, 0, 0, 0], bad, 4).is_err(), "{bad} bits");
+        }
+    }
+
+    /// The clear code puts the dictionary back, so a stream that uses one
+    /// decodes as if it had started there.
+    #[test]
+    fn a_clear_starts_the_dictionary_over() {
+        let head = b"abcabcabcabc";
+        let tail = b"abcabcabcabc";
+        let mut stream = BitWriter::default();
+        for &b in head {
+            stream.put(u16::from(b), INITIAL_WIDTH);
+        }
+        stream.put(CLEAR, INITIAL_WIDTH);
+        for &b in tail {
+            stream.put(u16::from(b), INITIAL_WIDTH);
+        }
+        let bytes = stream.finish();
+        let want: Vec<u8> = head.iter().chain(tail).copied().collect();
+        assert_eq!(decode(&bytes, 12, want.len()).expect("decodes"), want);
     }
 }

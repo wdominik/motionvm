@@ -4,14 +4,20 @@
 
 *What motionvm has been held against, for both generations of the engine and every game it plays. Which comparison covers which game is named in each entry. Deliberate divergences are a different record and live in [departures](departures.md).*
 
-There are two kinds of check in this project, and the distinction matters
+There are three kinds of check in this project, and the distinctions matter
 enough to be written down rather than implied.
 
 A check against the original's **own output** — a screen capture, a register
 dump, a mixer capture — says the engine *behaves* as the engine did. A check
 against the original's **files** — its resources, its bytecode, its driver
-binaries — says only that the readers agree with the data. The second is the
-weaker claim, and it is the one that covers most of what is here.
+binaries — says only that the readers agree with the data; that is the weaker
+claim, and the one that covers most of what is here. A check against
+**motionvm's own earlier output** says neither, and says the thing the other
+two cannot: that nothing has moved since.
+
+How a check of the first kind is made — the emulator's settings, what a
+capture is brought to, and the two commands that compare a frame and a
+register stream — is on [The verification method](verification-method.md).
 
 ## Held against the original's own output
 
@@ -63,6 +69,28 @@ game is no more redistributable than the game. None ships here, so the checks
 that consume them are not part of the test suite. What ships is their result,
 stated above.
 
+## Held against itself
+
+A third kind, weaker than either but the only one that runs on every machine
+and on every change. For every scene the test suites compose and every tune
+they play, the suite keeps a **digest** — an FNV-1a 64 of the composed indexed
+frame, or of the register stream in the order the chip would have seen it — and
+holds each run against the one before. Seventy-odd of them, across all five
+games: each game's intro, the room it starts in, four of Dunkle Schatten 2's
+densest scenes, and every tune the five ship.
+
+A digest says nothing about whether a picture is *right*. What it says is that
+nothing moved, which is what the comparisons above cannot say twice: a capture
+of the original is consulted once, by hand, on one machine, and a rebuild that
+matched it in 2025 has nothing holding it there. The digests are that. They may
+live in the repository for the same reason the captures may not — sixteen hex
+digits reconstruct no artwork and are not a fixture derived from a game's data.
+
+They rest on the engine being deterministic, which is engineered rather than
+hoped for: no clock is read anywhere, `RANDOM` is a seeded generator, no
+`HashMap` sits on a drawing path, and the resource directory is walked in
+sorted order.
+
 ## Held against the original's files
 
 Everything else. Each game is held against its own material: every item in its
@@ -79,6 +107,17 @@ walks `HMIDRV.386` and `HMIDET.386` to their last byte, and reads the loose
 `000.PAL` and `011.SCR` for their size, range, number and words. The games
 never touch those files; they are evidence about the formats all the same.
 
+Two more passes over the files hold the readers and the engine to them
+without comparing anything to the original. Every kernel word a game's
+modules reach for is checked to be one the interpreter or the engine
+implements — for the four 16-bit games that is every word, for Dunkle
+Schatten 2 every word but a named handful the suite carries with its reason.
+And the shipped files are handed to the readers damaged — cut short at every
+length through their headers, single bytes flipped where a seeded generator
+says — with the assertion that a reader answers rather than crashes; what a
+mutation cannot say is whether the answer is right, which is the digests'
+business over the undamaged files.
+
 ## What has not been compared
 
 Interaction, dialogue, walking, savegames, the verb menu and most locations of
@@ -89,10 +128,11 @@ like there is as unchecked as it is for the other two.
 
 That is not a gap being hidden. It is the honest edge of what a
 reimplementation can claim without the original running beside it, and it is
-why the two lists above are kept apart.
+why the lists above are kept apart.
 
 ## See also
 
+- [The verification method](verification-method.md) — how a capture is made and compared
 - [Departures](departures.md) — every place motionvm knowingly does something else, and why
 - [Open questions](open-questions.md) — what is unknown, unverified or hypothetical about the original
 - [Screens](motion32/engine/screens.md) — what the pixel-exact match does and does not settle

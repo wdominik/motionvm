@@ -6,10 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+publish.workspace = true
 description = "Indexed software framebuffer, palettes and blits"
-
-[dependencies]
-png.workspace = true
 
 [lints]
 workspace = true

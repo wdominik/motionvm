@@ -7,8 +7,10 @@
 //! of the drawer's two passes it matches, and why the other one may draw
 //! taller without that being a drift.
 
+use crate::Field;
 use crate::{Descriptor, Engine, Placement};
 use motionvm_motion_formats::font::Font;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     /// How wide and tall a descriptor draws.
@@ -53,13 +55,13 @@ impl Engine {
             };
             let font = match d
                 .font
-                .and_then(|f| self.fonts.get(&f))
-                .or(self.system_font.as_ref())
+                .and_then(|f| self.scene.fonts.get(&f))
+                .or(self.scene.system_font.as_ref())
             {
                 Some(f) => f.clone(),
                 None => return (0, 0),
             };
-            let Some(refs) = self.font_refs.clone() else {
+            let Some(refs) = self.scene.font_refs.clone() else {
                 return (0, 0);
             };
             let lines: Vec<&str> = text.split('\n').collect();
@@ -69,19 +71,19 @@ impl Engine {
                 .map(|l| crate::text::text_width(&font, &refs, l))
                 .max()
                 .unwrap_or(0);
-            let height = (lines.len() as i32 * line_height - crate::text::SPACING).max(0);
+            let height = (cell::count(lines.len()) * line_height - crate::text::SPACING).max(0);
             return (width, height);
         }
         if let Some(id) = d.shows.graphic()
             && let Some(g) = self.load_sprite(id)
         {
-            let all = d.fields.get("SD%SHR").copied().unwrap_or(0);
-            let h = d.fields.get("SDH%SHR").copied().unwrap_or(all).max(0) as u32;
-            let v = d.fields.get("SDV%SHR").copied().unwrap_or(all).max(0) as u32;
+            let all = d.fields.get(Field::SD_PCT_SHR).unwrap_or(0);
+            let h = cell::unsigned(d.fields.get(Field::SDH_PCT_SHR).unwrap_or(all).max(0));
+            let v = cell::unsigned(d.fields.get(Field::SDV_PCT_SHR).unwrap_or(all).max(0));
             let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
             return (
-                g.width as i32 * h as i32 / 1000,
-                g.height as i32 * v as i32 / 1000,
+                i32::from(g.width) * cell::signed(h) / 1000,
+                i32::from(g.height) * cell::signed(v) / 1000,
             );
         }
         (0, 0)
@@ -127,7 +129,7 @@ impl Engine {
     /// with `GDX`, so the error moved the sentence as well as its backing.
     pub(crate) fn stored_extent(&mut self, d: &Descriptor) -> (i32, i32) {
         let (w, h) = self.extent(d);
-        if d.is_text() && !self.text_runs {
+        if d.is_text() && !self.profile.text_runs {
             (w + 4, h + 4)
         } else {
             // The 16-bit `GDWIDTH`/`GDHEIGHT` (`05f1:1705`, `05f1:177b`)
@@ -170,5 +172,5 @@ impl Engine {
 /// of its passes with, and those two agreeing is the whole reason `GDHEIGHT`
 /// describes the block the player sees.
 pub(crate) fn line_height(font: &Font, gap: i32) -> i32 {
-    font.height.max(1) as i32 + gap
+    i32::from(font.height.max(1)) + gap
 }

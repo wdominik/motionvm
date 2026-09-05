@@ -12,9 +12,11 @@
 //!
 //! The game this file drives is Jeff Jet (MOTION 16-bit).
 
+mod common;
+
 use motionvm_motion_engine::{Game, titles};
 use motionvm_motion_forth::m16::Vm;
-use motionvm_motion_testutil::gamedata_jeffjet;
+use motionvm_motion_testutil::{Digests, digest, gamedata_jeffjet};
 use std::path::Path;
 
 /// Words `CTRL`'s frames may walk past without effect: the sprite and text
@@ -70,8 +72,9 @@ fn settled_in_the_game(dir: &Path) -> Game<Vm> {
     panic!("the arrival never settled");
 }
 
-fn lit(game: &mut Game<Vm>) -> usize {
-    game.render().pixels.iter().filter(|&&p| p != 0).count()
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("jeffjet")
 }
 
 #[test]
@@ -85,7 +88,11 @@ fn run_plays_through_the_intro_into_the_first_location() {
     // the numbering, where Die Enviro-Kids greifen ein begins at 1. Nothing in
     // the engine assumes either.
     assert_eq!(game.get_var(601, "ACTLOC"), Some(13));
-    assert!(lit(&mut game) > 40_000, "the room is drawn");
+    assert!(common::lit(&mut game) > 40_000, "the room is drawn");
+    // The room `RUN` leaves the game standing in, reached by the game's own
+    // steps and by no shortcut, so the picture is the same on any machine
+    // that has the game.
+    digests().check("location_13", digest::frame(&game.render()));
     // Two screens, and between them the whole display: a room 960×544 seen
     // through a 320×165 window that scrolls, and the 320×35 strip the verbs
     // and the inventory stand on. 165 + 35 = 200.
@@ -126,7 +133,7 @@ fn every_location_is_entered_through_nextloc_and_draws() {
         // are on the second volume, so an empty room here is the container
         // failing, not the script.
         assert!(
-            lit(&mut game) > 40_000,
+            common::lit(&mut game) > 40_000,
             "location {n} came up all but empty"
         );
     }
@@ -153,9 +160,8 @@ fn walking_the_locations_reaches_no_word_the_engine_lacks() {
     // ENVIRO.EXE's from 124 up. Anything walked past that is not one of the
     // three the engine deliberately ignores would be a word bound to the wrong
     // name.
-    let unexpected: Vec<&String> = game
-        .engine
-        .stubbed()
+    let stubbed = game.engine.stubbed();
+    let unexpected: Vec<&String> = stubbed
         .keys()
         .filter(|w| !INERT.contains(&w.as_str()))
         .collect();

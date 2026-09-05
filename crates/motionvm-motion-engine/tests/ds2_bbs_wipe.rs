@@ -21,6 +21,7 @@
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_motion_engine::Game;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
 
@@ -80,25 +81,29 @@ fn terminal(dir: &std::path::Path) -> Game<Vm> {
 fn dark_rows(game: &mut Game<Vm>, rows: i32) -> i32 {
     let frame = game.render();
     let lit = |y: i32| (LEFT..RIGHT).any(|x| frame.get(x, y).is_some_and(|p| p != 0 && p != 9));
-    (0..rows)
-        .take_while(|r| !(0..ROW).any(|dy| lit(TOP + r * ROW + dy)))
-        .count() as i32
+    cell::count(
+        (0..rows)
+            .take_while(|r| !(0..ROW).any(|dy| lit(TOP + r * ROW + dy)))
+            .count(),
+    )
 }
 
 /// How many of the first `rows` rows carry anything at all.
 fn written_rows(game: &mut Game<Vm>, rows: i32) -> i32 {
     let frame = game.render();
-    (0..rows)
-        .filter(|r| {
-            (0..ROW).any(|dy| {
-                (LEFT..RIGHT).any(|x| {
-                    frame
-                        .get(x, TOP + r * ROW + dy)
-                        .is_some_and(|p| p != 0 && p != 9)
+    cell::count(
+        (0..rows)
+            .filter(|r| {
+                (0..ROW).any(|dy| {
+                    (LEFT..RIGHT).any(|x| {
+                        frame
+                            .get(x, TOP + r * ROW + dy)
+                            .is_some_and(|p| p != 0 && p != 9)
+                    })
                 })
             })
-        })
-        .count() as i32
+            .count(),
+    )
 }
 
 #[test]
@@ -178,7 +183,8 @@ fn clscr_takes_the_screen_away_one_row_at_a_time() {
     // dark run from the top grows once per line the screen was showing.
     let steps = seen.windows(2).filter(|w| w[1] > w[0]).count();
     assert_eq!(
-        steps as i32, written,
+        cell::count(steps),
+        written,
         "the wipe went in {steps} steps and the terminal had {written} written rows: {seen:?}"
     );
 }

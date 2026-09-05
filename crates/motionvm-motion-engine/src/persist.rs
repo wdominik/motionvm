@@ -6,14 +6,15 @@
 //!
 //! That directory is the one place this rebuild deliberately refuses to follow
 //! the original. The original writes its slots beside `ENGINE.EXE`, among the
-//! shipped data; [`Engine::set_saves`] rejects any path inside the game
+//! shipped data; [`crate::Engine::set_saves`] rejects any path inside the game
 //! directory, because that copy may well be read-only and is not ours to
 //! change.
 
-use crate::descriptor::{DESCRIPTOR_FIELDS, placement_code, placement_of};
+use crate::descriptor::{placement_code, placement_of};
 use crate::resources::resolve;
 use crate::{Descriptor, Engine, Shows, save};
-use std::collections::BTreeMap;
+use crate::{Field, Fields};
+use motionvm_motion_forth::cell;
 
 impl Engine {
     /// Points saving and loading at a directory, creating it if need be.
@@ -27,7 +28,11 @@ impl Engine {
     /// cannot walk around the check — and the check comes *first*, before the
     /// directory is created. Creating and then refusing leaves exactly the
     /// thing behind that the refusal exists to prevent.
-    pub(crate) fn set_saves(&mut self, dir: &std::path::Path) -> std::result::Result<(), String> {
+    pub(crate) fn set_saves(
+        &mut self,
+        dir: &std::path::Path,
+        slug: &'static str,
+    ) -> Result<(), String> {
         let saves = resolve(dir)?;
         if let Some(data) = self.dir.as_ref().map(|d| resolve(d)).transpose()?
             && saves.starts_with(&data)
@@ -39,13 +44,57 @@ impl Engine {
             ));
         }
         std::fs::create_dir_all(&saves).map_err(|e| format!("{}: {e}", saves.display()))?;
-        self.saves = Some(saves);
+        self.persistence.dir = Some(saves);
+        self.persistence.slug = slug;
         Ok(())
     }
 
     /// Where saving and loading go, once a directory has been set.
     pub(crate) fn saves(&self) -> Option<&std::path::Path> {
-        self.saves.as_deref()
+        self.persistence.dir.as_deref()
+    }
+
+    /// Reads one of a slot's three files, saying plainly when the slot is not
+    /// whole.
+    ///
+    /// A missing file on the load path is not an ordinary I/O fault. `EXIST`
+    /// answers off the `.blk` alone, as the original's does (`0x66b0e` tests
+    /// that one name and nothing else), so a slot the game offers can still
+    /// be missing the two files that carry the state — and there is one way
+    /// that happens: the run that wrote it stopped between two of the three
+    /// words. Each file is written whole or not at all
+    /// ([`crate::save::write_atomically`]), so the slot is the only thing
+    /// that can be half-made.
+    ///
+    /// "No such file or directory" leaves the player to work that out. This
+    /// says which artifact is gone and that the save was interrupted, and
+    /// leaves everything on disk where it is.
+    pub(crate) fn read_slot(
+        &self,
+        word: &'static str,
+        id: i32,
+        suffix: &str,
+    ) -> Result<Vec<u8>, motionvm_motion_forth::Error> {
+        let Some(path) = self.save_path(id, suffix) else {
+            return Err(motionvm_motion_forth::Error::NoSaveDir { word, id });
+        };
+        match std::fs::read(&path) {
+            Ok(bytes) => Ok(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Err(motionvm_motion_forth::Error::Savegame {
+                    what: format!(
+                        "{word} {id}: slot {id} is incomplete — {id:03}.{suffix} is missing, so \
+                         the save it belongs to was interrupted while it was being written"
+                    ),
+                })
+            }
+            Err(source) => Err(motionvm_motion_forth::Error::Io { word, path, source }),
+        }
+    }
+
+    /// The game a savegame written now belongs to, for its header.
+    pub(crate) fn save_slug(&self) -> &'static str {
+        self.persistence.slug
     }
 
     /// The path a resource id takes on disk in the save directory.
@@ -58,7 +107,8 @@ impl Engine {
     /// where the catalog reader builds `"%03d.BLK"`), which costs nothing under
     /// DOS and would cost a lookup here.
     pub(crate) fn save_path(&self, id: i32, suffix: &str) -> Option<std::path::PathBuf> {
-        self.saves
+        self.persistence
+            .dir
             .as_ref()
             .map(|d| d.join(format!("{id:03}.{suffix}")))
     }
@@ -66,17 +116,18 @@ impl Engine {
     /// The display state a savegame keeps, as `PUTANIM` writes it.
     pub(crate) fn snapshot(&self) -> save::Anim {
         save::Anim {
-            next_descriptor: self.next_descriptor,
+            next_descriptor: self.scene.next_descriptor,
             // The handle, not the index: `GETANIM` replaces the whole list, so
             // an index into the old one would point at a different descriptor.
             current: self
+                .scene
                 .selected
-                .and_then(|i| self.descriptors.get(i))
+                .and_then(|i| self.scene.descriptors.get(i))
                 .map(|d| d.handle),
             screen: self.display.current,
-            pointer_visible: self.pointer_visible,
-            dialog_offset: self.dialog_offset,
-            dialog_return: self.dialog_return,
+            pointer_visible: self.cursor_state.visible,
+            dialog_offset: self.dialogue.offset,
+            dialog_return: self.dialogue.return_node,
             palette: self.script_palette().raw,
             screens: self
                 .display
@@ -92,8 +143,9 @@ impl Engine {
                     origin: s.origin,
                 })
                 .collect(),
-            flips: self.flips.clone(),
+            flips: self.persistence.flips.clone(),
             descriptors: self
+                .scene
                 .descriptors
                 .iter()
                 .map(|d| save::DescriptorState {
@@ -104,7 +156,7 @@ impl Engine {
                     level: d.level,
                     shows: match d.shows {
                         Shows::Nothing => (0, 0),
-                        Shows::Sprite(id) => (1, id as i32),
+                        Shows::Sprite(id) => (1, cell::signed(id)),
                         Shows::Picture(id) => (2, id),
                     },
                     text: d.text,
@@ -123,7 +175,7 @@ impl Engine {
                     fields: d
                         .fields
                         .iter()
-                        .map(|(k, v)| ((*k).to_string(), *v))
+                        .map(|(f, v)| (f.name().to_string(), v))
                         .collect(),
                     buffer: d.buffer,
                 })
@@ -144,16 +196,14 @@ impl Engine {
     /// this build does not know has to stop the load, not leave half a scene
     /// standing. The named descriptor fields are the sharp edge — the map keys
     /// are `&'static str`, so an unknown name cannot be reconstructed at all.
-    pub(crate) fn restore(&mut self, anim: save::Anim) -> std::result::Result<(), String> {
+    pub(crate) fn restore(&mut self, anim: save::Anim) -> Result<(), String> {
         let mut descriptors = Vec::with_capacity(anim.descriptors.len());
         for d in &anim.descriptors {
-            let mut fields = BTreeMap::new();
+            let mut fields = Fields::default();
             for (name, value) in &d.fields {
-                let key = DESCRIPTOR_FIELDS
-                    .iter()
-                    .find(|k| **k == name.as_str())
+                let field = Field::of(name)
                     .ok_or_else(|| format!("savegame names an unknown descriptor field {name}"))?;
-                fields.insert(*key, *value);
+                fields.set(field, *value);
             }
             descriptors.push(Descriptor {
                 handle: d.handle,
@@ -163,7 +213,7 @@ impl Engine {
                 y: d.y,
                 level: d.level,
                 shows: match d.shows {
-                    (1, id) => Shows::Sprite(id as u32),
+                    (1, id) => Shows::Sprite(cell::unsigned(id)),
                     (2, id) => Shows::Picture(id),
                     _ => Shows::Nothing,
                 },
@@ -205,32 +255,33 @@ impl Engine {
         }
         self.display.current = anim.screen;
         self.display.palette = motionvm_render::Palette::from_6bit(&anim.palette);
-        self.next_descriptor = anim.next_descriptor;
-        self.pointer_visible = anim.pointer_visible;
-        self.dialog_offset = anim.dialog_offset;
-        self.dialog_return = anim.dialog_return;
+        self.scene.next_descriptor = anim.next_descriptor;
+        self.cursor_state.visible = anim.pointer_visible;
+        self.dialogue.offset = anim.dialog_offset;
+        self.dialogue.return_node = anim.dialog_return;
         // In the per-screen scheme the number names a descriptor of the
         // active screen, as `ACTDESC` would resolve it.
-        self.selected_handle = anim.current;
-        self.selected = anim.current.and_then(|h| {
+        self.scene.selected_handle = anim.current;
+        self.scene.selected = anim.current.and_then(|h| {
             descriptors.iter().position(|d| {
-                d.handle == h && (!self.per_screen_descriptors || Some(d.screen) == anim.screen)
+                d.handle == h
+                    && (!self.profile.per_screen_descriptors || Some(d.screen) == anim.screen)
             })
         });
         // The stamps are not in the file: list order stands in for the
         // chain until the next `SDLEV` moves things — see
         // [`Descriptor::stamp`].
-        self.descriptors = descriptors;
-        let mut stamp = self.level_stamp;
-        for d in &mut self.descriptors {
+        self.scene.descriptors = descriptors;
+        let mut stamp = self.scene.level_stamp;
+        for d in &mut self.scene.descriptors {
             stamp += 1;
             d.stamp = stamp;
         }
-        self.level_stamp = stamp;
+        self.scene.level_stamp = stamp;
         self.buffers.on = anim.buffers_on;
         self.buffers.reset();
         for &(id, width, height) in &anim.buffers {
-            self.buffers.set(id, width as i32, height as i32);
+            self.buffers.set(id, i32::from(width), i32::from(height));
         }
 
         // The mirrored sprites are made again rather than carried: their ids
@@ -240,7 +291,7 @@ impl Engine {
                 continue;
             };
             let mut flipped = sprite.clone();
-            let w = sprite.width as usize;
+            let w = usize::from(sprite.width);
             for (row, out) in sprite
                 .pixels
                 .chunks_exact(w)
@@ -250,9 +301,51 @@ impl Engine {
                     out[w - 1 - x] = *p;
                 }
             }
-            self.sprites.insert(to, flipped);
+            self.scene.sprites.insert(to, flipped);
         }
-        self.flips = anim.flips;
+        self.persistence.flips = anim.flips;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Descriptor, Engine, Field, Profile, Screen};
+
+    /// A descriptor field this build writes is one it can read back.
+    ///
+    /// `SDBLK` could not be, and nothing said so: its word wrote it into the
+    /// descriptor's field map and the loader checked names against a slice
+    /// beside that map which did not list it, so a savegame taken in the one
+    /// scene that sets it — Die Enviro-Kids greifen ein's newspaper, module
+    /// 615 — was written and then refused by name. The field list is one enum
+    /// now and cannot drift from itself; this drives the round trip anyway,
+    /// because the bug was in the *path* and not only in the list.
+    #[test]
+    fn every_field_survives_the_round_trip() {
+        for field in Field::ALL {
+            let mut e = Engine::new(Profile::motion16());
+            let mut s = Screen::new(1);
+            s.active = true;
+            e.add_screen(s);
+            let mut d = Descriptor {
+                handle: 1,
+                screen: 1,
+                active: true,
+                ..Default::default()
+            };
+            d.fields.set(field, 4711);
+            e.add_descriptor(d);
+
+            let anim = e.snapshot();
+            e.restore(anim)
+                .unwrap_or_else(|err| panic!("{}: {err}", field.name()));
+            assert_eq!(
+                e.descriptors()[0].fields.get(field),
+                Some(4711),
+                "{} came back changed",
+                field.name()
+            );
+        }
     }
 }

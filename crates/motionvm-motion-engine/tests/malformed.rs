@@ -25,6 +25,7 @@
 use std::path::{Path, PathBuf};
 
 use motionvm_motion_engine::{Title, titles};
+use motionvm_motion_forth::cell;
 
 /// A directory of this test's own under `target/`, wiped before use.
 ///
@@ -98,9 +99,9 @@ fn minimal_dat() -> Vec<u8> {
     v[4..6].copy_from_slice(&3u16.to_le_bytes()); // three GFX slots
     v[18..20].copy_from_slice(&1u16.to_le_bytes()); // one volume
     v.extend_from_slice(&[1u16, 0, 1].map(u16::to_le_bytes).concat());
-    let first = (v.len() + 3 * 4) as u32;
+    let first = cell::narrow(v.len() + 3 * 4);
     let items: [&[u8]; 2] = [&[1, 0, 1, 0, 0, 0], &[2, 0, 1, 0, 0, 0, 7, 8]];
-    let second = first + items[0].len() as u32;
+    let second = first + cell::narrow(items[0].len());
     v.extend_from_slice(&[first, second, second].map(u32::to_le_bytes).concat());
     v.extend_from_slice(items[0]);
     v.extend_from_slice(items[1]);

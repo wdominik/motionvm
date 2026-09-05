@@ -6,17 +6,290 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-05
+
+**Savegames written by earlier releases do not load.** The layout is this
+release's, version 1; a slot from before it is refused by name and left on
+disk.
+
+### Added
+
+- **The comparison against the original is a command.**
+  `motionvm-motion-tools compare-frame` holds the frame F12 writes against a
+  capture of the original on the colors the DAC held, six bits a channel,
+  each picture through its own palette — a renumbered palette is the same
+  picture, and a screenshot of a pixel-doubled window comes back through
+  `--crop` and `--scale` — and names the first pixel that differs.
+  `registers` renders a song's OPL register stream offline out of the game's
+  own files, through the sequencer and driver the player runs; `compare-dro`
+  holds it against a DRO recording of the original, the recording's snapshot
+  set apart, the streams lined up on the write it resumes with, the chip's
+  state at that note checked register for register, and the first write that
+  differs named. Both exit 1 on a difference.
+  `docs/motion/verification-method.md` says how a capture is made and what a
+  match does and does not mean.
+
+- **Every scene and every tune the suite reaches has a reference digest.**
+  A rendered frame of a game's own artwork may not enter the repository, so
+  the baselines are FNV-1a digests of the composed frame or the register
+  stream, in `crates/*/tests/digests/<slug>.txt`, read on every run:
+  seventy-four across the five games — each intro, each starting room, four of
+  Dunkle Schatten 2's densest scenes and its opening played through, every
+  tune the 16-bit games ship and the register stream of every 32-bit song. A
+  change that moves a pixel or a register write is a failing test; `just
+  digests` rewrites the tables from a run when the change was meant.
+
+- **Every kernel word the shipped games reach for is built, and a suite says
+  so.** `kernel_coverage.rs` disassembles every module a game ships and holds
+  each word it calls to be one of the interpreter's or the engine's. The four
+  16-bit games reach for nothing that is missing; Dunkle Schatten 2 names
+  seven words the engine does not have, each carried with the reason none is
+  reachable — the sampled-speech pump nothing calls, a location whose table
+  entry is uninitialized, an unreferenced scene macro, a sprite inspector
+  shipped by accident, a debug layer the shipped game cannot switch on.
+
+- **Damaged copies of the shipped files are refused, never crashed on.**
+  `malformed.rs` hands the readers inputs broken in ways somebody thought of;
+  `mutation.rs` walks the real files and breaks them in ways nobody did —
+  every container, every engine binary and a sample of every kind of item,
+  cut short at every length through the header and flipped byte by byte
+  where a seeded generator says — and asserts a reader answers rather than
+  unwinds. The seed is the file's name, so a failure names a byte any other
+  machine with the game reproduces.
+
+- **A run says what it walked past.** `Playable::diagnostics` answers what
+  the run has to report about itself — the words it reached that deliberately
+  do nothing, the reads past a module that is not loaded, a tune that would
+  not decode — and the window prints it on the way out. Nothing in the
+  family's libraries prints any more.
+
+- **A Windows player is told what happened.** The release build is a windowed
+  program, so every fatal line also goes to a dialog, on every platform, and
+  `MOTIONVM_LOG` switches on a log file for what a dialog cannot hold.
+
+- **`RANDOM` is seeded by whoever runs the game.** `Playable::seed`, called
+  before `start`; the window takes a seed from the clock, and a caller that
+  never seeds keeps the fixed one, which is what lets the suite render a
+  scene twice and compare the two.
+
+- **`just bench`, and machine counters to feed it**: how fast each game's
+  machine runs — cells and host words per second, the step and the draw
+  timed apart — beside the rig that says where a frame's time goes. Neither
+  asserts anything; a wall-clock number is a property of the machine it ran
+  on.
+
+- **Tests that reach past the corpus.** Detection is one table with a row
+  per game, held against the roster; the three rosters — `Title::ALL`, the
+  table `detect` walks, the manifests — are held to each other; the LZW
+  decoder is round-tripped through an encoder of the tests' own over inputs
+  the game never made; palette widening is checked over all sixty-four
+  values a channel can hold; `scale_pair` against a brute force over a grid
+  of window sizes. And twenty files' copies of the same test plumbing are
+  one set of shared drivers.
+
+- **Pages the documentation was short of.** `docs/writing-a-family.md`, the
+  contract read from the engine's side for whoever brings a further engine;
+  `docs/motion/debugging.md`, the switches, keys, reports and rigs; a
+  glossary; a page for the three MOTION games on hand that the readers open
+  and the player does not — Checker 2000, Compaq and Eddy M.; an *Open
+  questions* section on each of the four binary pages that had none;
+  `ARCHITECTURE.md`'s account of the alternatives the tree rejects and why;
+  and `CONTRIBUTING.md`'s procedure for adding or correcting a kernel word.
+
+### Changed
+
+- **A savegame survives the things that break one.** Each of a slot's files
+  is written to a temporary name, flushed and renamed, so a crash partway
+  through a save costs the new slot and not the old one; the head carries the
+  body's length and a CRC-32 of it, so a file damaged afterwards is refused
+  as damaged; the body opens with the game's own slug, so a slot carried into
+  another game's directory is refused as that game's; and the body is
+  sectioned — `MODS` in a `.FRZ`, `HEAD`, `SCRN`, `FLIP`, `DESC` and the
+  16-bit engine's `BUFS` in an `.anm` — so a later build can add a section
+  without moving the version. An incomplete slot is reported as one, naming
+  the file it lacks.
+
+- **The display follows `SETRES` and `TOGFX`.** The composed picture takes
+  the selected mode's size when `TOGFX` runs, as the original's does, where
+  it took the generation's size at open. What is refused is refused at
+  `TOGFX`, named: a 32K-color mode, which this renderer does not draw; a
+  `TOGFX` with no mode selected; and a second entry at another size, which a
+  window cannot follow. `HICOLOR` answers for the selected mode, and a
+  pixel's shape follows the picture's size — square at 640×480, 5:6 at
+  320×200.
+
+- **The 16-bit handlers the machine had taken on trust are read.** Nine
+  kernel words carried the 32-bit engine's reading as a hypothesis; each is
+  read in `ENVIRO.EXE`. Most confirm it. Two differ, and the machine follows
+  the reading: `/` and `MOD` divide the low words unsigned, `/` by zero
+  answering 0 where `MOD` by zero faults; and `SFT n` installs font
+  reference table `n` out of the container. The hundred-and-first
+  `NEWSETDESC` on a screen of the three later builds answers no handle, as
+  their handler does — `LL.EXE`'s does not look, and the opener reads which
+  off the binary. `KEY` blocks in every build; the engine answers the waiting
+  key or 0, a departure the ledger carries with its reading.
+
+- **`RANDOM`'s generator is read on both engines**, and it is not a
+  generator with a seed but a hash of the clock: a counter stepped by 331 a
+  call, combined with the engine's raw tick count as
+  `((t + s) / s) xor ((t − s) mod s)` and reduced modulo the count. The
+  rebuild keeps a seeded LCG, since the original's input is wall-clock time
+  and the rebuild reads none; the departure says what it departs from.
+
+- **The frame loop is the game's, in tests as in play.** The second path
+  `Game::step` had — a hand-built loop for entry points that skipped
+  `4:START` — is gone with the entry points; the suites reach a scene the way
+  the game does, through `START` and the game's own `_NEXTLOC`. The 32-bit
+  input reaches the game by one route, the game's own: `ICTRL` reads the
+  kernel words and stores the shell variables itself, and the driver no
+  longer writes them a second way.
+
+- **Kernel words are dispatched by a resolved value, not by name.** Every
+  word is one value of an enum, resolved once per kernel when the game opens
+  and indexed by ordinal; the eleven names that mean a different handler on
+  the two machines — `FADEIN`, `SETBUF`, `SCRX`, `STARTTUNE` and their kin —
+  are two values apiece, and a duplicate name is a compile error. A word
+  reached that does nothing is recorded as that value, with the case that is
+  inert beside it.
+
+- **The engine's state is grouped by subject, and what a build decides is
+  its own type.** `Profile`, `Copy`, arriving whole through `Engine::new` and
+  carrying the capabilities the 16-bit opener probes out of the shipped
+  binary; the rest in seven subsystems, thirty-one fields on `Engine` from
+  seventy. The two interpreters share one `Core` of bookkeeping — the step
+  budget, the trace, the counters, the generator — and keep their primitives
+  apart, because the 16-bit rules have been read out of the 16-bit binaries
+  and differ. Five over-long argument lists carry the record they stood for,
+  each field with the offset it was measured at. The display's size is the
+  contract's `Size` from the profile to the game; the music opener takes the
+  opened game's generation instead of detecting the directory twice; the
+  savegame's checksum is the render crate's CRC-32, one copy.
+
+- **A frame is borrowed, not allocated.** `Playable::frame` hands over the
+  picture and its palette at once, borrowed from a buffer the engine keeps,
+  so a window that presents a hundred times a second allocates nothing — 3.7
+  µs against 7.3 µs on the frame-cost rig, the copy being the whole of it.
+  `key(press, down)` is `key_down` and `key_up`, because a release is not a
+  press, and `Family::games` answers a static slice.
+
+- **Errors keep their type and their address.** A stack underflow is stamped
+  with where the machine was rather than module 0 cell 0; a missing resource
+  and a `SD…` word with nothing selected have cases of their own instead of
+  a sentence inside a word's name; the savegame reader answers a typed error;
+  `Unread` says which binary its address is in. The family's libraries
+  answer typed errors throughout, and the one box left is the contract's.
+
+- **The readers hold their rule by construction.** `indexing_slicing` and
+  `arithmetic_side_effects` are denied across `motionvm-motion-formats` and
+  on the savegame reader, carried by a `Cursor` that checks a read and moves
+  past it in one step, `records::<N>` over a table, and `Record`, whose
+  field offsets the compiler holds inside the record; the song reader, the
+  LE loader's fixup walk, the disassemblers and the driver archive read
+  through the cursor, the container, bank, font and text tables through the
+  records. Seven exemptions remain, each a bound the types carry and the
+  lint cannot see. Two refusals came with it: an LE image spanning more than
+  64 MiB of address space, refused before anything is allocated for it, and
+  a fixup site not wholly inside the image, skipped rather than written past
+  it.
+
+- **Every cast is a named conversion, and `as_conversions` is denied.** Every
+  `as` left in the tree is inside a function named for the rule it applies —
+  the `cell` module for what a machine does with a cell's bits, the formats
+  root for what a reader does with a file's offsets, the audio crate's `num`
+  for the drivers' byte arithmetic — under an `#[expect]` with its reason;
+  the count of those attributes is the count of conversions the tree
+  performs on purpose. Everything else is `From`, a `to_le_bytes` round trip,
+  or a `try_from` that refuses: a coordinate past `i32::MAX`, a frame time
+  past `u64::MAX` nanoseconds, and a PNG whose pixels would not fit one
+  chunk saturate or refuse instead of wrapping.
+
+- **The lints are on, and the ones that are off say what they would cost.**
+  Denied across the workspace: the idiom lints, `allow_attributes` with
+  `allow_attributes_without_reason`, `wildcard_imports`, `doc_markdown`,
+  `as_conversions`, and the restriction and pedantic lints the tree already
+  held — `dbg_macro`, `todo`, `unimplemented`, `missing_assert_message`,
+  `iter_over_hash_type` for the determinism rule, `needless_pass_by_ref_mut`,
+  `precedence_bits`, `or_fun_call`, `redundant_clone`, `manual_let_else`,
+  `semicolon_if_nothing_returned`, `string_slice` and a few more. Every
+  exemption is an `#[expect]` with a reason. For what stays off the manifest
+  carries measured counts with the command that produced them; `unwrap_used`,
+  `expect_used` and `panic` stay off because the sources have none and the
+  tests have all of them, which clippy's test exemptions do not reach.
+
+- **The five longest files are split along the subjects inside them** —
+  walking, the verb menu, the descriptor, the savegame module and the window
+  program — moved, not rewritten, with every reference digest unchanged.
+
+- **The PNG writer and reader are the workspace's own, and the dependency
+  list is checked.** `motionvm-render` writes the indexed PNG F12 and the
+  tools produce, and reads PNGs back — indexed, RGB or RGBA, any filter,
+  any compression — with an inflate of its own, held against streams and
+  pictures Python's `zlib` wrote; it depends on nothing. Five external
+  crates in all, each with its reason in the manifest, and `deny.toml` with
+  a CI job holds advisories, licenses, sources and duplicate versions.
+
+- **`rust-version` is the floor it claims to be, and it stands where the
+  code does**: 1.88.0, the 2024 edition's let-chains being the newest thing
+  the tree uses, compiled on exactly that toolchain by a CI job, with
+  `clippy.toml` at the same number. The rule is written down: the floor
+  follows the code and rises the day a change needs a newer toolchain, with
+  the feature as the reason, and no feature is avoided for the number's
+  sake. Every crate is `publish = false`, decided rather than defaulted.
+
+- **The boundary test asks Cargo instead of parsing manifests**, and a
+  further test holds it to what the workspace is known to contain, so a rule
+  enforced over an empty list cannot pass for the wrong reason.
+
+- **The departures ledger is complete.** Presents are batched to what a
+  display can show; every game plays its FM rendition whatever its sound
+  setup said; the promise that a read past a module is counted and reported
+  is kept; and the departure that walked script words by module number is
+  gone — the lookup walks the module table in slot order, as `0x61596` does.
+
+### Fixed
+
+- **A right click on the inventory bar during a conversation opens the item
+  menu.** The answers stand, the bar is live under them, and a right click on
+  a slot with something in it offers `INFO` and `GIVE` for that item — the
+  engine's modes 17 and 18, read and built on the verb strip the other menus
+  use; the run had stopped on them as unread. Every speaker hears the idle
+  call under the answers as it does under a line. Mode 15, the
+  conversation's last line, is entered only by a routine nothing in
+  `ENGINE.EXE` reaches, and stays unbuilt with that reason.
+
+- **Two tracks of the opening tune that the original never plays are
+  silent.** A track of an HMI song names the devices it is for, and the song
+  open gives it to the first installed device one of the names matches; the
+  sequencer had played every track. Dunkle Schatten 2's opening tune carries
+  a bass and a second guitar for other devices, which took voices the
+  original never gave them. The register stream now agrees with a recording
+  of the original over the whole of it, all 17,047 writes.
+
+- **A savegame taken with `SDBLK` set could not be loaded.** The descriptor
+  fields are an enum now, one list that cannot drift from the words that
+  write them, and a test drives every field through a save and a load.
+
+- **An `ENGINE.EXE` whose header declares no objects is refused** rather than
+  crashing the reader; the damaged-input suite is what would have found it.
+
 ## [0.7.2] - 2026-09-02
 
 ### Changed
 
-- **A location's modules come back pristine on re-entry.** `=>GET`
-  (0x64999) loads a module out of the resource file every time it is
-  asked, so when `INCLLOC` takes a location's three modules their variables
-  start over. The 32-bit machine had kept every module as it stood from the
-  moment the game opened, so a location's state survived leaving and coming
-  back where the original's does not. `=>GET` now puts the container's
-  image back; the savegame words and `=>ERASE` are as they were.
+- **`=>GET` loads a module and `=>ERASE` gives it back, as the original
+  does.** `=>GET` (0x64999) loads a module out of the resource file into the
+  first free descriptor slot every time it is asked, and `=>ERASE` frees the
+  slot and the memory with it; a location's three modules come and go with
+  the location, and their variables start over on every entry. The 32-bit
+  machine had loaded all eighty-six modules when the game opened and kept
+  them, so a location's state survived leaving and coming back, a call into
+  an erased module succeeded where the original faults, and a read from one
+  answered the stale image. Now the machine holds what the game has loaded:
+  `SYSTEM.RSC`'s `4 =>GET` is the first load, `START` and `INCLLOC` do the
+  rest, a module the container does not hold is refused by name, and a read
+  into a module that has been given back answers zero and is counted, like
+  every read into a module that is not loaded. Every reference digest is
+  unchanged.
 
 - **`ENDTUNE` waits the half second the original waits.** The 16-bit
   stop routine (`ENVIRO.EXE` `1696:02fd`; the other three builds' are the
@@ -870,7 +1143,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/wdominik/motionvm/releases/tag/v0.8.0
 [0.7.2]: https://github.com/wdominik/motionvm/releases/tag/v0.7.2
 [0.7.1]: https://github.com/wdominik/motionvm/releases/tag/v0.7.1
 [0.7.0]: https://github.com/wdominik/motionvm/releases/tag/v0.7.0

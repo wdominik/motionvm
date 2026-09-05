@@ -18,13 +18,23 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.2"
+version = "0.8.0"
 edition = "2024"
-rust-version = "1.97.0"
+rust-version = "1.88.0"
 license = "MIT"
 authors = ["wdominik"]
 repository = "https://github.com/wdominik/motionvm"
 description = "Rebuilt game engines, and a player for the games built with them"
+# Nothing here is published, and that is a decision rather than a default.
+#
+# What this workspace ships is a program: a window, a family of engines behind
+# a contract, and the readers those engines need. None of it is a library
+# somebody else's project would depend on today — `motionvm-playable` is the
+# one that could become one, the day a second family exists outside this
+# repository, and until then publishing it would be publishing an interface
+# nobody has held to yet. `cargo publish` therefore refuses every crate here
+# rather than succeeding by accident.
+publish = false
 
 [workspace.dependencies]
 # The neutral layer.
@@ -38,10 +48,6 @@ motionvm-motion-forth = { path = "crates/motionvm-motion-forth" }
 motionvm-motion-audio = { path = "crates/motionvm-motion-audio" }
 motionvm-motion-engine = { path = "crates/motionvm-motion-engine" }
 motionvm-motion-testutil = { path = "crates/motionvm-motion-testutil" }
-
-# The PNG codec. Encode only: the pictures the tools extract and the frame F12
-# writes. Nothing here decodes one. MIT OR Apache-2.0.
-png = "0.18"
 
 # The OPL3 itself. A pure-Rust port of Nuked-OPL3 that tests itself bit-for-bit
 # against the C reference, so nothing is lost by not building C. Accuracy is
@@ -82,7 +88,9 @@ softbuffer = "0.4"
 # nothing else, so dropping rfd would clear one of them and leave the rest
 # standing. The bump that would clear them is winit's, and the only release
 # above 0.30 is a pre-release that also splits the crate into `winit-core`,
-# `winit-x11` and `winit-wayland` — hence 0.30 here.
+# `winit-x11` and `winit-wayland` — hence 0.30 here. Those duplicated pairs are
+# named one by one in `deny.toml`, which is where a *new* one becomes a failing
+# check rather than another line in a list.
 # On Linux the XDG desktop portal, spoken over a `libdbus` that is loaded at
 # run time rather than linked, so nothing new is needed to build — at run time
 # it wants the `xdg-desktop-portal` service, which GNOME and KDE ship, and
@@ -104,13 +112,156 @@ unsafe_code = "forbid"
 # claim. `deny` rather than `warn` so that the rule holds without anyone having
 # to remember it.
 missing_docs = "deny"
+# The idiom lints, all of them denied because the tree already holds to
+# them and a lint that is on is what keeps it there. Each is a shape rather
+# than a style: a `pub` nothing outside the crate can reach is a claim about
+# the API that is not true (`unreachable_pub`); a `Debug` a public type lacks
+# is a value nobody can print from a test (`missing_debug_implementations`);
+# a path spelled longer than it needs to be is a reader's question about
+# why (`unused_qualifications`); a cast that changes nothing is a reader's
+# question about what it was meant to change (`trivial_casts`,
+# `trivial_numeric_casts`); the 2018 idioms are the edition's own.
+missing_debug_implementations = "deny"
+unreachable_pub = "deny"
+unused_qualifications = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+single_use_lifetimes = "deny"
+unnameable_types = "deny"
+rust_2018_idioms = { level = "deny", priority = -1 }
+# Not `let_underscore_drop`. It fires on `let _ = tx.send(…)` — eleven sites,
+# every one an error deliberately ignored — and the spellings it prefers,
+# `drop(…)` or `.ok()`, say less about why than `let _ =` does.
 
 [workspace.lints.clippy]
 # The two groups that describe code which is probably wrong rather than code
-# which is merely unfashionable. Neither fires today. `pedantic` is deliberately
-# absent: this codebase makes deliberate choices it would argue with.
+# which is merely unfashionable. Neither fires today.
 correctness = "deny"
 suspicious = "deny"
+# Three from `pedantic`, denied one at a time because each holds a rule the
+# tree already keeps. `allow_attributes`: every exemption is an `#[expect]`
+# with a `reason`, so one that stops being needed is a warning rather than a
+# fossil. `wildcard_imports`: a module says what it takes from its parent —
+# the three globs over the `_ORDER` block's field offsets carry an `expect`
+# each. `doc_markdown`: an identifier in prose wears backticks, and the words
+# that are not identifiers are listed in `clippy.toml`.
+allow_attributes = "deny"
+wildcard_imports = "deny"
+doc_markdown = "deny"
+# And one from `restriction`, the one that matters most here: every `as` is
+# inside a named function with an `#[expect]` that says which rule it applies
+# — `motionvm-motion-forth`'s `cell` module for what a machine does with a
+# cell's bits, `motionvm-motion-formats`' root for what a reader does with a
+# file's, and a handful of the same shape in the other crates. So the count of
+# those attributes is the count of conversions the tree performs on purpose,
+# and a truncation the original engine performs is told apart from a widening
+# the type system would express — which is the evidence a bare cast cannot
+# give, because both look alike.
+as_conversions = "deny"
+# The restriction lints that hold today at zero, switched on so they keep
+# holding. `dbg_macro`, `todo`, `unimplemented`: nothing half-done ships.
+# `missing_assert_message`: every assertion says what it checks.
+# `allow_attributes_without_reason`: the other half of `allow_attributes`.
+# `iter_over_hash_type`: the determinism rule — no hash map on any path that
+# draws or writes — as a lint rather than a sentence.
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+missing_assert_message = "deny"
+allow_attributes_without_reason = "deny"
+iter_over_hash_type = "deny"
+lossy_float_literal = "deny"
+suspicious_xor_used_as_pow = "deny"
+mem_forget = "deny"
+# And the ones with a handful of findings each, fixed and then denied: a
+# `&mut` a function never uses (`needless_pass_by_ref_mut`), bit operators
+# whose precedence has to be looked up (`precedence_bits`), a call evaluated
+# before anyone knows it is wanted (`or_fun_call`), a clone of something
+# never used again (`redundant_clone`), a `match` that is a `let … else`,
+# a statement that returns nothing without saying so, and a `str` sliced by
+# byte, which panics inside a multi-byte character — and this tree's text
+# has umlauts in it.
+needless_pass_by_ref_mut = "deny"
+precedence_bits = "deny"
+or_fun_call = "deny"
+redundant_clone = "deny"
+manual_let_else = "deny"
+semicolon_if_nothing_returned = "deny"
+string_slice = "deny"
+
+# What is *not* switched on, and what each would cost. Counted on this tree
+# with
+#
+#     RUSTFLAGS="-W clippy::<lint>" cargo clippy --workspace --lib --bins
+#
+# so the figures are `src/` alone — every one of them is larger over
+# `--all-targets`, and that difference is test code, where `unwrap` and
+# indexing and a bare `panic!` are the right thing to write.
+#
+# `pedantic` — the shape matters more than the number:
+#
+#     482  must_use_candidate
+#     220  missing_errors_doc
+#      38  match_same_arms
+#      36  too_many_lines
+#      22  casts, every one inside a function named for it
+#
+# The first is a mechanical `#[must_use]` pass. `missing_errors_doc` is
+# boilerplate this tree does not want: the `Result` type's own documentation
+# says what can go wrong, and repeating it at 220 sites would say it 220
+# times less well. The casts are the ones `as_conversions` above already
+# accounts for, seen again by the lints that grade a cast by kind. What is
+# left below those is a few dozen objections of the kind the block above
+# took one by one — and it is where the next of them will come from.
+#
+# `nursery` — three lints are nearly all of it:
+#
+#    2015  use_self
+#     480  redundant_pub_crate
+#     311  missing_const_for_fn
+#
+# `arithmetic_side_effects` — some 1700 outside the readers, most of them the
+# engine's, whose arithmetic is the original's, wrapping where the original
+# wraps; this lint objects to all of it. It is on where a malformed file is
+# the adversary — `motionvm-motion-formats` as a crate and the engine's
+# `save/` as a module, each by its own attribute, because a `[lints]` table
+# that inherits the workspace's admits no other key — and not worth that
+# many `#[expect]` elsewhere.
+#
+# `indexing_slicing` — some 900 outside the readers. Same shape: on in the
+# readers, where a truncated file is the adversary, and noise on a drawing
+# path whose bounds were computed two lines earlier.
+#
+# `missing_docs_in_private_items` — 715, `absolute_paths` — 774,
+# `unseparated_literal_suffix` — 232, `shadow_unrelated` — 108: taste, at a
+# scale where taste is a month's work.
+#
+# `unwrap_used` — 0 in `src/`, 506 over all targets. `expect_used` — 2 and
+# 1202, the two being the test-support crate's own. `panic` — 7 and 256, the
+# seven likewise. The gap is the whole point: the sources have almost none,
+# and the tests have all of them, because that is what a test does. Clippy's
+# `allow-*-in-tests` reaches `#[test]` functions and `#[cfg(test)]` modules
+# and not the helper functions an integration-test file is mostly made of,
+# so denying the three would put an exemption header on sixty-odd test files
+# to hold a line the sources already hold.
+#
+# `must_use_candidate` — 235, and mechanical: every pure function would get
+# the attribute, which is more than the attribute means. `#[must_use]` is put
+# where ignoring the answer is a bug — `Error::located` — and not everywhere
+# a lint can see a value come back.
+
+# Rustdoc's own. All four are at zero on this tree, so they cost nothing to
+# switch on and are worth having for what they catch: a link that resolves
+# only because `--document-private-items` is passed would break on docs.rs, a
+# backtick left off turns a type name into prose, and a link written twice
+# renders as one.
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+unescaped_backticks = "deny"
+redundant_explicit_links = "deny"
 
 # The frontend is a software renderer: `blit` in motionvm-app walks every
 # physical window pixel on the CPU, and on a Retina display that is five

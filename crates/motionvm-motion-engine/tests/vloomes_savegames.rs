@@ -21,6 +21,8 @@
 //!
 //! The game this file drives is Victor Loomes (MOTION 16-bit).
 
+mod common;
+
 use motionvm_motion_engine::{Game, titles};
 use motionvm_motion_forth::m16::Vm;
 use motionvm_motion_testutil::gamedata_vloomes;
@@ -48,28 +50,17 @@ fn into_the_game(dir: &Path, saves: &Path) -> Game<Vm> {
     panic!("the intro never reached a location");
 }
 
-/// Frames at a point, with the click on exactly one of them.
-fn hold(game: &mut Game<Vm>, x: i32, y: i32, frames: i32, click_at: i32) {
-    for f in 0..frames {
-        game.set_input(x, y, f == click_at, false, 0)
-            .expect("input");
-        game.pump().expect("pump");
-        game.step()
-            .unwrap_or_else(|e| panic!("at {x},{y} frame {f}: {e}"));
-    }
-}
-
 /// The panel down, then the half of the right-hand strip that raises `key`.
 ///
 /// 317 is the upper half and 318 the lower — `MOUSEY 11 <` decides.
 fn open_page(game: &mut Game<Vm>, key: i32) {
-    hold(game, 160, 8, 300, -1);
-    hold(game, 290, if key == 317 { 5 } else { 16 }, 400, 100);
+    common::hold(game, 160, 8, 300, -1);
+    common::hold(game, 290, if key == 317 { 5 } else { 16 }, 400, 100);
 }
 
 /// The first button of a `REQUEST` box that is 240 wide at 40,65 and 70 tall.
 fn click_first_slot(game: &mut Game<Vm>) {
-    hold(game, 60, 122, 600, 100);
+    common::hold(game, 60, 122, 600, 100);
 }
 
 fn temp_saves(tag: &str) -> PathBuf {
@@ -150,7 +141,7 @@ fn a_game_saved_in_one_location_comes_back_there() {
     assert!(lit > 20_000, "the loaded game draws its room: {lit} pixels");
 
     // And it plays on: the frame runs, and the game is not torn down.
-    hold(&mut fresh, 160, 100, 300, -1);
+    common::hold(&mut fresh, 160, 100, 300, -1);
     assert!(!fresh.finished(), "the game plays on after the load");
     assert_eq!(fresh.get_var(605, "AO"), Some(5), "and stays where it is");
 

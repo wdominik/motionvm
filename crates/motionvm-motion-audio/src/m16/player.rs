@@ -6,11 +6,13 @@ use crate::chip::{Chip, Write};
 use crate::error::{Error, Result};
 use crate::m16::driver::{Driver, PIT_HZ};
 use crate::m16::sequencer::Sequencer;
+use crate::num;
 use motionvm_motion_formats::m16::psm::Plx;
 
 /// A section and how many times to play it, which is what `STARTTUNE` asks
 /// for: `-1` at every call site in the games, which the driver reads unsigned
 /// and takes as endless.
+#[derive(Debug)]
 pub struct Cue {
     /// The section to play.
     pub song: Plx,
@@ -37,6 +39,19 @@ pub struct Player {
     clock: u64,
     /// Frames left until a pending stop lands — see [`crate::Player::stop`].
     stop_in: Option<u64>,
+}
+
+impl std::fmt::Debug for Player {
+    /// The clock and what is playing; the driver's tables and the chip are
+    /// the original's bytes and a third party's core.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Player")
+            .field("rate", &self.rate)
+            .field("playing", &self.seq.is_some())
+            .field("clock", &self.clock)
+            .field("stop_in", &self.stop_in)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Player {
@@ -77,8 +92,8 @@ impl Player {
             if step > 0 {
                 self.chip.render(&mut out[done * 2..(done + step) * 2]);
                 done += step;
-                self.clock += step as u64 * u64::from(PIT_HZ);
-                self.count_down_stop(step as u64);
+                self.clock += num::frames(step) * u64::from(PIT_HZ);
+                self.count_down_stop(num::frames(step));
             }
             let period = self.tick_period();
             if self.clock >= period {
@@ -166,7 +181,7 @@ impl crate::Player for Player {
             return;
         }
         seq.fade_out();
-        self.stop_in = Some(self.rate as u64 / 2);
+        self.stop_in = Some(u64::from(self.rate) / 2);
     }
 
     fn fill(&mut self, out: &mut [i16]) {

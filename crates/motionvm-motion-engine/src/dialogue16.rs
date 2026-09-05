@@ -29,71 +29,73 @@ use crate::menu;
 use crate::order::{Conversation, M16_RULES};
 use crate::{Engine, Placement};
 use motionvm_motion_forth::Machine;
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m16;
 use motionvm_motion_forth::{Error, Result};
 
 /// The block's conversation fields, 16-bit offsets.
 mod g {
-    pub const VERB: i32 = 0x00;
-    pub const TARGET: i32 = 0x02;
-    pub const OBJECT: i32 = 0x04;
-    pub const MODE: i32 = 0x06;
-    pub const BAR_MENU: i32 = 0x0a;
+    pub(super) const VERB: i32 = 0x00;
+    pub(super) const TARGET: i32 = 0x02;
+    pub(super) const OBJECT: i32 = 0x04;
+    pub(super) const MODE: i32 = 0x06;
+    pub(super) const BAR_MENU: i32 = 0x0a;
     /// Verb 5's handler word, `VERBS + 4 × 6 + 4`.
-    pub const TALK: i32 = 0x28;
-    pub const SCREEN: i32 = 0x3e;
-    pub const BAR_SCREEN: i32 = 0x40;
-    pub const MMX: i32 = 0x46;
-    pub const MMY: i32 = 0x48;
-    pub const IMX: i32 = 0x4a;
-    pub const MLK: i32 = 0x4e;
-    pub const MRK: i32 = 0x50;
-    pub const PRESSED: i32 = 0x52;
-    pub const INVENTORY: i32 = 0x56;
-    pub const SET_CURSOR: i32 = 0x5c;
-    pub const ARROW: i32 = 0x5e;
-    pub const SLOT: i32 = 0x78;
-    pub const CAPTION: i32 = 0x80;
-    pub const PICKED: i32 = 0x90;
-    pub const FINISHED: i32 = 0x92;
-    pub const GATE1: i32 = 0x9a;
-    pub const INFO_DESC: i32 = 0xa0;
+    pub(super) const TALK: i32 = 0x28;
+    pub(super) const SCREEN: i32 = 0x3e;
+    pub(super) const BAR_SCREEN: i32 = 0x40;
+    pub(super) const MMX: i32 = 0x46;
+    pub(super) const MMY: i32 = 0x48;
+    pub(super) const IMX: i32 = 0x4a;
+    pub(super) const MLK: i32 = 0x4e;
+    pub(super) const MRK: i32 = 0x50;
+    pub(super) const PRESSED: i32 = 0x52;
+    pub(super) const SET_CURSOR: i32 = 0x5c;
+    pub(super) const ARROW: i32 = 0x5e;
+    pub(super) const SLOT: i32 = 0x78;
+    pub(super) const CAPTION: i32 = 0x80;
+    pub(super) const PICKED: i32 = 0x90;
+    pub(super) const FINISHED: i32 = 0x92;
+    pub(super) const GATE1: i32 = 0x9a;
+    pub(super) const INFO_DESC: i32 = 0xa0;
     /// The two talking heads, left and right.
-    pub const HEAD_L: i32 = 0xb6;
-    pub const HEAD_R: i32 = 0xb8;
+    pub(super) const HEAD_L: i32 = 0xb6;
+    pub(super) const HEAD_R: i32 = 0xb8;
     /// The first of four answer descriptors; the fourth is the quiet line.
-    pub const ANSWER_DESCS: i32 = 0xba;
-    pub const RECORD: i32 = 0xbe;
-    pub const FIELDS: i32 = 0xc0;
+    pub(super) const ANSWER_DESCS: i32 = 0xba;
+    pub(super) const RECORD: i32 = 0xbe;
+    pub(super) const FIELDS: i32 = 0xc0;
     /// The left speaker's color, the answers' color, the right speaker's.
-    pub const LEFT_COL: i32 = 0xc2;
-    pub const NORMAL_COL: i32 = 0xc4;
-    pub const RIGHT_COL: i32 = 0xc6;
-    pub const NODE: i32 = 0xca;
-    pub const QUIET_TABLE: i32 = 0xcc;
-    pub const QUIET_TEXT: i32 = 0xce;
+    pub(super) const LEFT_COL: i32 = 0xc2;
+    pub(super) const NORMAL_COL: i32 = 0xc4;
+    pub(super) const RIGHT_COL: i32 = 0xc6;
+    pub(super) const NODE: i32 = 0xca;
+    pub(super) const QUIET_TABLE: i32 = 0xcc;
+    pub(super) const QUIET_TEXT: i32 = 0xce;
     /// Run after a line went up.
-    pub const SAID: i32 = 0xd0;
+    pub(super) const SAID: i32 = 0xd0;
     /// Three cells: which answer each of the three slots shows.
-    pub const CHOSEN: i32 = 0xd2;
+    pub(super) const CHOSEN: i32 = 0xd2;
     /// The two speaker words, run with a phase: 0 start, 1 line over, 2
     /// still talking, 3 end, 4 listening.
-    pub const SPEAK_L: i32 = 0xdc;
-    pub const SPEAK_R: i32 = 0xde;
-    pub const CHANGE_QUEUE: i32 = 0xe0;
-    pub const CHANGE_COUNT: i32 = 0xe4;
+    pub(super) const SPEAK_L: i32 = 0xdc;
+    pub(super) const SPEAK_R: i32 = 0xde;
+    pub(super) const CHANGE_QUEUE: i32 = 0xe0;
+    pub(super) const CHANGE_COUNT: i32 = 0xe4;
     /// The left speaker's template, the right speaker's.
-    pub const LEFT_FONT: i32 = 0xe8;
-    pub const RIGHT_FONT: i32 = 0xea;
+    pub(super) const LEFT_FONT: i32 = 0xe8;
+    pub(super) const RIGHT_FONT: i32 = 0xea;
     /// Run when a conversation is over, if set.
-    pub const EXIT: i32 = 0xec;
-    pub const INFO_COLOR: i32 = 0xf0;
-    pub const INFO_FONT: i32 = 0xf2;
+    pub(super) const EXIT: i32 = 0xec;
+    pub(super) const INFO_COLOR: i32 = 0xf0;
+    pub(super) const INFO_FONT: i32 = 0xf2;
 }
 
 const ANSWER: i32 = 14;
 const LINE: i32 = 8;
 const BRANCH: i32 = 26;
+/// The same, as the byte count `read_bytes` takes.
+const BRANCH_BYTES: usize = 26;
 
 /// The conversation's three tables, resolved once.
 struct Tables {
@@ -116,11 +118,11 @@ fn field(vm: &m16::Vm, base: i32, off: i32) -> i32 {
 }
 
 fn block(vm: &m16::Vm, order: u32, off: i32) -> Result<i32> {
-    fetch(vm, field(vm, order as i32, off))
+    fetch(vm, field(vm, cell::signed(order), off))
 }
 
 fn set_block(vm: &mut m16::Vm, order: u32, off: i32, v: i32) -> Result<()> {
-    let at = field(vm, order as i32, off);
+    let at = field(vm, cell::signed(order), off);
     store(vm, at, v)
 }
 
@@ -160,7 +162,7 @@ impl Engine {
         }
         let Some(target) = vm.callback_target(id) else {
             return Err(Error::UnboundWord {
-                id: id as u16,
+                id: cell::low16(id),
                 at: vm.here(),
             });
         };
@@ -171,7 +173,7 @@ impl Engine {
     /// The change drain, `0d34:0d42`: every queued change whose names match
     /// this conversation and one of its answers is applied and taken off
     /// the queue.
-    fn changes16(&mut self, vm: &mut m16::Vm, order: u32, record: i32, answers: i32) -> Result<()> {
+    fn changes16(&self, vm: &mut m16::Vm, order: u32, record: i32, answers: i32) -> Result<()> {
         let queue = block(vm, order, g::CHANGE_QUEUE)?;
         let perms = field(vm, record, 0x1c);
         let mine = name_at(vm, field(vm, record, 0x12))?;
@@ -209,7 +211,8 @@ impl Engine {
             let count = block(vm, order, g::CHANGE_COUNT)?;
             let rest = vm.space().read_bytes(
                 field(vm, queue, (i + 1) * BRANCH),
-                ((count - i) * BRANCH) as usize,
+                // Nothing to move once the count has gone below the index.
+                cell::at((count - i) * BRANCH).unwrap_or(0),
             )?;
             let at = field(vm, queue, i * BRANCH);
             vm.space_mut().write_bytes(at, &rest)?;
@@ -264,9 +267,9 @@ impl Engine {
             node
         };
         if next == 4000 {
-            next = self.dialog_return;
+            next = self.dialogue.return_node;
         } else if (1000..2000).contains(&next) {
-            self.dialog_return = next;
+            self.dialogue.return_node = next;
         }
         set_block(vm, order, g::NODE, next)
     }
@@ -274,9 +277,9 @@ impl Engine {
     /// `0d34:0d04`: the talking heads go, and mode 16 ends the conversation
     /// in `DOORDER`.
     fn finish16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
-        self.select_screen(block(vm, order, g::SCREEN)? as u32);
+        self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
         for head in [g::HEAD_L, g::HEAD_R] {
-            self.select_descriptor(block(vm, order, head)? as u32);
+            self.select_descriptor(cell::unsigned(block(vm, order, head)?));
             self.set_active(false);
         }
         set_block(vm, order, g::MODE, 0x10)
@@ -287,12 +290,12 @@ impl Engine {
     /// level 0x73; mode 12 for the left speaker, 13 for the right; then the
     /// block's "a line went up" word.
     fn speak16(&mut self, vm: &mut m16::Vm, order: u32, t: &Tables, node: i32) -> Result<()> {
-        self.select_screen(block(vm, order, g::SCREEN)? as u32);
+        self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
         let sx = self.screen_origin_x();
         let sy = self.screen_origin_y();
         let line = field(vm, t.lines, node * LINE);
         let right = fetch(vm, field(vm, line, 6))? & 1 != 0;
-        self.select_descriptor(block(vm, order, g::ANSWER_DESCS)? as u32);
+        self.select_descriptor(cell::unsigned(block(vm, order, g::ANSWER_DESCS)?));
         self.set_active(true);
         let (color, font, mode) = if right {
             (g::RIGHT_COL, g::RIGHT_FONT, 0xd)
@@ -316,12 +319,12 @@ impl Engine {
     /// each the next one's height plus 7 lower; the quiet line at 130. All
     /// in the answers' color and the left template. Ends in mode 14.
     fn choose16(&mut self, vm: &mut m16::Vm, order: u32, t: &Tables, first: i32) -> Result<()> {
-        self.pointer_visible = true;
+        self.cursor_state.visible = true;
         self.run16(vm, order, g::FINISHED, &[])?;
         let arrow = block(vm, order, g::ARROW)?;
         self.run16(vm, order, g::SET_CURSOR, &[arrow, 0, 0])?;
-        self.select_screen(block(vm, order, g::SCREEN)? as u32);
-        self.select_descriptor(block(vm, order, g::CAPTION)? as u32);
+        self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
+        self.select_descriptor(cell::unsigned(block(vm, order, g::CAPTION)?));
         self.set_text(1)?;
         let sx = self.screen_origin_x();
         let sy = self.screen_origin_y();
@@ -342,7 +345,7 @@ impl Engine {
                 break;
             }
             set_block(vm, order, g::CHOSEN + 2 * i, n)?;
-            self.select_descriptor((slots + i) as u32);
+            self.select_descriptor(cell::unsigned(slots + i));
             self.set_active(true);
             self.set_wait(-1)?;
             let line = field(
@@ -352,7 +355,7 @@ impl Engine {
             );
             self.set_text(fetch(vm, line)?)?;
             self.set_text_table(fetch(vm, field(vm, line, 2))?)?;
-            self.note_no_effect("SDNORM");
+            self.note_no_effect(crate::words::Word::SDNORM);
             self.place_x(sx + 0x46, Placement::Edge)?;
             self.place_y(y, Placement::Edge)?;
             self.set_color(color)?;
@@ -360,12 +363,12 @@ impl Engine {
             y += self.descriptor_height() + 7;
             n = fetch(vm, field(vm, t.answers, n * ANSWER + 2))?;
         }
-        self.select_descriptor((slots + 3) as u32);
+        self.select_descriptor(cell::unsigned(slots + 3));
         self.set_active(true);
         self.set_wait(-1)?;
         self.set_text(block(vm, order, g::QUIET_TEXT)?)?;
         self.set_text_table(block(vm, order, g::QUIET_TABLE)?)?;
-        self.note_no_effect("SDNORM");
+        self.note_no_effect(crate::words::Word::SDNORM);
         self.place_x(sx + 0x46, Placement::Edge)?;
         self.place_y(sy + 0x82, Placement::Edge)?;
         self.set_color(color)?;
@@ -406,7 +409,8 @@ impl Engine {
                                 "CALCDIALOG: branch kind 5 names the word {name:?}, which no \
                                  resident module defines"
                             ),
-                            at: "ENVIRO.EXE 0d34:15a6",
+                            binary: "ENVIRO.EXE",
+                            at: "0d34:15a6",
                         });
                     };
                     vm.call_nested(target, self)?;
@@ -417,7 +421,7 @@ impl Engine {
         } else {
             let queue = block(vm, order, g::CHANGE_QUEUE)?;
             let used = block(vm, order, g::CHANGE_COUNT)?;
-            let bytes = vm.space().read_bytes(entry, BRANCH as usize)?;
+            let bytes = vm.space().read_bytes(entry, BRANCH_BYTES)?;
             let at = field(vm, queue, used * BRANCH);
             vm.space_mut().write_bytes(at, &bytes)?;
             set_block(vm, order, g::CHANGE_COUNT, used + 1)?;
@@ -443,8 +447,8 @@ impl Engine {
         } else {
             (g::SPEAK_L, g::SPEAK_R)
         };
-        self.select_screen(block(vm, order, g::SCREEN)? as u32);
-        self.select_descriptor(block(vm, order, g::ANSWER_DESCS)? as u32);
+        self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
+        self.select_descriptor(cell::unsigned(block(vm, order, g::ANSWER_DESCS)?));
         if self.descriptor_active() == 0 {
             self.run16(vm, order, speaking, &[1])?;
             self.calc16(vm, order, 1)?;
@@ -468,10 +472,10 @@ impl Engine {
         let right = block(vm, order, g::MRK)? != 0;
         let (px, py) = (block(vm, order, g::MMX)?, block(vm, order, g::MMY)?);
         if left && fresh && px != -1 {
-            self.select_screen(block(vm, order, g::SCREEN)? as u32);
+            self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
             let slots = block(vm, order, g::ANSWER_DESCS)?;
             for i in 0..4 {
-                self.select_descriptor((slots + i) as u32);
+                self.select_descriptor(cell::unsigned(slots + i));
                 if self.descriptor_active() == 0 {
                     continue;
                 }
@@ -481,7 +485,7 @@ impl Engine {
                     continue;
                 }
                 for j in 0..4 {
-                    self.select_descriptor((slots + j) as u32);
+                    self.select_descriptor(cell::unsigned(slots + j));
                     self.set_active(false);
                 }
                 let record = block(vm, order, g::RECORD)?;
@@ -499,41 +503,22 @@ impl Engine {
                         store(vm, flag, v & 0xfe)?;
                     }
                 }
-                self.pointer_visible = false;
+                self.cursor_state.visible = false;
                 self.run16(vm, order, g::PICKED, &[])?;
                 self.calc16(vm, order, 0)?;
                 break;
             }
-        } else if right && fresh && block(vm, order, g::IMX)? != -1 {
-            let imx = block(vm, order, g::IMX)?;
-            let (x0, w) = (M16_RULES.bar_x0, M16_RULES.slot_w);
-            if (x0..x0 + 8 * w).contains(&imx) {
-                let list = block(vm, order, g::INVENTORY)?;
-                let slot = (imx - x0) / w + fetch(vm, list)?;
-                let item = fetch(vm, crate::words::slot_address(vm.space(), list, slot))?;
-                if item != 0 {
-                    set_block(vm, order, g::TARGET, item)?;
-                    set_block(vm, order, g::SLOT, slot)?;
-                    set_block(vm, order, g::MODE, 0x11)?;
-                    let scroll = fetch(vm, list)?;
-                    let x = (slot - scroll) * w + w * 3 / 2;
-                    let (screen, base) = (
-                        block(vm, order, g::BAR_SCREEN)?,
-                        block(vm, order, g::BAR_MENU)?,
-                    );
-                    menu::show_menu(
-                        self,
-                        vm,
-                        order,
-                        screen,
-                        base,
-                        x,
-                        M16_RULES.bar_menu_y,
-                        0x60,
-                        M16_RULES,
-                    )?;
-                }
-            }
+        } else if right
+            && fresh
+            && block(vm, order, g::IMX)? != -1
+            && let Some(slot) = menu::bar_slot(vm, order, M16_RULES)?
+            && slot.item != 0
+        {
+            set_block(vm, order, g::TARGET, slot.item)?;
+            set_block(vm, order, g::SLOT, slot.index)?;
+            set_block(vm, order, g::MODE, 0x11)?;
+            let strip = menu::bar_strip(vm, order, slot, M16_RULES)?;
+            menu::show_menu(self, vm, order, strip, 0x60, M16_RULES)?;
         }
         self.run16(vm, order, g::SPEAK_L, &[4])?;
         self.run16(vm, order, g::SPEAK_R, &[4])
@@ -542,8 +527,8 @@ impl Engine {
     /// Mode 15, `0d34:315d`: a last line stands; when it is gone both sides
     /// hear 3 and the heads go.
     fn last_line16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
-        self.select_screen(block(vm, order, g::SCREEN)? as u32);
-        self.select_descriptor(block(vm, order, g::ANSWER_DESCS)? as u32);
+        self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
+        self.select_descriptor(cell::unsigned(block(vm, order, g::ANSWER_DESCS)?));
         if self.descriptor_active() == 0 {
             self.run16(vm, order, g::SPEAK_L, &[3])?;
             self.run16(vm, order, g::SPEAK_R, &[3])?;
@@ -559,7 +544,7 @@ impl Engine {
     /// exit word if there is one.
     fn over16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         self.run16(vm, order, g::TALK, &[-1])?;
-        self.pointer_visible = true;
+        self.cursor_state.visible = true;
         set_block(vm, order, g::MODE, 0)?;
         self.run16(vm, order, g::FINISHED, &[])?;
         self.run16(vm, order, g::EXIT, &[])
@@ -621,8 +606,8 @@ impl Conversation<m16::Vm> for Engine {
     /// heads go up with the record's sprites, both speakers hear 0, and
     /// `calc_dialog` shows the entry node.
     fn conversation_talk(&mut self, vm: &mut m16::Vm, order: u32, target: i32) -> Result<()> {
-        self.select_screen(block(vm, order, g::SCREEN)? as u32);
-        self.select_descriptor(block(vm, order, g::INFO_DESC)? as u32);
+        self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
+        self.select_descriptor(cell::unsigned(block(vm, order, g::INFO_DESC)?));
         self.set_color(block(vm, order, g::INFO_COLOR)?)?;
         self.set_template(block(vm, order, g::INFO_FONT)?)?;
         let sx = self.screen_origin_x();
@@ -640,12 +625,12 @@ impl Conversation<m16::Vm> for Engine {
         set_block(vm, order, g::FIELDS, with)?;
         self.changes16(vm, order, said, with)?;
         let record = said;
-        self.select_descriptor(block(vm, order, g::HEAD_L)? as u32);
+        self.select_descriptor(cell::unsigned(block(vm, order, g::HEAD_L)?));
         self.set_active(true);
         self.set_sprite(fetch(vm, field(vm, record, 0xa))?)?;
         self.place_x(sx, Placement::Edge)?;
         self.place_y(sy + 0xa5, Placement::FarEdge)?;
-        self.select_descriptor(block(vm, order, g::HEAD_R)? as u32);
+        self.select_descriptor(cell::unsigned(block(vm, order, g::HEAD_R)?));
         self.set_active(true);
         self.set_sprite(fetch(vm, field(vm, record, 0xc))?)?;
         self.place_x(sx + 0x140, Placement::FarEdge)?;
@@ -671,9 +656,9 @@ impl Conversation<m16::Vm> for Engine {
             block(vm, order, g::LEFT_COL)?,
             block(vm, order, g::NORMAL_COL)?,
         );
-        self.select_screen(block(vm, order, g::SCREEN)? as u32);
+        self.select_screen(cell::unsigned(block(vm, order, g::SCREEN)?));
         for i in 0..4 {
-            self.select_descriptor((slots + i) as u32);
+            self.select_descriptor(cell::unsigned(slots + i));
             if self.descriptor_active() == 0 {
                 continue;
             }

@@ -10,8 +10,10 @@ use crate::Engine;
 use crate::Placement;
 use crate::stack::pop_n;
 use crate::stack::pop1;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
+use motionvm_motion_forth::cell;
 
 /// What differs between the two engines' `MOUSEINFO`: the inventory bar's
 /// geometry, read from each handler.
@@ -49,41 +51,41 @@ pub(crate) const M16_RULES: Rules = Rules {
 impl Engine {
     pub(crate) fn words_pointer(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
-        mem: &mut dyn AddressSpace,
+        mem: &dyn AddressSpace,
         rules: Rules,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // --- mouse pointer ----------------------------------------------
             // The 16-bit pair keeps a show counter and is inert until a
             // shape armed the pointer (`14ee:0874`, `14ee:094b`); see
             // [`Engine::pointer_shows`]. The 32-bit pair is unread and
             // stays the plain switch.
-            "HIDEMOUSE" => {
-                if self.pointer_counted {
-                    if self.cursor.is_some() {
-                        self.pointer_shows -= 1;
-                        self.pointer_visible = self.pointer_shows >= 1;
+            Word::HIDEMOUSE => {
+                if self.profile.pointer_counted {
+                    if self.cursor_state.shape.is_some() {
+                        self.cursor_state.shows -= 1;
+                        self.cursor_state.visible = self.cursor_state.shows >= 1;
                     }
                 } else {
                     self.hide_pointer();
                 }
             }
-            "SHOWMOUSE" | "NORMMOUSE" => {
-                if self.pointer_counted {
-                    if self.cursor.is_some() {
-                        self.pointer_shows += 1;
-                        self.pointer_visible = self.pointer_shows >= 1;
+            Word::SHOWMOUSE | Word::NORMMOUSE => {
+                if self.profile.pointer_counted {
+                    if self.cursor_state.shape.is_some() {
+                        self.cursor_state.shows += 1;
+                        self.cursor_state.visible = self.cursor_state.shows >= 1;
                     }
                 } else {
-                    self.pointer_visible = true;
+                    self.cursor_state.visible = true;
                 }
             }
-            "SETMOUSEX" => self.mouse.x = pop1(stack, "SETMOUSEX")?,
-            "SETMOUSEY" => self.mouse.y = pop1(stack, "SETMOUSEY")?,
-            "SETMOUSELB" => self.mouse.left = pop1(stack, "SETMOUSELB")?,
-            "SETMOUSERB" => self.mouse.right = pop1(stack, "SETMOUSERB")?,
+            Word::SETMOUSEX => self.input.mouse.x = pop1(stack, "SETMOUSEX")?,
+            Word::SETMOUSEY => self.input.mouse.y = pop1(stack, "SETMOUSEY")?,
+            Word::SETMOUSELB => self.input.mouse.left = pop1(stack, "SETMOUSELB")?,
+            Word::SETMOUSERB => self.input.mouse.right = pop1(stack, "SETMOUSERB")?,
             // Which of a location's hot areas the point is in, or -1.
             //
             // The table is `count` entries of `stride` bytes; the first four
@@ -91,9 +93,10 @@ impl Engine {
             // inclusive. An entry that is four zeroes is a hole, not a
             // rectangle at the origin, and is skipped even when the point
             // "matches" it.
-            "?XINSIDE" => {
+            Word::Q_XINSIDE => {
                 let a = pop_n(stack, 5, "?XINSIDE")?;
-                let hit = area_containing(mem, a[0], a[1], a[2], a[3], a[4], self.skips_holes);
+                let hit =
+                    area_containing(mem, a[0], a[1], a[2], a[3], a[4], self.profile.skips_holes);
                 stack.push(hit);
             }
             // `( a b rect -- flag )`: whether the point is inside that one
@@ -106,7 +109,7 @@ impl Engine {
             // handler reads them: the cells at `+0` and `+4` bound the value
             // popped last, the ones at `+2` and `+6` the value popped before
             // it, all four inclusive. Only Victor Loomes calls it.
-            "?INSIDE" => {
+            Word::Q_INSIDE => {
                 let a = pop_n(stack, 3, "?INSIDE")?;
                 let (first, second, rect) = (a[0], a[1], a[2]);
                 let cell = mem.cell_size();
@@ -127,7 +130,7 @@ impl Engine {
             // last thing its branch does, it is requested as a tail call here.
             //
             // Returns the hot area the pointer is in, or -1.
-            "MOUSEINFO" => {
+            Word::MOUSEINFO => {
                 let a = pop_n(stack, 24, "MOUSEINFO")?;
                 let (imx, mmx, mmy) = (a[0], a[2], a[3]);
                 let (lditem, a_lditem, s_lditem, one) = (a[4], a[5], a[6], a[7]);
@@ -156,8 +159,8 @@ impl Engine {
                 // Modes 2, 4 and 5 are the menus: the info line belongs to them
                 // and this word keeps its hands off.
                 if mode == 2 || mode == 4 || mode == 5 {
-                    self.select_screen(screen as u32);
-                    self.select_descriptor(minfo as u32);
+                    self.select_screen(cell::unsigned(screen));
+                    self.select_descriptor(cell::unsigned(minfo));
                     stack.push(result);
                     return Ok(Some(()));
                 }
@@ -167,8 +170,8 @@ impl Engine {
                 let mut cursor = None;
 
                 if over_scene {
-                    self.select_screen(screen as u32);
-                    self.select_descriptor(minfo as u32);
+                    self.select_screen(cell::unsigned(screen));
+                    self.select_descriptor(cell::unsigned(minfo));
                     result = area_containing(
                         mem,
                         mmx,
@@ -176,7 +179,7 @@ impl Engine {
                         lditem,
                         s_lditem,
                         a_lditem,
-                        self.skips_holes,
+                        self.profile.skips_holes,
                     );
                     let tb = self.descriptor_table();
                     let txt = self.descriptor_text_entry();
@@ -218,8 +221,8 @@ impl Engine {
                         }
                     }
                 } else if over_bar {
-                    self.select_screen(screen as u32);
-                    self.select_descriptor(minfo as u32);
+                    self.select_screen(cell::unsigned(screen));
+                    self.select_descriptor(cell::unsigned(minfo));
                     // The bar's slots are where `CCALCINV` puts them; where
                     // the bar starts and how wide a slot is differs between
                     // the two engines, see [`Rules`].
@@ -256,8 +259,8 @@ impl Engine {
                         }
                     }
                 } else {
-                    self.select_screen(screen as u32);
-                    self.select_descriptor(minfo as u32);
+                    self.select_screen(cell::unsigned(screen));
+                    self.select_descriptor(cell::unsigned(minfo));
                     let tb = self.descriptor_table();
                     let txt = self.descriptor_text_entry();
                     if !(tb == one && txt == 1) {
@@ -276,35 +279,35 @@ impl Engine {
                 }
                 stack.push(result);
             }
-            "MOUSEX" => {
+            Word::MOUSEX => {
                 self.polled();
-                stack.push(self.mouse.x);
+                stack.push(self.input.mouse.x);
             }
-            "MOUSEY" => {
+            Word::MOUSEY => {
                 self.polled();
-                stack.push(self.mouse.y);
+                stack.push(self.input.mouse.y);
             }
-            "MOUSELK" => {
+            Word::MOUSELK => {
                 self.polled();
-                stack.push(self.mouse.left);
+                stack.push(self.input.mouse.left);
             }
-            "MOUSERK" => {
+            Word::MOUSERK => {
                 self.polled();
-                stack.push(self.mouse.right);
+                stack.push(self.input.mouse.right);
             }
             // y first, then x, so x is what ends up on top — that is the order
             // the handler pushes the two record fields in, and it was the other
             // way round here until the handler was read.
-            "MOUSEXY" => {
+            Word::MOUSEXY => {
                 self.polled();
-                stack.extend([self.mouse.y, self.mouse.x]);
+                stack.extend([self.input.mouse.y, self.input.mouse.x]);
             }
 
             // --- input, timers, sound ---------------------------------------
             // Gives the pointer a shape. The handler looks the sprite up, hides
             // the pointer and installs the new one at the given hotspot — state,
             // not nothing, which is why it is not on the inert list.
-            "XATMOUSE" => {
+            Word::XATMOUSE => {
                 let a = pop_n(stack, 3, "XATMOUSE")?;
                 self.set_pointer_sprite(a[2], a[0], a[1]);
             }
@@ -313,7 +316,7 @@ impl Engine {
             // corner. The two zeros are constants, not the pointer's own
             // position — which is the plausible reading and the wrong way
             // round, since the hotspot is an offset *into* the sprite.
-            "ATMOUSE" => {
+            Word::ATMOUSE => {
                 let sprite = pop1(stack, "ATMOUSE")?;
                 self.set_pointer_sprite(sprite, 0, 0);
             }
@@ -329,7 +332,7 @@ impl Engine {
     /// `SHOWMOUSE` and `NORMMOUSE` put it back. Only visibility: the shape and
     /// the hotspot stay as [`Engine::set_pointer_sprite`] left them.
     pub(crate) fn hide_pointer(&mut self) {
-        self.pointer_visible = false;
+        self.cursor_state.visible = false;
     }
 
     /// `XATMOUSE`: gives the pointer a shape.
@@ -339,7 +342,7 @@ impl Engine {
     /// the inert list. A negative sprite is floored at zero, as the handler's
     /// lookup does.
     pub(crate) fn set_pointer_sprite(&mut self, sprite: i32, hot_x: i32, hot_y: i32) {
-        self.cursor = Some((sprite.max(0) as u32, hot_x, hot_y));
+        self.cursor_state.shape = Some((cell::unsigned(sprite.max(0)), hot_x, hot_y));
     }
 }
 

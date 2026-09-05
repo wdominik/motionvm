@@ -357,6 +357,24 @@ every person sprite: the 16-bit game draws through off-screen buffers,
 where the 32-bit game leaves the same words unused or inert. See
 [Off-screen buffers](../engine/buffers.md).
 
+## `RANDOM`
+
+Ordinal 79's handler (`12c8:10f6`) pops the count, calls the generator at
+`110a:04a8` and pushes what comes back. The generator is the 32-bit
+engine's to the word, on 16-bit values: a counter (`DS:0x7b9e`, 0 in the
+file) stepped by 331 a call and set to 1 when it wraps to 0, and the clock
+— the millisecond counter the sound driver's interrupt advances
+(`DS:0x7bb8`, see the [frame loop](../engine/game-loop.md#the-frame-loop)),
+divided by five to the 200 Hz tick and, where the timer setup at
+`110a:0414` was given a 1 or a 2 (`DS:0x10ce`), by four or by two more —
+combined as `((t + s) / s) xor ((t − s) mod s)`, unsigned, and reduced
+modulo the count. All four builds carry it: `HPPLAY.EXE` at file `0x143e7`,
+`BMZ.EXE` at `0x14581`, `LL.EXE` at `0xb72f`, their counters at `0x7b40`,
+`0x7c40` and `0x80a0`. Die Enviro-Kids greifen ein asks 188 times, every one
+with a literal count but four, which add eight to what `?GEW` answers. What
+the rebuild does instead, and why, is on the
+[departures](../../departures.md) page.
+
 ## What is read
 
 The stack helpers and the calling convention (data stack pointer at

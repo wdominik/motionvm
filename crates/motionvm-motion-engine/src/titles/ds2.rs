@@ -59,16 +59,18 @@ const REQUIRED: &[(&str, &str)] = &[
 ///
 /// Both are module 2 variables the game's own compiler named, and both are
 /// read from here: `_STARTLOC` is the location a run begins at,
-/// [`crate::Driven::start_location`], and `_NEXTLOC` is the one the stand-in
-/// frame loop moves to. A container that does not define them is not a container
-/// this code can drive, whatever else it holds.
+/// [`crate::Driven::start_location`], and `_NEXTLOC` is the cell a script
+/// writes to ask for the next one, which `ICTRL` acts on inside its own frame.
+/// A container that does not define them is not a container this code can
+/// drive, whatever else it holds.
 pub(super) const SIGNATURE: &[&str] = &["_STARTLOC", "_NEXTLOC"];
 
 /// Where it keeps the location it is in and the one it is going to.
 ///
 /// `_STARTLOC` in module 2 is what a run begins at and what a location
-/// request writes; the stand-in frame loop moves through [`SHELL`]'s
-/// `_NEXTLOC` instead. There is nothing to fall back to and no value that
+/// request writes; a move between locations goes through `_NEXTLOC`, which
+/// `ICTRL` reads and consumes inside one frame, so nothing outside the game
+/// ever sees it set. There is nothing to fall back to and no value that
 /// means "none" — the variable exists only once the container is open, and
 /// `None` before that is the lookup failing rather than a sentinel.
 pub(super) const LOCATION: LocationScheme = LocationScheme {
@@ -107,18 +109,12 @@ impl Game<m32::Vm> {
 /// Where the game keeps its shell variables — the module its compiler put
 /// them in and the names it gave them.
 ///
-/// The *mechanism* behind each — which one the input writes, which ones the
-/// stand-in frame loop reads, which pair the intro's progress is read from —
-/// is the generation's and lives in [`super::motion32`], the way
+/// The *mechanism* behind them — which pair the intro's progress is read
+/// from — is the generation's and lives in [`super::motion32`], the way
 /// [`LocationScheme`] splits the same pair for locations. Only the names are
 /// this game's.
 pub(super) const SHELL: motion32::Shell = motion32::Shell {
     module: 2,
-    left: "_MLK",
-    right: "_MRK",
-    key: "_AKTKEY",
-    next_location: "_NEXTLOC",
-    handler: "_LTHANDLER",
     task: "_LOCTASK",
     task_phase: "_LOCTASKPHA",
 };

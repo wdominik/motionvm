@@ -91,6 +91,52 @@ fn dunkle_schatten_2_plays_through_the_contract() {
     for _ in 0..25 {
         game.step().expect("a frame");
     }
-    let frame = game.render();
-    assert_eq!((frame.width, frame.height), game.display_size());
+    let size = game.display_size();
+    let frame = game.frame();
+    assert_eq!(
+        (frame.pixels.width, frame.pixels.height),
+        (size.width, size.height)
+    );
+}
+
+/// What a run has to say about itself reaches the window through the
+/// contract, and is not printed by the library on the way.
+///
+/// The engine's departures ledger says what a run walked past is counted and
+/// named at the end of it. This is the channel that makes that sentence true,
+/// so it is worth a test that the channel carries. Twenty-five frames of
+/// Dunkle Schatten 2's title reach five words that are deliberately inert; the
+/// stray reads that the same ledger promises need a location that has one, and
+/// are pinned in the engine's own suite.
+#[test]
+fn a_run_says_what_it_walked_past() {
+    let Some(dir) = motionvm_motion_testutil::gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let mut game = MOTION.open(&dir).expect("opens");
+    // Nothing has run, so there is nothing to report yet — which says the
+    // report is of the run and not of the game.
+    assert!(game.diagnostics().is_empty(), "an unstarted game is silent");
+
+    game.start().expect("startup parks");
+    for _ in 0..25 {
+        game.step().expect("a frame");
+    }
+    let notes = game.diagnostics();
+    let inert = notes
+        .iter()
+        .find(|d| d.subject == "words reached that do nothing")
+        .unwrap_or_else(|| panic!("no inert-word line in {notes:?}"));
+    // Which words those are is the engine suite's business — `NO_EFFECT` is
+    // where they are argued for. What is asserted here is that the count
+    // reached the far side of the contract at all.
+    assert!(inert.detail.contains('×'), "{}", inert.detail);
+    assert!(
+        inert
+            .to_string()
+            .starts_with("words reached that do nothing: ")
+    );
+    // Asking again answers again: it is the report as it stands, not a queue.
+    assert_eq!(game.diagnostics(), notes);
 }

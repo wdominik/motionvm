@@ -12,9 +12,11 @@
 //!
 //! The game this file drives is Victor Loomes (MOTION 16-bit).
 
+mod common;
+
 use motionvm_motion_engine::{Game, titles};
 use motionvm_motion_forth::m16::Vm;
-use motionvm_motion_testutil::gamedata_vloomes;
+use motionvm_motion_testutil::{Digests, digest, gamedata_vloomes};
 
 /// Runs `RUN` until it has left the intro and entered its first location.
 ///
@@ -45,6 +47,11 @@ fn into_the_game() -> Option<Game<Vm>> {
     panic!("the intro never reached a location");
 }
 
+/// This game's table of reference digests.
+fn digests() -> Digests {
+    common::digests("vloomes")
+}
+
 #[test]
 fn run_enters_location_1_and_the_room_draws() {
     let Some(mut game) = into_the_game() else {
@@ -60,6 +67,10 @@ fn run_enters_location_1_and_the_room_draws() {
     // asked for by size rather than the total by presence.
     let lit = game.render().pixels.iter().filter(|&&p| p != 0).count();
     assert!(lit > 20_000, "the room drew {lit} pixels");
+    // The office as `RUN` leaves it, six hundred settled frames after
+    // `1 INCLORT`. Everything up to here is the game's own path, so this is
+    // the picture on any machine that has the game.
+    digests().check("location_1", digest::frame(&game.render()));
 }
 
 #[test]
@@ -118,7 +129,7 @@ fn clicking_around_the_room_asks_what_is_under_the_pointer() {
         (300, 90),
     ];
     for (x, y) in spots {
-        hold(&mut game, x, y, 400, 200);
+        common::hold(&mut game, x, y, 400, 200);
     }
     assert!(!game.finished(), "the game is still playing");
     assert_eq!(game.get_var(605, "AO"), Some(1), "still in the room");
@@ -169,22 +180,6 @@ fn the_panel_comes_down_when_the_pointer_goes_up() {
     assert_eq!(panel(&game), Some(0), "and it goes away again");
 }
 
-/// Frames at a point, with the click on exactly one of them.
-///
-/// One frame, because that is what a player's click is worth: the window
-/// clears the flag as soon as it has handed it over, so a click the game does
-/// not act on in that step is gone. A test that held the button down would
-/// pass while the game was unplayable.
-fn hold(game: &mut Game<Vm>, x: i32, y: i32, frames: i32, click_at: i32) {
-    for f in 0..frames {
-        game.set_input(x, y, f == click_at, false, 0)
-            .expect("input");
-        game.pump().expect("pump");
-        game.step()
-            .unwrap_or_else(|e| panic!("at {x},{y} frame {f}: {e}"));
-    }
-}
-
 #[test]
 fn the_menu_saves_through_its_own_box() {
     let Some(mut game) = into_the_game() else {
@@ -196,8 +191,8 @@ fn the_menu_saves_through_its_own_box() {
 
     // The panel down, then the upper half of the strip on the right, which
     // `CTRL` turns into its own key code 317 (`MOUSEX 268 >= … MOUSEY 11 <`).
-    hold(&mut game, 160, 8, 300, -1);
-    hold(&mut game, 290, 5, 400, 100);
+    common::hold(&mut game, 160, 8, 300, -1);
+    common::hold(&mut game, 290, 5, 400, 100);
 
     // `REQUEST` is up and the machine is standing on the word: the box asks
     // `Spielstand sichern:` over five buttons, one per slot.
@@ -206,7 +201,7 @@ fn the_menu_saves_through_its_own_box() {
     // Button A. It starts five in from the box's left edge and is
     // `(240 - 10 - 4 * 4) / 5` wide, on the row `h - 19` to `h - 5` — the box
     // itself is at 40,65 and 240 by 70, all of it from `CTRL`'s own call.
-    hold(&mut game, 60, 122, 600, 100);
+    common::hold(&mut game, 60, 122, 600, 100);
     assert!(!game.engine.has_request(), "the box is answered and gone");
 
     // `CTRL` takes an answer between 1 and 5 and writes the three files:
@@ -229,8 +224,8 @@ fn the_request_box_spaces_its_glyphs_the_way_the_drawer_does() {
     };
     game.set_saves(&motionvm_motion_testutil::saves_dir("vloomes-menu-gap"))
         .expect("a save directory");
-    hold(&mut game, 160, 8, 300, -1);
-    hold(&mut game, 290, 5, 400, 100);
+    common::hold(&mut game, 160, 8, 300, -1);
+    common::hold(&mut game, 290, 5, 400, 100);
     assert!(game.engine.has_request(), "the box is up");
 
     // The box is at 40,65 and 240 by 70, and its message — text table 6's
@@ -245,7 +240,7 @@ fn the_request_box_spaces_its_glyphs_the_way_the_drawer_does() {
     // with none — 98 against 80, which is what running the glyphs together
     // looks like.
     let fb = game.render();
-    let at = |x: i32, y: i32| fb.pixels[(y * fb.width as i32 + x) as usize];
+    let at = |x: i32, y: i32| fb.pixels[usize::try_from(y * i32::from(fb.width) + x).unwrap()];
     // The box is filled in `SYSBC` before anything is drawn on it, so the
     // ink is whatever differs from that — sampled from a row the message and
     // the buttons both leave alone.
@@ -269,15 +264,15 @@ fn the_menu_offers_the_slot_that_was_saved() {
     };
     let saves = motionvm_motion_testutil::saves_dir("vloomes-menu-load");
     game.set_saves(&saves).expect("a save directory");
-    hold(&mut game, 160, 8, 300, -1);
-    hold(&mut game, 290, 5, 400, 100);
-    hold(&mut game, 60, 122, 600, 100);
+    common::hold(&mut game, 160, 8, 300, -1);
+    common::hold(&mut game, 290, 5, 400, 100);
+    common::hold(&mut game, 60, 122, 600, 100);
 
     // The lower half of the same strip is key code 318, the load page. It
     // probes the slots with `706 701 DO I =>EXIST LOOP` and offers what it
     // finds — one button, because one slot was written.
-    hold(&mut game, 160, 8, 300, -1);
-    hold(&mut game, 290, 16, 400, 100);
+    common::hold(&mut game, 160, 8, 300, -1);
+    common::hold(&mut game, 290, 16, 400, 100);
     assert!(game.engine.has_request(), "the load box is up");
 }
 

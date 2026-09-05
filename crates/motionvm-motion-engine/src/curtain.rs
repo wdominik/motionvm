@@ -11,11 +11,14 @@
 //! as a band rather than as a frame. See [`crate::clock`].
 
 use crate::Engine;
+use motionvm_motion_forth::cell;
 
 impl Engine {
     /// Whether a transition is running, and so whether the interpreter is held.
     pub fn in_transition(&self) -> bool {
-        !self.curtains.is_empty() || !self.wipes.is_empty() || self.scroll.is_some()
+        !self.transitions.curtains.is_empty()
+            || !self.transitions.wipes.is_empty()
+            || self.transitions.scroll.is_some()
     }
 
     /// Moves the running transition on, dropping it when finished.
@@ -48,7 +51,7 @@ impl Engine {
     /// 16-bit handler (`ENVIRO.EXE` file `0xc149`) blits exactly one such
     /// step per `DELAY` tick out of its own loop, the surface untouched.
     fn advance_scroll(&mut self) {
-        let Some(sc) = self.scroll else {
+        let Some(sc) = self.transitions.scroll else {
             return;
         };
         let mut done = true;
@@ -58,8 +61,8 @@ impl Engine {
             } else {
                 &mut s.pos.0
             };
-            let step = sc.step.max(1) as i16;
-            let target = sc.target as i16;
+            let step = cell::short(sc.step.max(1));
+            let target = cell::short(sc.target);
             if *pos < target {
                 *pos = (*pos + step).min(target);
             } else if *pos > target {
@@ -69,16 +72,16 @@ impl Engine {
         }
         self.present();
         if done {
-            self.scroll = None;
+            self.transitions.scroll = None;
         }
     }
 
     pub(crate) fn advance_curtain(&mut self) {
-        if self.scroll.is_some() {
+        if self.transitions.scroll.is_some() {
             self.advance_scroll();
             return;
         }
-        if !self.wipes.is_empty() {
+        if !self.transitions.wipes.is_empty() {
             self.advance_wipe();
             return;
         }
@@ -86,14 +89,14 @@ impl Engine {
         // is exactly one band's worth, so one call moves one band and paints
         // it, the way the handler's loop does.
         let ticks = self.step_ticks().max(1);
-        let Some(c) = self.curtains.front_mut() else {
+        let Some(c) = self.transitions.curtains.front_mut() else {
             return;
         };
         c.advance(ticks);
         let c = c.clone();
         self.paint_curtain(&c);
         if c.done() {
-            self.curtains.pop_front();
+            self.transitions.curtains.pop_front();
             if let Some(p) = c.palette_after {
                 self.display.palette = p;
             }
@@ -127,8 +130,8 @@ impl Engine {
         let band = motionvm_render::Rect {
             x: window.x,
             y: window.y + (top - y),
-            w: (w as u16).min(window.w),
-            h: (bottom - top) as u16,
+            w: cell::low16(w).min(window.w),
+            h: cell::low16(bottom - top),
         };
         self.video.copy_from(&s.buffer, band, x, top);
     }
@@ -139,14 +142,14 @@ impl Engine {
     /// paint theirs — see [`Wipe`].
     fn advance_wipe(&mut self) {
         let ticks = self.step_ticks().max(1);
-        let Some(w) = self.wipes.front_mut() else {
+        let Some(w) = self.transitions.wipes.front_mut() else {
             return;
         };
         w.advance(ticks);
         let w = w.clone();
         self.paint_wipe(&w);
         if w.done() {
-            self.wipes.pop_front();
+            self.transitions.wipes.pop_front();
             if let Some(p) = w.palette_after {
                 self.display.palette = p;
             }
@@ -194,8 +197,8 @@ impl Engine {
         let rect = motionvm_render::Rect {
             x: window.x + (bx - x),
             y: window.y + (by - y),
-            w: (bw as u16).min(window.w),
-            h: (bh as u16).min(window.h),
+            w: cell::low16(bw).min(window.w),
+            h: cell::low16(bh).min(window.h),
         };
         self.video.copy_from(&s.buffer, rect, bx, by);
     }

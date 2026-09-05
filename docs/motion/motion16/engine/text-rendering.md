@@ -38,8 +38,11 @@ the box goes to **+8**/**+0xA**.
 ## Measuring
 
 A glyph is found through a character remap the pointer at `ds:0x18D8`
-names (the [font reference table](../formats/fonts.md); `SFT 0` resets
-that stack — the game passes nothing else). A line
+names — the [font reference table](../formats/fonts.md), which `SFT n`
+installs: the handler (`05f1:1813`) spells `n` into the file template
+`#F0R3i.frt`, fetches that item through the container hook (`0362:0bf9`),
+and stores the pointer (`14ee:10ae`), freeing the table before it. The
+games pass 0 and nothing else. A line
 (`14ee:143e`) is the sum of glyph widths plus a **glyph gap** for each,
 minus one trailing gap; a block (`14ee:16fd`) is the widest line by
 `lines × height + (lines − 1) × line gap`. Both gaps are globals —
@@ -116,7 +119,6 @@ caller: its texts mark headings and paragraph ends with `#`.
   the glyph passes entirely when no template is set. The only handler that
   sets it (`05f1:16e3`) is bound to no entry of either build's kernel table,
   so no script can reach it — what it was for is unread.
-- `SFT` with a non-zero argument; the game only passes 0.
 - The stored box at +8/+0xA feeds the drawer's own save-under; whether
   anything else reads it is unchecked.
 

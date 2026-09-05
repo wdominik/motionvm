@@ -9,12 +9,17 @@
 # stable and lag the channel by a week or two.
 #
 # Note that this is not the MSRV. That is `rust-version` in Cargo.toml, which
-# says 1.97.0. It is not a floor forced by any feature — the workspace and all
-# its targets compile on 1.95.0, and only let-chains (stable in edition 2024
-# since 1.88) stop it going much further down. It is a ceiling instead:
-# **`rust-version` must stay at or below the stable the CI runner images
-# carry.** Raise it to a freshly released stable and CI goes red on all three
-# of them until the images catch up — they trail a new release by days.
+# says 1.88.0 and means it: the whole workspace and all its targets compile on
+# that toolchain, and CI's `msrv` job compiles them there on every push. It
+# stands where the code does — let-chains, stable in edition 2024 since 1.88,
+# are the newest thing the tree uses — and it rises the day a change needs a
+# newer toolchain, never before and never instead of using one.
+#
+# Cargo reads that number as a floor and refuses an older toolchain by name,
+# so it must never be kept as a ceiling for CI's runner images: that turns
+# away users on a toolchain the code compiles on, for a limit that belongs to
+# the runners. The runner lag is a fact about CI and is described in the
+# workflow.
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy"]

@@ -2,6 +2,7 @@
 //! owns does, on 32-bit cells.
 
 use super::{CELL, Vm, branch};
+use crate::cell;
 use crate::prims::{Prim, flag};
 use crate::{Address, Error, Host, Result};
 
@@ -105,7 +106,7 @@ impl Vm {
             // Push the following cell and carry on.
             Prim::PutLit => {
                 let (_, v) = self.operand()?;
-                self.push(v as i32);
+                self.push(cell::signed(v));
                 Ok(false)
             }
             // A variable: push the address of its data cell, then return. The
@@ -113,13 +114,13 @@ impl Vm {
             // writable.
             Prim::PutAdr => {
                 let at = self.ip;
-                self.push(at.0 as i32);
+                self.push(cell::signed(at.0));
                 Ok(true)
             }
             // A constant: push the value in the following cell, then return.
             Prim::PutConst => {
                 let (_, v) = self.operand()?;
-                self.push(v as i32);
+                self.push(cell::signed(v));
                 Ok(true)
             }
             // A string built into the word: push its address and carry on.
@@ -142,7 +143,7 @@ impl Vm {
             // both are right, for different questions.
             Prim::PutStringAdr => {
                 let at = self.ip;
-                self.push(at.0 as i32);
+                self.push(cell::signed(at.0));
                 let mut len = 0;
                 while self
                     .mem
@@ -205,8 +206,8 @@ impl Vm {
             };
             match self.loops.last().copied() {
                 Some(l) => {
-                    let index = self.ret[l.slot].0 as i32 + step;
-                    self.ret[l.slot] = Address(index as u32);
+                    let index = cell::signed(self.ret[l.slot].0) + step;
+                    self.ret[l.slot] = Address(cell::unsigned(index));
                     let done = if step >= 0 {
                         index >= l.limit
                     } else {
@@ -221,7 +222,7 @@ impl Vm {
                 None => {
                     return Err(Error::StackUnderflow {
                         word: "LOOP",
-                        at: self.ip,
+                        at: Some(self.ip),
                     });
                 }
             }
@@ -251,7 +252,7 @@ impl Vm {
             Prim::Dup => {
                 let v = *self.data.last().ok_or(Error::StackUnderflow {
                     word: "DUP",
-                    at: here,
+                    at: Some(here),
                 })?;
                 self.push(v);
             }
@@ -270,7 +271,7 @@ impl Vm {
                     .get(n.wrapping_sub(2))
                     .ok_or(Error::StackUnderflow {
                         word: "OVER",
-                        at: here,
+                        at: Some(here),
                     })?;
                 self.push(v);
             }
@@ -337,8 +338,8 @@ impl Vm {
             Prim::Or => self.binary("OR", |a, b| flag(a != 0 || b != 0))?,
             Prim::BitAnd => self.binary("&", |a, b| a & b)?,
             Prim::BitOr => self.binary("|", |a, b| a | b)?,
-            Prim::Shl => self.binary("<<", |a, b| a.wrapping_shl(b as u32))?,
-            Prim::Shr => self.binary(">>", |a, b| a.wrapping_shr(b as u32))?,
+            Prim::Shl => self.binary("<<", |a, b| a.wrapping_shl(cell::unsigned(b)))?,
+            Prim::Shr => self.binary(">>", |a, b| a.wrapping_shr(cell::unsigned(b)))?,
             Prim::BitNot => {
                 let a = self.pop("~")?;
                 self.push(!a);
@@ -346,50 +347,52 @@ impl Vm {
 
             Prim::Fetch => {
                 let a = self.pop("@")?;
-                let v = self.fetch(Address(a as u32))?;
-                self.push(v as i32);
+                let v = self.fetch(Address(cell::unsigned(a)))?;
+                self.push(cell::signed(v));
             }
             Prim::Store => {
                 let (addr, v) = (self.pop("!")?, self.pop("!")?);
-                self.store(Address(addr as u32), v as u32)?;
+                self.store(Address(cell::unsigned(addr)), cell::unsigned(v))?;
             }
             // Addresses are byte-granular, so these are real byte accesses
             // rather than the low byte of a cell.
             Prim::FetchByte => {
                 let a = self.pop("C@")?;
-                let v = self.mem.fetch_byte(Address(a as u32))?;
-                self.push(v as i32);
+                let v = self.mem.fetch_byte(Address(cell::unsigned(a)))?;
+                self.push(i32::from(v));
             }
             Prim::StoreByte => {
                 let (addr, v) = (self.pop("C!")?, self.pop("C!")?);
-                self.mem.store_byte(Address(addr as u32), v as u8)?;
+                self.mem
+                    .store_byte(Address(cell::unsigned(addr)), cell::low8(v))?;
             }
 
             Prim::ToR => {
                 let a = self.pop(">R")?;
-                self.ret.push(Address(a as u32));
+                self.ret.push(Address(cell::unsigned(a)));
             }
             Prim::FromR => {
                 let a = self.ret.pop().ok_or(Error::StackUnderflow {
                     word: "R>",
-                    at: here,
+                    at: Some(here),
                 })?;
-                self.push(a.0 as i32);
+                self.push(cell::signed(a.0));
             }
             // Whatever is on top of the return stack, loop counter or not.
             Prim::LoopIndex => {
                 let v = *self.ret.last().ok_or(Error::StackUnderflow {
                     word: "I",
-                    at: here,
+                    at: Some(here),
                 })?;
-                self.push(v.0 as i32);
+                self.push(cell::signed(v.0));
             }
             // The enclosing loop's counter, which is its own slot.
             // `I'` is the 16-bit kernel's, and no 32-bit module names it.
             Prim::NextLoopIndex => {
                 return Err(Error::Unread {
                     what: "I', which this kernel does not have".into(),
-                    at: "the 32-bit kernel names no such word",
+                    binary: "ENGINE.EXE",
+                    at: "no such word in its kernel table",
                 });
             }
             Prim::OuterLoopIndex => {
@@ -399,10 +402,10 @@ impl Vm {
                     .get(n.wrapping_sub(2))
                     .ok_or(Error::StackUnderflow {
                         word: "J",
-                        at: here,
+                        at: Some(here),
                     })?;
                 let v = self.ret[l.slot];
-                self.push(v.0 as i32);
+                self.push(cell::signed(v.0));
             }
             Prim::Leave => {
                 if let Some(l) = self.loops.pop() {
@@ -410,15 +413,23 @@ impl Vm {
                 }
             }
 
+            // `RANDOM ( n -- r )`: `r` in `0..n`. The original divides
+            // unsigned — a zero would fault it and a negative count leaves
+            // its hash unreduced — and no shipped call pushes either, so
+            // zero is what those get here.
             Prim::Random => {
                 let n = self.pop("RANDOM")?;
                 let r = self.next_rng();
-                self.push(if n > 0 { (r % n as u32) as i32 } else { 0 });
+                self.push(if n > 0 {
+                    cell::signed(r % cell::unsigned(n))
+                } else {
+                    0
+                });
             }
             Prim::Execute => {
                 let a = self.pop("EXECUTE")?;
                 self.ret.push(self.ip);
-                self.ip = Address(a as u32);
+                self.ip = Address(cell::unsigned(a));
             }
 
             // DO: opens a loop frame. Argument order is Forth's usual
@@ -426,29 +437,34 @@ impl Vm {
             // original and reading back what it accumulated.
             Prim::LoopStart => {
                 let (index, limit) = (self.pop("DO")?, self.pop("DO")?);
-                self.ret.push(Address(index as u32));
+                self.ret.push(Address(cell::unsigned(index)));
                 self.loops.push(crate::Loop {
                     limit,
                     slot: self.ret.len() - 1,
                 });
             }
 
-            // Anything the interpreter does not own is the engine's. This is
-            // the one place a name is still materialized, and the engine wants
-            // one: [`Host::word`] dispatches on it.
+            // Anything the interpreter does not own is the engine's, named
+            // by the ordinal the cell held: [`Host::word`] dispatches on it
+            // through a table of its own.
             //
-            // The ordinal cannot be missing here — `Prim::Host` is only ever
-            // written for an ordinal that came out of the kernel table — but
-            // saying so with a `panic!` would put one on the interpreter's
+            // The ordinal cannot be missing from the kernel table here —
+            // `Prim::Host` is only ever written for one that came out of it —
+            // but saying so with a `panic!` would put one on the interpreter's
             // path for no gain, so the impossible case answers the way an
             // ordinal that is genuinely not a word does.
             Prim::Host => {
-                let Some(name) = self.ordinal_name(ordinal).map(str::to_owned) else {
-                    return Err(Error::UnknownOrdinal { ordinal, at: here });
-                };
-                if !host.word(&name, self)? {
-                    // Used to report `ordinal 0` for every unimplemented word,
-                    // because this layer had only the name. It has both now.
+                self.core.host_word();
+                // The name is materialized on the error paths and nowhere
+                // else. Building it for every host word would be a map lookup
+                // and an allocation apiece, for a string the engine has no use
+                // for: it resolves the ordinal once when the game opens.
+                if !host.word(ordinal, self)? {
+                    let Some(name) = self.ordinal_name(ordinal).map(str::to_owned) else {
+                        return Err(Error::UnknownOrdinal { ordinal, at: here });
+                    };
+                    // Both the ordinal and the name: a report of `ordinal 0`
+                    // for every unimplemented word would name no place.
                     return Err(Error::Unimplemented {
                         ordinal,
                         name,

@@ -18,12 +18,17 @@ interaction machine is mapped in skeleton and key paths
 ([Interaction machine](motion32/engine/interaction.md),
 [Dialogue machine](motion32/engine/dialogue-machine.md)); `MOUSEINFO` (24 args),
 `?XINSIDE`, `CCALCINV`, `ADDTOINV`/`SUBFROMINV`, `CTRL`, `DELAY`,
-`QUITANIM`, `EXIST`, `FREEZESCR`, `GET` are handler-read. What remains:
+`QUITANIM`, `EXIST`, `FREEZESCR`, `GET` are handler-read. `MOUSEINFO`'s
+call sites are walked as well: two, `SCANITEM` and `FSCANITEM` in module 5,
+differing in the redraw flag and in one of the four arguments the handler
+pops and never reads
+([Interaction machine](motion32/engine/interaction.md#pointer-info--mouseinfo)).
+What remains:
 
 | Area | Open |
 |---|---|
 | Interaction | What script code sets and clears the click gates `_ORDER+0x134`/`+0x1CC`. (**All eight `EXECORDER` verbs are read and built**, as are `TEXTTOPERSON` `0x7b053` and the keyword search of verbs 6 and 7. The verb menu too: the right click, modes 2–8, `GMSHOWMENU`/`GMREMOVEMENU`/`HIGHLIGHTORDERS`/`ANIMATEORDERS`/`CHOOSEORDERS`/`VERBOFSLOT`/`SPRRANGEOFVERB` and the epilogue `0x7eae2`) |
-| Dialogue | Modes 15, 17, 18; the mid-conversation right-click menu. (Branch actions 5/6 and the name lookup `0x61596` are read and built; one recorded [departure](departures.md): the rebuild walks modules by number, the original's table at `0xEE6D0` by entry order. How `=>GET`/`=>ERASE` assign entries is read — first free slot, freed in place — and modeled, see [Savegames](motion32/engine/savegames.md)) |
+| Dialogue | Nothing in the machine itself: modes 12 to 18 are read, and the one the shipped game cannot reach — 15, entered only by `0x7b120`, which nothing calls, jumps to or points at — is refused rather than built. (Branch actions 5/6 and the name lookup `0x61596` are read and built; one recorded [departure](departures.md): the rebuild walks modules by number, the original's table at `0xEE6D0` by entry order. How `=>GET`/`=>ERASE` assign entries is read — first free slot, freed in place — and modeled, see [Savegames](motion32/engine/savegames.md)) |
 | Walking | Command 1007's call path (no queue in the game writes one); whether the two line kinds mean more than which end anchors the scale ramp |
 | Animation | The native layer: `ANIMPLAY` (meaning of the ten values the game pushes — the handler pops none), `ANIMSIM`. (`PUTANIM` `0x6dd87` and `GETANIM` `0x6e355` are read: the file layout, the tags `0x3E9`/`0x3EA`/`0x3EB`/`0x3EC`/`0x3EF` and the five globals are in [Savegames](motion32/engine/savegames.md). What three of them — `0xDB4AC`, `0xDB4B4`, `0xDB4B8` — and the 180-byte table at `0xF2594` mean is still open) |
 | Text | The layout fields `+0x24`/`+0x2C` (glyph-origin shift); the third callback-address check `0x68367`. **Vertical centering**: `0x2588e` and the three instructions after it compute the height with no gap term, but a real run puts a caption at 166 where that arithmetic gives 167, so the code centers on the gap-inclusive height. What the instruction reading is missing — most likely that `schrift[+2]` already carries the leading — is unread. See [Text rendering](motion32/engine/text-rendering.md) |
@@ -32,6 +37,22 @@ interaction machine is mapped in skeleton and key paths
 | Misc | `TXTSTAT` record layout, `REQUEST`/`SDIAL`. (`ADDMESSPIPE` is read and built: it appends a 0x22-byte record to the deferred-change queue at `_ORDER+0x1C0`, the same one the branch nodes write.) (`?INVINCL` is read and built.) Location 12 cannot be entered: its location-table entry is uninitialized in the shipped data, so the jump goes nowhere in the original too |
 
 See [Kernel words](motion32/vm/kernel-words.md).
+
+**Seven kernel words the modules name are not built, and none is
+reachable.** The test suite disassembles every module the game ships and
+holds each kernel word it names to be implemented; these are the ones left,
+with what reaches for them: `?STIME` and `->STARTSAMPLE` in the
+sampled-speech pump — `SAMPLE_TIMING` (module 4), `->SPEECHSEQ` and
+`SPEECHSEQ->` (module 5) — which nothing calls, the speech path playing WAV
+files no copy of the game ships; `VIEWG8`, `->SCREEN` and `GGFXYLEN` in
+module 312, the scene macro of location 12, whose table entry is
+uninitialized; `XYCUT` in module 330, a scene macro no entry names, and with
+`VIEWG8` in module 399, the authoring sprite inspector shipped by accident;
+and `INTERPRET$`, the shell's live Forth line inside a debug layer that the
+shipped game cannot switch on — module 2 initializes `_DEBUGON` to 0 and
+every store to it in `ICTRL` is gated on its being non-zero already. What
+each would do is read from the handlers as far as the audio and shell pages
+say; none is built because nothing can reach it.
 
 ## Virtual machine
 
@@ -48,7 +69,7 @@ See [Kernel words](motion32/vm/kernel-words.md).
 - **`/LOOP` termination rule** — possibly unsigned (`_ULoopEnd`); only the
   branch encoding is measured. ([Word semantics](motion32/vm/word-semantics.md))
 - **`LEAVE` continuation point**; **negative-operand `/` and `MOD`**;
-  **division by zero**; **`RANDOM`'s generator**.
+  **division by zero**.
   ([Word semantics](motion32/vm/word-semantics.md))
 
 ## Timing
@@ -66,7 +87,9 @@ See [Kernel words](motion32/vm/kernel-words.md).
 - **`SCRVPOS`/`SCRPOS` interpretation** is a hypothesis (strongly supported
   by the pixel-exact title composition, unconfirmed in code).
   ([Screens](motion32/engine/screens.md))
-- **Fade mode 2** — a branch exists, nothing invokes it.
+- **Fade mode 2** — a branch exists, nothing invokes it: every one of the
+  180 `FADEIN`/`FADEOUT` call sites in the shipped modules pushes the
+  literal 1, so the branch is unreachable and not built.
   ([Transitions](motion32/engine/transitions.md))
 - **`NEWSETDESC`'s fifth argument** — popped and discarded everywhere
   observed. ([Descriptors](motion32/engine/descriptors.md))
@@ -145,8 +168,7 @@ Three things `fmmidi3.com` does not answer for itself: **which register bank
 is which side** (only the wiring can settle it, not a recording), **ordinal 1**
 and why ordinals 6 and 8 share a body while the fuller reset at `0x0793` is
 unreachable, and **`chan[8]`** in the engine's channel record, which is not the
-channel number. Also one measured divergence in voice allocation under a
-ten-note tick. All four are set out in
+channel number. All three are set out in
 [The FM driver](motion32/engine/fm-driver.md#open-questions).
 
 ## The music's clock
@@ -161,9 +183,6 @@ is unread. The measurement is unambiguous — over 150 notes, thirteen holds eve
 one within 41 ms where 120 Hz runs 313 ms ahead — so this is a question about
 *why*, not about *what*.
 
-The voice-allocation divergence measured in the same recording is with the
-driver: see [The FM driver](motion32/engine/fm-driver.md#open-questions).
-
 ## MOTION 16-bit
 
 The 16-bit engine is documented from its shipped files and from its
@@ -173,12 +192,6 @@ Enviro-Kids greifen ein; `HPPLAY.EXE` and `BMZ.EXE` are the same player in
 older builds and have been read only where they differ; `LL.EXE`, three
 years older again, has been read only where the game it ships with reaches
 something the others do not. What is open:
-
-- **`?KEY`'s own translation.** The handler at `12c8:063c` is listed by
-  name and address only; the extended-key marker, the modifier bits and any
-  Alt table are unread, and the 32-bit engine's translation is applied in
-  its place (the ledger records the departure). Reading it settles whether
-  the two engines' keyboards really agree past the plain character byte.
 
 - **Whether the driver clears the playing flag when a song plays out.**
   The sound module's flag (`ENVIRO.EXE` `ds:18f4`, `LL.EXE` `ds:13dc`) is
@@ -237,9 +250,16 @@ something the others do not. What is open:
   ([Descriptors](motion16/engine/descriptors.md),
   [Screens and the draw chain](motion16/engine/screens.md),
   [Transitions](motion16/engine/transitions.md))
-- **`_PutStringAdr`'s skip** — whether the handler follows the compiler's
-  padding rule; `_ChElseDup`'s semantics.
-  ([Threaded code](motion16/vm/threaded-code.md))
+- **`_ChElseDup`'s semantics** — its runtime is unread, and no site reaches
+  it. ([Threaded code](motion16/vm/threaded-code.md))
+- **Whether Victor Loomes stops for a key when the key is used on the car.**
+  The talk kernel (`SETTALKKERN…`, module 608) calls the assertion hook
+  `PRINT` when it finds its reply descriptor active, and `PRINT` ends in
+  `KEY`, which blocks; motionvm reaches that branch on the car and answers
+  at once ([departures](departures.md#the-16-bit-machine)). If the original
+  does not reach it, the reply descriptor is active here where it is not
+  there, and that is the thing to find.
+  ([Interaction](motion16/engine/interaction.md))
 - **The `link` field** of a word header. ([Script modules](motion16/formats/script-modules.md))
 - **Block fields** — the route links, the extended-route values, the click
   `kind`, the item record's `DR`/`DX`/`DY`/`EXIT`/`ORDER`, and the
@@ -259,9 +279,6 @@ something the others do not. What is open:
   is the key, skipped per pixel), but its row-start arithmetic on a
   top-clipped sprite of non-eightfold width reads as a shear.
   ([Sprites](motion16/formats/sprites.md))
-- **`SFT` with a non-zero argument** — the game only passes 0; the
-  drawer's rules themselves are read
-  ([Text rendering](motion16/engine/text-rendering.md)).
 - **The spare `u32` entries** at the end of a container's offset table —
   their count is in the header at 20 and they are zero in every shipped
   container. ([The DATA container](motion16/formats/container.md))
@@ -288,13 +305,6 @@ something the others do not. What is open:
   integers. ([Blocks](motion16/formats/blocks.md))
 - **`A.DAT`** — unreferenced by Die Enviro-Kids greifen ein's player,
   117 192 bytes of high entropy. ([Other files](games/enviro/other-files.md))
-
-- **What `NEWSETDESC` does when a screen already holds a hundred descriptors**
-  — `05f1:0ad4` jumps past every pop *and* the push, so six values stay on the
-  data stack and no handle comes back. motionvm pops cleanly and answers a
-  handle, which is a divergence from the hundred-and-first descriptor on;
-  nothing in the shipped games gets near it.
-  ([Descriptors](motion16/engine/descriptors.md))
 
 - **Hilfe für Amajambere's location 7 has no item table** — block 307 is not
   in the container, and its occupancy word agrees, while `INCLLOC` loads block

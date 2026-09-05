@@ -59,6 +59,7 @@
 use crate::chip::Write;
 use crate::error::{Error, Result};
 use crate::m32::sequencer::{Kind, Message};
+use crate::num;
 use motionvm_motion_formats::m32::bnk::Bank;
 use motionvm_motion_formats::m32::drv::Driver;
 
@@ -147,12 +148,12 @@ impl Tables {
 
     /// The modulator's register offset for an OPL channel.
     fn modulator(&self, voice: usize) -> usize {
-        self.operators[voice * 2] as usize
+        usize::from(self.operators[voice * 2])
     }
 
     /// The carrier's register offset for an OPL channel.
     fn carrier(&self, voice: usize) -> usize {
-        self.operators[voice * 2 + 1] as usize
+        usize::from(self.operators[voice * 2 + 1])
     }
 }
 
@@ -228,7 +229,7 @@ impl Patch {
 /// which reads 127 in both shipped banks while 128 records are present. Three
 /// records are therefore left raw.
 pub fn convert_bank(bank: &Bank) -> Vec<Patch> {
-    let converted = (bank.used as usize).saturating_sub(2);
+    let converted = usize::from(bank.used).saturating_sub(2);
     bank.raw
         .iter()
         .enumerate()
@@ -248,6 +249,7 @@ pub const VOICES: usize = 9;
 const OPERATOR_SLOTS: usize = 0x16;
 
 /// The driver's own memory, named after the addresses it lives at.
+#[derive(Debug)]
 pub struct Fm {
     tables: Tables,
     melodic: Vec<Patch>,
@@ -358,15 +360,15 @@ impl Fm {
         self.write(1, 0x04, 0x00);
         for v in 0..VOICES {
             self.shadow_b0[v] = 0;
-            self.write(0, 0xb0 + v as u8, 0);
-            self.write(1, 0xb0 + v as u8, 0);
+            self.write(0, 0xb0 + num::reg(v), 0);
+            self.write(1, 0xb0 + num::reg(v), 0);
         }
         self.write(0, 0xbd, 0xc0);
     }
 
     /// One MIDI message from the sequencer.
     pub fn send(&mut self, m: Message) {
-        let ch = (m.channel & 0x0f) as usize;
+        let ch = usize::from(m.channel & 0x0f);
         match m.kind {
             // A velocity of zero is not a note-off — the sequencer does not
             // send one and neither does the format.
@@ -388,7 +390,7 @@ impl Fm {
         let percussion = ch == 9;
         let voice = self.alloc(ch, note);
         self.stop(voice);
-        self.owner[voice] = ch as u8;
+        self.owner[voice] = num::reg(ch);
 
         // Five times the same write: the original hammers the old voice's
         // release rate to the fastest setting so the envelope is down before
@@ -397,16 +399,19 @@ impl Fm {
         for _ in 0..5 {
             for op in [self.tables.carrier(voice), self.tables.modulator(voice)] {
                 let v = self.sustain_shadow(op) | 0x0f;
-                self.write(0, 0x80 + op as u8, v);
-                self.write(1, 0x80 + op as u8, v);
+                self.write(0, 0x80 + num::reg(op), v);
+                self.write(1, 0x80 + num::reg(op), v);
             }
         }
 
         let patch = if percussion {
-            self.drums.get(note as usize).copied().unwrap_or_default()
+            self.drums
+                .get(usize::from(note))
+                .copied()
+                .unwrap_or_default()
         } else {
             self.melodic
-                .get(self.program[ch] as usize)
+                .get(usize::from(self.program[ch]))
                 .copied()
                 .unwrap_or_default()
         };
@@ -415,14 +420,14 @@ impl Fm {
         self.velocity[voice] = velocity;
         // Controller 7 folded into the velocity, not sent to the chip as a
         // level of its own (`0x1081`). The `<< 7 / 0x7F` is the original's.
-        let scaled = ((((self.volume[ch] as u32) << 7) / 0x7f) * velocity as u32) >> 7;
-        let scaled = scaled as u8;
+        let scaled = (((u32::from(self.volume[ch]) << 7) / 0x7f) * u32::from(velocity)) >> 7;
+        let scaled = num::byte(scaled);
 
         // Fault 3: for percussion this reads the *melodic* patch of program
         // `program[9]`, not the drum record being played (`0x1487`).
         let connection_patch = if percussion {
             self.melodic
-                .get(self.program[9] as usize)
+                .get(usize::from(self.program[9]))
                 .copied()
                 .unwrap_or_default()
         } else {
@@ -439,7 +444,10 @@ impl Fm {
         self.set_pan(ch, self.pan[ch]);
 
         let pitch = if percussion {
-            self.drum_pitch.get(note as usize).copied().unwrap_or(note)
+            self.drum_pitch
+                .get(usize::from(note))
+                .copied()
+                .unwrap_or(note)
         } else {
             note
         };
@@ -464,7 +472,7 @@ impl Fm {
             return;
         }
         for v in 0..VOICES {
-            if self.note[v] == note && self.owner[v] as usize == ch {
+            if self.note[v] == note && usize::from(self.owner[v]) == ch {
                 self.stop(v);
                 self.note[v] = 0;
             }
@@ -481,7 +489,7 @@ impl Fm {
             if self.bent[c] {
                 continue;
             }
-            if let Some(v) = (0..VOICES).find(|&v| self.owner[v] as usize == c) {
+            if let Some(v) = (0..VOICES).find(|&v| usize::from(self.owner[v]) == c) {
                 return v;
             }
         }
@@ -497,8 +505,8 @@ impl Fm {
         }
         self.shadow_b0[voice] &= 0xdf;
         let v = self.shadow_b0[voice];
-        self.write(0, 0xb0 + voice as u8, v);
-        self.write(1, 0xb0 + voice as u8, v);
+        self.write(0, 0xb0 + num::reg(voice), v);
+        self.write(1, 0xb0 + num::reg(voice), v);
     }
 
     // ------------------------------------------------------------ registers
@@ -518,16 +526,16 @@ impl Fm {
         self.shadow_40[c] = patch.level[1];
 
         for (reg, value) in [
-            (0x20 + m as u8, patch.am_vib[0]),
-            (0x40 + m as u8, patch.level[0]),
-            (0x60 + m as u8, patch.attack_decay[0]),
-            (0x80 + m as u8, patch.sustain_release[0]),
-            (0xc0 + voice as u8, patch.feedback_connection),
-            (0xe0 + m as u8, patch.wave[0]),
-            (0x20 + c as u8, patch.am_vib[1]),
-            (0x60 + c as u8, patch.attack_decay[1]),
-            (0x80 + c as u8, patch.sustain_release[1]),
-            (0xe0 + c as u8, patch.wave[1]),
+            (0x20 + num::reg(m), patch.am_vib[0]),
+            (0x40 + num::reg(m), patch.level[0]),
+            (0x60 + num::reg(m), patch.attack_decay[0]),
+            (0x80 + num::reg(m), patch.sustain_release[0]),
+            (0xc0 + num::reg(voice), patch.feedback_connection),
+            (0xe0 + num::reg(m), patch.wave[0]),
+            (0x20 + num::reg(c), patch.am_vib[1]),
+            (0x60 + num::reg(c), patch.attack_decay[1]),
+            (0x80 + num::reg(c), patch.sustain_release[1]),
+            (0xe0 + num::reg(c), patch.wave[1]),
         ] {
             // The two output bits are the whole of this driver's stereo: bank 0
             // gets `0x20`, bank 1 gets `0x10`, so the same voice reaches both
@@ -569,16 +577,16 @@ impl Fm {
     ///   checks the whole table falls; the saturation is for images this was
     ///   never built against.
     fn level(&mut self, op: usize, velocity: u8, side: Option<u8>) {
-        let patch_level = (self.shadow_40[op] & 0x3f) as u32;
-        let curve = self.tables.velocity[(velocity & 0x7f) as usize >> 1] as u32;
+        let patch_level = u32::from(self.shadow_40[op] & 0x3f);
+        let curve = u32::from(self.tables.velocity[usize::from(velocity & 0x7f) >> 1]);
         let t = (0x40u32.saturating_sub(curve)) * 2;
         let attenuation = (0x2000u32.wrapping_sub((0x40 - patch_level) * t)) >> 7;
-        let value = (self.shadow_40[op] & 0xc0) | (attenuation as u8);
+        let value = (self.shadow_40[op] & 0xc0) | num::byte(attenuation);
         match side {
-            Some(bank) => self.write(bank, 0x40 + op as u8, value),
+            Some(bank) => self.write(bank, 0x40 + num::reg(op), value),
             None => {
-                self.write(1, 0x40 + op as u8, value);
-                self.write(0, 0x40 + op as u8, value);
+                self.write(1, 0x40 + num::reg(op), value);
+                self.write(0, 0x40 + num::reg(op), value);
             }
         }
     }
@@ -588,18 +596,18 @@ impl Fm {
         self.pan[ch] = pan;
         // Folded to a distance from whichever end is nearer, then doubled:
         // 126 at the center, 0 at either extreme.
-        let weight = (if pan >= 0x40 { 0x7f - pan } else { pan } as u32) << 1;
+        let weight = u32::from(if pan >= 0x40 { 0x7f - pan } else { pan }) << 1;
         // Which bank is quietened. See the module documentation: read against
         // the chip's own bit assignment this is the wrong way round, and only
         // the assignment — not any recording — can settle it.
         let side = if pan < 0x40 { 1 } else { 0 };
 
         for v in 0..VOICES {
-            if self.note[v] == 0 || self.owner[v] as usize != ch {
+            if self.note[v] == 0 || usize::from(self.owner[v]) != ch {
                 continue;
             }
-            let x = (self.volume[ch] as u32 * self.velocity[v] as u32) >> 7;
-            let x = ((weight * x) >> 7) as u8;
+            let x = (u32::from(self.volume[ch]) * u32::from(self.velocity[v])) >> 7;
+            let x = num::byte((weight * x) >> 7);
             let c = self.tables.carrier(v);
             self.level(c, x, Some(side));
             // And the modulator too, when the patch adds rather than chains.
@@ -608,7 +616,7 @@ impl Fm {
             // voice is judged by whatever program channel 9 was left on.
             let patch = self
                 .melodic
-                .get(self.program[self.owner[v] as usize & 0x0f] as usize)
+                .get(usize::from(self.program[usize::from(self.owner[v]) & 0x0f]))
                 .copied()
                 .unwrap_or_default();
             if patch.additive() {
@@ -623,29 +631,29 @@ impl Fm {
     fn key_on(&mut self, voice: usize, packed: u32) {
         self.set_frequency(voice, packed, false);
         let on = self.shadow_b0[voice];
-        self.write(0, 0xb0 + voice as u8, on & 0xdf);
-        self.write(1, 0xb0 + voice as u8, on & 0xdf);
-        self.write(0, 0xb0 + voice as u8, on);
-        self.write(1, 0xb0 + voice as u8, on);
+        self.write(0, 0xb0 + num::reg(voice), on & 0xdf);
+        self.write(1, 0xb0 + num::reg(voice), on & 0xdf);
+        self.write(0, 0xb0 + num::reg(voice), on);
+        self.write(1, 0xb0 + num::reg(voice), on);
     }
 
     /// `0x2B26` when `keyed`: writes `0xA0` and `0xB0` without the pulse.
     fn set_frequency(&mut self, voice: usize, packed: u32, keyed: bool) {
-        self.shadow_a0[voice] = packed as u8;
-        self.shadow_b0[voice] = ((packed >> 8) as u8) | 0x20;
+        self.shadow_a0[voice] = num::byte(packed);
+        self.shadow_b0[voice] = num::byte(packed >> 8) | 0x20;
         let a = self.shadow_a0[voice];
-        self.write(0, 0xa0 + voice as u8, a);
-        self.write(1, 0xa0 + voice as u8, a);
+        self.write(0, 0xa0 + num::reg(voice), a);
+        self.write(1, 0xa0 + num::reg(voice), a);
         if keyed {
             let b = self.shadow_b0[voice];
-            self.write(0, 0xb0 + voice as u8, b);
-            self.write(1, 0xb0 + voice as u8, b);
+            self.write(0, 0xb0 + num::reg(voice), b);
+            self.write(1, 0xb0 + num::reg(voice), b);
         }
     }
 
     /// `(block << 10) | fnum` for a note, clamped to the table.
     fn frequency(&self, note: u8) -> u32 {
-        let i = (note as usize).saturating_sub(12).min(Tables::NOTES - 1);
+        let i = usize::from(note).saturating_sub(12).min(Tables::NOTES - 1);
         self.tables.frequency[i]
     }
 
@@ -654,30 +662,30 @@ impl Fm {
     /// `0x1B5F`. Interpolates in per-mille steps between the note and the note
     /// a bend range away.
     fn bend_frequency(&self, voice: usize, note: u8, bend: u8) -> u32 {
-        let index = (note as usize).saturating_sub(12);
+        let index = usize::from(note).saturating_sub(12);
         let packed = self.frequency(note);
         let block = packed & 0x1c00;
         let fnum = packed & 0x3ff;
-        let channel = self.owner[voice] as usize & 0x0f;
+        let channel = usize::from(self.owner[voice]) & 0x0f;
 
         if bend < 0x40 {
-            let per_mille = ((0x40 - bend as u32) * 1000) >> 6;
+            let per_mille = ((0x40 - u32::from(bend)) * 1000) >> 6;
             // Fault 2: the range is indexed by the voice here and by the MIDI
             // channel three instructions later (`0x1BCD` against `0x1BFA`).
-            let range = self.bend_range[voice] as usize;
+            let range = usize::from(self.bend_range[voice]);
             let mut span = packed.wrapping_sub(self.table_at(index.wrapping_sub(range)));
             if span > 0x2cf {
                 // The two notes sit in different blocks, so the difference of
                 // the packed values is meaningless; take it between f-numbers
                 // with the lower note expressed one block up.
-                let range = self.bend_range[channel] as usize;
+                let range = usize::from(self.bend_range[channel]);
                 span = fnum.wrapping_sub(self.tables.octave_down[range.saturating_sub(1).min(11)])
                     & 0x3ff;
             }
             packed.wrapping_sub(span * per_mille / 1000)
         } else {
-            let per_mille = ((bend as u32 - 0x40) * 1000) >> 6;
-            let range = self.bend_range[channel] as usize;
+            let per_mille = ((u32::from(bend) - 0x40) * 1000) >> 6;
+            let range = usize::from(self.bend_range[channel]);
             let up = self.table_at(index + range);
             let mut span = up.wrapping_sub(packed);
             let mut packed = packed;
@@ -710,7 +718,7 @@ impl Fm {
         self.bend[ch] = msb;
         self.bent[ch] = true;
         for v in 0..VOICES {
-            if self.note[v] == 0 || self.owner[v] as usize != ch {
+            if self.note[v] == 0 || usize::from(self.owner[v]) != ch {
                 continue;
             }
             let packed = self.bend_frequency(v, self.note[v], msb);
@@ -739,7 +747,7 @@ impl Fm {
             121 | 123 => {
                 if controller == 123 {
                     for v in 0..VOICES {
-                        if self.owner[v] as usize == ch && self.note[v] != 0 {
+                        if usize::from(self.owner[v]) == ch && self.note[v] != 0 {
                             self.stop(v);
                             self.note[v] = 0;
                         }

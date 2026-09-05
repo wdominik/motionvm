@@ -10,24 +10,25 @@ use crate::Curtain;
 use crate::Engine;
 use crate::Fade;
 use crate::stack::pop_n;
+use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
 
 impl Engine {
     pub(crate) fn words_transitions(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         _mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // --- palette ----------------------------------------------------
             // Not a palette fade at all — a curtain. See [`Curtain`] for what
             // the handlers actually do with their three arguments.
-            "FADEOUT" | "FADEIN" => {
+            Word::FADEOUT | Word::FADEIN => {
                 let a = pop_n(stack, 3, "FADEIN/FADEOUT")?;
                 let (mode, duration) = (a[0], a[1]);
-                let opening = name == "FADEIN";
+                let opening = word == Word::FADEIN;
                 if mode != 1 {
                     // Mode 2 is not this effect. It is a *translucent* fade:
                     // 0x74eef fills its bands with color 0x102, which the fill
@@ -35,7 +36,7 @@ impl Engine {
                     // `SETPAL` builds (0x147ff and its siblings), not as a
                     // color. No call in the game reaches it — all 180 pass
                     // mode 1 — so it is left unbuilt rather than guessed at.
-                    self.note_unhandled(format!("{name} (mode {mode})"));
+                    self.note_unhandled(word, Some(format!("mode {mode}")));
                     return Ok(Some(()));
                 }
                 let screen = self.display.current.unwrap_or(0);
@@ -53,13 +54,20 @@ impl Engine {
                     .map(|s| {
                         let w = if opening { s.size.0 } else { s.view.0 };
                         (
-                            s.view_pos.0 as i32,
-                            s.view_pos.1 as i32,
-                            w as i32,
-                            s.view.1 as i32,
+                            i32::from(s.view_pos.0),
+                            i32::from(s.view_pos.1),
+                            i32::from(w),
+                            i32::from(s.view.1),
                         )
                     })
-                    .unwrap_or((0, 0, self.display.size.0 as i32, self.display.size.1 as i32));
+                    .unwrap_or_else(|| {
+                        (
+                            0,
+                            0,
+                            i32::from(self.display.size.width),
+                            i32::from(self.display.size.height),
+                        )
+                    });
                 // The flag `GSCRACT` reads is the same one the handlers touch:
                 // `FADEOUT` clears bit 0x80 of byte 0x13, `FADEIN` sets it. That
                 // coupling is what makes a location fade in at all — `INCLLOC`
@@ -77,17 +85,19 @@ impl Engine {
                     .find(|s| s.handle == screen)
                     .map(|s| s.active);
                 let showing = self
+                    .scene
                     .descriptors
                     .iter()
                     .filter(|d| d.active && d.screen == screen)
                     .count();
                 let background = self
+                    .scene
                     .descriptors
                     .iter()
                     .find(|d| d.active && d.screen == screen && d.shows.table().is_some())
                     .and_then(|d| d.shows.graphic());
-                self.fades.push(Fade {
-                    name: name.to_string(),
+                self.transitions.fades.push(Fade {
+                    name: word.name().to_string(),
                     screen,
                     was_active: was.unwrap_or(false),
                     showing,
@@ -122,7 +132,7 @@ impl Engine {
                     }
                     self.forget_rebuilds(screen);
                 }
-                self.curtains.push_back(Curtain {
+                self.transitions.curtains.push_back(Curtain {
                     opening,
                     screen,
                     area,

@@ -1,0 +1,16 @@
+# Reference digests for jeffjet, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+tune_1  0xee9b4e47338e772c
+tune_2  0x94812c91fbea49f0
+tune_3  0x4e766a27af376386
+tune_4  0x98ff395eec0bdf0d
+tune_5  0x9ce5f09cf3321d20
+tune_6  0xdf181483990eb8cf
+tune_7  0x9a348e26d9249c92
+tune_8  0xd38a627b07aa9b4c
+tune_9  0x230929ffd4c792a7

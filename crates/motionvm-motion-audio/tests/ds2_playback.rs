@@ -14,6 +14,27 @@ use motionvm_motion_formats::m32::{
 };
 use motionvm_motion_testutil::{game_file, gamedata_ds2};
 
+/// A count of samples, ticks or seconds in this suite's own arithmetic, which
+/// runs in floating point because the quantities it compares — a pitch, a
+/// tick rate — do. Nothing measured here comes near 2^53.
+#[expect(
+    clippy::as_conversions,
+    reason = "a measurement's count as a float; nothing here nears 2^53"
+)]
+fn real(n: u64) -> f64 {
+    n as f64
+}
+
+/// A float back to the count it stands for, truncated the way the arithmetic
+/// it came out of was written.
+#[expect(
+    clippy::as_conversions,
+    reason = "a measurement's float back to a count, truncated as written"
+)]
+fn integer(x: f64) -> u64 {
+    x as u64
+}
+
 fn parts(dir: &std::path::Path) -> (DriverArchive, InstrumentBank, InstrumentBank) {
     let bytes = std::fs::read(game_file(dir, "HMIMDRV.386")).expect("HMIMDRV.386");
     let melodic = std::fs::read(game_file(dir, "MELODIC.BNK")).expect("MELODIC.BNK");
@@ -46,10 +67,11 @@ fn song(dir: &std::path::Path, id: usize) -> Song {
 /// question here is only "what is the period", and for one sustained tone the
 /// first strong correlation peak answers it.
 fn pitch(samples: &[i16], rate: u32, low: f64, high: f64) -> f64 {
-    let mean = samples.iter().map(|&s| s as f64).sum::<f64>() / samples.len() as f64;
-    let x: Vec<f64> = samples.iter().map(|&s| s as f64 - mean).collect();
-    let min_lag = (rate as f64 / high).floor().max(2.0) as usize;
-    let max_lag = (rate as f64 / low).ceil() as usize;
+    let mean = samples.iter().map(|&s| f64::from(s)).sum::<f64>()
+        / real(u64::try_from(samples.len()).unwrap());
+    let x: Vec<f64> = samples.iter().map(|&s| f64::from(s) - mean).collect();
+    let min_lag = usize::try_from(integer((f64::from(rate) / high).floor().max(2.0))).unwrap();
+    let max_lag = usize::try_from(integer((f64::from(rate) / low).ceil())).unwrap();
     let mut best = (min_lag, f64::MIN);
     for lag in min_lag..max_lag.min(x.len() / 2) {
         let c: f64 = x[..x.len() - lag]
@@ -61,7 +83,7 @@ fn pitch(samples: &[i16], rate: u32, low: f64, high: f64) -> f64 {
             best = (lag, c);
         }
     }
-    rate as f64 / best.0 as f64
+    f64::from(rate) / real(u64::try_from(best.0).unwrap())
 }
 
 /// The frequency multiplier the chip reads out of the `0x20` register's low
@@ -71,7 +93,7 @@ fn multiple(nibble: u8) -> f64 {
         0 => 0.5,
         11 | 12 => 12.0,
         13 | 14 => 15.0,
-        n => n as f64,
+        n => f64::from(n),
     }
 }
 
@@ -164,13 +186,13 @@ fn a_note_sounds_at_its_own_pitch() {
                 velocity: 127,
             },
         });
-        let mut out = vec![0i16; rate as usize / 2 * 2];
+        let mut out = vec![0i16; usize::try_from(rate).unwrap() / 2 * 2];
         p.fill(&mut out);
 
-        let packed = tables.frequency[note as usize - 12];
+        let packed = tables.frequency[usize::from(note) - 12];
         let (block, fnum) = ((packed >> 10) & 7, packed & 0x3ff);
         let carrier_multiple = multiple(patches[0].am_vib[1]);
-        let want = fnum as f64 * 49716.0 / (1u64 << (20 - block)) as f64 * carrier_multiple;
+        let want = f64::from(fnum) * 49716.0 / f64::from(1u32 << (20 - block)) * carrier_multiple;
 
         // The attack is over long before the second half of the buffer.
         let tail = &out[out.len() / 2..];
@@ -221,13 +243,13 @@ fn panning_lands_on_one_side() {
                 velocity: 127,
             },
         });
-        let mut out = vec![0i16; rate as usize / 4 * 2];
+        let mut out = vec![0i16; usize::try_from(rate).unwrap() / 4 * 2];
         p.fill(&mut out);
         let mut l = 0.0;
         let mut r = 0.0;
         for f in out.as_chunks::<2>().0 {
-            l += (f[0] as f64).powi(2);
-            r += (f[1] as f64).powi(2);
+            l += f64::from(f[0]).powi(2);
+            r += f64::from(f[1]).powi(2);
         }
         (l.sqrt(), r.sqrt())
     };
@@ -294,11 +316,12 @@ fn the_clock_runs_at_the_rate_the_original_did() {
             whole.tick_hz()
         );
 
-        let mut out = vec![0i16; rate as usize * seconds as usize * 2];
+        let mut out =
+            vec![0i16; usize::try_from(rate).unwrap() * usize::try_from(seconds).unwrap() * 2];
         whole.fill(&mut out);
         // 115.45 Hz for five seconds is 577 ticks, and one either way is the
         // most the boundary can cost.
-        let want = (whole.tick_hz() * seconds as f64).round() as u64;
+        let want = integer((whole.tick_hz() * real(seconds)).round());
         assert!(
             whole.ticks().abs_diff(want) <= 1,
             "at {rate} Hz five seconds carried {} ticks, not {want}",
@@ -315,7 +338,7 @@ fn the_clock_runs_at_the_rate_the_original_did() {
         let mut piecemeal = player(&dir, rate);
         piecemeal.start(song(&dir, 25));
         let mut buf = vec![0i16; 1024];
-        let mut left = rate as usize * seconds as usize;
+        let mut left = usize::try_from(rate).unwrap() * usize::try_from(seconds).unwrap();
         let mut size = 1;
         while left > 0 {
             let frames = size.min(left).min(buf.len() / 2);

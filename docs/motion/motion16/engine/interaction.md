@@ -13,8 +13,25 @@ from the call sites in Die Enviro-Kids greifen ein.
 `MOUSEX`, `MOUSEY`, `MOUSELK`, `MOUSERK`, `?KEY` (0 when no key), `ATMOUSE`,
 `XATMOUSE`, `SHOWMOUSE`, `HIDEMOUSE`, `MOUSEINFO`, `?XINSIDE`. `FATMOUSE` and
 `FXATMOUSE` are script words (module 603) that store the sprite id in
-`_BMNR` and call `ATMOUSE`/`XATMOUSE`. `KEY` blocks for a key; the game
-uses it on its debug path only.
+`_BMNR` and call `ATMOUSE`/`XATMOUSE`.
+
+`?KEY` (`12c8:063c`) pushes what the keyboard translator at `110a:02a5`
+answers, and that routine is the 32-bit engine's step for step: a keystroke
+from the runtime, the shift state through INT 16h (`110a:03a0`), then
+`0x100` over a scan code, `0x200`/`0x400`/`0x800` for Shift, Ctrl and Alt,
+Shift and Ctrl over a function key folded back onto its own scan code
+(`0x54`–`0x5d` less `0x19`, `0x5e`–`0x67` less `0x23`), Alt over one likewise
+(`0x68`–`0x71` less `0x2d`), a Ctrl character up to `0x1a` given `0x40` back,
+and Alt with a letter looked up in the twenty-six-entry table at
+`ds:0x10d2` (file `0x20512`) — the same table as `ENGINE.EXE`'s, the entry
+for `Z` naming `O`'s scan code included. The two older builds test the
+answer as well — `LL.EXE` (file `0xd71b`) for F10, `HPPLAY.EXE` (file
+`0x1613c`) for F10 and F7 — and call a routine that is a bare `retf`, a
+hook compiled out. `KEY` (`12c8:061c`) loops on the same routine until it
+answers, so it blocks for a key; `LL.EXE`'s (file `0xd6f8`) also gives up
+once Ctrl-Break has been pressed, the flag its INT 1Bh handler sets. The
+scripts reach `KEY` through Victor Loomes' assertion hook `PRINT` alone,
+and motionvm answers at once there — a [departure](../../departures.md#the-16-bit-machine).
 
 ## Walking, inventory, orders, the pointer
 

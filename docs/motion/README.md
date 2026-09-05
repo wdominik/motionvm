@@ -44,9 +44,9 @@ sprites, palettes, fonts, texts and music in resource containers. The engine
 binary reads that data and runs it.
 
 Those five were built with two generations of that system, and so were the
-MOTION games this documentation cites but does not describe — *Compaq* and
-*Eddy M.*, whose containers the format pages measure over and whose games no
-page here describes. The generations
+three [other MOTION games](games/others.md) on hand — *Checker 2000*,
+*Compaq* and *Eddy M.* — whose files the readers open and the format pages
+measure over, and which no page describes as a game. The generations
 share the *language* and most of the *vocabulary*; they do not share the
 *machine*:
 
@@ -218,14 +218,23 @@ exercises.
 | [Resource inventory](games/vloomes/inventory.md) | What the one `DATA.-1-` holds, by the numbers |
 | [Other files](games/vloomes/other-files.md) | The four-program launcher chain, `GFX.INF`, the older sound setup |
 
+### The other MOTION games
+
+| Page | Covers |
+|---|---|
+| [The other MOTION games](games/others.md) | Checker 2000, Compaq and Eddy M.: what their files are, what the readers make of them, and why the player refuses them |
+
 ### Reference
 
 | Page | Covers |
 |---|---|
+| [Glossary](glossary.md) | The words this documentation uses in a fixed sense, each with the page that defines it |
 | [Open questions](open-questions.md) | Everything unknown, unverified, or hypothetical, in one place — for both generations |
 | [Departures](departures.md) | Every place motionvm knowingly does something else, and why |
 | [motionvm's savegames](savegames.md) | The layout of the three files motionvm writes per slot, and what a version change does |
 | [Verification](verification.md) | What is held against the original engine's own output, and what only against the games' files |
+| [The verification method](verification-method.md) | How a capture of the original is made and held against a frame or a register stream: the emulator's settings, the reduction, `compare-frame` and `compare-dro` |
+| [Debugging and diagnostics](debugging.md) | The switches, keys, reports and rigs for working on the engine: what a run says about itself, and the suites that hold it still |
 | [motionvm-motion-tools](tools.md) | The command-line inspector: what it reads out of a game's containers and what it writes |
 
 ## The shipped files

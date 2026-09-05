@@ -13,10 +13,11 @@
 
 use crate::chip::Write;
 use crate::m16::driver::Driver;
+use crate::num;
 use motionvm_motion_formats::m16::psm::Plx;
 
 /// One channel of a song, as the driver keeps it.
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 struct Channel {
     /// Position in the section's bytes; 0 is a dead channel (`0x796`).
     at: usize,
@@ -30,6 +31,7 @@ struct Channel {
 }
 
 /// The driver's playing state: the tick at `0xa71`, rebuilt.
+#[derive(Debug)]
 pub struct Sequencer {
     song: Plx,
     /// Loop bookkeeping: the pass this play is on and the last pass wanted
@@ -72,7 +74,7 @@ impl Sequencer {
         let mut seq = Self {
             song,
             pass: 1,
-            last_pass: loops as u16,
+            last_pass: num::passes(loops),
             row: 0,
             countdown: 0,
             ticks_per_row: 1,
@@ -97,11 +99,11 @@ impl Sequencer {
         driver
             .defaults
             .iter()
-            .enumerate()
-            .filter(|&(_, &v)| v != 0xFF)
-            .map(|(reg, &v)| Write {
+            .zip(0u8..=u8::MAX)
+            .filter(|&(&v, _)| v != 0xFF)
+            .map(|(&v, reg)| Write {
                 bank: 0,
-                reg: reg as u8,
+                reg,
                 value: v,
             })
             .collect()
@@ -113,17 +115,17 @@ impl Sequencer {
     fn prime(&mut self) {
         self.ticks_per_row = self.song.speed;
         self.period = period_of(self.song.tempo);
-        self.countdown = self.song.speed as i16 - 1;
+        self.countdown = i16::from(self.song.speed) - 1;
         self.row = 0;
         for (ch, chan) in self.channels.iter_mut().enumerate() {
-            chan.at = self.song.channels[ch] as usize;
+            chan.at = usize::from(self.song.channels[ch]);
             chan.next_row = 0;
         }
     }
 
     /// The tick period this sequencer currently runs at, in PIT cycles.
     pub fn period(&self) -> u32 {
-        self.period as u32
+        u32::from(self.period)
     }
 
     /// Whether the song still plays; cleared when every channel has ended
@@ -143,14 +145,14 @@ impl Sequencer {
         }
         self.song = song;
         self.pass = 1;
-        self.last_pass = loops as u16;
+        self.last_pass = num::passes(loops);
         self.fade_step = 0;
         self.fade_pos = (0x100 << 8) | (self.fade_pos & 0xFF);
         self.prime();
     }
     /// Starts the 2000 ms fade `ENDTUNE` starts (`0x3e2` with `0x7d0`).
     pub fn fade_out(&mut self) {
-        let ticks = (0x4a9 * 0x7d0) / self.period as i32;
+        let ticks = (0x4a9 * 0x7d0) / i32::from(self.period);
         self.fade_step = -(0x10000 / ticks.max(1));
     }
 
@@ -159,8 +161,8 @@ impl Sequencer {
     /// its fastest, so what still sounds dies away.
     pub fn silence(&mut self, out: &mut Vec<Write>) {
         for ch in (0..9).rev() {
-            let b0 = 0xb0 + ch as u8;
-            let val = self.shadow[b0 as usize];
+            let b0 = 0xb0 + num::reg(ch);
+            let val = self.shadow[usize::from(b0)];
             if val & 0x20 != 0 {
                 self.write(out, b0, val ^ 0x20);
             }
@@ -184,7 +186,7 @@ impl Sequencer {
             }
             return;
         }
-        self.countdown += self.ticks_per_row as i16;
+        self.countdown += i16::from(self.ticks_per_row);
 
         loop {
             let mut live = 0;
@@ -241,7 +243,7 @@ impl Sequencer {
                     self.channel_end(ch, out);
                     return;
                 };
-                self.instrument(ch, instrument as usize, out);
+                self.instrument(ch, usize::from(instrument), out);
             }
             if flags & 0x02 != 0 {
                 // `0x960`: the byte is a raw carrier level — loudness
@@ -252,12 +254,12 @@ impl Sequencer {
                     return;
                 };
                 self.channels[ch].volume =
-                    ((volume & 0x3F) ^ 0x3F) as u16 | ((volume & 0xC0) as u16) << 8;
+                    u16::from((volume & 0x3F) ^ 0x3F) | (u16::from(volume & 0xC0) << 8);
             }
             if flags & 0x04 != 0 {
                 // `0x97a`: only a key that is on goes off.
-                let b0 = 0xb0 + ch as u8;
-                let val = self.shadow[b0 as usize];
+                let b0 = 0xb0 + num::reg(ch);
+                let val = self.shadow[usize::from(b0)];
                 if val & 0x20 != 0 {
                     self.write(out, b0, val & !0x20);
                 }
@@ -266,7 +268,7 @@ impl Sequencer {
                 // `0x9a5`: the key bit is the flag's **or the register's** —
                 // a note without bit 5 keeps a key that is already down —
                 // and the stored frequency word carries it in its high byte.
-                let key = ((self.shadow[0xb0 + ch] | flags) as u16 & 0x20) << 8;
+                let key = (u16::from(self.shadow[0xb0 + ch] | flags) & 0x20) << 8;
                 let word = if flags & 0x08 != 0 {
                     let Some(note) = self.u8_operand(ch) else {
                         self.channel_end(ch, out);
@@ -276,7 +278,7 @@ impl Sequencer {
                     // into the word table (`0x9be`).
                     let freq = self
                         .notes
-                        .get(note as usize / 2)
+                        .get(usize::from(note) / 2)
                         .copied()
                         .unwrap_or_default();
                     freq | key
@@ -295,8 +297,8 @@ impl Sequencer {
                 // The pitch scale (`0x9e7`) stays at its default of 0x100 —
                 // nothing in the game moves it — so the word goes out as it
                 // stands.
-                self.write(out, 0xa0 + ch as u8, (word & 0xFF) as u8);
-                self.write(out, 0xb0 + ch as u8, (word >> 8) as u8);
+                self.write(out, 0xa0 + num::reg(ch), num::lo(word));
+                self.write(out, 0xb0 + num::reg(ch), num::hi(word));
             }
             let rest = flags & 0xC0;
             if rest == 0x40 {
@@ -317,13 +319,13 @@ impl Sequencer {
             return;
         };
         self.channels[ch].at += 1;
-        self.channels[ch].next_row = self.channels[ch].next_row.wrapping_add(delay as u16);
+        self.channels[ch].next_row = self.channels[ch].next_row.wrapping_add(u16::from(delay));
     }
 
     /// `0x868`: the stream is over; the channel keys off and goes dead.
     fn channel_end(&mut self, ch: usize, out: &mut Vec<Write>) {
-        let b0 = 0xb0 + ch as u8;
-        let val = self.shadow[b0 as usize] & !0x20;
+        let b0 = 0xb0 + num::reg(ch);
+        let val = self.shadow[usize::from(b0)] & !0x20;
         self.write(out, b0, val);
         self.channels[ch].at = 0;
     }
@@ -332,19 +334,23 @@ impl Sequencer {
     /// one byte past the stored offset, written in the handler's order —
     /// the carrier's level byte is not sent, it becomes the event volume.
     fn instrument(&mut self, ch: usize, offset: usize, out: &mut Vec<Write>) {
-        let Some(r) = self.song.bytes.get(offset + 1..offset + 12) else {
+        let Some(&r) = self
+            .song
+            .bytes
+            .get(offset + 1..)
+            .and_then(|rest| rest.first_chunk::<11>())
+        else {
             return;
         };
-        let r: [u8; 11] = r.try_into().expect("eleven bytes just sliced");
         let (m, c) = (self.mod_ops[ch], self.car_ops[ch]);
-        self.write(out, 0xc0 + ch as u8, r[0]);
+        self.write(out, 0xc0 + num::reg(ch), r[0]);
         for (i, base) in [0x20u8, 0x40, 0x60, 0x80, 0xe0].iter().enumerate() {
             self.write(out, base + m, r[1 + i]);
         }
         self.write(out, 0x20 + c, r[6]);
         // `0x91e`: loudness inverted out of the level byte, the KSL bits
         // kept beside it.
-        self.channels[ch].volume = (0x3F - (r[7] & 0x3F)) as u16 | ((r[7] & 0xC0) as u16) << 8;
+        self.channels[ch].volume = u16::from(0x3F - (r[7] & 0x3F)) | (u16::from(r[7] & 0xC0) << 8);
         for (i, base) in [0x60u8, 0x80, 0xe0].iter().enumerate() {
             self.write(out, base + c, r[8 + i]);
         }
@@ -359,14 +365,14 @@ impl Sequencer {
                 continue;
             }
             let master = self.master[ch];
-            let loud = (self.channels[ch].volume & 0x3F) as u8;
+            let loud = num::lo(self.channels[ch].volume & 0x3F);
             let v = if master >= 0x100 {
                 loud
             } else {
-                ((master as u32 * loud as u32) >> 8) as u8
+                num::byte((u32::from(master) * u32::from(loud)) >> 8)
             };
             let reg = 0x40 + self.car_ops[ch];
-            let val = (v ^ 0x3F) | (self.channels[ch].volume >> 8) as u8;
+            let val = (v ^ 0x3F) | num::hi(self.channels[ch].volume);
             self.write(out, reg, val);
         }
     }
@@ -378,10 +384,10 @@ impl Sequencer {
     /// truncations and all.
     fn fade_tick(&mut self, out: &mut Vec<Write>) {
         self.fade_pos += self.fade_step;
-        let level = ((self.fade_pos >> 8) & 0xFFFF) as u16;
+        let level = num::word((self.fade_pos >> 8) & 0xFFFF);
         if level >= 0x100 {
             self.fade_step = 0;
-            if (level as i16) >= 0 {
+            if num::signed(level) >= 0 {
                 self.fade_pos = 0x100 << 8;
                 self.volume_pass(out);
                 return;
@@ -390,7 +396,7 @@ impl Sequencer {
             // standing, as the handler does (`0xb9e`); the game stops a
             // fade-out long before this could be reached.
         }
-        self.fade_pos = ((level as i32) << 8) | (self.fade_pos & 0xFF);
+        self.fade_pos = (i32::from(level) << 8) | (self.fade_pos & 0xFF);
         if level == 0 {
             // `0xc26`: every carrier closed, channel 8 down to 0.
             for ch in (0..9).rev() {
@@ -403,11 +409,11 @@ impl Sequencer {
             if self.channels[ch].at == 0 {
                 continue;
             }
-            let scaled = ((self.master[ch] as u32 * level as u32) >> 8) as u8;
-            let loud = (self.channels[ch].volume & 0x3F) as u8;
-            let v = ((scaled as u32 * loud as u32) >> 8) as u8;
+            let scaled = num::byte((u32::from(self.master[ch]) * u32::from(level)) >> 8);
+            let loud = num::lo(self.channels[ch].volume & 0x3F);
+            let v = num::byte((u32::from(scaled) * u32::from(loud)) >> 8);
             let reg = 0x40 + self.car_ops[ch];
-            let val = (v | (self.channels[ch].volume >> 8) as u8) ^ 0x3F;
+            let val = (v | num::hi(self.channels[ch].volume)) ^ 0x3F;
             self.write(out, reg, val);
         }
     }
@@ -428,10 +434,10 @@ impl Sequencer {
     /// One register write, through the shadow (`0x7df`): a value the chip
     /// already holds is not sent again.
     fn write(&mut self, out: &mut Vec<Write>, register: u8, value: u8) {
-        if self.shadow[register as usize] == value {
+        if self.shadow[usize::from(register)] == value {
             return;
         }
-        self.shadow[register as usize] = value;
+        self.shadow[usize::from(register)] = value;
         out.push(Write {
             bank: 0,
             reg: register,

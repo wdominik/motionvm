@@ -16,6 +16,7 @@
 //! The game this file drives is Victor Loomes (MOTION 16-bit).
 
 use motionvm_motion_formats::m16::{Container, Segment, disasm, mz, scr::ScrModule};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m16::{Vm, word_address};
 use motionvm_motion_forth::{Error, Host, Result};
 use motionvm_motion_testutil::{game_file, gamedata_vloomes};
@@ -45,10 +46,13 @@ struct Loader<'a> {
 }
 
 impl Host<Vm> for Loader<'_> {
-    fn word(&mut self, name: &str, vm: &mut Vm) -> Result<bool> {
-        match name {
+    fn word(&mut self, ordinal: u32, vm: &mut Vm) -> Result<bool> {
+        // The machine hands over an ordinal; this host is written against the
+        // kernel's names, so it asks the machine what this one is called.
+        let name = vm.ordinal_name(ordinal).unwrap_or_default().to_owned();
+        match name.as_str() {
             "=>GET" => {
-                let n = vm.data.pop().expect("a module number") as usize;
+                let n = cell::at(vm.data.pop().expect("a module number")).unwrap();
                 let item = self.container.item(Segment::Scr, n).unwrap().unwrap();
                 let parsed = ScrModule::parse(item).unwrap();
                 vm.load(item, &parsed)?;
@@ -56,7 +60,7 @@ impl Host<Vm> for Loader<'_> {
                 Ok(true)
             }
             "=>ERASE" => {
-                let n = vm.data.pop().expect("a module number") as u16;
+                let n = cell::low16(vm.data.pop().expect("a module number"));
                 vm.unload(n);
                 self.asked.push(format!("=>ERASE {n}"));
                 Ok(true)
@@ -166,6 +170,6 @@ fn every_module_loads_and_no_cell_names_a_word_the_kernel_does_not_have() {
         let parsed = ScrModule::parse(item).unwrap();
         vm.load(item, &parsed)
             .unwrap_or_else(|e| panic!("module {id}: {e}"));
-        vm.unload(id as u16);
+        vm.unload(cell::flat(id));
     }
 }

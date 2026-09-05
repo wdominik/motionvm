@@ -18,31 +18,24 @@
 //! one. `SDTB` selects the table, `SDTXT n` the string — entry `n - 1`, as
 //! [`crate::TextTable::get`] counts.
 
-use crate::error::{Error, Result};
+use crate::cursor::Cursor;
+use crate::error::Result;
 use crate::text::TextTable;
-use crate::{cp437_to_string, u16le};
+use crate::{cp437_to_string, nul_terminated, past_end};
 
 /// Reads one TXT item.
 pub fn parse(item: &[u8]) -> Result<TextTable> {
-    let count = u16le(item, 0)? as usize;
-    let area = 2 + 2 * count;
-    if area > item.len() {
-        return Err(Error::Truncated {
-            off: 0,
-            need: area,
-            have: item.len(),
-        });
-    }
+    let mut c = Cursor::new(item, 0);
+    let count = usize::from(c.u16()?);
+    let offsets = c.records::<2>(count)?;
+    let area_at = c.position();
+    let area = c.remaining();
     let mut strings = Vec::with_capacity(count);
-    for i in 0..count {
-        let start = area + u16le(item, 2 + 2 * i)? as usize;
-        let bytes = item.get(start..).ok_or(Error::Truncated {
-            off: start,
-            need: 1,
-            have: item.len(),
-        })?;
-        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-        strings.push(cp437_to_string(&bytes[..end]));
+    for rel in offsets.iter().map(|o| usize::from(u16::from_le_bytes(*o))) {
+        let bytes = area
+            .get(rel..)
+            .ok_or_else(|| past_end(item, area_at.saturating_add(rel), 1))?;
+        strings.push(cp437_to_string(nul_terminated(bytes)));
     }
     Ok(TextTable { strings })
 }

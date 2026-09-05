@@ -60,7 +60,7 @@ pub struct Write {
 impl Write {
     /// The 9-bit register address, the form a DRO capture uses.
     pub fn address(self) -> u16 {
-        self.reg as u16 | ((self.bank as u16) << 8)
+        u16::from(self.reg) | (u16::from(self.bank) << 8)
     }
 }
 
@@ -70,6 +70,16 @@ use nuked_opl3::Opl3Chip;
 pub struct Chip {
     chip: Opl3Chip,
     rate: u32,
+}
+
+impl std::fmt::Debug for Chip {
+    /// The rate and nothing else: the core behind it is a third party's and
+    /// its registers are the driver's business, not a debugger's.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Chip")
+            .field("rate", &self.rate)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Chip {

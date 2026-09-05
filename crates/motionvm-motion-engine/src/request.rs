@@ -22,6 +22,8 @@
 //! `0104:7585`). It answers the button's **one-based** index; Escape answers
 //! 0 and Enter the default (`0x75c1`, `0x75cf`).
 
+use motionvm_motion_forth::cell;
+
 /// A request the game is waiting on.
 #[derive(Debug, Clone)]
 pub(crate) struct Request {
@@ -64,18 +66,18 @@ impl Request {
     const CAPTION_MIDDLE: i32 = 12;
 
     /// How wide one button is.
-    pub fn button_width(&self) -> i32 {
-        let n = self.captions.len().max(1) as i32;
+    pub(crate) fn button_width(&self) -> i32 {
+        let n = cell::count(self.captions.len().max(1));
         (self.w - Self::MARGIN - (n - 1) * Self::GAP) / n
     }
 
     /// Where button `i` starts, in from the box's left edge.
-    pub fn button_left(&self, i: usize) -> i32 {
-        Self::FIRST + i as i32 * (self.button_width() + Self::GAP)
+    pub(crate) fn button_left(&self, i: usize) -> i32 {
+        Self::FIRST + cell::count(i) * (self.button_width() + Self::GAP)
     }
 
     /// The button's frame in display coordinates: left, top, right, bottom.
-    pub fn button_frame(&self, i: usize) -> (i32, i32, i32, i32) {
+    pub(crate) fn button_frame(&self, i: usize) -> (i32, i32, i32, i32) {
         let left = self.x + self.button_left(i);
         (
             left,
@@ -89,14 +91,14 @@ impl Request {
     ///
     /// Inclusive on every edge, and a pixel outside the frame on each — the
     /// original tests the row once and then each button's span.
-    pub fn button_at(&self, px: i32, py: i32) -> Option<i32> {
+    pub(crate) fn button_at(&self, px: i32, py: i32) -> Option<i32> {
         if py < self.y + self.h - Self::HIT_TOP || py > self.y + self.h - Self::HIT_BOTTOM {
             return None;
         }
         let width = self.button_width();
         (0..self.captions.len()).find_map(|i| {
             let left = self.x + self.button_left(i);
-            (px >= left && px <= left + width).then_some(i as i32 + 1)
+            (px >= left && px <= left + width).then_some(cell::count(i) + 1)
         })
     }
 }
@@ -110,7 +112,12 @@ impl crate::Engine {
     /// to have come up first — a request opened by a click that is still held
     /// would otherwise answer itself with whatever is under the pointer.
     pub(crate) fn poll_request(&mut self) {
-        let (x, y, down, key) = (self.mouse.x, self.mouse.y, self.mouse.left != 0, self.key);
+        let (x, y, down, key) = (
+            self.input.mouse.x,
+            self.input.mouse.y,
+            self.input.mouse.left != 0,
+            self.input.key,
+        );
         let Some(r) = self.request.as_mut() else {
             return;
         };
@@ -141,7 +148,7 @@ impl crate::Engine {
         let Some(r) = self.request.as_ref() else {
             return;
         };
-        let (fg, bg) = (r.fg as u8, r.bg as u8);
+        let (fg, bg) = (cell::low8(r.fg), cell::low8(r.bg));
         for y in r.y..r.y + r.h {
             for x in r.x..r.x + r.w {
                 frame.set(x, y, bg);
@@ -149,7 +156,10 @@ impl crate::Engine {
         }
         outline(frame, r.x, r.y, r.x + r.w - 1, r.y + r.h - 1, fg);
 
-        let (Some(font), Some(refs)) = (self.system_font.as_ref(), self.font_refs.as_ref()) else {
+        let (Some(font), Some(refs)) = (
+            self.scene.system_font.as_ref(),
+            self.scene.font_refs.as_ref(),
+        ) else {
             return;
         };
         // Both texts go through the engine's own run drawer (`0d06:1107`),
@@ -160,7 +170,12 @@ impl crate::Engine {
         // segment, and nothing on the request path writes either. Drawing at
         // 0 instead ran the glyphs together.
         let gap = crate::text::SPACING;
-        let width = |s: &str| crate::text::text_width_spaced(font, refs, s, gap);
+        let pen = crate::text::Pen {
+            font,
+            refs,
+            color: fg,
+            spacing: gap,
+        };
 
         // The message: `0104:7407` hands the drawer y = 5 and x = half the
         // box, in mode **1** — bit 0 only, so it centers on x and takes y as
@@ -168,9 +183,9 @@ impl crate::Engine {
         // own `x − width/2` (`0d06:1142`), which is not `(w − width)/2` when
         // the two disagree on parity.
         for (n, line) in r.message.lines().enumerate() {
-            let at = r.x + r.w / 2 - width(line) / 2;
-            let row = r.y + 5 + n as i32 * (font.height as i32 + gap);
-            crate::text16::draw_line(frame, font, refs, line, at, row, fg, gap, &[]);
+            let at = r.x + r.w / 2 - pen.width(line) / 2;
+            let row = r.y + 5 + cell::count(n) * (i32::from(font.height) + gap);
+            crate::text16::draw_line(frame, pen, line, at, row, &[]);
         }
 
         // A caption: `0104:74aa` hands it mode **5** — bits 0 and 2, so both
@@ -179,12 +194,12 @@ impl crate::Engine {
         for (i, caption) in r.captions.iter().enumerate() {
             let (left, top, right, bottom) = r.button_frame(i);
             outline(frame, left, top, right, bottom, fg);
-            if i as i32 + 1 == r.default {
+            if cell::count(i) + 1 == r.default {
                 outline(frame, left - 1, top - 1, right + 1, bottom + 1, fg);
             }
-            let at = r.x + r.button_left(i) + r.button_width() / 2 - width(caption) / 2;
-            let row = r.y + r.h - Request::CAPTION_MIDDLE - font.height as i32 / 2;
-            crate::text16::draw_line(frame, font, refs, caption, at, row, fg, gap, &[]);
+            let at = r.x + r.button_left(i) + r.button_width() / 2 - pen.width(caption) / 2;
+            let row = r.y + r.h - Request::CAPTION_MIDDLE - i32::from(font.height) / 2;
+            crate::text16::draw_line(frame, pen, caption, at, row, &[]);
         }
     }
 }

@@ -102,6 +102,20 @@ not follow build order. It is the one behavior read out of each binary
 separately and wired as its own capability rather than assumed from the
 generation.
 
+## Open questions
+
+- **Why the hole case was added** after this build: `?XINSIDE` here takes
+  an all-zero hot area as a rectangle at the origin, and the two builds that
+  pass one over are not the two later ones by date
+  ([ledger](../../open-questions.md#motion-16-bit)).
+- **The handlers not read.** This build has been read only where it differs
+  from `ENVIRO.EXE` — the table, the ordinals, `?XINSIDE`, the error
+  messages — so what is open there is open here: the descriptor drawer, the
+  fades, the sound driver interface beyond its timer
+  ([ENVIRO.EXE](enviro-exe.md#open-questions)).
+- **Jeff Jet's two contradictory GFX slots** are its container's question,
+  not this binary's ([the DATA container](../formats/container.md)).
+
 ## See also
 
 - [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the four share

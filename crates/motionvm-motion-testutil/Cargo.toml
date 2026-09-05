@@ -6,10 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Where the test suites find the MOTION games' files. A development dependency; nothing ships with it"
-publish = false
+description = "Where the MOTION test suites find the games' files, and the reference digests they hold their output against. A development dependency; nothing ships with it"
+publish.workspace = true
 
 [dependencies]
+# For `digest::frame`: a scene's digest is taken over the composed framebuffer,
+# which is this crate's type. The neutral layer only — see the module header for
+# why this crate may not reach for a family's.
+motionvm-render.workspace = true
 
 [lints]
 workspace = true

@@ -96,7 +96,7 @@ fn a_press_through_the_contract_reaches_aktkey_translated() {
         ctrl: false,
         alt: false,
     };
-    game.key(&escape, true);
+    game.key_down(&escape);
     Driven::step(&mut game).expect("the frame with the key");
     assert_eq!(
         game.get_var(2, "_AKTKEY"),
@@ -109,7 +109,7 @@ fn a_press_through_the_contract_reaches_aktkey_translated() {
         Some(0),
         "one press is one frame's key; the next frame reads none"
     );
-    game.key(&escape, false);
+    game.key_up(&escape);
     Driven::step(&mut game).expect("a frame after a release");
     assert_eq!(
         game.get_var(2, "_AKTKEY"),
@@ -122,6 +122,16 @@ fn a_press_through_the_contract_reaches_aktkey_translated() {
 /// original's `MOUSELK` read — held is held — with a press too short to
 /// span a frame stretched to the one frame the original's poll would have
 /// given it. The family's whole mouse path, up to the front door.
+///
+/// And the other half of what that means: `_MLK` is `ICTRL`'s to write, not
+/// the driver's. The store sits at `0x02920`, three quarters of the way into
+/// the controller, so a frame that finds `ICTRL` part-way through a blocking
+/// word — every frame of a fade — leaves the variable holding what the last
+/// completed pass put there. A click in the title starts exactly such a fade,
+/// which is why the release below takes sixty-odd frames to arrive: the
+/// button was up all along, and the script could not see it until its own
+/// controller came round again. That is the original's behavior, and it is
+/// visible only because nothing else writes the variable.
 #[test]
 fn the_button_level_reaches_mlk_the_way_mouselk_read_it() {
     let Some(dir) = gamedata_ds2() else {
@@ -149,9 +159,28 @@ fn the_button_level_reaches_mlk_the_way_mouselk_read_it() {
         Some(1),
         "the shell's own debounce flag rises while the button is held"
     );
+
     game.button(Button::Left, false);
-    Driven::step(&mut game).expect("the frame after the release");
-    assert_eq!(game.get_var(2, "_MLK"), Some(0), "released is released");
+    // The click above set a fade going, so `ICTRL` is inside `FADEOUT` and its
+    // store cannot run. The variable holds until the controller finishes —
+    // asserted rather than waited out, because "the release did not arrive
+    // yet" and "the release never arrives" look the same from a settle loop.
+    Driven::step(&mut game).expect("a frame during the fade");
+    assert!(
+        game.is_running(),
+        "the click should have left ICTRL part-way through a word"
+    );
+    assert_eq!(
+        game.get_var(2, "_MLK"),
+        Some(1),
+        "a blocked controller cannot store, so the variable keeps its value"
+    );
+    until_ictrl_comes_round(&mut game);
+    assert_eq!(
+        game.get_var(2, "_MLK"),
+        Some(0),
+        "released is released, once ICTRL has a frame to notice in"
+    );
 
     // A press and release both between two frames: stretched to one frame.
     game.button(Button::Left, true);
@@ -162,6 +191,24 @@ fn the_button_level_reaches_mlk_the_way_mouselk_read_it() {
         Some(1),
         "a sub-frame click is stretched to the frame the original's poll caught"
     );
-    Driven::step(&mut game).expect("the frame after it");
+    until_ictrl_comes_round(&mut game);
     assert_eq!(game.get_var(2, "_MLK"), Some(0));
+}
+
+/// Runs frames until `ICTRL` has begun a pass *and* reached its input stores.
+///
+/// Two stages, and the second is the one that is easy to miss. Frames while a
+/// word is part-way through resume it where it stopped, which for a fade is
+/// well past `0x02920` — so the frame on which `is_running` finally goes false
+/// finished a pass whose stores ran long before. The fresh pass is the one
+/// after that.
+fn until_ictrl_comes_round(game: &mut Game<Vm>) {
+    for _ in 0..400 {
+        if !game.is_running() && !game.engine.in_transition() {
+            Driven::step(game).expect("a fresh pass of ICTRL");
+            return;
+        }
+        Driven::step(game).expect("a frame");
+    }
+    panic!("ICTRL never finished a pass");
 }

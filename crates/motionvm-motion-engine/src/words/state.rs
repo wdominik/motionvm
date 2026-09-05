@@ -7,59 +7,49 @@
 //! does not know the word answers `None` and the next one is asked.
 
 use crate::Engine;
-use crate::MODE_320X200X256;
-use crate::MODE_640X480X32K;
-use crate::MODE_640X480X256;
 use crate::stack::pop_n;
 use crate::stack::pop1;
+use crate::words::Word;
 use motionvm_motion_forth::Address;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Error;
 use motionvm_motion_forth::Result;
+use motionvm_motion_forth::cell;
+
+use crate::video::{MODE_320X200X256, MODE_640X480X32K, MODE_640X480X256};
 
 impl Engine {
     pub(crate) fn words_state(
         &mut self,
-        name: &str,
+        word: Word,
         stack: &mut Vec<i32>,
         mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
-        match name {
+        match word {
             // --- video mode and subsystem state -----------------------------
-            "640x480x256" => stack.push(MODE_640X480X256),
-            "320x200x256" => stack.push(MODE_320X200X256),
-            "640x480x32K" => stack.push(MODE_640X480X32K),
-            // The mode is checked, not just kept: this renderer draws 640x480
-            // indexed and nothing else, so any other mode would quietly give a
-            // wrong picture instead of an honest stop.
-            "SETRES" => {
-                let mode = pop1(stack, "SETRES")?;
-                if mode != MODE_640X480X256 {
-                    return Err(Error::Unsupported(format!(
-                        "SETRES asks for video mode {mode}; only 640x480x256 is drawn"
-                    )));
-                }
-                self.mode = mode;
-            }
-            // A pair: `TOGFX` enters graphics with the mode `SETRES` stored,
-            // `GFXTO` leaves it again. There is no video hardware behind them
-            // here, and the framebuffer exists either way, but the flag is
-            // kept because the game asks about it.
-            "TOGFX" => self.graphics = true,
-            "GFXTO" => self.graphics = false,
-            // No sound and no hicolor, matching how the reference runs.
-            "?SOUND" => stack.push(0),
-            "HICOLOR" => stack.push(0),
-            "RESETANIM" | "RESETFONT" => self.note_no_effect(name),
+            Word::MODE_640X480X256 => stack.push(MODE_640X480X256),
+            Word::MODE_320X200X256 => stack.push(MODE_320X200X256),
+            Word::MODE_640X480X32K => stack.push(MODE_640X480X32K),
+            // `SETRES` selects, `TOGFX` enters — and sizes the display to the
+            // mode, which is where a mode this renderer does not draw is
+            // refused. See `video.rs` for the reading.
+            Word::SETRES => self.select_mode(pop1(stack, "SETRES")?),
+            Word::TOGFX => self.enter_graphics()?,
+            Word::GFXTO => self.leave_graphics(),
+            // No sound, matching how the reference runs; `HICOLOR` answers for
+            // the selected mode, as the original does (`0xd6600`).
+            Word::Q_SOUND => stack.push(0),
+            Word::HICOLOR => stack.push(i32::from(self.hicolor())),
+            Word::RESETANIM | Word::RESETFONT => self.note_no_effect(word),
             // The resource loader, and the reason nothing was ever drawn while
             // it was a stub: `STARTUP` fills the location jump table with
             // `200 _LOCTABLE 99 GET`, and `INCLLOC` loads a location's routes,
             // click areas and items the same way. It copies a BLOCK resource
             // into module memory — block 99 is exactly the 200 bytes STARTUP
             // asks for.
-            "GET" => {
+            Word::GET => {
                 let a = pop_n(stack, 3, "GET")?;
-                let (size, addr, id) = (a[0].max(0) as usize, a[1], a[2]);
+                let (size, addr, id) = (cell::at(a[0]).unwrap_or(0), a[1], a[2]);
                 // A loose file in the save directory answers before the banks
                 // do. That is how the original finds what `PUT` just wrote:
                 // 0x668aa registers the id in the block catalog as present on
@@ -95,10 +85,11 @@ impl Engine {
                     // A missing resource is not a no-op: something downstream
                     // will read the memory that should have been filled.
                     None => {
-                        return Err(Error::Unimplemented {
-                            ordinal: 0,
-                            name: format!("GET: block {id} is not in the resource banks"),
-                            at: Address(addr as u32),
+                        return Err(Error::MissingResource {
+                            kind: "block",
+                            id,
+                            word: "GET",
+                            at: None,
                         });
                     }
                 }
@@ -114,14 +105,14 @@ impl Engine {
             // and writes from there. It also rewrites `rsc.inf`, a memory image
             // of the resource manager full of live heap pointers; that is a DOS
             // cache and has no counterpart here.
-            "PUT" => {
+            Word::PUT => {
                 let a = pop_n(stack, 3, "PUT")?;
-                let (size, addr, id) = (a[0].max(0) as usize, a[1], a[2]);
+                let (size, addr, id) = (cell::at(a[0]).unwrap_or(0), a[1], a[2]);
                 let Some(path) = self.save_path(id, "blk") else {
                     return Err(Error::NoSaveDir { word: "PUT", id });
                 };
                 let bytes = mem.read_bytes(addr, size)?;
-                std::fs::write(&path, &bytes).map_err(|e| Error::Io {
+                crate::save::write_atomically(&path, &bytes).map_err(|e| Error::Io {
                     word: "PUT",
                     path: path.clone(),
                     source: e,
@@ -132,22 +123,22 @@ impl Engine {
             // called again and again. The 32-bit kernel's word, taking a
             // packed address; the 16-bit kernel installs its controller with
             // `SCRCTRL` and a word id instead.
-            "CTRL" => {
-                let raw = pop1(stack, "CTRL")? as u32;
+            Word::CTRL => {
+                let raw = cell::unsigned(pop1(stack, "CTRL")?);
                 self.controller = Some(Address::new(raw >> 16, raw & 0xffff));
             }
-            "ERRORLEVEL" => {
+            Word::ERRORLEVEL => {
                 pop1(stack, "ERRORLEVEL")?;
-                self.note_no_effect(name);
+                self.note_no_effect(word);
             }
-            "SPEEDMODE" => {
+            Word::SPEEDMODE => {
                 pop1(stack, "SPEEDMODE")?;
-                self.note_no_effect(name);
+                self.note_no_effect(word);
             }
-            "DREQUEST" => {
-                self.inert(stack, 3, "DREQUEST")?;
+            Word::DREQUEST => {
+                self.inert(stack, 3, Word::DREQUEST)?;
             }
-            "RESETTI" => self.note_no_effect(name),
+            Word::RESETTI => self.note_no_effect(word),
             _ => return Ok(None),
         }
         Ok(Some(()))

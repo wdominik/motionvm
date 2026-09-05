@@ -47,10 +47,12 @@ jobs:
       # `rustup component add` does not install a channel and does not update
       # one — it works on the toolchain that is already active. So what builds
       # here is the stable the image was baked with, which lags the channel by
-      # a week or two. That is cheap (no toolchain download on three runners
-      # every push) and it is the constraint `rust-version` in Cargo.toml is
-      # kept under: a `rust-version` above the images' stable fails the job
-      # before a single crate is compiled.
+      # a week or two. That is cheap — no toolchain download on three runners
+      # every push — and it is why the `msrv` job below exists separately:
+      # `rust-version` is the *floor* this workspace promises, and nothing
+      # about the runner images' stable proves a floor. Keeping the number
+      # under their stable would make it a ceiling instead, and tell a user
+      # on an older toolchain that it is too old when it is not.
       - name: Toolchain components
         run: rustup component add rustfmt clippy
 
@@ -85,3 +87,74 @@ jobs:
         env:
           RUSTDOCFLAGS: -D rustdoc::broken_intra_doc_links -D warnings
         run: cargo doc --workspace --no-deps --document-private-items
+
+      # A doc example that nothing runs is a doc example that has stopped
+      # being true. `cargo test --workspace` does run them, but only for the
+      # crates it builds tests for; this says so out loud and fails on its own
+      # line when one breaks.
+      - name: Documentation examples
+        run: cargo test --workspace --doc
+
+  # What the dependency list is allowed to be.
+  #
+  # `deny.toml` says it: an advisory against anything the build reaches, a
+  # license outside the allow-list, a git source, or a second version of a
+  # package that was not already there. The comments in
+  # `[workspace.dependencies]` say what each dependency is for and what license
+  # it carries; this is what holds them to it.
+  #
+  # One platform, because `deny.toml` names every target the program is built
+  # for, so the graph it checks is the same wherever it runs.
+  #
+  # The two extra denials are what keeps the file honest rather than merely
+  # passing: `license-not-encountered` fails on an allowed license nothing
+  # uses, `unmatched-skip` on a duplicate that has since gone away. Both would
+  # otherwise sit there forever, and a stale allowance is an allowance nobody
+  # decided on.
+  deny:
+    name: Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: -D license-not-encountered -D unmatched-skip
+
+  # What `rust-version` promises, proved.
+  #
+  # Cargo reads `rust-version` as a floor: a user on an older toolchain is
+  # refused by name. Nothing else in this file compiles on that floor — the
+  # three runners above use whatever stable their image carries, which is
+  # newer — so without this job the number is a claim nobody checks, and the
+  # way it goes wrong is silent: a feature stabilised last month compiles for
+  # everyone who tried it and refuses the user the floor said was welcome.
+  #
+  # One platform is enough. What this catches is a language or library feature
+  # newer than the floor, and that is the same on all three.
+  msrv:
+    name: Rust 1.88.0, the floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Named exactly, and it must stay the same number as `rust-version` in
+      # Cargo.toml. Raising one without the other is the whole failure this
+      # job exists to prevent.
+      - name: Toolchain
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev \
+            libxkbcommon-dev libwayland-dev
+
+      # `check`, not `test`: what a floor promises is that the code compiles,
+      # and the suite's behaviour is already proved on three platforms above.
+      - name: Compiles on the floor
+        run: cargo check --workspace --all-targets

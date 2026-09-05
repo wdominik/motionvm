@@ -11,6 +11,7 @@
 //! The game this file drives is Die Enviro-Kids greifen ein (MOTION 16-bit).
 
 use motionvm_motion_formats::m16::{Container, Segment, mz, scr::ScrModule};
+use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m16::{Vm, word_address};
 use motionvm_motion_forth::{Error, Host, NullHost, Result};
 use motionvm_motion_testutil::{game_file, gamedata_enviro};
@@ -50,19 +51,27 @@ fn the_library_helpers_compute_what_their_names_say() {
     // in module 600 is `DUP @ 1 + SWAP !`. Run the one, then the other.
     let startloc = word_address(&vm, 601, "STARTLOC").unwrap();
     vm.call(startloc, &mut NullHost).unwrap();
-    let addr = vm.data[0] as u16;
-    assert_eq!(vm.mem.fetch(addr) as i16, 13, "STARTLOC's compiled value");
+    let addr = cell::low16(vm.data[0]);
+    assert_eq!(
+        cell::sign16(vm.mem.fetch(addr)),
+        13,
+        "STARTLOC's compiled value"
+    );
     vm.call(word_address(&vm, 600, "++").unwrap(), &mut NullHost)
         .unwrap();
     assert!(vm.data.is_empty());
-    assert_eq!(vm.mem.fetch(addr) as i16, 14, "++ incremented it in place");
+    assert_eq!(
+        cell::sign16(vm.mem.fetch(addr)),
+        14,
+        "++ incremented it in place"
+    );
     // `2*` is `DUP +`; `0!` stores zero; `DUP0` is `DUP 0`.
     vm.data.push(21);
     vm.call(word_address(&vm, 600, "2*").unwrap(), &mut NullHost)
         .unwrap();
     assert_eq!(vm.data, [42]);
     vm.data.clear();
-    vm.data.push(addr as i32);
+    vm.data.push(i32::from(addr));
     vm.call(word_address(&vm, 600, "0!").unwrap(), &mut NullHost)
         .unwrap();
     assert_eq!(vm.mem.fetch(addr), 0);
@@ -144,10 +153,13 @@ struct Loader<'a> {
 }
 
 impl Host<Vm> for Loader<'_> {
-    fn word(&mut self, name: &str, vm: &mut Vm) -> Result<bool> {
-        match name {
+    fn word(&mut self, ordinal: u32, vm: &mut Vm) -> Result<bool> {
+        // The machine hands over an ordinal; this host is written against the
+        // kernel's names, so it asks the machine what this one is called.
+        let name = vm.ordinal_name(ordinal).unwrap_or_default().to_owned();
+        match name.as_str() {
             "=>GET" => {
-                let n = vm.data.pop().expect("a module number") as usize;
+                let n = cell::at(vm.data.pop().expect("a module number")).unwrap();
                 let item = self.container.item(Segment::Scr, n).unwrap().unwrap();
                 let parsed = ScrModule::parse(item).unwrap();
                 vm.load(item, &parsed)?;
@@ -155,7 +167,7 @@ impl Host<Vm> for Loader<'_> {
                 Ok(true)
             }
             "=>ERASE" => {
-                let n = vm.data.pop().expect("a module number") as u16;
+                let n = cell::low16(vm.data.pop().expect("a module number"));
                 vm.unload(n);
                 self.asked.push(format!("=>ERASE {n}"));
                 Ok(true)
@@ -213,7 +225,7 @@ fn run_executes_on_this_machine_up_to_the_first_engine_word() {
     let do_xdir = word_address(&vm, 601, "DO_XDIR").unwrap();
     vm.data.clear();
     vm.call(do_xdir, &mut NullHost).unwrap();
-    let addr = vm.data[0] as u16;
+    let addr = cell::low16(vm.data[0]);
     assert_eq!(vm.mem.fetch(addr), 1685);
     // The ten constants 1..10 `RUN` pushed before `=>GET 651` are still on
     // the stack below — it pushes them and never pops them before TOGFX.

@@ -17,10 +17,13 @@
 //!
 //! The game this file drives is Hilfe für Amajambere (MOTION 16-bit).
 
+mod common;
+
+use common::{frames, word16};
 use motionvm_motion_engine::{Game, titles};
 use motionvm_motion_forth::m16::Vm;
-use motionvm_motion_testutil::gamedata_hfa;
-use std::path::{Path, PathBuf};
+use motionvm_motion_testutil::{gamedata_hfa, saves_dir};
+use std::path::Path;
 
 /// `RUN` through the intro and out of the menu, with a save directory.
 fn into_the_game(dir: &Path, saves: &Path) -> Game<Vm> {
@@ -51,31 +54,8 @@ fn into_the_game(dir: &Path, saves: &Path) -> Game<Vm> {
             game.step().expect("the menu takes the click");
         }
     }
-    frames(&mut game, 200);
+    frames(&mut game, 200, "settling after the menu");
     game
-}
-
-/// Runs one kernel word with its arguments, as a script would, and answers
-/// what it left on the stack.
-fn word(game: &mut Game<Vm>, name: &str, args: &[i32]) -> Vec<i32> {
-    let mut stack = args.to_vec();
-    let Game { engine, vm, .. } = game;
-    let done = engine
-        .plain_word16(name, &mut stack, &mut vm.mem)
-        .unwrap_or_else(|e| panic!("{name}: {e}"));
-    assert!(done, "{name} is a kernel word of the 16-bit engine");
-    stack
-}
-
-fn frames(game: &mut Game<Vm>, n: usize) {
-    for frame in 1..=n {
-        game.set_input(160, 100, false, false, 0).expect("input");
-        game.step().unwrap_or_else(|e| panic!("frame {frame}: {e}"));
-    }
-}
-
-fn temp_saves(tag: &str) -> PathBuf {
-    motionvm_motion_testutil::saves_dir(&format!("hfa-{tag}"))
 }
 
 #[test]
@@ -84,14 +64,14 @@ fn a_slot_is_written_by_the_three_words_and_found_by_the_next_session() {
         eprintln!("skipping: no Hilfe für Amajambere gamedata directory");
         return;
     };
-    let saves = temp_saves("saves");
+    let saves = saves_dir("hfa-saves");
 
     let mut game = into_the_game(&dir, &saves);
     game.request_location(5).expect("NEXTLOC");
-    frames(&mut game, 400);
+    frames(&mut game, 400, "settling in the location");
     assert_eq!(game.get_var(601, "ACTLOC"), Some(5));
     assert_eq!(
-        word(&mut game, "=>EXIST", &[701]),
+        word16(&mut game, "=>EXIST", &[701]),
         [0],
         "slot 701 is empty before the save"
     );
@@ -100,10 +80,10 @@ fn a_slot_is_written_by_the_three_words_and_found_by_the_next_session() {
     // pages run, on the same slot numbers.
     game.set_var(601, "_LOADTABLE", 5).expect("_LOADTABLE");
     let table = game.address(601, "_LOADTABLE").expect("_LOADTABLE");
-    let table = game.vm.mem.flat(table).expect("loaded") as i32 + 2;
-    word(&mut game, "PUT", &[2, table, 701]);
-    word(&mut game, "PUTANIM", &[701]);
-    word(&mut game, "=>PUTAS", &[701]);
+    let table = i32::from(game.vm.mem.flat(table).expect("loaded")) + 2;
+    word16(&mut game, "PUT", &[2, table, 701]);
+    word16(&mut game, "PUTANIM", &[701]);
+    word16(&mut game, "=>PUTAS", &[701]);
     let slots = game.saves().expect("a save directory").to_path_buf();
     for suffix in ["blk", "anm", "FRZ"] {
         assert!(
@@ -112,7 +92,7 @@ fn a_slot_is_written_by_the_three_words_and_found_by_the_next_session() {
         );
     }
     assert_eq!(
-        word(&mut game, "=>EXIST", &[701]),
+        word16(&mut game, "=>EXIST", &[701]),
         [-1],
         "=>EXIST finds the slot"
     );
@@ -122,7 +102,7 @@ fn a_slot_is_written_by_the_three_words_and_found_by_the_next_session() {
     // 705 when the menu opens its load page.
     let mut fresh = into_the_game(&dir, &saves);
     let found: Vec<i32> = (701..=705)
-        .map(|slot| word(&mut fresh, "=>EXIST", &[slot])[0])
+        .map(|slot| word16(&mut fresh, "=>EXIST", &[slot])[0])
         .collect();
     assert_eq!(found, [-1, 0, 0, 0, 0], "only the written slot answers");
     drop(fresh);

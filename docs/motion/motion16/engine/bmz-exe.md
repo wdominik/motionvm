@@ -100,6 +100,21 @@ were implemented already. `PLAYSAMPLE` and `XGFXSAMPLE` are in the table and
 called zero times, as in both sibling games; `?SAMPLE`, which `ENVIRO.EXE` added
 after this build, does not exist here to be called.
 
+## Open questions
+
+- **Why the hole case was added.** This build passes an all-zero hot area
+  over where `HPPLAY.EXE` does not, and Jeff Jet's is the later date; what
+  the tables looked like that made it worth adding is not established
+  ([ledger](../../open-questions.md#motion-16-bit)).
+- **The handlers not read.** Read only where it differs from `ENVIRO.EXE`
+  — one word fewer, the error messages it still carries — so the descriptor
+  drawer, the fades and the sound interface stand on that binary's reading
+  ([ENVIRO.EXE](enviro-exe.md#open-questions)).
+- **Hilfe für Amajambere's location 7**, whose item table is not in the
+  container: `GET`'s null test at `12bb:0e91` and its error `0xE` are read;
+  whether the room was cut late or its table lost in mastering is the
+  game's question ([ledger](../../open-questions.md#motion-16-bit)).
+
 ## See also
 
 - [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the four share

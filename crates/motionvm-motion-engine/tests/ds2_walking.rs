@@ -12,6 +12,7 @@
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
 use motionvm_motion_engine::Game;
+use motionvm_motion_forth::cell;
 use motionvm_motion_testutil::gamedata_ds2;
 
 /// Karsten walks into the park and stops exactly where he was sent.
@@ -48,7 +49,7 @@ fn the_protagonist_walks_into_the_park() {
             .engine
             .descriptors()
             .iter()
-            .find(|d| d.handle == handle as u32)
+            .find(|d| d.handle == cell::unsigned(handle))
         else {
             continue;
         };

@@ -8,12 +8,47 @@
 //! indices — nothing text-shaped survives into the renderer below.
 
 use motionvm_motion_formats::font::{Font, FontRefTable};
+use motionvm_motion_forth::cell;
 use motionvm_render::Framebuffer;
 use motionvm_render::Palette;
 
 /// The gap the engine leaves after every glyph, across and down. See
-/// [`draw_text`] for how it was measured.
+/// [`draw_line`] for how it was measured.
 pub const SPACING: i32 = 1;
+
+/// What a line is drawn with: the face, the color and the glyph gap.
+///
+/// These are not arguments in the original — they are the drawer's globals,
+/// set before it runs and read out of the data segment as it goes: the
+/// current font, the glyph gap (0xd66ee in the 32-bit engine, `ds:0x13c4`
+/// in the 16-bit one) and the line gap beside it. A pass sets them and
+/// draws; the next pass sets them again. `Engine::draw_text_descriptor`
+/// does exactly that — the outline pass draws with the template's font,
+/// gap and color, the pass on top with the descriptor's own and a gap of 1
+/// — which is why this is a value made per pass and not a field of
+/// anything.
+///
+/// The two halves of a face travel together because the file format splits
+/// what one font is: [`Font`] carries the glyphs, [`FontRefTable`] the
+/// CP437 byte that reaches each one.
+#[derive(Debug, Clone, Copy)]
+pub struct Pen<'a> {
+    /// The glyphs.
+    pub font: &'a Font,
+    /// The table that maps a CP437 byte to one of them.
+    pub refs: &'a FontRefTable,
+    /// The palette index every set bit is written with.
+    pub color: u8,
+    /// The gap left after each glyph.
+    pub spacing: i32,
+}
+
+impl Pen<'_> {
+    /// How wide `text` would be drawn with this pen, without drawing it.
+    pub fn width(&self, text: &str) -> i32 {
+        text_width_spaced(self.font, self.refs, text, self.spacing)
+    }
+}
 
 /// Puts one character down at `x`, `y` and answers how wide its glyph is,
 /// or `None` where the font has none for it.
@@ -24,24 +59,22 @@ pub const SPACING: i32 = 1;
 /// that — see [`crate::text16::draw_line`].
 pub(crate) fn draw_glyph(
     frame: &mut Framebuffer,
-    font: &Font,
-    refs: &FontRefTable,
+    pen: Pen<'_>,
     ch: char,
     x: i32,
     y: i32,
-    color: u8,
 ) -> Option<i32> {
     let byte = cp437_byte(ch)?;
-    let index = refs.glyph_for(byte)?;
-    let glyph = font.glyphs.get(index as usize)?;
+    let index = pen.refs.glyph_for(byte)?;
+    let glyph = pen.font.glyphs.get(usize::from(index))?;
     for gy in 0..glyph.height {
         for gx in 0..glyph.width {
             if glyph.pixel(gx, gy) {
-                frame.set(x + gx as i32, y + gy as i32, color);
+                frame.set(x + i32::from(gx), y + i32::from(gy), pen.color);
             }
         }
     }
-    Some(glyph.width as i32)
+    Some(i32::from(glyph.width))
 }
 
 /// Draws one line of text, returning how far the pen advanced.
@@ -56,46 +89,15 @@ pub(crate) fn draw_glyph(
 /// does not say — neither the font header nor the reference table carries a
 /// spacing value — so it lives in the engine's drawing code. What is
 /// established is the result, not the mechanism.
-pub fn draw_text(
-    frame: &mut Framebuffer,
-    font: &Font,
-    refs: &FontRefTable,
-    text: &str,
-    x: i32,
-    y: i32,
-    color: u8,
-) -> i32 {
-    draw_text_spaced(frame, font, refs, text, x, y, color, SPACING)
-}
-
-/// The same, with the gap between glyphs given rather than assumed.
-///
-/// The gap is a global in the original (0xd66ee, with the line gap at
-/// 0xd66ec), and the text drawer sets it per pass: the outline pass takes
-/// the value from the template, the normal pass puts back 1. See
-/// `Engine::draw_text_descriptor`.
-// Font, reference table, string, position, color and spacing: six things
-// the caller genuinely decides per call, with no subset that travels
-// together often enough to earn a struct.
-#[allow(clippy::too_many_arguments)]
-pub fn draw_text_spaced(
-    frame: &mut Framebuffer,
-    font: &Font,
-    refs: &FontRefTable,
-    text: &str,
-    x: i32,
-    y: i32,
-    color: u8,
-    spacing: i32,
-) -> i32 {
-    let mut pen = x;
+pub fn draw_line(frame: &mut Framebuffer, pen: Pen<'_>, text: &str, x: i32, y: i32) -> i32 {
+    let mut at = x;
     for ch in text.chars() {
-        if let Some(width) = draw_glyph(frame, font, refs, ch, pen, y, color) {
-            pen += width + spacing;
+        if let Some(width) = draw_glyph(frame, pen, ch, at, y) {
+            at += width + pen.spacing;
         }
     }
     // The last glyph's spacing is never drawn, so it is not counted either.
-    (pen - x - spacing).max(0)
+    (at - x - pen.spacing).max(0)
 }
 
 /// How wide `text` would be, without drawing it.
@@ -113,16 +115,18 @@ pub fn text_width_spaced(font: &Font, refs: &FontRefTable, text: &str, spacing: 
         .chars()
         .filter_map(cp437_byte)
         .filter_map(|b| refs.glyph_for(b))
-        .filter_map(|i| font.glyphs.get(i as usize))
-        .map(|g| g.width as i32 + spacing)
+        .filter_map(|i| font.glyphs.get(usize::from(i)))
+        .map(|g| i32::from(g.width) + spacing)
         .sum();
     (total - spacing).max(0)
 }
 
 /// Maps a `char` back to the CP437 byte the font tables are indexed by.
 fn cp437_byte(ch: char) -> Option<u8> {
-    if (ch as u32) < 0x80 {
-        return Some(ch as u8);
+    if let Ok(byte) = u8::try_from(ch)
+        && byte < 0x80
+    {
+        return Some(byte);
     }
     (0x80u8..=0xff).find(|&b| motionvm_motion_formats::cp437_char(b) == ch)
 }
@@ -149,10 +153,12 @@ pub const BACKING_DARKEN: i16 = 0x14;
 /// too — the table builder at 0x14740 runs when the palette is set, not
 /// when a panel is drawn.
 pub fn darken_rect(frame: &mut Framebuffer, map: &[u8; 256], x: i32, y: i32, w: i32, h: i32) {
-    for row in y.max(0)..(y + h).min(frame.height as i32) {
-        for col in x.max(0)..(x + w).min(frame.width as i32) {
-            let i = row as usize * frame.width as usize + col as usize;
-            frame.pixels[i] = map[frame.pixels[i] as usize];
+    for row in y.max(0)..(y + h).min(i32::from(frame.height)) {
+        for col in x.max(0)..(x + w).min(i32::from(frame.width)) {
+            // Both clipped at zero by the ranges above.
+            let i =
+                cell::at(row).unwrap_or(0) * usize::from(frame.width) + cell::at(col).unwrap_or(0);
+            frame.pixels[i] = map[usize::from(frame.pixels[i])];
         }
     }
 }
@@ -166,17 +172,17 @@ pub fn backing_map(palette: &Palette) -> [u8; 256] {
         // — so twenty is about a third of full scale, not a twelfth. Reading it
         // as an eight-bit step would make the backing nearly invisible.
         let want: [i16; 3] =
-            std::array::from_fn(|k| (palette.raw[i * 3 + k] as i16 - BACKING_DARKEN).max(0));
+            std::array::from_fn(|k| (i16::from(palette.raw[i * 3 + k]) - BACKING_DARKEN).max(0));
         let mut best = (i32::MAX, 0u8);
-        for j in 0..Palette::COLORS {
+        for (j, index) in (0..Palette::COLORS).zip(0u8..=u8::MAX) {
             let d: i32 = (0..3)
                 .map(|k| {
-                    let e = want[k] as i32 - palette.raw[j * 3 + k] as i32;
+                    let e = i32::from(want[k]) - i32::from(palette.raw[j * 3 + k]);
                     e * e
                 })
                 .sum();
             if d < best.0 {
-                best = (d, j as u8);
+                best = (d, index);
             }
         }
         *slot = best.1;

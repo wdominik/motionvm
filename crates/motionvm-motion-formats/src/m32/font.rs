@@ -19,23 +19,19 @@
 use crate::error::{Error, Result};
 use crate::font::Font;
 use crate::lzw;
-use crate::u16le;
+use crate::past_end;
 
 /// Bytes of font header before the LZW stream.
 pub const HEADER_LEN: usize = 10;
 
 /// Reads one font resource: unpacks the stream and decodes the glyph table.
 pub fn parse(item: &[u8]) -> Result<Font> {
-    if item.len() < HEADER_LEN {
-        return Err(Error::Truncated {
-            off: 0,
-            need: HEADER_LEN,
-            have: item.len(),
-        });
-    }
-    let unpacked = u16le(item, 0)? as usize;
-    let dictionary_limit = u16le(item, 6)? as u32;
-    let initial_width = u16le(item, 8)? as u32;
+    let (head, stream) = item
+        .split_first_chunk::<HEADER_LEN>()
+        .ok_or_else(|| past_end(item, 0, HEADER_LEN))?;
+    let unpacked = usize::from(u16::from_le_bytes([head[0], head[1]]));
+    let dictionary_limit = u32::from(u16::from_le_bytes([head[6], head[7]]));
+    let initial_width = u32::from(u16::from_le_bytes([head[8], head[9]]));
     // The header carries the codec parameters, so derive the code width from
     // the dictionary limit rather than assuming the sprites' 11 bits.
     let max_bits = dictionary_limit.max(2).ilog2();
@@ -46,6 +42,6 @@ pub fn parse(item: &[u8]) -> Result<Font> {
         });
     }
 
-    let raw = lzw::decode(&item[HEADER_LEN..], max_bits, unpacked)?;
+    let raw = lzw::decode(stream, max_bits, unpacked)?;
     Font::from_glyph_table(&raw)
 }

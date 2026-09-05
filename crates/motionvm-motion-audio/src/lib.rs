@@ -18,6 +18,7 @@ pub mod clock;
 pub mod error;
 pub mod m16;
 pub mod m32;
+mod num;
 
 pub use chip::{Chip, Write};
 pub use error::{Error, Result};

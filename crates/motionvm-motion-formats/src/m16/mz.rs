@@ -43,7 +43,7 @@
 
 use crate::error::{Error, Result};
 use crate::kernel::{Binding, Inline, KernelWord};
-use crate::u16le;
+use crate::{Record, bytes};
 
 /// The bit that marks a cell as a kernel word.
 pub const KERNEL_BIT: u16 = 0x8000;
@@ -64,6 +64,16 @@ pub struct Image {
     header_len: usize,
 }
 
+impl std::fmt::Debug for Image {
+    /// Sizes, not bytes: an executable is several hundred kilobytes.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Image")
+            .field("len", &self.data.len())
+            .field("header_len", &self.header_len)
+            .finish()
+    }
+}
+
 impl Image {
     /// Reads an MZ executable from disk.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
@@ -72,20 +82,15 @@ impl Image {
 
     /// The same from memory.
     pub fn parse(data: Vec<u8>) -> Result<Self> {
-        if data.len() < 0x1c {
-            return Err(Error::Truncated {
-                off: 0,
-                need: 0x1c,
-                have: data.len(),
-            });
-        }
-        if &data[..2] != b"MZ" && &data[..2] != b"ZM" {
+        let head = Record(bytes::<0x1c>(&data, 0)?);
+        let signature = head.bytes::<0, 2>();
+        if &signature != b"MZ" && &signature != b"ZM" {
             return Err(Error::Corrupt {
                 what: "MZ executable",
-                detail: format!("signature is {:02x?}, expected MZ", &data[..2]),
+                detail: format!("signature is {signature:02x?}, expected MZ"),
             });
         }
-        let header_len = u16le(&data, 8)? as usize * 16;
+        let header_len = usize::from(head.u16::<8>()).saturating_mul(16);
         if header_len > data.len() {
             return Err(Error::Corrupt {
                 what: "MZ executable",
@@ -107,20 +112,26 @@ impl Image {
 
     /// The load image: everything after the header.
     pub fn load_image(&self) -> &[u8] {
-        &self.data[self.header_len..]
+        self.data.get(self.header_len..).unwrap_or_default()
     }
 
     /// The file offset a far pointer names.
     pub fn file_offset(&self, segment: u16, offset: u16) -> usize {
-        self.header_len + segment as usize * 16 + offset as usize
+        let linear = usize::from(segment)
+            .saturating_mul(16)
+            .saturating_add(usize::from(offset));
+        self.header_len.saturating_add(linear)
     }
 
     /// The NUL-terminated string at a file offset, if it is one of at most
     /// `max` printable ASCII bytes.
     fn cstr_at(&self, off: usize, max: usize) -> Option<&str> {
         let bytes = self.data.get(off..)?;
-        let end = bytes.iter().take(max + 1).position(|&b| b == 0)?;
-        let s = &bytes[..end];
+        let end = bytes
+            .iter()
+            .take(max.saturating_add(1))
+            .position(|&b| b == 0)?;
+        let s = bytes.get(..end)?;
         if s.is_empty() || !s.iter().all(|&b| (0x21..0x7f).contains(&b)) {
             return None;
         }
@@ -138,48 +149,44 @@ pub fn kernel_words(img: &Image) -> Vec<KernelWord> {
     const ENTRY: usize = 8;
     const MIN_RUN: usize = 6;
     let data = img.bytes();
+    // An entry that fits, read as a name and a handler: `{name_off, name_seg,
+    // fn_off, fn_seg}`, two far pointers.
     let plausible = |at: usize| -> Option<(String, u32)> {
-        let name_off = u16le(data, at).ok()?;
-        let name_seg = u16le(data, at + 2).ok()?;
-        let fn_off = u16le(data, at + 4).ok()?;
-        let fn_seg = u16le(data, at + 6).ok()?;
-        let name = img.cstr_at(img.file_offset(name_seg, name_off), 24)?;
-        let handler = img.file_offset(fn_seg, fn_off);
+        let entry = Record(bytes::<ENTRY>(data, at).ok()?);
+        let name = img.cstr_at(img.file_offset(entry.u16::<2>(), entry.u16::<0>()), 24)?;
+        let handler = img.file_offset(entry.u16::<6>(), entry.u16::<4>());
         (img.header_len()..data.len())
             .contains(&handler)
-            .then(|| (name.to_string(), handler as u32))
+            .then(|| (name.to_string(), crate::narrow(handler)))
     };
 
     let mut words = Vec::new();
-    let mut table = 0;
+    let mut table = 0usize;
     let mut at = img.header_len();
-    while at + ENTRY <= data.len() {
+    while at < data.len() {
         if plausible(at).is_none() {
-            at += 1;
+            at = at.saturating_add(1);
             continue;
         }
         let start = at;
         let mut run = Vec::new();
-        while at + ENTRY <= data.len() {
-            let Some((name, handler)) = plausible(at) else {
-                break;
-            };
+        while let Some((name, handler)) = plausible(at) {
             run.push((at, name, handler));
-            at += ENTRY;
+            at = at.saturating_add(ENTRY);
         }
         if run.len() >= MIN_RUN {
             for (index, (entry, name, handler)) in run.into_iter().enumerate() {
                 words.push(KernelWord {
                     name,
                     handler,
-                    entry: entry as u32,
+                    entry: crate::narrow(entry),
                     table,
                     index,
                 });
             }
-            table += 1;
+            table = table.saturating_add(1);
         } else {
-            at = start + 1;
+            at = start.saturating_add(1);
         }
     }
     words
@@ -209,24 +216,27 @@ pub fn placeholder_count(img: &Image, ds: u16) -> Option<u8> {
     let name = data
         .windows(PLACEHOLDER_NAME.len())
         .position(|w| w == PLACEHOLDER_NAME)?;
-    let offset = u16::try_from(name.checked_sub(img.header_len() + ds as usize * 16)?).ok()?;
-    let mentions = offset.to_le_bytes();
+    let offset = name
+        .checked_sub(img.header_len())?
+        .checked_sub(usize::from(ds).checked_mul(16)?)?;
+    let mentions = u16::try_from(offset).ok()?.to_le_bytes();
 
     let mut found = None;
     let mut at = img.header_len();
-    while let Some(hit) = data
-        .get(at..)
-        .and_then(|d| d.windows(2).position(|w| w == mentions).map(|p| at + p))
-    {
-        at = hit + 1;
-        let window = &data[hit..data.len().min(hit + REACH)];
+    while let Some(hit) = data.get(at..).and_then(|d| {
+        d.windows(2)
+            .position(|w| w == mentions)
+            .and_then(|p| at.checked_add(p))
+    }) {
+        at = hit.saturating_add(1);
+        let window = reach(data, hit, REACH)?;
         if let Some(p) = window.windows(2).position(|w| w == CMP_SI) {
             // Two mentions with a bound behind them would leave which loop is
             // meant to a guess, and a guessed ordinal base is a wrong one.
             if found.is_some() {
                 return None;
             }
-            found = window.get(p + 2).copied();
+            found = p.checked_add(2).and_then(|i| window.get(i)).copied();
         }
     }
     found
@@ -257,10 +267,15 @@ pub fn skips_empty_areas(img: &Image, words: &[KernelWord]) -> bool {
     let Some(w) = words.iter().find(|w| w.name == "?XINSIDE") else {
         return false;
     };
-    let at = w.handler as usize;
-    let data = img.bytes();
-    data.get(at..data.len().min(at + REACH))
+    reach(img.bytes(), crate::wide(w.handler), REACH)
         .is_some_and(|body| body.windows(HOLE_TEST.len()).any(|w| w == HOLE_TEST))
+}
+
+/// Up to `len` bytes from `at` — fewer at the end of the data — or `None`
+/// for a start past it.
+fn reach(data: &[u8], at: usize, len: usize) -> Option<&[u8]> {
+    let rest = data.get(at..)?;
+    Some(rest.get(..len).unwrap_or(rest))
 }
 
 /// Whether a byte pattern — `None` a wildcard — lies within `reach` bytes of
@@ -276,13 +291,24 @@ fn handler_holds(
     let Some(w) = words.iter().find(|w| w.name == name) else {
         return false;
     };
-    let at = w.handler as usize;
-    let data = img.bytes();
-    data.get(at..data.len().min(at + reach))
-        .is_some_and(|body| {
-            body.windows(pat.len())
-                .any(|w| w.iter().zip(pat).all(|(b, p)| p.is_none_or(|p| p == *b)))
-        })
+    self::reach(img.bytes(), crate::wide(w.handler), reach).is_some_and(|body| {
+        body.windows(pat.len())
+            .any(|w| w.iter().zip(pat).all(|(b, p)| p.is_none_or(|p| p == *b)))
+    })
+}
+
+/// Whether this build's `NEWSETDESC` refuses the hundred-and-first descriptor
+/// of a screen.
+///
+/// `ENVIRO.EXE` (`05f1:0ad4`), `HPPLAY.EXE` (file `0x9b2e`) and `BMZ.EXE`
+/// (file `0x9bd5`) open the handler by comparing the screen's count against
+/// a hundred and jump past every pop and the push when it is there; `LL.EXE`
+/// (file `0x44ce`) takes the count and raises it without looking. Read off
+/// the handler: the comparison itself, five bytes.
+pub fn newsetdesc_capped(img: &Image, words: &[KernelWord]) -> bool {
+    // `cmp word ptr es:[bx+0x16], 0x64`.
+    const HUNDRED: [Option<u8>; 5] = [Some(0x26), Some(0x83), Some(0x7f), Some(0x16), Some(0x64)];
+    handler_holds(img, words, "NEWSETDESC", 0x20, &HUNDRED)
 }
 
 /// How far the walk builder's body reaches from `CROUTE`'s entry: past the
@@ -359,8 +385,8 @@ pub fn croute_smooths_headings(img: &Image, words: &[KernelWord]) -> bool {
 /// the domain one and table 1 the core one.
 pub fn ordinal_of(word: &KernelWord, domain_base: u32) -> Option<u32> {
     match word.table {
-        0 => Some(domain_base + word.index as u32),
-        1 => Some(CORE_BASE + word.index as u32),
+        0 => domain_base.checked_add(crate::narrow(word.index)),
+        1 => CORE_BASE.checked_add(crate::narrow(word.index)),
         _ => None,
     }
 }
@@ -374,7 +400,7 @@ pub fn binding_of(img: &Image, words: &[KernelWord]) -> Result<Binding> {
     // The data segment, which every entry's name pointer is relative to: the
     // segment half of the first entry's, at `+2` of the entry it was read from.
     let ds = match words.first() {
-        Some(w) => u16le(img.bytes(), w.entry as usize + 2)?,
+        Some(w) => Record(bytes::<8>(img.bytes(), crate::wide(w.entry))?).u16::<2>(),
         None => {
             return Err(Error::Corrupt {
                 what: "kernel table",
@@ -388,8 +414,10 @@ pub fn binding_of(img: &Image, words: &[KernelWord]) -> Result<Binding> {
                  table's ordinal base is not in this build"
             .into(),
     })?;
-    let core = words.iter().filter(|w| w.table == 1).count() as u32;
-    let domain_base = CORE_BASE + core + placeholders as u32;
+    let core = crate::narrow(words.iter().filter(|w| w.table == 1).count());
+    let domain_base = CORE_BASE
+        .saturating_add(core)
+        .saturating_add(u32::from(placeholders));
 
     let mut bound: Vec<(u32, String)> = words
         .iter()

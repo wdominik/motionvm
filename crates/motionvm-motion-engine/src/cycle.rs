@@ -114,10 +114,10 @@ mod tests {
     use super::*;
 
     fn engine_with_ramp() -> Engine {
-        let mut e = Engine::with_display(320, 200);
+        let mut e = Engine::new(crate::Profile::motion16());
         let mut raw = [0u8; Palette::BYTES];
         for i in 0..256 {
-            raw[i * 3] = i as u8;
+            raw[i * 3] = u8::try_from(i).unwrap();
         }
         e.display.palette = Palette { raw };
         e
@@ -183,7 +183,7 @@ mod tests {
         e.tick_palette_cycle();
         let mut raw = [0u8; Palette::BYTES];
         for i in 0..256 {
-            raw[i * 3] = (i as u8).wrapping_add(100);
+            raw[i * 3] = u8::try_from(i).unwrap().wrapping_add(100);
         }
         e.display.palette = Palette { raw };
         e.tick_palette_cycle();

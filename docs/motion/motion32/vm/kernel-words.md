@@ -165,7 +165,7 @@ Small words whose handlers have been read completely:
 | `SPEEDMODE ( n -- )` | Writes a global no word reads back |
 | `MOUSEINFO` | Takes **24** arguments (the handler pops exactly that many) |
 | `ANIMPLAY` | Pops **none** of the ten values the game pushes for it |
-| `640x480x256` etc. | The mode words push small ordinals — 2, 1, 4 — not packed dimensions; `SETRES` consumes them |
+| `640x480x256` etc. | The mode words push small ordinals — 2, 1, 4 — not packed dimensions; `SETRES` consumes them, and `0x13fc0` maps them to VESA mode numbers ([screens](../engine/screens.md#the-video-mode)) |
 | `GFXCRUNCH` / `XGFXCRUNCH` | Toggle one flag bit in a record — no pixel work |
 | `RGB->COL ( b g r -- i )` | 6-bit components in, a palette index out |
 | `MOUSEXY` | Pushes y first, then x (x ends on top) |

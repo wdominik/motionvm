@@ -21,10 +21,10 @@ Five so far, across the two generations of the engine:
 
 | Game | Year | Commissioned by | Made by | Engine |
 |---|---|---|---|---|
-| *Im Netzwerk gefangen – Dunkle Schatten 2* | 1996 | Bundesministerium des Innern | DigiTales GmbH, produced by Art Department | **32-bit** — `ENGINE.EXE` |
+| *Im Netzwerk gefangen – Dunkle Schatten 2* | 1996 | Bundesministerium des Innern | DigiTales GmbH, Hamburg, produced by Art Department WA GmbH, Bochum | **32-bit** — `ENGINE.EXE` |
 | *Die Enviro-Kids greifen ein* | 1996 | Ministerium für Umwelt, Raumordnung und Landwirtschaft NRW | Art Department Werbeagentur GmbH | **16-bit** — `ENVIRO.EXE` |
 | *Jeff Jet - Abenteuer InfoHighway* | 1995 | Hewlett Packard GmbH | Promotion Software GmbH, Tübingen | **16-bit** — `HPPLAY.EXE` |
-| *Hilfe für Amajambere* | 1995 | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung | ART DEPARTMENT WA GmbH | **16-bit** — `BMZ.EXE` |
+| *Hilfe für Amajambere* | 1995 | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung | ART DEPARTMENT WA GmbH, Bochum | **16-bit** — `BMZ.EXE` |
 | *Victor Loomes – Das Spiel* | 1993 | LBS (Landesbausparkasse) | Promotion Software GmbH, Reutlingen | **16-bit** — `LL.EXE` |
 
 All five are commissioned work — advergames and edutainment, given away rather
@@ -71,10 +71,10 @@ cargo build --release
 ./target/release/motionvm /path/to/gamedata
 ```
 
-Requires a Rust toolchain of 1.97.0 or newer. That is not the oldest one that
-would work — the workspace compiles on 1.95.0 — but it is recent, so a Rust
-that came with your distribution may well be too old; `rustup` is the reliable
-way to have one. Nothing else is needed: no C compiler, and no system libraries
+Requires a Rust toolchain of 1.88.0 or newer — the floor `rust-version` in
+`Cargo.toml` names, and one CI compiles the workspace on. That is recent
+enough that a Rust which came with your distribution may well be too old;
+`rustup` is the reliable way to have one. Nothing else is needed: no C compiler, and no system libraries
 beyond what a window and an audio device take. On Linux that means the ALSA,
 udev, xkbcommon and Wayland development headers, which
 `.github/workflows/ci.yml` names by Debian package. The folder dialog adds nothing to build against: it
@@ -198,13 +198,20 @@ slots alike and each looks for its own at start-up; the directory is created
 then if it is not there and its path is printed, so a fresh install needs no
 setup and a savegame is an ordinary file to copy or back up.
 
+Each file is written whole or not at all — to a temporary name, flushed, then
+renamed — so a crash partway through a save costs the new slot and not the old
+one, and each carries a checksum, so a file damaged afterwards is refused as
+damaged rather than half-read. A slot that has ended up in the wrong game's
+directory is refused as that other game's, by name.
+
 A savegame is a snapshot of the engine's own state, so it carries a version
-number and a release that changes what is in it raises that number. A slot
-from an older one is then refused by name — *`701.FRZ`: savegame version 1,
-this build writes 2* — rather than half-read; nothing deletes it, and the
-release notes say when it happens. Within a version, saves carry across
-updates and between machines. What is in the files is
-[documented](docs/motion/savegames.md).
+number, and a release that changes what is in it raises that number. A slot of
+any other version is refused by name — *`701.FRZ`: savegame version 0, this
+build writes 1* — rather than half-read, and nothing deletes it. Until the
+first stable release no converter ships: a release that raises the number says
+so in its notes, and the slots from before it stay on disk and stop loading.
+Within a version, saves carry across updates and between machines. What is in
+the files is [documented](docs/motion/savegames.md).
 
 The window shows the picture the way the game's own monitor did, and only ever
 scaled by whole numbers — one per axis. Dunkle Schatten 2's 640×480 is
@@ -223,6 +230,7 @@ borderless window rather than a change of display mode.
 | `… is not a game motionvm can open`, then what each game needs | The directory holds no game, or one that is not among the five. Started without a path, motionvm says so in a message box and asks again |
 | A named file is missing at start-up | The copy is incomplete — the table above says which files that game needs |
 | `sound is off: …` | A sound file is missing, or no audio device could be opened. The game plays on in silence |
+| `the game stopped: …`, in a message box | The engine reached something it does not implement or a savegame it cannot load; the message names it. Every such line also goes to stderr, and `MOTIONVM_LOG=1` appends it, with everything else the run reports, to `motionvm.log` beside `saves/` — which is where a report from a Windows build, whose release binary has no console, is found |
 | No folder dialog appears on Linux | Neither `xdg-desktop-portal` nor `zenity` is there. Pass the game directory on the command line instead |
 | Windows or macOS refuses to start it | The build is not code-signed — see [A ready-made build](#a-ready-made-build) |
 
@@ -257,10 +265,19 @@ start-up rather than opening it under the name of a game it already knows.
 frames of Dunkle Schatten 2 and Die Enviro-Kids greifen ein and the whole
 eight-picture intro of Victor Loomes match recordings of the original pixel
 for pixel, and three of the games' music has been held against register
-captures of the original's sound hardware.
+captures of the original's sound hardware. Those recordings cannot ship, so
+what the test suite keeps instead is a digest of every scene and every tune
+it reaches — a change that moves a pixel or a register write is a failing
+test on any machine that has the game.
 [`docs/motion/verification.md`](docs/motion/verification.md) says what that covers and what
 it does not; [`docs/motion/departures.md`](docs/motion/departures.md) lists every place
 motionvm knowingly does something else.
+
+One of those a player may notice: every game plays its Ad Lib rendition,
+whatever its sound setup said. The 16-bit games shipped a `SOUND.EXE` that
+could pick a sampled renderer instead, and Dunkle Schatten 2's digital layer
+is not ported — so a player who remembers the Sound Blaster mix hears the FM
+one.
 
 ## How it works
 
@@ -269,9 +286,9 @@ palettes, fonts, texts and music inside resource containers. motionvm reads
 that data and runs it — the same bytecode, through the same frame cycle, onto
 the same picture, with the same music, and with no emulator underneath.
 
-It is one Rust workspace, deliberately small at the edges: six dependencies to
-run at all — a window, a presenter, an audio device, a folder dialog, a PNG
-writer and an OPL3 core — and no graphics API anywhere. The readers, the two
+It is one Rust workspace, deliberately small at the edges: five dependencies
+to run at all — a window, a presenter, an audio device, a folder dialog and an
+OPL3 core — and no graphics API anywhere. The readers, the two
 virtual machines, the renderer, the audio and the runtime are split across
 eleven crates — two layers and a test rig over both — a neutral one holding the window and the contract
 it drives any game through, and the MOTION engine family behind that contract
@@ -296,9 +313,11 @@ not.
 | [`docs/README.md`](docs/README.md) | The map of the technical documentation — one tree per engine family; MOTION's covers every file format, both virtual machines, the engine's subsystems, and a page per game and per script module |
 | [`docs/motion/tools.md`](docs/motion/tools.md) | `motionvm-motion-tools`, which reads a game's containers and writes out what it finds as ordinary files |
 | [`docs/motion/verification.md`](docs/motion/verification.md) | What is checked against the original engine's own output, and what is only checked against the games' files |
+| [`docs/motion/verification-method.md`](docs/motion/verification-method.md) | How such a check is made: the emulator's settings, and the two commands that compare a frame and a register stream against a capture |
 | [`docs/motion/departures.md`](docs/motion/departures.md) | Every place motionvm knowingly does something else, and why |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the code is laid out: the two layers, the four levels of variance, and the seams between them |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to work in it: the conventions, the quality gate, adding a game, an engine build, or an engine family |
+| [`docs/writing-a-family.md`](docs/writing-a-family.md) | The contract read from the engine's side: what the window asks of a game, in the order it asks, and what each answer has to hold |
 
 ## Licensing
 

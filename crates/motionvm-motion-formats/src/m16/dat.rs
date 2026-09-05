@@ -78,8 +78,9 @@
 //! 14 848 with no spare entries, and its 1032 items account for every byte to
 //! the end of the 1 009 597-byte file.
 
+use crate::cursor::Cursor;
 use crate::error::{Error, Result};
-use crate::{find_ci, lzw, reserve, u16le, u32le};
+use crate::{Record, bytes, find_ci, lzw, past_end, records, tail, u16le, words};
 
 /// Which of the seven segments a slot belongs to, in slot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,6 +114,16 @@ impl Segment {
         Segment::Frt,
         Segment::Txt,
     ];
+
+    /// Where this segment sits in the header's tables: the variant's
+    /// position, which is what a fieldless enum's discriminant is.
+    #[expect(
+        clippy::as_conversions,
+        reason = "a fieldless enum's discriminant is its position in the header's tables"
+    )]
+    pub(crate) fn slot(self) -> usize {
+        self as usize
+    }
 
     /// The segment's name, as the engine's file-name patterns spell it
     /// (`#F0R4i.gfx`, `#F0R3i.blk`, …).
@@ -221,6 +232,35 @@ impl Span {
     }
 }
 
+/// One value per segment, in [`Segment::ALL`]'s order.
+#[derive(Clone, Copy)]
+struct PerSegment<T>([T; Segment::ALL.len()]);
+
+impl<T> PerSegment<T> {
+    /// A table filled by asking `f` about each segment in turn.
+    fn of(f: impl FnMut(Segment) -> T) -> Self {
+        Self(Segment::ALL.map(f))
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for PerSegment<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T> std::ops::Index<Segment> for PerSegment<T> {
+    type Output = T;
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "a segment's slot is its position in `Segment::ALL`, the table's length"
+    )]
+    fn index(&self, segment: Segment) -> &T {
+        &self.0[segment.slot()]
+    }
+}
+
 /// One opened game: every `DATA.-n-` volume of it, and the items unpacked.
 ///
 /// Packing is undone once, when the container is opened, into a buffer of its
@@ -234,16 +274,33 @@ pub struct Container {
     /// length is kept in `volume_lens`.
     stores: Vec<Vec<u8>>,
     volume_lens: Vec<usize>,
-    counts: [usize; 7],
-    bases: [usize; 7],
+    counts: PerSegment<usize>,
+    bases: PerSegment<usize>,
     flags: Vec<u16>,
-    packed: [bool; 7],
+    packed: PerSegment<bool>,
     framing: Framing,
     spare: usize,
     spans: Vec<Span>,
     tables: Vec<Vec<u32>>,
+    /// Where volume 1's items begin: the end of its offset table.
+    first_item: usize,
     boot: Boot,
     source: String,
+}
+
+impl std::fmt::Debug for Container {
+    /// The shape of the container — which framing, how many of each segment,
+    /// what the boot header names — and not its megabytes of items.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Container")
+            .field("source", &self.source)
+            .field("framing", &self.framing)
+            .field("volumes", &self.volume_lens)
+            .field("counts", &self.counts)
+            .field("packed", &self.packed)
+            .field("boot", &self.boot)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Container {
@@ -319,18 +376,21 @@ impl Container {
     /// later-framing container's table begins sixteen bytes later and the
     /// cursor lands inside its occupancy words.
     fn earlier_tables_add_up(head: &[u8]) -> Option<bool> {
-        let mut total = 0usize;
-        for i in 0..7 {
-            total += u16le(head, 4 + i * 2).ok()? as usize;
-        }
+        let total: usize = words::<7>(head, 4)
+            .ok()?
+            .iter()
+            .map(|&n| usize::from(n))
+            .sum();
         if total == 0 {
             return None;
         }
-        let spare = u16le(head, 20).ok()? as usize;
-        let table = EARLIER_HEADER_LEN + total * 2;
-        let first = u32le(head, table).ok()? as usize;
-        let last = u32le(head, table + (total - 1) * 4).ok()? as usize;
-        let ends = table + (total + spare) * 4;
+        let spare = usize::from(u16le(head, 20).ok()?);
+        let table = EARLIER_HEADER_LEN.checked_add(total.checked_mul(2)?)?;
+        let entries = records::<4>(head, table, total).ok()?;
+        let (first, last) = (entries.first()?, entries.last()?);
+        let ends = table.checked_add(total.checked_add(spare)?.checked_mul(4)?)?;
+        let first = crate::wide(u32::from_le_bytes(*first));
+        let last = crate::wide(u32::from_le_bytes(*last));
         (first == ends).then_some(last == head.len())
     }
 
@@ -381,19 +441,15 @@ impl Container {
             module: u16le(head, 0)?,
             word: u16le(head, 2)?,
         };
-        let mut counts = [0usize; 7];
-        for (i, c) in counts.iter_mut().enumerate() {
-            *c = u16le(head, 4 + i * 2)? as usize;
-        }
-        let mut packed = [false; 7];
-        for (i, p) in packed.iter_mut().enumerate() {
-            *p = match framing {
-                Framing::Earlier => Framing::earlier_pack_header(Segment::ALL[i]).is_some(),
-                Framing::Later => u16le(head, 0x16 + i * 2)? != 0,
-            };
-        }
-        let spare = u16le(head, 20)? as usize;
-        let total: usize = counts.iter().sum();
+        let counts = PerSegment(words::<7>(head, 4)?.map(usize::from));
+        let packed = match framing {
+            Framing::Earlier => {
+                PerSegment::of(|segment| Framing::earlier_pack_header(segment).is_some())
+            }
+            Framing::Later => PerSegment(words::<7>(head, 0x16)?.map(|word| word != 0)),
+        };
+        let spare = usize::from(u16le(head, 20)?);
+        let total: usize = counts.0.iter().sum();
         // Seven u16 counts cannot exceed 7 * 65535, so the only implausible
         // total is zero — a header of nothing but zeros, which a truncated or
         // wrong file produces as readily as a real one produces 4345.
@@ -403,95 +459,107 @@ impl Container {
                 detail: "every slot count is zero".into(),
             });
         }
-        let mut bases = [0usize; 7];
-        let mut cursor = 0;
-        for (base, &n) in bases.iter_mut().zip(counts.iter()) {
-            *base = cursor;
-            cursor += n;
-        }
-        let header_len = framing.header_len();
-        let flags_end = header_len + total * 2;
-        let mut flags = reserve(total, head.len(), 2);
-        for i in 0..total {
-            flags.push(u16le(head, header_len + i * 2)?);
-        }
+        let mut next_base = 0usize;
+        let bases = PerSegment::of(|segment| {
+            let base = next_base;
+            next_base = next_base.saturating_add(counts[segment]);
+            base
+        });
+        let mut occupancy = Cursor::new(head, framing.header_len());
+        let flags: Vec<u16> = occupancy
+            .records::<2>(total)?
+            .iter()
+            .map(|word| u16::from_le_bytes(*word))
+            .collect();
+        let flags_end = occupancy.position();
         // Volume 1 keeps its table behind the header and the occupancy words;
         // the others are nothing but a table of the same shape and their items.
+        // Each table is followed by where it ends, which is where that
+        // volume's items may begin.
+        let entries = total.saturating_add(spare);
         let mut tables = Vec::with_capacity(volumes.len());
+        let mut table_ends = Vec::with_capacity(volumes.len());
         for (v, bytes) in volumes.iter().enumerate() {
-            let at = if v == 0 { flags_end } else { 0 };
-            let mut table = reserve(total + spare, bytes.len(), 4);
-            for i in 0..total + spare {
-                table.push(u32le(bytes, at + i * 4)?);
-            }
-            tables.push(table);
+            let mut table = Cursor::new(bytes, if v == 0 { flags_end } else { 0 });
+            tables.push(
+                table
+                    .records::<4>(entries)?
+                    .iter()
+                    .map(|entry| u32::from_le_bytes(*entry))
+                    .collect::<Vec<u32>>(),
+            );
+            table_ends.push(table.position());
         }
-        let mut spans = vec![Span::EMPTY; total];
+        let mut spans = Vec::with_capacity(total);
         let mut unpacked: Vec<u8> = Vec::new();
         let unpacked_store = volumes.len();
-        for idx in 0..total {
-            let flag = flags[idx];
-            if flag == 0 {
-                continue;
-            }
-            // The later framing writes which volume holds the item, as
-            // `1 << (volume - 1)`; the earlier one has one volume and writes a
-            // plain 1.
-            let volume = match framing {
-                Framing::Earlier => 0,
-                Framing::Later => flag.trailing_zeros() as usize,
-            };
-            // A word naming a volume the header does not declare is a
-            // contradiction the container reports rather than reads past;
-            // `occupancy_mismatches` is where it surfaces.
-            let Some(bytes) = volumes.get(volume) else {
-                continue;
-            };
-            let table = &tables[volume];
-            let start = table[idx] as usize;
-            let end = if idx + 1 < total {
-                table[idx + 1] as usize
-            } else {
-                bytes.len()
-            };
-            let segment = Self::segment_of(&bases, &counts, idx);
-            let local = idx - bases[segment as usize];
-            if end < start {
-                return Err(Error::Corrupt {
-                    what: "DATA container",
-                    detail: format!(
-                        "{} {local} starts at {start:#x} after the next item at {end:#x}",
-                        segment.name(),
-                    ),
-                });
-            }
-            if end == start {
-                continue;
-            }
-            // The first item of a volume lies past that volume's table. An
-            // offset inside it is the one thing that proves the counts were not
-            // read correctly.
-            let table_end = if volume == 0 {
-                flags_end + (total + spare) * 4
-            } else {
-                (total + spare) * 4
-            };
-            if start < table_end {
-                return Err(Error::Corrupt {
-                    what: "DATA container",
-                    detail: format!(
-                        "an item of volume {} starts at {start:#x} but that volume's \
-                         offset table ends at {table_end:#x}",
-                        volume + 1
-                    ),
-                });
-            }
-            let item = bytes.get(start..end).ok_or(Error::Truncated {
-                off: start,
-                need: end - start,
-                have: bytes.len(),
-            })?;
-            if packed[segment as usize] {
+        for (idx, &flag) in flags.iter().enumerate() {
+            let span = 'span: {
+                if flag == 0 {
+                    break 'span Span::EMPTY;
+                }
+                // The later framing writes which volume holds the item, as
+                // `1 << (volume - 1)`; the earlier one has one volume and
+                // writes a plain 1.
+                let volume = match framing {
+                    Framing::Earlier => 0,
+                    Framing::Later => crate::wide(flag.trailing_zeros()),
+                };
+                // A word naming a volume the header does not declare is a
+                // contradiction the container reports rather than reads past;
+                // `occupancy_mismatches` is where it surfaces.
+                let (Some(data), Some(table), Some(&table_end)) = (
+                    volumes.get(volume),
+                    tables.get(volume),
+                    table_ends.get(volume),
+                ) else {
+                    break 'span Span::EMPTY;
+                };
+                // The item runs to the next slot's offset, and the last slot's
+                // to the end of its volume. Every slot has an entry, the table
+                // having been read with one per slot and the spare ones after.
+                let Some((&start, rest)) = table.get(idx..total).and_then(<[u32]>::split_first)
+                else {
+                    break 'span Span::EMPTY;
+                };
+                let start = crate::wide(start);
+                let end = rest.first().map_or(data.len(), |&next| crate::wide(next));
+                let (segment, local) = Self::segment_of(&bases, &counts, idx);
+                let Some(len) = end.checked_sub(start) else {
+                    return Err(Error::Corrupt {
+                        what: "DATA container",
+                        detail: format!(
+                            "{} {local} starts at {start:#x} after the next item at {end:#x}",
+                            segment.name(),
+                        ),
+                    });
+                };
+                if len == 0 {
+                    break 'span Span::EMPTY;
+                }
+                // The first item of a volume lies past that volume's table.
+                // An offset inside it is the one thing that proves the counts
+                // were not read correctly.
+                if start < table_end {
+                    return Err(Error::Corrupt {
+                        what: "DATA container",
+                        detail: format!(
+                            "an item of volume {} starts at {start:#x} but that volume's \
+                             offset table ends at {table_end:#x}",
+                            volume.saturating_add(1)
+                        ),
+                    });
+                }
+                let item = data
+                    .get(start..end)
+                    .ok_or_else(|| past_end(data, start, len))?;
+                if !packed[segment] {
+                    break 'span Span {
+                        store: volume,
+                        start,
+                        end,
+                    };
+                }
                 // The two framings differ by one leading word. The later
                 // one's header is unpacked length, packed length, 2048, 9;
                 // the earlier one repeats the unpacked length ahead of it, so
@@ -504,13 +572,18 @@ impl Container {
                     }
                     Framing::Later => PACK_HEADER_LEN,
                 };
-                let at = head_len - PACK_HEADER_LEN;
-                let shaped = item.len() > head_len
-                    && u16le(item, at + 2)? as usize == item.len() - head_len
-                    && u16le(item, at + 4)? == PACK_DICTIONARY
-                    && u16le(item, at + 6)? == PACK_INITIAL_WIDTH
-                    && (at == 0 || u16le(item, 0)? == u16le(item, 2)?);
-                if !shaped {
+                let at = head_len.saturating_sub(PACK_HEADER_LEN);
+                let opens = match (tail(item, head_len), bytes::<PACK_HEADER_LEN>(item, at)) {
+                    (Ok(stream), Ok(pack)) if !stream.is_empty() => Some((stream, Record(pack))),
+                    _ => None,
+                };
+                let shaped = opens.filter(|(stream, pack)| {
+                    usize::from(pack.u16::<2>()) == stream.len()
+                        && pack.u16::<4>() == PACK_DICTIONARY
+                        && pack.u16::<6>() == PACK_INITIAL_WIDTH
+                        && (at == 0 || u16le(item, 0).ok() == u16le(item, 2).ok())
+                });
+                let Some((stream, pack)) = shaped else {
                     return Err(Error::Corrupt {
                         what: "DATA container",
                         detail: format!(
@@ -520,24 +593,20 @@ impl Container {
                             item.len()
                         ),
                     });
-                }
-                let want = u16le(item, at)? as usize;
-                let raw = lzw::decode(&item[head_len..], PACK_DICTIONARY.max(2).ilog2(), want)?;
+                };
+                let want = usize::from(pack.u16::<0>());
+                let raw = lzw::decode(stream, PACK_DICTIONARY.max(2).ilog2(), want)?;
                 let at = unpacked.len();
                 unpacked.extend_from_slice(&raw);
-                spans[idx] = Span {
+                Span {
                     store: unpacked_store,
                     start: at,
                     end: unpacked.len(),
-                };
-            } else {
-                spans[idx] = Span {
-                    store: volume,
-                    start,
-                    end,
-                };
-            }
+                }
+            };
+            spans.push(span);
         }
+        let first_item = table_ends.first().copied().unwrap_or(flags_end);
         let volume_lens: Vec<usize> = volumes.iter().map(Vec::len).collect();
         let mut stores = volumes;
         stores.push(unpacked);
@@ -560,6 +629,7 @@ impl Container {
             spare,
             spans,
             tables,
+            first_item,
             boot,
             source,
         })
@@ -579,19 +649,23 @@ impl Container {
                 detail: format!("file is only {} bytes", head.len()),
             });
         }
-        Ok((u16le(head, 18)? as usize).max(1))
+        Ok(crate::wide(u16le(head, 18)?.into()).max(1))
     }
 
-    /// Which segment slot `idx` belongs to.
-    fn segment_of(bases: &[usize; 7], counts: &[usize; 7], idx: usize) -> Segment {
-        let mut found = Segment::Txt;
-        for (i, seg) in Segment::ALL.iter().enumerate() {
-            if idx >= bases[i] && idx < bases[i] + counts[i] {
-                found = *seg;
-                break;
-            }
-        }
-        found
+    /// Which segment slot `idx` belongs to, and its local id there.
+    fn segment_of(
+        bases: &PerSegment<usize>,
+        counts: &PerSegment<usize>,
+        idx: usize,
+    ) -> (Segment, usize) {
+        Segment::ALL
+            .iter()
+            .find_map(|&segment| {
+                idx.checked_sub(bases[segment])
+                    .filter(|&local| local < counts[segment])
+                    .map(|local| (segment, local))
+            })
+            .unwrap_or((Segment::Txt, idx))
     }
 
     /// Where the container was read from, for error messages.
@@ -626,18 +700,18 @@ impl Container {
     /// Whether this segment's items are stored packed. Reading them does not
     /// depend on it — [`Container::item`] hands out unpacked bytes either way.
     pub fn packed(&self, segment: Segment) -> bool {
-        self.packed[segment as usize]
+        self.packed[segment]
     }
 
     /// Number of slots reserved for `segment` (not the number that are filled).
     pub fn slot_count(&self, segment: Segment) -> usize {
-        self.counts[segment as usize]
+        self.counts[segment]
     }
 
     /// Slot index of a local id, or the error the container reports for one
     /// past the segment's count.
     fn slot(&self, segment: Segment, id: usize) -> Result<usize> {
-        let count = self.counts[segment as usize];
+        let count = self.counts[segment];
         if id >= count {
             return Err(Error::IdOutOfRange {
                 kind: segment.name(),
@@ -645,7 +719,7 @@ impl Container {
                 count,
             });
         }
-        Ok(self.bases[segment as usize] + id)
+        Ok(self.bases[segment].saturating_add(id))
     }
 
     /// The bytes of one item, unpacked, or `None` if the slot is empty.
@@ -653,23 +727,33 @@ impl Container {
     /// `id` is the local id the script uses — the sprite number, the block
     /// number, the module number — not the slot index.
     pub fn item(&self, segment: Segment, id: usize) -> Result<Option<&[u8]>> {
-        let span = self.spans[self.slot(segment, id)?];
+        let Some(span) = self.spans.get(self.slot(segment, id)?) else {
+            return Ok(None);
+        };
         if span.is_empty() {
             return Ok(None);
         }
-        Ok(Some(&self.stores[span.store][span.start..span.end]))
+        Ok(self
+            .stores
+            .get(span.store)
+            .and_then(|store| store.get(span.start..span.end)))
     }
 
     /// The occupancy word of one slot, as stored: `1 << (volume - 1)`, or 0.
     pub fn occupancy(&self, segment: Segment, id: usize) -> Result<u16> {
-        Ok(self.flags[self.slot(segment, id)?])
+        let slot = self.slot(segment, id)?;
+        Ok(self.flags.get(slot).copied().unwrap_or(0))
     }
 
     /// Local ids of every filled slot of `segment`, ascending.
     pub fn present(&self, segment: Segment) -> Vec<usize> {
-        let base = self.bases[segment as usize];
-        (0..self.counts[segment as usize])
-            .filter(|&id| !self.spans[base + id].is_empty())
+        self.spans
+            .iter()
+            .skip(self.bases[segment])
+            .take(self.counts[segment])
+            .enumerate()
+            .filter(|(_, span)| !span.is_empty())
+            .map(|(id, _)| id)
             .collect()
     }
 
@@ -682,8 +766,12 @@ impl Container {
     /// 1848, that are flagged for a volume whose table gives them a length of
     /// zero — the container saying a sprite is there and then not having one.
     pub fn occupancy_mismatches(&self) -> Vec<usize> {
-        (0..self.spans.len())
-            .filter(|&idx| (self.flags[idx] != 0) != !self.spans[idx].is_empty())
+        self.flags
+            .iter()
+            .zip(&self.spans)
+            .enumerate()
+            .filter(|(_, (flag, span))| (**flag != 0) != !span.is_empty())
+            .map(|(idx, _)| idx)
             .collect()
     }
 
@@ -695,7 +783,7 @@ impl Container {
     /// second and third volumes leave 24 bytes between the two, so this is
     /// where items may begin rather than where they do.
     pub fn first_item_offset(&self) -> usize {
-        self.framing.header_len() + self.spans.len() * 2 + (self.spans.len() + self.spare) * 4
+        self.first_item
     }
 
     /// Bytes after the last item, summed over the volumes. Zero in every
@@ -703,25 +791,31 @@ impl Container {
     /// nothing unreferenced.
     pub fn trailing_slack(&self) -> usize {
         let total = self.spans.len();
-        (0..self.volume_lens.len())
-            .map(|v| {
-                let table = &self.tables[v];
-                let end = (0..total)
-                    .filter(|&idx| {
-                        self.flags[idx] != 0
-                            && self.flags[idx].trailing_zeros() as usize == v
-                            && !self.spans[idx].is_empty()
+        self.tables
+            .iter()
+            .zip(&self.volume_lens)
+            .enumerate()
+            .map(|(v, (table, &len))| {
+                // Where each slot's item ends: at the next slot's offset, and
+                // at the end of the volume for the last.
+                let ends = table
+                    .iter()
+                    .skip(1)
+                    .take(total.saturating_sub(1))
+                    .map(|&next| crate::wide(next))
+                    .chain(std::iter::repeat(len));
+                let end = self
+                    .flags
+                    .iter()
+                    .zip(&self.spans)
+                    .zip(ends)
+                    .filter(|((flag, span), _)| {
+                        **flag != 0 && crate::wide(flag.trailing_zeros()) == v && !span.is_empty()
                     })
-                    .map(|idx| {
-                        if idx + 1 < total {
-                            table[idx + 1] as usize
-                        } else {
-                            self.volume_lens[v]
-                        }
-                    })
+                    .map(|(_, end)| end)
                     .max()
-                    .unwrap_or(self.volume_lens[v]);
-                self.volume_lens[v].saturating_sub(end)
+                    .unwrap_or(len);
+                len.saturating_sub(end)
             })
             .sum()
     }

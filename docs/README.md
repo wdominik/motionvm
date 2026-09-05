@@ -10,4 +10,6 @@ below it names the game or the generation it speaks for.
 
 Everything here describes the *original* engines and their shipped files,
 without reference to the code in this repository; `ARCHITECTURE.md` at the
-root is where the code describes itself.
+root is where the code describes itself. One page stands outside the trees:
+[Writing an engine family](writing-a-family.md), the contract read from the
+engine's side, for whoever brings a further family.

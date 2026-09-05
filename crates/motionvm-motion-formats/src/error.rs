@@ -121,7 +121,7 @@ pub enum Error {
     },
     /// The event stream held a status the sequencer does not implement.
     UnknownSongEvent {
-        /// Where in the event stream it sat.
+        /// Where it sat, from the start of the track record.
         at: usize,
         /// The status byte.
         status: u8,

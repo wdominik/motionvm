@@ -14,7 +14,7 @@
 //! long — which is the one check a reader can make, and does.
 
 use crate::error::{Error, Result};
-use crate::u16le;
+use crate::past_end;
 
 /// Bytes before the pixels.
 pub const HEADER_LEN: usize = 6;
@@ -33,23 +33,24 @@ pub struct Sprite {
 impl Sprite {
     /// Reads one GFX item.
     pub fn parse(item: &[u8]) -> Result<Self> {
-        let width = u16le(item, 0)?;
-        let height = u16le(item, 2)?;
-        let _ = u16le(item, 4)?;
-        let expected = HEADER_LEN + width as usize * height as usize;
-        if item.len() != expected {
+        let (head, pixels) = item
+            .split_first_chunk::<HEADER_LEN>()
+            .ok_or_else(|| past_end(item, 0, HEADER_LEN))?;
+        let width = u16::from_le_bytes([head[0], head[1]]);
+        let height = u16::from_le_bytes([head[2], head[3]]);
+        if usize::from(width).checked_mul(usize::from(height)) != Some(pixels.len()) {
             return Err(Error::Corrupt {
                 what: "sprite",
                 detail: format!(
-                    "a {width}x{height} sprite is {expected} bytes, the item is {}",
-                    item.len()
+                    "a {width}x{height} sprite, and the item holds {} bytes after its header",
+                    pixels.len()
                 ),
             });
         }
         Ok(Self {
             width,
             height,
-            pixels: item[HEADER_LEN..].to_vec(),
+            pixels: pixels.to_vec(),
         })
     }
 }

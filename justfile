@@ -57,6 +57,18 @@ _DATA_VLOOMES := if GAMEDATA_VLOOMES != DEFAULT_GAMEDATA_VLOOMES { GAMEDATA_VLOO
 # itself and says so.
 SAVES := ""
 
+# Where every game reaches a cargo command, written once.
+#
+# Three recipes hand the suite its data. Spelling the five variables out in
+# each would make a sixth game a matter of remembering all three; this is the
+# one block they share, and adding a game touches it once.
+_GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
+    'MOTIONVM_GAMEDATA_ENVIRO="' + _DATA_ENVIRO + '" ' + \
+    'MOTIONVM_GAMEDATA_JEFFJET="' + _DATA_JEFFJET + '" ' + \
+    'MOTIONVM_GAMEDATA_HFA="' + _DATA_HFA + '" ' + \
+    'MOTIONVM_GAMEDATA_VLOOMES="' + _DATA_VLOOMES + '" ' + \
+    'MOTIONVM_SAVES="' + SAVES + '"'
+
 _default:
     @just --list
 
@@ -65,10 +77,7 @@ check: fmt-check clippy test doc
 
 # The test suite, with the games' files.
 test:
-    MOTIONVM_GAMEDATA_DS2="{{ _DATA_DS2 }}" MOTIONVM_GAMEDATA_ENVIRO="{{ _DATA_ENVIRO }}" \
-        MOTIONVM_GAMEDATA_JEFFJET="{{ _DATA_JEFFJET }}" MOTIONVM_GAMEDATA_HFA="{{ _DATA_HFA }}" \
-        MOTIONVM_GAMEDATA_VLOOMES="{{ _DATA_VLOOMES }}" \
-        MOTIONVM_SAVES="{{ SAVES }}" RUSTFLAGS="-D warnings" cargo test --workspace
+    {{ _GAMES }} RUSTFLAGS="-D warnings" cargo test --workspace
 
 # `just test` above cannot do this. The per-game variables fall back to
 # `../games/<GAME>` beside the checkout — which is the arrangement the README
@@ -86,13 +95,78 @@ check-nodata:
 
 # One test target, e.g. `just test-one ds2_scenes` or `just test-one enviro_psm`.
 test-one target:
-    MOTIONVM_GAMEDATA_DS2="{{ _DATA_DS2 }}" MOTIONVM_GAMEDATA_ENVIRO="{{ _DATA_ENVIRO }}" \
-        MOTIONVM_GAMEDATA_JEFFJET="{{ _DATA_JEFFJET }}" MOTIONVM_GAMEDATA_HFA="{{ _DATA_HFA }}" \
-        MOTIONVM_GAMEDATA_VLOOMES="{{ _DATA_VLOOMES }}" \
-        MOTIONVM_SAVES="{{ SAVES }}" cargo test --workspace --test {{ target }} -- --nocapture
+    {{ _GAMES }} cargo test --workspace --test {{ target }} -- --nocapture
+
+# Rewrite the reference digest tables from a run of the suite.
+#
+# Every scene the suites compose and every tune they play has a line in
+# `crates/*/tests/digests/<slug>.txt`, and a run holds what it made against it.
+# This recipe records instead of checking, so the difference lands in the
+# working tree: a deliberate change is then a reviewed line in a diff, and an
+# accidental one was a red test before anyone got here.
+#
+# **Run it with every game on the machine.** A table is only rewritten when the
+# run produced lines for it, so a missing game leaves its table alone — but a
+# game that is *present* and whose suite skipped part of itself writes a
+# shorter table, and that shows up as deletions in the diff. Read them.
+digests:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf target/digests
+    MOTIONVM_DIGESTS=record just test
+    # One record file per table, named `<crate>.<slug>.lines`, so the table it
+    # belongs to is derivable and no game's table is rewritten from another's
+    # run. `sort -u` because the suite's threads and binaries appended to it in
+    # whatever order they finished; a name that ends up on two lines with two
+    # digests is nondeterminism, and the table reader says so rather than
+    # taking one of them.
+    for f in target/digests/*.lines; do
+        base="$(basename "$f" .lines)"
+        crate="${base%.*}"
+        slug="${base##*.}"
+        out="crates/$crate/tests/digests/$slug.txt"
+        mkdir -p "$(dirname "$out")"
+        {
+            echo "# Reference digests for $slug, written by \`just digests\`."
+            echo "#"
+            echo "# One line per scene or tune: its name, and an FNV-1a 64 of what it"
+            echo "# composed or wrote. A digest reconstructs nothing and is not a"
+            echo "# fixture derived from the game's data, which is why it may live here"
+            echo "# where a rendered frame may not. See motionvm-motion-testutil's"
+            echo "# \`digest\` module for what each one covers."
+            sort -u "$f"
+        } > "$out"
+    done
+    git diff --stat -- 'crates/*/tests/digests'
+
+# The measurement rigs: what a frame costs and how fast the machines run.
+#
+# Release only — a debug build measures the optimizer, not the code — and
+# `#[ignore]`d, so `just check` never pays for them. They assert nothing: a
+# wall-clock number is a property of the machine it ran on. What they are for
+# is that a figure quoted about the cost of anything here can be reproduced and
+# argued with, and that a change to the interpreter is measured before and
+# after rather than reasoned about.
+bench:
+    {{ _GAMES }} cargo test --release -p motionvm-motion-engine \
+        --test throughput --test ds2_timing -- --ignored --nocapture
 
 fmt:
     cargo fmt --all
+
+# What the dependency list is allowed to be: `deny.toml` says it, and CI runs
+# exactly this.
+#
+# Not part of `check`, because it wants a tool `cargo` does not bring
+# (`cargo install cargo-deny`) and it reaches the network for the advisory
+# database. It belongs in the run before a dependency change goes out, and CI
+# runs it on every push regardless.
+#
+# The two extra denials keep the file honest rather than merely passing: a
+# license nobody uses and a duplicate that has gone away would otherwise sit
+# in it forever.
+deny:
+    cargo deny check -D license-not-encountered -D unmatched-skip
 
 fmt-check:
     cargo fmt --all --check
@@ -122,21 +196,25 @@ doc:
     RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links -D warnings" \
         cargo doc --workspace --no-deps --document-private-items
 
-# The games themselves, one recipe each and none of them the default.
-run-ds2 *ARGS:
-    cargo run --release -p motionvm-app -- "{{ GAMEDATA_DS2 }}" {{ ARGS }}
-
-run-enviro *ARGS:
-    cargo run --release -p motionvm-app -- "{{ GAMEDATA_ENVIRO }}" {{ ARGS }}
-
-run-jeffjet *ARGS:
-    cargo run --release -p motionvm-app -- "{{ GAMEDATA_JEFFJET }}" {{ ARGS }}
-
-run-hfa *ARGS:
-    cargo run --release -p motionvm-app -- "{{ GAMEDATA_HFA }}" {{ ARGS }}
-
-run-vloomes *ARGS:
-    cargo run --release -p motionvm-app -- "{{ GAMEDATA_VLOOMES }}" {{ ARGS }}
+# One of the games: `just run ds2`, `just run enviro`, `just run jeffjet`,
+# `just run hfa`, `just run vloomes`.
+#
+# The slug is required and there is no default, which is the rule this file has
+# always kept — a `just run` that picked a game would pick it for everyone.
+# What changed is that the five recipes were five copies of one line, so a
+# sixth game meant a sixth copy; now it means a row in the case below.
+run GAME *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ GAME }}" in
+        ds2)     dir='{{ GAMEDATA_DS2 }}' ;;
+        enviro)  dir='{{ GAMEDATA_ENVIRO }}' ;;
+        jeffjet) dir='{{ GAMEDATA_JEFFJET }}' ;;
+        hfa)     dir='{{ GAMEDATA_HFA }}' ;;
+        vloomes) dir='{{ GAMEDATA_VLOOMES }}' ;;
+        *) echo "just run <ds2|enviro|jeffjet|hfa|vloomes> [args]" >&2; exit 2 ;;
+    esac
+    cargo run --release -p motionvm-app -- "$dir" {{ ARGS }}
 
 # The family's inspection CLI, from a checkout: `just tools info GAMEDIR`.
 tools *ARGS:

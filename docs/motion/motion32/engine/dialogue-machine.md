@@ -116,6 +116,44 @@ The location's talk word is called one final time with −1, the pointer
 is restored, and the mode falls to 0 — which is why `?DIALON` (true for
 modes 12–18) then reports the conversation over.
 
+## The item menu (modes 17 and 18)
+
+The inventory bar stays live under the answers. While mode 14 waits, a
+fresh right press over one of the bar's eight slots — `_IMX` from 0x40, 64 a
+slot — with something in it (0x7e52e) puts the item into the block's target
+(+4) and slot (+0xF0), sets **mode 17** and calls `GMSHOWMENU` for the bar's
+strip with the mask `0x60`: two icons, verbs 6 and 7, `INFO` and `GIVE`,
+centered over the slot and 0x30 down. `GMSHOWMENU` reads the mode first
+(0x7a303) and adds the look verb to every menu but this one's and the
+answers' — which is why the mode goes up before the strip does.
+
+**Mode 17** (0x7e918) is the strip's frame: `HIGHLIGHTORDERS` over the bar's
+descriptors, then a fresh left press is `CHOOSEORDERS` over the same mask —
+slot 0 is verb 6, slot 1 verb 7 (0x7aeae) — which sets the verb, takes the
+strip down and leaves **mode 18**; a fresh right press with +0x134 clear
+takes the strip down and goes back to the answers, mode 14 (0x7e997). The
+epilogue animates the bar's strip in mode 17 as it does in mode 2 (0x7eaee).
+
+**Mode 18** (0x7e9b1) waits for the figure — the person at +0x78, whose
+command cell +0x1CC must be 0 or 999 — then runs the pick as a forced order:
+mode **98**, `EXECORDER` on the verb, the item and the flag (0x7bf80), and
+the picked word at +0x120. Mode 98 hands back to the answers when the order
+is done; verbs 6 and 7 enter the conversation at the answer named `DINFO` or
+`DGIVE` for the item (see
+[Game library](../../games/ds2/library/game-library.md)).
+
+## Mode 15, which nothing reaches
+
+The branch at 0x7e6d0 shows a last line: while the line descriptor at +0x174
+is up, speaker 0 hears 2 and the others 4; once it is gone every speaker
+hears 3 and the mode falls to 16. The only store of 15 into the mode cell is
+in the routine at `0x7b120`, which lays the quiet line (+0x198/+0x19C) into
++0x174, centered at `GSCRX + 0xA0`, `GSCRY + 0x50`, runs the word at +0x1A0
+and sets the mode — and nothing in `ENGINE.EXE` calls, jumps to or holds the
+address of that routine, in code or data. The build left it behind, and the
+shipped game cannot take the branch. The rebuild refuses the mode and says
+why.
+
 ## Branches and the deferred-change queue
 
 A **branch node** changes state instead of speaking. Without a name it
@@ -140,9 +178,9 @@ Only actions 5 and 6 drain the deferred-change queue afterwards
 The name lookup walks the module table at `0xEE6D0` (stride 0x30, count
 `0xDB027`, module number at +0x10) in entry order; the hash over the
 name's length and characters 0, 1, 2 and 5 only prunes the search.
-The rebuild walks the same table in module-number order instead — a
-recorded [departure](../../departures.md); all known duplicate names live in
-location modules never loaded together.
+Entry order is slot order: `=>GET` takes the first free slot (0x64999) and
+`=>ERASE` frees one in place, so two modules that define one name are told
+apart by which was loaded into the earlier slot.
 
 **A trap that bit here:** every field of the packed tables must be read
 byte-exact. The branch successor at +0x1E of a 0x22-stride entry never
@@ -152,9 +190,10 @@ path — the crash after the first dialogue choice.
 
 ## Open questions
 
-- Dialogue modes 15, 17, 18 (and the mid-conversation right-click menu).
-- The remaining `CALCDIALOG` helpers (`0x7ad26`, `0x7a759`, `0x7a552`,
-  `0x7b053`).
+None on this page. Modes 12 to 18 are read; 15 is not built because nothing
+reaches it, and the menu routines the item menu shares with the verb menu
+(`0x7a552`, `0x7a759`, `0x7ad26`) and `TEXTTOPERSON` (`0x7b053`) are read
+under the [interaction machine](interaction.md).
 
 ## See also
 

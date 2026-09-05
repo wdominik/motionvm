@@ -16,9 +16,12 @@
 //! and [`Machine`], the driver's view of a machine; the dispatch of kernel
 //! ordinals onto the primitives the interpreters own, built from a
 //! [`motionvm_motion_formats::Binding`] — and the primitives' names, which are the
-//! same in both kernels where they exist. An unqualified name here holds for
-//! both machines.
+//! same in both kernels where they exist. [`cell`] names the conversions a
+//! word applies to a cell's bits, and is the only place either machine
+//! changes a value's type. An unqualified name here holds for both machines.
 
+pub mod cell;
+mod core;
 pub mod m16;
 pub mod m32;
 mod prims;
@@ -93,8 +96,13 @@ pub enum Error {
     StackUnderflow {
         /// The word that asked, by name.
         word: &'static str,
-        /// Where it was running.
-        at: Address,
+        /// Where it was running, once someone who knows has said.
+        ///
+        /// `None` while the error is on its way out of a host word: the
+        /// engine's words are handed a stack and a memory, not an instruction
+        /// pointer, so they know what they wanted and not where they were.
+        /// [`Error::located`] fills it in at the one place that knows both.
+        at: Option<Address>,
     },
     /// A call or a read into a module that is not loaded.
     ///
@@ -196,13 +204,121 @@ pub enum Error {
     Unread {
         /// What was reached.
         what: String,
-        /// Where to read it, as an address in `ENGINE.EXE`.
+        /// Which original binary would settle it — `ENGINE.EXE`,
+        /// `ENVIRO.EXE`, `LL.EXE`.
+        ///
+        /// Its own field rather than implied by the address's shape: that an
+        /// `at` of `0x7bece` means `ENGINE.EXE` and one of `0d34:15a6` means
+        /// `ENVIRO.EXE` is a thing to know, and leaving it to the reader at
+        /// the very moment they are being told to go and read it is the wrong
+        /// place to be terse.
+        binary: &'static str,
+        /// Where in that binary, in the notation its disassembly uses: a flat
+        /// address for the 32-bit engine's relocated image, `seg:off` for a
+        /// 16-bit one.
+        ///
+        /// Still a string, and deliberately. A few of these name two addresses
+        /// and one names a table entry rather than an address at all — "the
+        /// handler the core table names at ordinal 43" is where to look, and
+        /// it is not a number. A `u32` here would either lose those or need
+        /// four shapes for fifteen sites.
         at: &'static str,
+    },
+    /// A stored value that should name a word does not.
+    ///
+    /// A callback slot, a pending call, a word id: each is a number the game
+    /// keeps and hands back expecting the machine to resolve it, and one that
+    /// resolves to nothing is a state no shipped script produces. Distinct
+    /// from [`Error::UnboundWord`], which is a word id whose module is not
+    /// loaded — a thing that happens on purpose after `=>ERASE`.
+    NotAWord {
+        /// Where the value came from, in the family's own words.
+        what: String,
+        /// The value itself, as it was stored.
+        raw: i32,
+    },
+    /// A word asked the resources for something they do not hold.
+    ///
+    /// Not a gap in this engine and not a fault in the word: the container
+    /// simply has no such item, which for a shipped game means either a copy
+    /// that is short of a file or a script asking for something that was never
+    /// there. Its own variant rather than an `Unimplemented` with ordinal 0,
+    /// which would say the word was not built when it is.
+    MissingResource {
+        /// What kind of thing was wanted, in the family's own words — a block,
+        /// a module, a sprite.
+        kind: &'static str,
+        /// Its number, as the script asked for it.
+        id: i32,
+        /// The word that asked, by name.
+        word: &'static str,
+        /// Where it was running; stamped by [`Error::located`].
+        at: Option<Address>,
+    },
+    /// A word that acts on a selection ran with nothing selected.
+    ///
+    /// Every `SD…` word acts on whatever `ACTDESC` last chose, and a stale
+    /// handle leaves nothing chosen. Doing nothing quietly there produces a
+    /// picture that is wrong in a way nothing reports — a whole phase of the
+    /// intro is `ACTDESC` followed by setters — so it stops instead, and the
+    /// search starts here rather than at the renderer.
+    ///
+    /// Its own variant rather than an `Unimplemented` with ordinal 0 and a
+    /// sentence built into its `name`, which would say the word was not built
+    /// when it is.
+    NoSelection {
+        /// The word that asked, by name.
+        word: &'static str,
+        /// What was selected when it asked, which tells "nothing was ever
+        /// chosen" from "the choice went stale".
+        selected: Option<usize>,
+        /// Where it was running; stamped by [`Error::located`].
+        at: Option<Address>,
     },
     /// A word was reached with an argument the host cannot honor. Distinct
     /// from `Unimplemented`: the word exists and works, this particular case
     /// does not, and saying so beats drawing something wrong.
     Unsupported(String),
+}
+
+impl Error {
+    /// Says where this happened, for the variants that could not know.
+    ///
+    /// Two kinds of error arrive without a place. A memory read knows the
+    /// address it wanted and not the word that wanted it; a host word knows
+    /// what it wanted and not where it was, because the engine's words are
+    /// handed a stack and a memory rather than an instruction pointer. The
+    /// interpreter is the one place that knows both, and it stamps them here
+    /// on the way out. An error that already says where it was keeps what it
+    /// says.
+    #[must_use]
+    pub fn located(self, at: Address) -> Self {
+        match self {
+            Self::OutOfRange { addr, at: None } => Self::OutOfRange { addr, at: Some(at) },
+            Self::StackUnderflow { word, at: None } => Self::StackUnderflow { word, at: Some(at) },
+            Self::MissingResource {
+                kind,
+                id,
+                word,
+                at: None,
+            } => Self::MissingResource {
+                kind,
+                id,
+                word,
+                at: Some(at),
+            },
+            Self::NoSelection {
+                word,
+                selected,
+                at: None,
+            } => Self::NoSelection {
+                word,
+                selected,
+                at: Some(at),
+            },
+            other => other,
+        }
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -217,7 +333,10 @@ impl std::fmt::Display for Error {
             Self::UnknownOrdinal { ordinal, at } => {
                 write!(f, "{at}: no kernel word has ordinal {ordinal}")
             }
-            Self::StackUnderflow { word, at } => write!(f, "{at}: stack underflow in {word}"),
+            Self::StackUnderflow { word, at } => match at {
+                Some(at) => write!(f, "{at}: stack underflow in {word}"),
+                None => write!(f, "stack underflow in {word}"),
+            },
             Self::NoSuchModule { module, at, cell } => write!(
                 f,
                 "{at}: cell {cell:#010x} calls module {module}, which is not loaded"
@@ -246,7 +365,23 @@ impl std::fmt::Display for Error {
                 write!(f, "{word}: {}: {source}", path.display())
             }
             Self::Savegame { what } => write!(f, "{what}"),
-            Self::Unread { what, at } => write!(f, "{what} — not yet read, at {at}"),
+            Self::Unread { what, binary, at } => {
+                write!(f, "{what} — not yet read, at {binary} {at}")
+            }
+            Self::NotAWord { what, raw } => {
+                write!(f, "{what}: {raw:#x} names no word")
+            }
+            Self::MissingResource { kind, id, word, at } => {
+                let place = at.map(|a| format!("{a}: ")).unwrap_or_default();
+                write!(f, "{place}{word}: {kind} {id} is not in the resources")
+            }
+            Self::NoSelection { word, selected, at } => {
+                let place = at.map(|a| format!("{a}: ")).unwrap_or_default();
+                write!(
+                    f,
+                    "{place}{word} with no current descriptor (ACTDESC selected {selected:?})"
+                )
+            }
             Self::Unsupported(what) => write!(f, "{what}"),
             Self::Suspended { at } => {
                 write!(
@@ -306,7 +441,15 @@ pub trait Host<M> {
     /// an address — so the stack alone is not enough. Memory lives in its own
     /// struct precisely so it can be handed over while the interpreter keeps
     /// the rest of itself.
-    fn word(&mut self, name: &str, vm: &mut M) -> Result<bool>;
+    /// The word is named by its **ordinal**, not by its name.
+    ///
+    /// The ordinal is what the cell held, and the host has resolved it once
+    /// already — when the machine bound its kernel — into whatever it calls a
+    /// word. Turning it back into a string on the way here costs a map lookup
+    /// and a heap allocation on every host word, for a name the host then
+    /// matches against and throws away. The name is still wanted for a report,
+    /// and [`m32::Vm::ordinal_name`] answers it on the paths that need one.
+    fn word(&mut self, ordinal: u32, vm: &mut M) -> Result<bool>;
 
     /// A word the primitive just run wants called before anything else.
     ///
@@ -335,16 +478,17 @@ pub trait Host<M> {
 
 /// A host that implements nothing, for running pure computation, on either
 /// machine.
+#[derive(Debug)]
 pub struct NullHost;
 
 impl Host<m32::Vm> for NullHost {
-    fn word(&mut self, _n: &str, _vm: &mut m32::Vm) -> Result<bool> {
+    fn word(&mut self, _ordinal: u32, _vm: &mut m32::Vm) -> Result<bool> {
         Ok(false)
     }
 }
 
 impl Host<m16::Vm> for NullHost {
-    fn word(&mut self, _n: &str, _vm: &mut m16::Vm) -> Result<bool> {
+    fn word(&mut self, _ordinal: u32, _vm: &mut m16::Vm) -> Result<bool> {
         Ok(false)
     }
 }
@@ -393,6 +537,28 @@ pub trait AddressSpace {
     fn restore_module(&mut self, module: u32, image: &[u8]) -> Result<()>;
 }
 
+/// How much work a machine has done since it was built.
+///
+/// Cumulative, and reset by nothing: not by [`Machine::start`], which starts a
+/// fresh step budget, and not by [`Machine::park`], which sets one execution
+/// aside for another. The step budget answers *is this run away with itself*;
+/// these answer *what did the whole session cost*, which is the question a
+/// measurement over some thousands of frames asks — and the one a change to
+/// the dispatch has to answer before and after to claim anything.
+///
+/// Two numbers rather than a duration, because a duration is a property of the
+/// machine it was measured on and these are not: the same run executes the
+/// same cells here and on the next machine, so a change in the ratio between
+/// them is a change in the interpreter and nothing else.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counters {
+    /// Cells executed: every call, every return, every kernel word.
+    pub cells: u64,
+    /// Of those, the ones handed to the host — the engine's own words, which
+    /// are the ones dispatched by name.
+    pub host_words: u64,
+}
+
 /// What a driver needs of a machine to run a game on it — starting and
 /// resuming words, parking an execution while another runs, and reading
 /// the game's own variables — without being one machine's driver.
@@ -405,6 +571,14 @@ pub trait Machine: Sized + Send {
     /// An execution set aside by [`Machine::park`].
     type Context: Send;
 
+    /// Reseeds whatever `RANDOM` draws from.
+    ///
+    /// A machine is built with a fixed seed, so a run that never calls this
+    /// draws the same numbers every time — which is what the test suites rely
+    /// on and what makes a scene's digest a check at all. A player's run is
+    /// seeded from the platform instead, because the original did not hand out
+    /// one sequence to everybody.
+    fn seed(&mut self, seed: u64);
     /// Points the machine at a word without running it.
     fn start(&mut self, at: Address) -> Result<()>;
     /// Runs until the word returns or the host asks to pause.
@@ -432,6 +606,8 @@ pub trait Machine: Sized + Send {
     fn space(&self) -> &dyn AddressSpace;
     /// The same, to write.
     fn space_mut(&mut self) -> &mut dyn AddressSpace;
+    /// How much work this machine has done since it was built.
+    fn counters(&self) -> Counters;
 }
 
 /// A loop frame, as `DO` … `LOOP` needs.

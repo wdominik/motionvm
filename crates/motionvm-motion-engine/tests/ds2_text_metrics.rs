@@ -31,6 +31,9 @@
 //!
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
+mod common;
+
+use common::settled_in;
 use motionvm_motion_engine::Game;
 use motionvm_motion_formats::m32::{Kind, rsc::Bank};
 use motionvm_motion_testutil::gamedata_ds2;
@@ -87,9 +90,9 @@ fn the_gap_falls_between_glyphs_and_not_after_the_last() {
 
     let glyph = refs
         .glyph_for(b'M')
-        .and_then(|i| font.glyphs.get(i as usize))
+        .and_then(|i| font.glyphs.get(usize::from(i)))
         .expect("an M");
-    let w = glyph.width as i32;
+    let w = i32::from(glyph.width);
     assert_eq!(motionvm_motion_engine::text::text_width(font, refs, "M"), w);
     assert_eq!(
         motionvm_motion_engine::text::text_width(font, refs, "MM"),
@@ -125,9 +128,7 @@ fn an_empty_text_draws_nothing() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = Game::open(&dir).expect("game opens");
-    game.startup_only().expect("startup");
-    game.enter_location(2).expect("the park");
+    let mut game = settled_in(&dir, 2);
 
     let empty: Vec<u32> = game
         .engine
