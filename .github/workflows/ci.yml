@@ -119,7 +119,9 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
-          arguments: -D license-not-encountered -D unmatched-skip
+          # Options of `check` itself go after it; `arguments` lands before
+          # the command, where cargo-deny rejects them.
+          command-arguments: -D license-not-encountered -D unmatched-skip
 
   # What `rust-version` promises, proved.
   #
