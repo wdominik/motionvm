@@ -205,7 +205,7 @@ something the others do not. What is open:
   ([PSM 2 music](motion16/formats/psm-music.md))
 - **What *Motion 1.0* is, and who Michel "Babe" Stigler and EGO Software
   are.** Victor Loomes' credits close on *Erstellt unter · Motion 1.0 ·
-  Michel "Babe" Stigler · EGO Software*. Two of the five games name the
+  Michel "Babe" Stigler · EGO Software*. Two of the six games name the
   engine — Dunkle Schatten 2's credits carry *"Motion"-Präsentations-System
   von S. Hoffmann* — but only this one gives it a version, and `1.0` sits
   three years before the builds this documentation is written from. Whether
@@ -218,10 +218,9 @@ something the others do not. What is open:
   Victor Loomes entry means.
 
 - **Why the hole case was added.** `?XINSIDE` passes over an all-zero hot
-  area in `ENVIRO.EXE` and `BMZ.EXE` and not in `HPPLAY.EXE` or `LL.EXE`, and
-  the two that do are not the two later ones by date — Amajambere's build
-  has it and Jeff Jet's does not. What the tables looked like that made it
-  worth adding is not established.
+  area in `ENVIRO.EXE` and `BMZ.EXE` and not in `HPPLAY.EXE`, `STERN.EXE` or
+  `LL.EXE` — the two later builds by their tables against the three earlier.
+  What the tables looked like that made it worth adding is not established.
   ([LL.EXE](motion16/engine/ll-exe.md))
 - **What the fade after the intro's jingle runs into.** The rebuilt player
   matches the original's register stream for 744 writes — block 7 from first
@@ -271,6 +270,40 @@ something the others do not. What is open:
   are unread and motionvm plays the Ad Lib rendition only. `MUSADL.DRV`'s
   callback protocol and the Volume entry's negative selectors are present
   and unexercised by the game.
+- **The DAC against the OPL.** How loud the Sound Blaster's eight-bit DAC
+  stood against its OPL on the card's analog mixer, at the mixer settings
+  `SOUND.EXE` leaves, is not in any file; the rebuild gives the DAC full
+  scale, as DOSBox-X does, and a recording of the original under DOSBox-X
+  plays the opening scene's effect at that scale — emulator and rebuild
+  agree, and an emulator's recording can say nothing more about the card.
+  ([departures](departures.md#the-16-bit-machine))
+- **`PLAYSAMPLE`'s cut against a recording.** That an effect stops a
+  playing tune at full volume, without the fade, after the half second the
+  handler spins, is read out of the handler and not yet heard. In shipped
+  play a tune is under an effect only when the score jingle is: every other
+  `PLAYSAMPLE` that could meet a tune sits in a `MAC` branch no module takes,
+  and the intro's key runs `ENDTUNE` before the flat's first effect (module
+  610). So the case is a scored action followed within the jingle's 2.1
+  seconds by a sound, which no recording has caught — the opening scene's
+  had the intro's tune stopped by key before its effect. What the cut shares
+  with `ENDTUNE`, the tick reset, the spin and the driver's Stop, is heard on
+  two games' recordings; what it leaves out is the fade. The sample after the
+  cut is heard — once, at full scale, on the DSP's clock
+  ([verification](verification.md)).
+- **`MAC`.** Falsches Spiel mit Eddie M.'s module 601 declares it 0, every
+  music site tests it — `MAC @ IF 24 2 PLAYSAMPLE ELSE -1 24 STARTTUNE THEN`
+  — and nothing in the 62 modules ever stores to it, so the digital rendition
+  of the two songs the scripts are ready to ask for is never asked for. What
+  would have set it, and what the name stands for, is not established.
+  ([Game structure](games/eddiem/game-structure.md))
+- **The issue-number tables end in 2000.** `STNR` (module 609) indexes
+  `_SKAL` and `_JTABLE` by `year − 1993` over eight entries and `_MTABLE` by
+  the months since 1993 over ninety-six; a date past 2000 reads beyond them,
+  in the original as here, and the two read different neighbours — the
+  rebuild places modules first-fit where the original stacks them
+  ([departures](departures.md#the-16-bit-machine)). What the puzzle does
+  with a wrong number on a modern date is the game's own question.
+  ([Game structure](games/eddiem/game-structure.md))
 - **The original's save bytes** — `PUTANIM`/`GETANIM` (file `0xc46d`,
   `0xcb1e`) are unread and no save of the original is on hand; the rebuild
   writes a layout of its own, as for the 32-bit game.

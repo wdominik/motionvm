@@ -5,7 +5,7 @@
 //! themselves.
 //!
 //! The driver file is byte-identical to Die Enviro-Kids greifen ein's and Jeff
-//! Jet's — the three 1995/96 builds ship the same one — so what is
+//! Jet's — four of the five games ship the same one — so what is
 //! being asked here is not whether the player works — `enviro_psm.rs` asks
 //! that — but whether it works on a third set of songs written outside the
 //! windows the other two fall in. These four put their `PLX` section between
@@ -121,7 +121,7 @@ fn the_driver_is_the_one_the_other_games_ship() {
         std::fs::read(motionvm_motion_testutil::game_file(&dir, "MUSADL.DRV")).expect("MUSADL.DRV");
     let theirs = std::fs::read(motionvm_motion_testutil::game_file(&other, "MUSADL.DRV"))
         .expect("MUSADL.DRV");
-    // One opener serves every 16-bit game: the three 1995/96 ones ship the
+    // One opener serves every 16-bit game: the four later ones ship the
     // same driver and Victor Loomes an older build the same reader takes. If a game
     // ever shipped a different one, the rebuilt player would be reading another
     // game's tables and this is where that would show.

@@ -14,10 +14,11 @@ originals' compiled Forth bytecode natively, and its single hard constraint
 shapes every convention in this document: **the original binary a game ships
 with is the authority on what that engine does.** Code here is not merely
 correct or incorrect; it is faithful or unfaithful, and fidelity is
-established by evidence, not by plausibility. The code runs all five today:
+established by evidence, not by plausibility. The code runs all six today:
 Dunkle Schatten 2 end to end on the 32-bit engine, and Die Enviro-Kids greifen
 ein — intro, locations, walk, conversations, music, saves — with Jeff Jet,
-Hilfe für Amajambere and Victor Loomes on the 16-bit one. It is written for the
+Hilfe für Amajambere, Victor Loomes and Falsches Spiel mit Eddie M. on the
+16-bit one. It is written for the
 engine rather than for those five: what
 a further MOTION game would need is its own file under `titles/`, and the
 naming rules below are what keeps that cost down.
@@ -67,7 +68,7 @@ are copyrighted. The `justfile` reads six locations and one switch:
   when the data is really there — so `just check` is green on a machine with
   no copy of a game, with that game's data-dependent tests skipping. A path
   you name yourself is always passed on, so a typo panics instead of quietly
-  skipping the suite. The four 16-bit games are recognized by their engine
+  skipping the suite. The five 16-bit games are recognized by their engine
   binary, not by their container: they all ship a `DATA.-1-`.
 - `SAVES` — the directory the games' own save directories are under, for the
   savegame tests: the `saves/` the program writes, not `saves/ds2/`, because
@@ -162,7 +163,7 @@ nobody re-measured is worse than none.
 ### Measurement
 
 `just bench` runs the two rigs, in release and otherwise `#[ignore]`d: where a
-frame's time goes in Dunkle Schatten 2, and how fast each of the five games'
+frame's time goes in Dunkle Schatten 2, and how fast each of the six games'
 machines runs — cells per second, host words per second, and the two halves of
 a frame in microseconds. Neither asserts anything, because a wall-clock number
 is a property of the machine it ran on. They exist so that a figure quoted
@@ -653,7 +654,7 @@ compiling:
 
 Behavior is matched to the original binary of the generation in question —
 `ENGINE.EXE` V0.06.06/R109 for the 32-bit engine, `ENVIRO.EXE` and its older
-builds `BMZ.EXE`, `HPPLAY.EXE` and `LL.EXE` for the 16-bit one. When motionvm and the original
+builds `BMZ.EXE`, `HPPLAY.EXE`, `STERN.EXE` and `LL.EXE` for the 16-bit one. When motionvm and the original
 disagree, motionvm is wrong —
 unless the divergence is recorded, which is what stops anyone "fixing" a
 deliberate decision. **The record is [`docs/motion/departures.md`](docs/motion/departures.md)
@@ -670,8 +671,13 @@ names the 16-bit engine:
    module is built at runtime and cannot be reconstructed.
 3. **The OPL3 is `nuked-opl3`**, bit-identical to the reference emulator;
    nothing in the game defines what the chip does with a register.
-4. **The digital-audio layer is not ported.** The shipped game never calls
-   it, and no sampled-audio data exists in any container.
+4. **The digital music renderer is not ported.** The `DMA*.DRV` drivers can
+   play the 16-bit games' tunes sampled, and Dunkle Schatten 2's engine has a
+   speech layer no shipped script reaches; neither is built. What is built is
+   the one digital path a game takes: Falsches Spiel mit Eddie M.'s
+   `PLAYSAMPLE`, read through the driver to the DAC — a playing tune is cut,
+   and the sample plays once at full scale, which is the level the files do
+   not record.
 5. **The authoring half of MOTION is out of scope.** motionvm runs games; it
    does not author them.
 6. **`Vm::call_nested` does not block** where the original's re-entrant

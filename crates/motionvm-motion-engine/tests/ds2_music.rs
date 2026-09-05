@@ -23,6 +23,12 @@ enum Call {
     Stop {
         handle: i32,
     },
+    Cut {
+        handle: i32,
+    },
+    Sample {
+        block: i32,
+    },
 }
 
 /// A sink that only writes down what it was asked for.
@@ -40,6 +46,12 @@ impl MusicSink for Log {
     }
     fn stop(&mut self, handle: i32) {
         self.0.lock().unwrap().push(Call::Stop { handle });
+    }
+    fn cut(&mut self, handle: i32) {
+        self.0.lock().unwrap().push(Call::Cut { handle });
+    }
+    fn sample(&mut self, block: i32, _sample: &[u8]) {
+        self.0.lock().unwrap().push(Call::Sample { block });
     }
 }
 

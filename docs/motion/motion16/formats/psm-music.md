@@ -2,7 +2,7 @@
 
 # PSM 2 Music
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere, in `STERN.EXE` with Falsches Spiel mit Eddie M. and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 Ten blocks of the [DATA container](container.md) are music: PSM 2
 modules, played on an OPL2 by `MUSADL.DRV`. The driver file is the whole
@@ -119,7 +119,12 @@ at all while its own flag (`ds:18f4`) says no song is playing, and Play
 Victor Loomes changes its music, with no `ENDTUNE` between locations: the
 new tune begins half a second after the old one's fade started. The other
 three builds' routines are the same shape (`HPPLAY.EXE` `1639:02c0`,
-`BMZ.EXE` `166d:02c2`, `LL.EXE` `0e87:01f2`).
+`BMZ.EXE` `166d:02c2`, `LL.EXE` `0e87:01f2`). The flag is the host's, not
+the driver's: SetSong's success sets it (`STERN.EXE` `1611:0020`) and only
+the two stop routines clear it (`1614:0015`, `161a:0026`), so a tune that
+ends on its own — a loop count of 0, as `SET_POINTS`'s jingle passes —
+leaves it set, and the room's next `STARTTUNE`, `ENDTUNE` or `PLAYSAMPLE`
+pays the half-second wait over silence. motionvm's flag lives the same way.
 
 **The tick** (`0xa71`), on the host timer at the period: every `speed`th
 tick is a row. Channels run 8 down to 0, each draining its due events; a
@@ -147,6 +152,69 @@ their neutral 0x100 in the file and the game never calls them: the tempo
 word **is** the period (clamped no lower than 0x200), and notes sound
 exactly as the table says.
 
+## The sample — an `SM8` block
+
+Falsches Spiel mit Eddie M. ships thirteen blocks that are a sample on their
+own — the sound effects `PLAYSAMPLE` names by block number — and the header is
+the section header the modules carry:
+
+```
+char tag[4]     ; "SM8\0"
+u16  version    ; 0x0100 in every shipped block
+u16  length     ; bytes of PCM to follow — the block's length less ten
+u16  period     ; one sample's length in PIT cycles: 56 (21.3 kHz) to 179 (6.7 kHz)
+u8   pcm[]      ; unsigned, mid-point 0x80
+```
+
+The period is read the way `MUSADL.DRV` reads its tempo, in PIT cycles, and
+the digital driver says so twice. Its direct path (`DMABLAST.DRV` `0x0611`)
+clamps the word to 255 (`0x0653`) and indexes a 256-entry table at `0x60`
+for the DSP's time constant (`0x065b`), and every entry of that table is
+`256 − round(period · 1000 / 1193)`: the period in whole microseconds at
+1.193 cycles each — `table[59] = 0xcf`, 49 µs; `table[149] = 0x83`,
+125 µs — the constant being 1.193 and not the clock's 1.193182, which at
+three periods (139, 207, 244) rounds the other way. The four `DMA*.DRV`
+carry the same 256 bytes. A Sound Blaster DSP plays a byte every `256 −
+constant` microseconds, so the DAC's clock is the DSP's rounding of the
+header's: 8000 Hz where the PIT would say 8008, 20.4 kHz where it would say
+20.2. The mixer (`0x196b`) reads the word at `+8` out of the header the other
+way, as the step against the mixer's own period, itself set in PIT cycles
+from a percentage (entry 24, `0x0ffd`: `256 − (n · 64 / 100 + 0x90)` cycles).
+
+**Which path plays.** The driver's play entry (17, `0x1fcf`) allocates one of
+up to eight mixer channels and gives it the header's second word as its
+volume — `0x0100` meaning the default the host set with entry 22 — and a play
+count of the mode argument plus one; with one channel installed it takes the
+direct path instead (`0x2028`): the length word becomes a single-cycle DMA
+count, the bytes go to the DAC as they are, and the interrupt at the end
+writes the mid-point (`0x0a06`). `STERN.EXE` installs the driver with one
+channel — the sixth install argument is what the sound manager's trampoline
+leaves in that slot, the caller's `DI`, which is 1 at the call (`1058:01bd`) —
+so every sample the game plays is the direct path: once, on the DSP's clock,
+at full scale, no volume. The host's `PLAYSAMPLE` runs the driver's StopAll
+(entry 18) before every play, so one sample sounds at a time whatever the
+channel count. What motionvm makes of it is a
+[departure](../../departures.md#the-16-bit-machine).
+
+**The mixer, read and not taken.** With more channels the play entry's other
+branch (`0x2045`) hands the block to a channel routine (`0x196b`) that the
+driver's timer runs for every active channel into a 128-word accumulator
+(`0x18e3`): each output sample takes the byte under the channel's clock, less
+`0x80`, times the channel's volume over 256 — `0x0100` is unity — and adds
+it. The clock is the sample's period against the mixer's own, in 16.16 fixed
+point: a zero-order hold while the sample is slower than the mixer, and when
+it is faster one or two bytes dropped per output sample and never more, so a
+sample above twice the mixer's rate plays slow. The accumulator then becomes
+the DMA buffer (`0x4b0`): each word plus `0x80`, clipped to `0x00` and
+`0xff`. The mixer's rate is a time constant too, `0x90 + n · 64 / 100` for
+the percentage entry 24 takes — 8.9 to 20.8 kHz — and it steps down one
+constant whenever the mixer has fallen behind its buffer thirty-two times
+(`0x530`). The other three drivers decide between the two paths the same way
+(`DMASB16S.DRV` `0x24b6`) and carry the same table; only the stereo SB16
+driver's mixer runs at a rate in hertz, 11 025 to 22 050, sent with the DSP's
+set-rate command (`0x41`, `0x09be`), which its direct path never uses. Nothing
+in shipped play reaches any of this, so none of it is rebuilt.
+
 ## How the rebuild is checked
 
 Two ways, as with [the 32-bit FM driver](../../motion32/engine/fm-driver.md).
@@ -159,6 +227,29 @@ room change's `ENDTUNE` with its fade and stop, then tune 1 — and the two
 streams are identical to the capture's end, 2 738 writes. That needs a
 recording of the original, so it is a result reported rather than
 something a reader can re-run.
+
+The same driver two years earlier is held against a recording of its own:
+Falsches Spiel mit Eddie M.'s intro runs `-1 24 STARTTUNE` under a poll loop
+that waits for a key, and a capture of the original standing there holds the
+tune for 54.8 seconds — 3 640 writes, of which the 3 551 past the recording's
+opening snapshot agree with the rebuilt stream write for write, the chip's
+state at the first note agreeing register for register. That is the fifth
+build's `MUSADL.DRV`, byte-identical to the 1995/96 games', playing a module
+whose `PLX` section sits 1688 bytes in.
+
+The sample path is held against a recording of the same original's rendered
+audio — DOSBox-X with an Ad Lib and a Sound Blaster on, `PSMCFG4.DAT` naming
+`DMABLAST.DRV` — through the opening scene's effect, block 17: 31 275 bytes at
+a period of 149. Aligned at its onset, the recording peaks where the rebuild
+does, the DAC at full scale; it lasts 3.88 seconds in both; the two waveforms
+correlate at 0.98 over the whole effect; and where the effect sounds its RMS
+is 2 to 10 % under the rebuild's, the emulator's resampler interpolating
+across the DAC's steps that the rebuild holds. The clock came out of this
+comparison: with the period read as PIT cycles the rebuild fell 2.3 ms behind
+the recording over 2.3 seconds, and on the DSP's constant it stays within two
+frames of it, first byte to last. The table itself needs no recording — the suite reads
+the 256 bytes at `0x60` out of every `DMA*.DRV` the game ships and holds the
+formula to them, on any copy of the game.
 
 The older driver is held against a recording of its own, and against a
 different question. Victor Loomes' intro runs `0 7 STARTTUNE ANIMPLAY
@@ -174,8 +265,9 @@ is not covered ([open questions](../../open-questions.md#motion-16-bit)).
 - The `SM8` sample sections are the digital renderer's voices — with the
   configuration set to digital only, the tunes play sampled
   ([other files](../../games/enviro/other-files.md#the-sound-stack)) —
-  but the `DMA*.DRV` drivers' internals are unread, and motionvm plays
-  the Ad Lib rendition only.
+  but the `DMA*.DRV` drivers' sequencer over them is unread, and motionvm
+  plays the Ad Lib rendition only. What is read of those drivers is the
+  sample path below.
 - The driver's callback protocol (`0x27a`) and the Volume entry's negative
   selectors: present, but the game leaves the callback on its stub and
   never calls the entry.

@@ -38,9 +38,8 @@ pub(super) const ENGINE: &str = "HPPLAY.EXE";
 
 /// Where it keeps the location it is in and the one it is going to.
 ///
-/// The scheme the three 1995/96 builds' games share, named here rather than
-/// assumed: this
-/// game's module 601 declares all three variables.
+/// The scheme the four 1994–96 builds' games share, named here rather than
+/// assumed: this game's module 601 declares all three variables.
 pub(super) const LOCATION: LocationScheme = motion16::MODULE_601;
 
 /// Which of the required files `dir` does not hold, as `(what, what for)`.

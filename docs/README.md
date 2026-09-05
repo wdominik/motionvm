@@ -6,7 +6,7 @@ below it names the game or the generation it speaks for.
 
 | Family | Tree | What it covers |
 |---|---|---|
-| MOTION (DigiTales, 1996) | [motion/](motion/README.md) | Both generations of the engine, the four 16-bit builds, the five games, their formats, and the family's ledgers — departures, open questions, verification, savegames, the inspection CLI |
+| MOTION (DigiTales, 1996) | [motion/](motion/README.md) | Both generations of the engine, the five 16-bit builds, the six games, their formats, and the family's ledgers — departures, open questions, verification, savegames, the inspection CLI |
 
 Everything here describes the *original* engines and their shipped files,
 without reference to the code in this repository; `ARCHITECTURE.md` at the

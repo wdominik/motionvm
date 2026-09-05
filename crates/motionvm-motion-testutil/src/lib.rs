@@ -7,7 +7,7 @@
 //! drift, and a copy that reaches one directory too few answers "no data" on a
 //! machine that has it — which reads exactly like a clean skip.
 //!
-//! Seven environment variables are read:
+//! Eight environment variables are read:
 //!
 //! - `MOTIONVM_GAMEDATA_DS2` — the directory holding Dunkle Schatten 2:
 //!   `001.RSC` and friends. Falls back to `../games/DS2` beside the
@@ -25,6 +25,9 @@
 //! - `MOTIONVM_GAMEDATA_VLOOMES` — the directory holding Victor Loomes:
 //!   `DATA.-1-` and `LL.EXE`. Falls back to `../games/VLOOMES` beside the
 //!   workspace.
+//! - `MOTIONVM_GAMEDATA_EDDIEM` — the directory holding Falsches Spiel mit
+//!   Eddie M.: `DATA.-1-`, `DATA.-2-`, `DATA.-3-` and `STERN.EXE`. Falls back
+//!   to `../games/EDDIEM` beside the workspace.
 //! - `MOTIONVM_NO_GAMEDATA` — set to anything non-empty, every lookup here
 //!   answers `None` before any of the others is consulted, so the suite runs
 //!   the way CI runs it. Without it that cannot be reproduced on a machine
@@ -39,12 +42,12 @@
 //!   *this* engine's: the layouts are not interchangeable with the original's,
 //!   which stores raw heap pointers where this stores handles.
 //!
-//! Five games, five variables, five functions — rather than one variable and
+//! Six games, six variables, six functions — rather than one variable and
 //! a guess from the files it points at — because a test is written against one
 //! game's modules and ids, and says which by the function it calls.
 //!
 //! Each game is probed for its **engine binary**, not for its container: the
-//! four 16-bit games all ship a `DATA.-1-`, so a container probe would let
+//! five 16-bit games all ship a `DATA.-1-`, so a container probe would let
 //! `MOTIONVM_GAMEDATA_ENVIRO` accept a Jeff Jet directory and then fail deep
 //! inside a suite instead of at the variable.
 //!
@@ -122,18 +125,29 @@ pub fn gamedata_vloomes() -> Option<PathBuf> {
     )
 }
 
+/// Falsches Spiel mit Eddie M.'s game directory, or `None` when there is
+/// nothing to test against. The same rules as [`gamedata_ds2`], probing for
+/// `STERN.EXE` and falling back to `../games/EDDIEM`.
+pub fn gamedata_eddiem() -> Option<PathBuf> {
+    game(
+        "MOTIONVM_GAMEDATA_EDDIEM",
+        "../../../games/EDDIEM",
+        "STERN.EXE",
+    )
+}
+
 /// Whether the caller asked for CI's floor: no game data, whatever is on
 /// this machine.
 ///
 /// Read before anything else, and deliberately not overridable by the
 /// per-game variables — the point is a run with *no* data, and a single
-/// switch that five functions honour is one thing to get right rather than
-/// five. See the module header for why the fallback makes this necessary.
+/// switch that six functions honour is one thing to get right rather than
+/// six. See the module header for why the fallback makes this necessary.
 fn no_gamedata() -> bool {
     std::env::var("MOTIONVM_NO_GAMEDATA").is_ok_and(|v| !v.is_empty())
 }
 
-/// The lookup the five games share: nothing at all when
+/// The lookup the six games share: nothing at all when
 /// [`no_gamedata`] says so, else the variable, else the fallback beside the
 /// workspace; a set-but-wrong path panics, a missing fallback skips.
 fn game(var: &str, fallback: &str, probe: &str) -> Option<PathBuf> {

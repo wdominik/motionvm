@@ -9,17 +9,18 @@
 //! noticing: the enviro copy had no pixel-aspect check at all. A missing row
 //! here is visible as a missing row.
 //!
-//! Each row skips on its own, so a machine that has three of the five games
+//! Each row skips on its own, so a machine that has three of the six games
 //! still checks those three, and every assertion names the game it is about.
 //!
-//! The games this file drives are all five: Im Netzwerk gefangen – Dunkle
+//! The games this file drives are all six: Im Netzwerk gefangen – Dunkle
 //! Schatten 2 (MOTION 32-bit), and Die Enviro-Kids greifen ein, Jeff Jet -
-//! Abenteuer InfoHighway, Hilfe für Amajambere and Victor Loomes – Das Spiel
-//! (MOTION 16-bit).
+//! Abenteuer InfoHighway, Hilfe für Amajambere, Victor Loomes – Das Spiel and
+//! Falsches Spiel mit Eddie M. (MOTION 16-bit).
 
 use motionvm_motion_engine::{Title, titles};
 use motionvm_motion_testutil::{
-    gamedata_ds2, gamedata_enviro, gamedata_hfa, gamedata_jeffjet, gamedata_vloomes,
+    gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
+    gamedata_vloomes,
 };
 use motionvm_playable::{PixelAspect, Size};
 use std::path::PathBuf;
@@ -28,7 +29,7 @@ use std::path::PathBuf;
 struct Game {
     /// Where a copy of this game is, or `None` on a machine without one.
     data: fn() -> Option<PathBuf>,
-    /// The binary that tells this game from its siblings. All four 16-bit
+    /// The binary that tells this game from its siblings. All five 16-bit
     /// games ship a `DATA.-1-`; only the binary beside it says which is which.
     binary: &'static str,
     title: Title,
@@ -108,6 +109,20 @@ const GAMES: &[Game] = &[
         binary: "LL.EXE",
         title: Title::VictorLoomes,
         name: "Victor Loomes – Das Spiel",
+        size: Size {
+            width: 320,
+            height: 200,
+        },
+        aspect: PixelAspect {
+            width: 5,
+            height: 6,
+        },
+    },
+    Game {
+        data: gamedata_eddiem,
+        binary: "STERN.EXE",
+        title: Title::FalschesSpielMitEddieM,
+        name: "Falsches Spiel mit Eddie M.",
         size: Size {
             width: 320,
             height: 200,

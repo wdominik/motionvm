@@ -9,7 +9,7 @@
 //! **The order of those calls decides nothing.** It would if a word arrived
 //! as a `&str` and each group matched it against string literals, the first
 //! to recognize one winning: two groups claiming a name would be resolved by
-//! nothing but the order of the calls, and nothing would detect it. Eleven
+//! nothing but the order of the calls, and nothing would detect it. Thirteen
 //! names really are two words apiece, one per machine, and a call order is
 //! how a name-keyed dispatch would tell them apart. Here they are two values
 //! apiece, decided by which resolver ran, and the two arms that would
@@ -353,7 +353,7 @@ impl Engine {
     /// scaled to 2-byte cells, the inventory with the rules read from
     /// `ENVIRO.EXE`, the savegame words over the 16-bit arena. That the two
     /// chains are in slightly different orders needs no argument: the
-    /// resolver has already decided which of the eleven two-meaning names
+    /// resolver has already decided which of the thirteen two-meaning names
     /// this is, so no group can take a word another group wanted.
     pub(crate) fn word16(
         &mut self,

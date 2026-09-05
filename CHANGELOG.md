@@ -6,6 +6,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-06
+
+### Added
+
+- **Falsches Spiel mit Eddie M.** (1994), the sixth game and the fifth build
+  of the 16-bit player: `STERN.EXE`, `LL.EXE`'s eighty-word core table under
+  `HPPLAY.EXE`'s domain table, binding at 102. The game ships on three
+  volumes, every segment packed, and is the corpus that reads the container's
+  occupancy word as the bitmask it is. Its modules reach two kernel words no
+  other game's do, both read out of its binary: `GIVEDATE`, the DOS date
+  pushed day, month, year, which the game turns into the week's issue number
+  of the magazine it advertises — `Engine::fix_date` pins it for a suite —
+  and `PLAYSAMPLE`, a digital sound effect, read through `STERN.EXE`'s sound
+  manager into `DMABLAST.DRV`: a playing tune is cut after the half second
+  the handler spins, without `ENDTUNE`'s fade, and the block then plays once
+  through the driver's direct-DMA path — unsigned 8-bit on the DSP's clock,
+  the period in PIT cycles its header names rounded to whole microseconds as
+  the driver's table rounds it, 6.7 to 21.3 kHz, over the OPL at the DAC's
+  full scale. The audio crate mixes that voice into the music's frames on
+  that clock and holds the table against every shipped `DMA*.DRV`;
+  `MusicSink::sample` and `Player::sample` carry it. The formats crate reads
+  the `SM8` block's header, and the inspection CLI counts the samples. The
+  intro's tune is held against an OPL recording of the original: 3 551
+  register writes over 54.8 seconds, identical. The opening scene's effect is
+  held against a recording of the original's rendered audio: the same scale,
+  the same length, the DSP's clock.
+  `docs/motion/games/eddiem/` and `docs/motion/motion16/engine/stern-exe.md`
+  describe the game and the build.
+
+### Fixed
+
+- **The 16-bit `REMSCR` pops its screen handle.** The handler
+  (`ENVIRO.EXE` `05f1:08d4`) takes the screen off the stack; the shared arm
+  removed the current screen and took nothing, so every 16-bit game left one
+  cell on the data stack when its intro tore its screen down. Nothing drew
+  differently, and Falsches Spiel mit Eddie M. is the game that noticed:
+  its `CTRL` opens every frame on `DUP 10 !=` against the ten constants
+  `RUN` pushes, and prints the stack when the check fails. The word is now a
+  split one, `( handle -- )` on the 16-bit machine.
+
 ## [0.8.0] - 2026-09-05
 
 **Savegames written by earlier releases do not load.** The layout is this
@@ -1143,7 +1183,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/wdominik/motionvm/releases/tag/v0.9.0
 [0.8.0]: https://github.com/wdominik/motionvm/releases/tag/v0.8.0
 [0.7.2]: https://github.com/wdominik/motionvm/releases/tag/v0.7.2
 [0.7.1]: https://github.com/wdominik/motionvm/releases/tag/v0.7.1

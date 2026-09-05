@@ -128,6 +128,7 @@ pub trait Driven: Send {
 }
 
 pub mod ds2;
+pub mod eddiem;
 pub mod enviro;
 pub mod hfa;
 pub mod jeffjet;
@@ -154,6 +155,10 @@ pub enum Title {
     /// *Im Netzwerk gefangen – Dunkle Schatten 2*, on the 32-bit engine:
     /// `NNN.RSC` containers beside `ENGINE.EXE`.
     DunkleSchatten2,
+    /// *Falsches Spiel mit Eddie M.*, on the second-oldest build of the
+    /// 16-bit engine: `DATA.-1-`, `DATA.-2-` and `DATA.-3-` beside
+    /// `STERN.EXE`.
+    FalschesSpielMitEddieM,
     /// *Hilfe für Amajambere*, on the 16-bit engine: `DATA.-1-` and `DATA.-2-`
     /// beside `BMZ.EXE`.
     HilfeFuerAmajambere,
@@ -171,6 +176,7 @@ impl Title {
         match self {
             Title::DieEnviroKidsGreifenEin => "Die Enviro-Kids greifen ein",
             Title::DunkleSchatten2 => "Im Netzwerk gefangen – Dunkle Schatten 2",
+            Title::FalschesSpielMitEddieM => "Falsches Spiel mit Eddie M.",
             Title::HilfeFuerAmajambere => "Hilfe für Amajambere",
             Title::JeffJet => "Jeff Jet - Abenteuer InfoHighway",
             Title::VictorLoomes => "Victor Loomes – Das Spiel",
@@ -179,13 +185,14 @@ impl Title {
 
     /// The game's title without its subtitle — what prose calls it.
     ///
-    /// Two of the five titles carry a second half after a dash; those lose it.
-    /// The other three are already as short as they get and answer the same as
+    /// Two of the six titles carry a second half after a dash; those lose it.
+    /// The other four are already as short as they get and answer the same as
     /// [`Title::name`].
     pub fn short(self) -> &'static str {
         match self {
             Title::DieEnviroKidsGreifenEin => "Die Enviro-Kids greifen ein",
             Title::DunkleSchatten2 => "Dunkle Schatten 2",
+            Title::FalschesSpielMitEddieM => "Falsches Spiel mit Eddie M.",
             Title::HilfeFuerAmajambere => "Hilfe für Amajambere",
             Title::JeffJet => "Jeff Jet",
             Title::VictorLoomes => "Victor Loomes",
@@ -210,6 +217,7 @@ impl Title {
         match self {
             Title::DieEnviroKidsGreifenEin => "enviro",
             Title::DunkleSchatten2 => "ds2",
+            Title::FalschesSpielMitEddieM => "eddiem",
             Title::HilfeFuerAmajambere => "hfa",
             Title::JeffJet => "jeffjet",
             Title::VictorLoomes => "vloomes",
@@ -225,6 +233,7 @@ impl Title {
         match self {
             Title::DieEnviroKidsGreifenEin => "DATA.-1- and ENVIRO.EXE",
             Title::DunkleSchatten2 => "001.RSC and ENGINE.EXE",
+            Title::FalschesSpielMitEddieM => "DATA.-1-, DATA.-2-, DATA.-3- and STERN.EXE",
             Title::HilfeFuerAmajambere => "DATA.-1-, DATA.-2- and BMZ.EXE",
             Title::JeffJet => "DATA.-1-, DATA.-2- and HPPLAY.EXE",
             Title::VictorLoomes => "DATA.-1- and LL.EXE",
@@ -239,6 +248,7 @@ impl Title {
         match self {
             Title::DieEnviroKidsGreifenEin => Generation::Motion16,
             Title::DunkleSchatten2 => Generation::Motion32,
+            Title::FalschesSpielMitEddieM => Generation::Motion16,
             Title::HilfeFuerAmajambere => Generation::Motion16,
             Title::JeffJet => Generation::Motion16,
             Title::VictorLoomes => Generation::Motion16,
@@ -247,12 +257,13 @@ impl Title {
 
     /// Every game, in the order the documentation lists them: the 32-bit game
     /// first, then the 16-bit ones as they were taken on.
-    pub const ALL: [Title; 5] = [
+    pub const ALL: [Title; 6] = [
         Title::DunkleSchatten2,
         Title::DieEnviroKidsGreifenEin,
         Title::JeffJet,
         Title::HilfeFuerAmajambere,
         Title::VictorLoomes,
+        Title::FalschesSpielMitEddieM,
     ];
 }
 
@@ -285,6 +296,7 @@ pub fn open(dir: &Path) -> Result<Box<dyn Driven>> {
         Some(Title::DieEnviroKidsGreifenEin) => Ok(Box::new(enviro::open(dir)?)),
         Some(Title::JeffJet) => Ok(Box::new(jeffjet::open(dir)?)),
         Some(Title::VictorLoomes) => Ok(Box::new(vloomes::open(dir)?)),
+        Some(Title::FalschesSpielMitEddieM) => Ok(Box::new(eddiem::open(dir)?)),
         None => {
             if !dir.is_dir() {
                 return Err(crate::Error::NoSuchDirectory {

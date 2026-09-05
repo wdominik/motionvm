@@ -225,7 +225,7 @@ impl Profile {
 
     /// The 16-bit engine, as its four games run on it.
     ///
-    /// Four of these differ between the four builds and are **probed out of
+    /// Four of these differ between the five builds and are **probed out of
     /// the shipped binary** by the opener, which corrects them here before the
     /// engine is built: `skips_holes`, `walk_defaults_shrink`,
     /// `walk_smooths_headings` and `screen_holds_a_hundred`. The values below

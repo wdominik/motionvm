@@ -2,7 +2,7 @@
 
 # Resource Containers — `DATA.-n-`
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere, in `STERN.EXE` with Falsches Spiel mit Eddie M. and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The 16-bit engine keeps a whole game in `DATA.-n-`, one volume per floppy it
 took: a header that also names the boot word, an occupancy table, an offset
@@ -68,7 +68,7 @@ segment, and each branch fetches its own word: `.gfx` takes `+0x16`, `.blk`
 `.txt` `+0x22`. Zero reads the item straight into the caller's buffer;
 anything else reads it aside and unpacks it. Measured over the four
 multi-volume-capable games on hand — Die Enviro-Kids greifen ein, Jeff Jet,
-Hilfe für Amajambere, Eddy M. —
+Hilfe für Amajambere, Falsches Spiel mit Eddie M. —
 the flag and the shape of the items agree in all 28 segments, with no
 exception in either direction.
 
@@ -107,7 +107,7 @@ The first byte a volume's items may occupy is therefore
 `38 + 2·n + 4·(n + spare)` for volume 1 and `4·(n + spare)` for the rest —
 26120 in Die Enviro-Kids greifen ein, 26136 and 17408 in Jeff Jet, 26436 and
 17608 in Hilfe für Amajambere,
-and the first item sits exactly there in all three. (Eddy M.'s second and third volumes leave 24 bytes between the
+and the first item sits exactly there in all three. (Falsches Spiel mit Eddie M.'s second and third volumes leave 24 bytes between the
 two, so this is where items may begin and not where they must.)
 
 - An **empty** slot has the same offset as the next slot, in every volume.

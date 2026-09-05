@@ -64,6 +64,32 @@ Against lossless recordings of the original under DOSBox-X:
   the wrong offsets comes back with plausible values rather than none
   ([PSM music](motion16/formats/psm-music.md#how-the-rebuild-is-checked)).
 
+### Falsches Spiel mit Eddie M., on the second 16-bit build
+
+- **The intro's whole tune**, block 24, against an OPL capture of the original
+  standing in its intro under DOSBox-X — the title animation over, the tune
+  looping under the poll loop that waits for a key: 54.8 seconds, 3 640
+  register writes in the recording, of which the 3 551 past the recording's
+  opening snapshot agree with the rebuilt stream write for write, and the
+  chip's 89 registers at the first note agree register for register. The
+  stream is rendered from the game's own files by `motionvm-motion-tools
+  registers`, so this is the check that says the fifth build's `MUSADL.DRV`
+  reading and the `MTCVTS` module's section table are right for a game two
+  years older than the one the player was read from
+  ([PSM music](motion16/formats/psm-music.md#how-the-rebuild-is-checked)).
+- **The opening scene's sound effect**, block 17, against a recording of the
+  original's rendered audio under DOSBox-X with an Ad Lib and a Sound Blaster
+  configured: aligned at its onset, the sample peaks where the rebuild does —
+  the DAC at full scale — lasts 3.88 seconds in both, correlates with the
+  rebuild at 0.98 over the whole effect, and where it sounds sits 2 to 10 %
+  under it in RMS, the emulator interpolating across the DAC's steps the
+  rebuild holds. The clock came out of this comparison: with the period read
+  as PIT cycles the rebuild fell 2.3 ms behind the recording over 2.3
+  seconds, and on the DSP's time constant — the period in whole microseconds,
+  as the driver's table has it — it stays within two frames, first byte to
+  last
+  ([PSM music](motion16/formats/psm-music.md#the-sample--an-sm8-block)).
+
 Those comparisons need recordings of the original engine, and a recording of a
 game is no more redistributable than the game. None ships here, so the checks
 that consume them are not part of the test suite. What ships is their result,
@@ -75,9 +101,9 @@ A third kind, weaker than either but the only one that runs on every machine
 and on every change. For every scene the test suites compose and every tune
 they play, the suite keeps a **digest** — an FNV-1a 64 of the composed indexed
 frame, or of the register stream in the order the chip would have seen it — and
-holds each run against the one before. Seventy-odd of them, across all five
+holds each run against the one before. Seventy-nine of them, across all six
 games: each game's intro, the room it starts in, four of Dunkle Schatten 2's
-densest scenes, and every tune the five ship.
+densest scenes, and every tune the six ship.
 
 A digest says nothing about whether a picture is *right*. What it says is that
 nothing moved, which is what the comparisons above cannot say twice: a capture
@@ -110,7 +136,7 @@ never touch those files; they are evidence about the formats all the same.
 Two more passes over the files hold the readers and the engine to them
 without comparing anything to the original. Every kernel word a game's
 modules reach for is checked to be one the interpreter or the engine
-implements — for the four 16-bit games that is every word, for Dunkle
+implements — for the five 16-bit games that is every word, for Dunkle
 Schatten 2 every word but a named handful the suite carries with its reason.
 And the shipped files are handed to the readers damaged — cut short at every
 length through their headers, single bytes flipped where a seeded generator
@@ -121,10 +147,16 @@ business over the undamaged files.
 ## What has not been compared
 
 Interaction, dialogue, walking, savegames, the verb menu and most locations of
-all five games have never been differentially compared against a recording, and
+all six games have never been differentially compared against a recording, and
 **nothing of Jeff Jet or Hilfe für Amajambere has been**. Victor Loomes is
-covered as far as its intro reaches and no further: what a played room looks
-like there is as unchecked as it is for the other two.
+covered as far as its intro reaches and no further, and Falsches Spiel mit
+Eddie M. as far as its intro's tune: what a played room looks like there is as
+unchecked as it is for the other two, and so is the cut `PLAYSAMPLE` makes in
+a playing tune, read out of the binary and not yet heard: the recording that
+holds the sample it plays after had stopped the intro's tune by key before the
+effect, and in shipped play only the score jingle can be under an effect — a
+scored action followed within two seconds by a sound — which no recording has
+caught.
 
 That is not a gap being hidden. It is the honest edge of what a
 reimplementation can claim without the original running beside it, and it is

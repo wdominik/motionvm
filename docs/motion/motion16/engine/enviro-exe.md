@@ -2,7 +2,7 @@
 
 # ENVIRO.EXE — The Latest Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere, in `STERN.EXE` with Falsches Spiel mit Eddie M. and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 `ENVIRO.EXE` (167 430 bytes, dated 1996-08-27) is the 16-bit MOTION
 **player**: the Forth interpreter, the kernel words and the drivers behind
@@ -12,9 +12,11 @@ the 32-bit `ENGINE.EXE` still carries are absent. The game it plays is
 entirely in `DATA.-1-`.
 
 Every address on this page and on the pages it links to is this image's. The
-same player shipped three times more, earlier and under other names, as
-`HPPLAY.EXE`, `BMZ.EXE` and `LL.EXE` — see [their](hpplay-exe.md)
-[own](bmz-exe.md) [pages](ll-exe.md) for what differs, ordinals first.
+same player shipped four times more, earlier and under other names, as
+`BMZ.EXE`, `HPPLAY.EXE`, `STERN.EXE` and `LL.EXE` — see their own pages
+([BMZ.EXE](bmz-exe.md), [HPPLAY.EXE](hpplay-exe.md),
+[STERN.EXE](stern-exe.md), [LL.EXE](ll-exe.md)) for what differs, ordinals
+first.
 
 ## The binary
 
@@ -103,8 +105,9 @@ is on the pages it belongs to: [execution model](../vm/execution-model.md),
 
 ## See also
 
-- [HPPLAY.EXE](hpplay-exe.md) — the earliest build of this player
-- [BMZ.EXE](bmz-exe.md) — the third build, this table less its last word
+- [BMZ.EXE](bmz-exe.md) — the fourth build, this table less its last word
+- [HPPLAY.EXE](hpplay-exe.md) — the third build, whose ordinals are shifted
+- [STERN.EXE](stern-exe.md) — the second build, `LL.EXE`'s core table under `HPPLAY.EXE`'s domain table
 - [LL.EXE](ll-exe.md) — the oldest build, whose domain table binds at 102
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
 - [Execution model](../vm/execution-model.md) — what the interpreter does with a cell

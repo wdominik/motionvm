@@ -12,7 +12,7 @@
 //! Their sprites are stored packed, so a player that wants to lay out a
 //! screen before drawing it cannot read a width out of the container without
 //! unpacking the item first; the later games store sprites plainly, where the
-//! width is the item's first word, and ship no such file. All four later
+//! width is the item's first word, and ship no such file. All five later
 //! binaries still name `gfx.inf` and none of their games carries one.
 //!
 //! motionvm does not read this at run time: [`crate::m16::Container`] unpacks

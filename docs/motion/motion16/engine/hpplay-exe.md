@@ -1,18 +1,18 @@
 [← Documentation index](../../README.md)
 
-# HPPLAY.EXE — The Second Build of the MOTION 16-bit Player
+# HPPLAY.EXE — The Third Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere, in `STERN.EXE` with Falsches Spiel mit Eddie M. and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 `HPPLAY.EXE` (165 702 bytes) is the same player as
 [`ENVIRO.EXE`](enviro-exe.md), built earlier — and earlier than
-[`BMZ.EXE`](bmz-exe.md) too, which puts it second of the four, behind
-[`LL.EXE`](ll-exe.md) alone. Everything the other page says
+[`BMZ.EXE`](bmz-exe.md) too, which puts it third of the five, behind
+[`LL.EXE`](ll-exe.md) and [`STERN.EXE`](stern-exe.md). Everything the other page says
 about the binary holds here — Turbo C real mode, an 800-paragraph header, two
 kernel tables of far function pointers, a data stack behind a far pointer in
 DGROUP — and this page is only what differs. Where a subsystem page cites an
 `ENVIRO.EXE` address, the same code is in this image at its own address; the
-four are not interchangeable.
+five are not interchangeable.
 
 ## The binary
 
@@ -52,6 +52,12 @@ Four of the five sit *inside* the domain table rather than after it. A word is
 appended to a live ordinal space, not inserted into the middle of one, so the
 build that has them is the later one — and the build without them is the one
 whose ordinals shift.
+
+The same 146 domain words, name for name, are `STERN.EXE`'s — and that
+build's core table is `LL.EXE`'s eighty, without the two words this one
+appends. So the domain table was finished before the core table grew, and
+`STERN.EXE` is the build between `LL.EXE` and this one
+([STERN.EXE](stern-exe.md)).
 
 `HPPLAY.EXE` also still carries a table of eleven interpreter error messages
 that `ENVIRO.EXE` has stripped: far pointers at file `0x1ffce` into strings at
@@ -97,16 +103,18 @@ them.
 This build's `?XINSIDE` takes a hot area whose four corners are all zero as
 a rectangle at the origin, where `ENVIRO.EXE` and `BMZ.EXE` pass over it —
 71 instructions against their 101, with no `cmpw $0` in the handler at all.
-`LL.EXE` sides with this build; the split is two against two, and it does
-not follow build order. It is the one behavior read out of each binary
-separately and wired as its own capability rather than assumed from the
-generation.
+`LL.EXE` and `STERN.EXE` side with this build: the split is three against
+two, and it follows the order of the tables — the two later builds test, the
+three earlier do not — but not the games' dates, Jeff Jet's being the youngest
+by two years. It is the one behavior read out of each binary separately and
+wired as its own capability rather than assumed from the generation.
 
 ## Open questions
 
 - **Why the hole case was added** after this build: `?XINSIDE` here takes
-  an all-zero hot area as a rectangle at the origin, and the two builds that
-  pass one over are not the two later ones by date
+  an all-zero hot area as a rectangle at the origin, as in the two builds
+  before it; what the tables looked like that made the two later builds
+  test for one is not established
   ([ledger](../../open-questions.md#motion-16-bit)).
 - **The handlers not read.** This build has been read only where it differs
   from `ENVIRO.EXE` — the table, the ordinals, `?XINSIDE`, the error
@@ -118,9 +126,10 @@ generation.
 
 ## See also
 
-- [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the four share
-- [BMZ.EXE](bmz-exe.md) — the third build, whose ordinals are those of Die
+- [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the five share
+- [BMZ.EXE](bmz-exe.md) — the fourth build, whose ordinals are those of Die
   Enviro-Kids greifen ein
+- [STERN.EXE](stern-exe.md) — the build before this one, with this domain table over `LL.EXE`'s core table
 - [LL.EXE](ll-exe.md) — the oldest build, whose domain table binds at 102
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
 - [The DATA container](../formats/container.md) — the volumes and the packing this build reads

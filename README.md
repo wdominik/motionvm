@@ -17,7 +17,7 @@ the machine under it is new.
 
 ## The games it plays
 
-Five so far, across the two generations of the engine:
+Six so far, across the two generations of the engine:
 
 | Game | Year | Commissioned by | Made by | Engine |
 |---|---|---|---|---|
@@ -26,10 +26,12 @@ Five so far, across the two generations of the engine:
 | *Jeff Jet - Abenteuer InfoHighway* | 1995 | Hewlett Packard GmbH | Promotion Software GmbH, Tübingen | **16-bit** — `HPPLAY.EXE` |
 | *Hilfe für Amajambere* | 1995 | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung | ART DEPARTMENT WA GmbH, Bochum | **16-bit** — `BMZ.EXE` |
 | *Victor Loomes – Das Spiel* | 1993 | LBS (Landesbausparkasse) | Promotion Software GmbH, Reutlingen | **16-bit** — `LL.EXE` |
+| *Falsches Spiel mit Eddie M.* | 1994 | Gruner + Jahr, for the magazine *Stern* | via productions ag, by the published record | **16-bit** — `STERN.EXE` |
 
-All five are commissioned work — advergames and edutainment, given away rather
+All six are commissioned work — advergames and edutainment, given away rather
 than sold — which is why each has a client as well as a studio; each entry
-names them as the game's own files do. They are German-language throughout, and
+names them as the game's own files do, or, where the files name nobody, as
+the published record does and says so. They are German-language throughout, and
 motionvm plays them as they are: it changes nothing about the content.
 
 Every one of them boots, enters each location it has and draws it, plays its
@@ -41,7 +43,7 @@ MOTION was written by DigiTales (Stefan Hoffmann) — Dunkle Schatten 2's own
 credits say so, naming the *"Motion"-Präsentations-System von S. Hoffmann* and
 *DigiTales GmbH, Hamburg* — and Victor Loomes, three years earlier, is the one
 that gives it a version: *Erstellt unter · Motion 1.0*.
-The engine made more games than these five, and
+The engine made more games than these six, and
 the list is a record of what has been done, not a limit of what is underneath
 it.
 
@@ -113,6 +115,7 @@ Nothing else in an installation is ever opened, so a copy can be this small:
 | Jeff Jet | `DATA.-1-`, `DATA.-2-`, `HPPLAY.EXE` | `MUSADL.DRV` | 2.7 MB |
 | Hilfe für Amajambere | `DATA.-1-`, `DATA.-2-`, `BMZ.EXE` | `MUSADL.DRV` | 5.5 MB |
 | Victor Loomes | `DATA.-1-`, `LL.EXE` | `MUSADL.DRV` | 1.1 MB |
+| Falsches Spiel mit Eddie M. | `DATA.-1-`, `DATA.-2-`, `DATA.-3-`, `STERN.EXE` | `MUSADL.DRV` | 2.8 MB |
 
 Every line of that was established by taking the file away and seeing what
 happened, not by reading the loader. Leave out a file from the middle column
@@ -128,8 +131,10 @@ Two of those columns are worth a sentence. **The engine binary is never run —
 it is read:** the game's kernel table is lifted out of the image, and the
 game's own bytecode means nothing without the table from its own build, which
 is why each game needs the binary that shipped with it. **A second `DATA.-2-`
-is not optional** where one ships: it is where the artwork lives, and in Hilfe
-für Amajambere it holds every sprite, palette and font the game ever draws.
+is not optional** where one ships, nor a third: it is where the artwork lives —
+in Hilfe für Amajambere the second volume holds every sprite, palette and font
+the game ever draws, and Falsches Spiel mit Eddie M. spreads its sprites over
+two more volumes.
 motionvm looks for `NNN.RSC` and `DATA.-n-` by pattern and merges what it
 finds, so the count is the game's to decide.
 
@@ -165,8 +170,9 @@ its manual describes.
 | Close the window | Quit |
 
 Each game's own menu is reached the way that game reaches it. Dunkle Schatten 2
-puts it on Escape. Die Enviro-Kids greifen ein, Jeff Jet and Hilfe für
-Amajambere put it on the icon at the right end of the bar. Victor Loomes hides
+puts it on Escape. Die Enviro-Kids greifen ein, Jeff Jet, Hilfe für
+Amajambere and Falsches Spiel mit Eddie M. put it on the icon at the right end
+of the bar. Victor Loomes hides
 a panel along the top edge of the screen and fades it in when the pointer
 reaches the top: its right end saves above the middle and loads below, and its
 left end opens the game's own menu.
@@ -193,7 +199,8 @@ started from:
 | anything else | `$XDG_DATA_HOME/motionvm`, or `~/.local/share/motionvm` |
 
 Underneath it, one directory per game: `saves/ds2/`, `saves/enviro/`,
-`saves/jeffjet/`, `saves/hfa/` and `saves/vloomes/`. All five games name their
+`saves/jeffjet/`, `saves/hfa/`, `saves/vloomes/` and `saves/eddiem/`. All six
+games name their
 slots alike and each looks for its own at start-up; the directory is created
 then if it is not there and its path is printed, so a fresh install needs no
 setup and a savegame is an ordinary file to copy or back up.
@@ -293,7 +300,7 @@ virtual machines, the renderer, the audio and the runtime are split across
 eleven crates — two layers and a test rig over both — a neutral one holding the window and the contract
 it drives any game through, and the MOTION engine family behind that contract
 — which [`ARCHITECTURE.md`](ARCHITECTURE.md) lays out, along with how the
-family, its two engine generations, the four builds of the older one and the
+family, its two engine generations, the five builds of the older one and the
 games on top of them are kept apart. The
 two engine generations share the Forth dialect, the compiler's output
 conventions and most of the kernel's vocabulary; they do not share the machine

@@ -78,7 +78,7 @@ rather than drawing something plausible.
 - **Kernel coverage.** `crates/motionvm-motion-engine/tests/kernel_coverage.rs`
   disassembles every module a game ships and asserts that every kernel word
   it reaches for is either one of the interpreter's primitives or a word the
-  engine implements — the whole of the four 16-bit games, and all but a named
+  engine implements — the whole of the five 16-bit games, and all but a named
   handful of Dunkle Schatten 2's, each with the reason it is left unbuilt.
 - **Damaged input.** `crates/motionvm-motion-formats/tests/malformed.rs`
   hands the readers inputs broken in ways somebody thought of;
@@ -87,7 +87,7 @@ rather than drawing something plausible.
   generator says — and asserts that a reader answers rather than crashes.
 - **The rigs.** `just bench` runs two `#[ignore]`d release-mode measurements:
   where a frame's time goes in Dunkle Schatten 2, and how fast each of the
-  five games' machines runs — cells per second, host words per second, and
+  six games' machines runs — cells per second, host words per second, and
   the step and the draw timed apart. They assert nothing; they exist so a
   number quoted about the cost of anything here can be reproduced.
 

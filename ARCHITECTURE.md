@@ -166,7 +166,7 @@ and anything that holds for one carries its number, `dialogue32.rs` beside
 ### Build is probed from the binary
 
 This is the most distinctive part of the design, and the part that pays for
-itself when an unknown build turns up. The four 16-bit builds differ in kernel
+itself when an unknown build turns up. The five 16-bit builds differ in kernel
 size, in ordinal base and in one behavior, and **none of that is keyed on a
 game name**:
 
@@ -279,7 +279,7 @@ tense, because the cost is still there.
   original's own section order, is the reader's map of the kernel.
 - **Kernel words dispatched by name.** A `match name` per group, the first to
   recognize a string winning, makes the order of the groups load-bearing with
-  nothing checking it: eleven names mean a different handler on the two
+  nothing checking it: thirteen names mean a different handler on the two
   machines, and a call order would be the only thing telling them apart. A
   word is one value of an enum instead, resolved once per kernel when the
   game opens, and a duplicate name is a compile error (`words/word.rs`).

@@ -19,16 +19,17 @@
 //! reader can tell. That is the digests' business, over the undamaged files.
 //!
 //! Needs the games' files and skips, game by game, without them. The games
-//! this file drives are all five: Dunkle Schatten 2 (MOTION 32-bit) and Die
-//! Enviro-Kids greifen ein, Jeff Jet, Hilfe für Amajambere and Victor Loomes
-//! (MOTION 16-bit).
+//! this file drives are all six: Dunkle Schatten 2 (MOTION 32-bit) and Die
+//! Enviro-Kids greifen ein, Jeff Jet, Hilfe für Amajambere, Victor Loomes and
+//! Falsches Spiel mit Eddie M. (MOTION 16-bit).
 
 use motionvm_motion_formats::font::FontRefTable;
 use motionvm_motion_formats::m16::{self, Container, GfxInf, Segment, mz, psm::Plx};
 use motionvm_motion_formats::m32::{self, DriverArchive, InstrumentBank, Kind, Song, rsc};
 use motionvm_motion_formats::{find_ci, m32::rsc::Bank};
 use motionvm_motion_testutil::{
-    game_file, gamedata_ds2, gamedata_enviro, gamedata_hfa, gamedata_jeffjet, gamedata_vloomes,
+    game_file, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
+    gamedata_vloomes,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
@@ -230,7 +231,7 @@ fn dunkle_schatten_2_damaged_is_refused_not_crashed_on() {
     report.assert_clean("Dunkle Schatten 2");
 }
 
-/// The 16-bit walk, the same for the four games: the volumes, a sample of
+/// The 16-bit walk, the same for the five games: the volumes, a sample of
 /// every segment's items, and the player binary the kernel is read out of.
 fn walk_m16(game: &str, dir: &Path, exe: &str) {
     let mut report = Report::default();
@@ -344,6 +345,15 @@ fn victor_loomes_damaged_is_refused_not_crashed_on() {
         return;
     };
     walk_m16("Victor Loomes", &dir, "LL.EXE");
+}
+
+#[test]
+fn falsches_spiel_mit_eddie_m_damaged_is_refused_not_crashed_on() {
+    let Some(dir) = gamedata_eddiem() else {
+        eprintln!("skipping: no Falsches Spiel mit Eddie M. gamedata directory");
+        return;
+    };
+    walk_m16("Falsches Spiel mit Eddie M.", &dir, "STERN.EXE");
 }
 
 /// The walk itself is checked on a reader that is known to panic, so that a

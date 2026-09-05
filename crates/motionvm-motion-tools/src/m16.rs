@@ -20,10 +20,10 @@ type Res = Result<(), Box<dyn std::error::Error>>;
 
 /// The 16-bit engine binaries a game directory may hold, in probe order.
 ///
-/// A second list of the same four names as the engine crate's, on purpose:
+/// A second list of the same five names as the engine crate's, on purpose:
 /// this tool reads a game's files without opening the game, and does not depend
 /// on the engine.
-const ENGINES: [&str; 4] = ["ENVIRO.EXE", "HPPLAY.EXE", "BMZ.EXE", "LL.EXE"];
+const ENGINES: [&str; 5] = ["ENVIRO.EXE", "HPPLAY.EXE", "BMZ.EXE", "STERN.EXE", "LL.EXE"];
 
 /// The kernel of the game in `dir`: its engine binary read and its tables
 /// bound. The binary is read, never run — the word table is what is wanted.
@@ -80,6 +80,19 @@ pub(crate) fn info(dir: &Path) -> Res {
         })
         .count();
     println!("{:>10}  {songs} of the blocks are PSM 2 songs", "");
+    let samples = c
+        .present(Segment::Blk)
+        .into_iter()
+        .filter(|&id| {
+            c.item(Segment::Blk, id)
+                .ok()
+                .flatten()
+                .is_some_and(psm::is_sample)
+        })
+        .count();
+    if samples > 0 {
+        println!("{:>10}  {samples} of the blocks are SM8 samples", "");
+    }
     let mismatches = c.occupancy_mismatches();
     if !mismatches.is_empty() {
         println!(

@@ -47,7 +47,7 @@ pub struct Game<M: Machine> {
     /// Which game this is.
     ///
     /// The one thing a loaded game cannot work out from its own parts: the
-    /// four 16-bit titles run the same machine on the same container format,
+    /// five 16-bit titles run the same machine on the same container format,
     /// and Rust allows one [`crate::Driven`] for one concrete `Game<M>`. The
     /// opener
     /// knows, and writes it down here.
@@ -123,7 +123,7 @@ impl<M: Machine> std::fmt::Debug for Game<M> {
 /// Every MOTION game moves between locations by writing a module variable that
 /// its own `CTRL` polls, but the module number, the names and the value that
 /// means "none" are the compiler's and therefore the game's — module 601's
-/// `NEXTLOC`/`ACTLOC`/`STARTLOC` in the three 1995/96 16-bit games, `NAO`/`AO`
+/// `NEXTLOC`/`ACTLOC`/`STARTLOC` in the four 1994–96 16-bit games, `NAO`/`AO`
 /// in module 605 in Victor Loomes, `_STARTLOC` in module 2 in Dunkle Schatten
 /// 2. The mechanism is the same in all of them, so it is written once here and
 /// each game's module carries its own constant.
@@ -153,7 +153,7 @@ where
     /// The slug goes on here rather than in the caller because sharing a
     /// directory between two games loses saves. Every game names its slots
     /// alike — `701.blk`, `701.FRZ`, `701.anm` — and the magic in the header
-    /// is the *generation's*, so the four 16-bit games write files another of
+    /// is the *generation's*, so the five 16-bit games write files another of
     /// them reads: pointed at one directory, one would open another's slot
     /// rather than refuse it. Under `saves/`, this game's slots are in
     /// `saves/enviro/` and no other game's are.

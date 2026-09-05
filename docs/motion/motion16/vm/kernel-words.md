@@ -2,7 +2,7 @@
 
 # Kernel Words
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere, in `STERN.EXE` with Falsches Spiel mit Eddie M. and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 The 16-bit kernel registers its words in two arrays in `ENVIRO.EXE`'s data,
 each a list of 8-byte entries
@@ -39,27 +39,28 @@ reimplementation needs the 151; the other 82 can stay stubs for this game.
 
 ## The other builds' tables
 
-Four builds ship, and each is a prefix of the next by deletion alone —
+Five builds ship, and each is a prefix of the next by deletion alone —
 nothing is ever added going forward:
 
 | Build | Core | Domain | Total | Domain base | Missing against `ENVIRO.EXE` |
 |---|---:|---:|---:|---:|---|
 | `LL.EXE` | 80 at `0x14feb` | 124 at `0x146ca` | 204 | **102** | 27 domain words, and the core table's last two |
+| `STERN.EXE` | 80 at `0x202f0` | 146 at `0x1f4fa` | 226 | **102** | `SETMOUSEX/Y/LB/RB`, `?SAMPLE`, and the core table's last two |
 | `HPPLAY.EXE` | 82 at `0x20236` | 146 at `0x1f42e` | 228 | 105 | `SETMOUSEX/Y/LB/RB` (124–127) and `?SAMPLE` (255) |
 | `BMZ.EXE` | 82 at `0x2067a` | 150 at `0x1f7e6` | 232 | 105 | `?SAMPLE` (255) |
 | `ENVIRO.EXE` | 82 | 151 | 233 | 105 | — |
 
-The core table is name for name and order for order the same in all four, as
-far as each has it: `LL.EXE` ends two words earlier, at `_PutLit`, where the
-later builds append `_PutStringAdr` and `$->`.
+The core table is name for name and order for order the same in all five, as
+far as each has it: `LL.EXE` and `STERN.EXE` end two words earlier, at
+`_PutLit`, where the later builds append `_PutStringAdr` and `$->`.
 
 **Where the domain table starts is the build's, not the format's.** The player
 hands ordinals out in the order it registers words, and it registers three
 runs: the core table, then a run of `DUMMY#F0R3i` placeholders, then the
 domain table. So the first domain word binds at `core + placeholders + 1`.
 The three later builds register 22 placeholders behind 82 core words and start
-at 105; `LL.EXE` registers 21 behind 80 and starts at **102** (`0afe:009a`
-against `140e:002f`, `140a:0039` and `13d9:002f`). The gap between the two
+at 105; `LL.EXE` and `STERN.EXE` register 21 behind 80 and start at **102**
+(`0afe:009a` against `140e:002f`, `140a:0039` and `13d9:002f`). The gap between the two
 tables is not unused numbering — it is placeholder words. The count is read out
 of the binary rather than assumed; see [LL.EXE](../engine/ll-exe.md).
 
@@ -77,9 +78,10 @@ loud case is `HPPLAY.EXE`, which would then name the wrong handler from ordinal
 124 on; the quiet one is `BMZ.EXE`, which would be named correctly throughout
 and hold a word at 255 that is not there. Either way the binding is scanned out
 of the binary the game ships with ([HPPLAY.EXE](../engine/hpplay-exe.md),
-[BMZ.EXE](../engine/bmz-exe.md), [LL.EXE](../engine/ll-exe.md)). `LL.EXE` is
-the loudest of the three cases, because its whole domain table sits three
-ordinals below the others'.
+[BMZ.EXE](../engine/bmz-exe.md), [LL.EXE](../engine/ll-exe.md),
+[STERN.EXE](../engine/stern-exe.md)). `LL.EXE` and `STERN.EXE` are the
+loudest of the cases, because their whole domain tables sit three ordinals
+below the others'.
 
 What each game asks for: the modules of Die Enviro-Kids greifen ein use 151 of its
 233, Jeff Jet's 150 of its 228 — the same set less `-FONT`, `SDBLK` and
@@ -88,7 +90,9 @@ What each game asks for: the modules of Die Enviro-Kids greifen ein use 151 of i
 `GFXVFLIP` to what the other two use between them, and Victor Loomes' 100 of
 its 124 domain words, which adds eight the later games never call: `?INSIDE`,
 `CROUTE`, `GSCRPOS`, `SETSHADE`, `SETCYCLE`, `SYSFC`, `SYSBC` and `_POOR`,
-plus the core table's `I'`.
+plus the core table's `I'`. Falsches Spiel mit Eddie M. uses 153 of its 226,
+and two of them no other game calls: `PLAYSAMPLE`, at thirty-four sites, and
+`GIVEDATE`, at one ([STERN.EXE](../engine/stern-exe.md)).
 
 ## Core table — ordinals 1–82
 
@@ -368,7 +372,7 @@ file) stepped by 331 a call and set to 1 when it wraps to 0, and the clock
 divided by five to the 200 Hz tick and, where the timer setup at
 `110a:0414` was given a 1 or a 2 (`DS:0x10ce`), by four or by two more —
 combined as `((t + s) / s) xor ((t − s) mod s)`, unsigned, and reduced
-modulo the count. All four builds carry it: `HPPLAY.EXE` at file `0x143e7`,
+modulo the count. All five builds carry it: `HPPLAY.EXE` at file `0x143e7`,
 `BMZ.EXE` at `0x14581`, `LL.EXE` at `0xb72f`, their counters at `0x7b40`,
 `0x7c40` and `0x80a0`. Die Enviro-Kids greifen ein asks 188 times, every one
 with a literal count but four, which add eight to what `?GEW` answers. What

@@ -56,7 +56,7 @@ u32 crc32       of the body
 | 32-bit | `DS2FRZ\0\0` | `DS2ANM\0\0` |
 | 16-bit | `ENVFRZ\0\0` | `ENVANM\0\0` |
 
-The magic is the **engine generation's**, not the game's: all four 16-bit games
+The magic is the **engine generation's**, not the game's: all five 16-bit games
 write `ENVFRZ` and `ENVANM`. It is not repeated inside the body — two fields
 saying the same thing can disagree, and a reader would then have to decide
 which to believe.

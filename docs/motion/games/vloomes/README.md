@@ -18,7 +18,7 @@ here in the container's earlier framing.
 | Released | 1993 — `LL.EXE` 1993-05-20, `DATA.-1-` and `GFX.INF` 1993-05-21 |
 | Commissioned by | LBS — the Landesbausparkasse, a building society |
 | Made by | Promotion Software GmbH, Ferdinand-Lassalle-Straße 57, 7410 (72770) Reutlingen |
-| Engine | MOTION 16-bit — `LL.EXE`, the oldest of the four builds, credited as *Motion 1.0* |
+| Engine | MOTION 16-bit — `LL.EXE`, the oldest of the five builds, credited as *Motion 1.0* |
 | Display | 320×200 in 256 colors |
 | Given away | Free of charge, with a nationwide competition |
 

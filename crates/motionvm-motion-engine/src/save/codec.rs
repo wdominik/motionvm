@@ -385,7 +385,7 @@ impl<'a> Chunks<'a> {
 ///
 /// The generation is in the magic and is not repeated below it: two fields
 /// that say the same thing can disagree, and then a reader has to decide
-/// which to believe. What the magic cannot say is *which game* — all four
+/// which to believe. What the magic cannot say is *which game* — all five
 /// 16-bit games write `ENVFRZ` — so the slug is in the body, where the
 /// checksum covers it.
 ///

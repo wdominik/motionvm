@@ -9,7 +9,7 @@
 //! **No game data.** Everything runs on bytecode built in memory, so this file
 //! is the one part of the suite that works on any machine.
 //!
-//! There is deliberately no `ds2_modules.rs` beside the four 16-bit
+//! There is deliberately no `ds2_modules.rs` beside the five 16-bit
 //! `*_modules.rs` suites: the 32-bit machine's runs against the real game's
 //! bytecode go through the engine's `ds2_*` suites, which drive the same
 //! modules with the kernel words answered rather than stubbed.

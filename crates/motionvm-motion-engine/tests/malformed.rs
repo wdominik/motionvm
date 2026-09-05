@@ -139,6 +139,7 @@ fn a_directory_holding_none_of_the_games_lists_what_each_would_need() {
         "ENVIRO.EXE",
         "BMZ.EXE",
         "LL.EXE",
+        "STERN.EXE",
     ] {
         assert!(text.contains(name), "should name {name}: {text}");
     }
@@ -146,7 +147,7 @@ fn a_directory_holding_none_of_the_games_lists_what_each_would_need() {
 
 #[test]
 fn a_container_beside_no_engine_binary_is_not_guessed_at() {
-    // All four 16-bit games ship a `DATA.-1-`, and the engine binary beside it is
+    // All five 16-bit games ship a `DATA.-1-`, and the engine binary beside it is
     // the only thing that tells them apart. Neither binary means neither
     // game, and naming one of them and then failing on its missing files
     // would be worse than saying so.
@@ -265,21 +266,22 @@ fn a_broken_16_bit_container_is_refused_rather_than_indexed_into() {
 #[test]
 fn a_16_bit_engine_binary_that_is_not_mz_is_refused() {
     // The container opens and the game is told apart correctly; the word
-    // table still has to come out of the binary beside it. All four 16-bit
-    // games, because each reads its own — the builds hold 233, 232, 228 and
-    // 204 words, `HPPLAY.EXE`'s ordinals are shifted against ENVIRO's and
-    // `LL.EXE`'s whole domain table binds three lower, so no game's table can
-    // stand in for another's.
+    // table still has to come out of the binary beside it. All five 16-bit
+    // games, because each reads its own — the builds hold 233, 232, 228, 226
+    // and 204 words, `HPPLAY.EXE`'s ordinals are shifted against ENVIRO's and
+    // `LL.EXE`'s and `STERN.EXE`'s whole domain tables bind three lower, so no
+    // game's table can stand in for another's.
     for (exe, title, volumes) in [
         ("ENVIRO.EXE", Title::DieEnviroKidsGreifenEin, 1),
         ("HPPLAY.EXE", Title::JeffJet, 2),
         ("BMZ.EXE", Title::HilfeFuerAmajambere, 2),
         ("LL.EXE", Title::VictorLoomes, 1),
+        ("STERN.EXE", Title::FalschesSpielMitEddieM, 3),
     ] {
         let d = dir(&format!("mz_{exe}"));
         put(&d, "DATA.-1-", &minimal_dat());
-        if volumes == 2 {
-            put(&d, "DATA.-2-", &minimal_dat());
+        for volume in 2..=volumes {
+            put(&d, &format!("DATA.-{volume}-"), &minimal_dat());
         }
         put(&d, exe, b"not an executable");
         assert_eq!(titles::detect(&d), Some(title));
@@ -352,4 +354,27 @@ fn a_lower_cased_install_is_found_and_an_almost_container_is_not() {
         put(&d, name, &empty_rsc());
     }
     assert_eq!(titles::detect(&d), None);
+}
+
+#[test]
+fn eddie_m_without_its_third_volume_is_refused_by_name() {
+    // Three volumes, the most of any game here, and the third is nothing but
+    // artwork — 774 of the 1772 sprites — so a copy without it would open,
+    // draw its first rooms and come up blank in a later one. Saying so at
+    // start-up beats that.
+    let d = dir("eddiem_two_volumes");
+    put(&d, "DATA.-1-", &minimal_dat());
+    put(&d, "DATA.-2-", &minimal_dat());
+    put(&d, "STERN.EXE", b"not an executable");
+    assert_eq!(titles::detect(&d), Some(Title::FalschesSpielMitEddieM));
+    let text = refused_naming_dir(&d, "Falsches Spiel mit Eddie M. with two volumes");
+    assert!(text.contains("DATA.-3-"), "should name it: {text}");
+
+    assert_eq!(
+        titles::eddiem::missing_data(&d)
+            .iter()
+            .map(|(n, _)| *n)
+            .collect::<Vec<_>>(),
+        ["DATA.-3-"]
+    );
 }

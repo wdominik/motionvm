@@ -117,7 +117,7 @@ pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()>
 /// bytes of a flat arena where a 32-bit one is cells, and a 16-bit descriptor
 /// carries a buffer — so each generation writes a magic of its own and neither
 /// reads the other's. The magic is the *generation's* and not the game's,
-/// which is why the four 16-bit games must not share a save directory: one
+/// which is why the five 16-bit games must not share a save directory: one
 /// would open another's slot rather than refuse it.
 ///
 /// Hung off [`Generation`] rather than a `Layout` enum beside it: there were

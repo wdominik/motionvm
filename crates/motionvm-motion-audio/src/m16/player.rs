@@ -6,8 +6,9 @@ use crate::chip::{Chip, Write};
 use crate::error::{Error, Result};
 use crate::m16::driver::{Driver, PIT_HZ};
 use crate::m16::sequencer::Sequencer;
+use crate::m16::voice::Voice;
 use crate::num;
-use motionvm_motion_formats::m16::psm::Plx;
+use motionvm_motion_formats::m16::psm::{Plx, Sample};
 
 /// A section and how many times to play it, which is what `STARTTUNE` asks
 /// for: `-1` at every call site in the games, which the driver reads unsigned
@@ -21,7 +22,9 @@ pub struct Cue {
 }
 
 /// The rebuilt music path under a sample clock: the [`Sequencer`], the OPL2
-/// it writes to, and the PIT arithmetic between them.
+/// it writes to, the PIT arithmetic between them — and beside them the one
+/// digital [`Voice`] the direct-DMA path of `DMABLAST.DRV` plays, mixed into
+/// the same frames the way the card's two outputs met on its mixer.
 ///
 /// The original's tick is the sound host's timer service: `MUSADL.DRV` asks
 /// for its tempo word as a period in PIT cycles and the host programs timer
@@ -39,6 +42,9 @@ pub struct Player {
     clock: u64,
     /// Frames left until a pending stop lands — see [`crate::Player::stop`].
     stop_in: Option<u64>,
+    /// The sample playing, if one is: the driver as the games install it has
+    /// one channel, and `PLAYSAMPLE` stops it before it plays the next.
+    voice: Option<Voice>,
 }
 
 impl std::fmt::Debug for Player {
@@ -50,6 +56,7 @@ impl std::fmt::Debug for Player {
             .field("playing", &self.seq.is_some())
             .field("clock", &self.clock)
             .field("stop_in", &self.stop_in)
+            .field("voice", &self.voice.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -76,6 +83,7 @@ impl Player {
             writes: Vec::new(),
             clock: 0,
             stop_in: None,
+            voice: None,
         })
     }
 
@@ -90,7 +98,15 @@ impl Player {
             let step = crate::clock::frames_to_tick(self.clock, self.tick_period(), PIT_HZ)
                 .min(frames - done);
             if step > 0 {
-                self.chip.render(&mut out[done * 2..(done + step) * 2]);
+                let frames = &mut out[done * 2..(done + step) * 2];
+                self.chip.render(frames);
+                // The sample over the music, frame for frame — the DAC and
+                // the OPL shared the card's output.
+                if let Some(voice) = &mut self.voice
+                    && !voice.mix(frames)
+                {
+                    self.voice = None;
+                }
                 done += step;
                 self.clock += num::frames(step) * u64::from(PIT_HZ);
                 self.count_down_stop(num::frames(step));
@@ -142,14 +158,23 @@ impl Player {
 
 impl crate::Player for Player {
     type Song = Cue;
+    type Sample = Sample;
 
     fn rate(&self) -> u32 {
         self.rate
     }
 
-    /// A fade-out still counts as playing; the silence after it does not.
+    /// A fade-out still counts as playing; the silence after it does not. A
+    /// sample still running counts too.
     fn playing(&self) -> bool {
-        self.seq.as_ref().is_some_and(Sequencer::playing)
+        self.seq.as_ref().is_some_and(Sequencer::playing) || self.voice.is_some()
+    }
+
+    /// `PLAYSAMPLE`'s hand-over (`STERN.EXE` `15e5:0425`), after the
+    /// manager's `StopAll`: the driver's one channel takes the new sample and
+    /// whatever was playing on it stops where it stands.
+    fn sample(&mut self, sample: Sample) {
+        self.voice = Some(Voice::new(sample, self.rate));
     }
 
     /// `STARTTUNE`'s path, `SetSong` then `Play`. The first song builds the
@@ -181,6 +206,17 @@ impl crate::Player for Player {
             return;
         }
         seq.fade_out();
+        self.stop_in = Some(u64::from(self.rate) / 2);
+    }
+
+    /// `PLAYSAMPLE`'s way (`STERN.EXE` `15e5:035d`): no fade — the tune
+    /// plays on at full volume through the half second the script waits —
+    /// and the same hard stop lands when it is up.
+    fn cut(&mut self) {
+        let Some(seq) = &mut self.seq else { return };
+        if !seq.playing() {
+            return;
+        }
         self.stop_in = Some(u64::from(self.rate) / 2);
     }
 

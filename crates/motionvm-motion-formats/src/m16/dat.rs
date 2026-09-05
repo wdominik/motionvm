@@ -40,7 +40,7 @@
 //! — the offsets of a volume are cumulative over all slots, so a slot living
 //! elsewhere repeats its neighbour's offset — or at the end of that volume for
 //! the last slot. Measured over the eight volumes of Die Enviro-Kids greifen ein,
-//! Jeff Jet, Hilfe für Amajambere and Eddy M.: every volume's items tile it
+//! Jeff Jet, Hilfe für Amajambere and Falsches Spiel mit Eddie M.: every volume's items tile it
 //! exactly, from its own table's end
 //! to its last byte.
 //!
@@ -163,7 +163,7 @@ pub enum Framing {
     /// one volume — the player has no name former for a second.
     Earlier,
     /// 1995 onward: Die Enviro-Kids greifen ein, Jeff Jet, Hilfe für
-    /// Amajambere, Eddy M. Packing field at `0x16`, occupancy at `0x26` as a
+    /// Amajambere, Falsches Spiel mit Eddie M. Packing field at `0x16`, occupancy at `0x26` as a
     /// volume bitmask, up to three volumes.
     Later,
 }
@@ -639,7 +639,7 @@ impl Container {
     /// header that says none read as the one volume it is.
     ///
     /// Zero is not a count any shipped container holds — Die Enviro-Kids greifen ein
-    /// says 1, Jeff Jet and Hilfe für Amajambere 2, Eddy M. 3 — and reading it
+    /// says 1, Jeff Jet and Hilfe für Amajambere 2, Falsches Spiel mit Eddie M. 3 — and reading it
     /// as one is what lets a
     /// hand-built fixture of nothing but slot counts still open.
     fn declared_volumes(head: &[u8]) -> Result<usize> {
@@ -779,7 +779,7 @@ impl Container {
     /// and all. 26120 in Die Enviro-Kids greifen ein, 26136 in Jeff Jet, 26436 in
     /// Hilfe für Amajambere.
     ///
-    /// The first item sits exactly there in both, and in Amajambere; Eddy M.'s
+    /// The first item sits exactly there in both, and in Amajambere; Falsches Spiel mit Eddie M.'s
     /// second and third volumes leave 24 bytes between the two, so this is
     /// where items may begin rather than where they do.
     pub fn first_item_offset(&self) -> usize {

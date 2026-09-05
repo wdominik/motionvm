@@ -11,7 +11,8 @@
   an animation catalog, a location's tables. [32-bit](motion32/formats/blocks.md),
   [16-bit](motion16/formats/blocks.md).
 - **Build** — one shipped binary of the 16-bit engine: `ENVIRO.EXE`,
-  `HPPLAY.EXE`, `BMZ.EXE`, `LL.EXE`, each with its own kernel table.
+  `BMZ.EXE`, `HPPLAY.EXE`, `STERN.EXE`, `LL.EXE`, each with its own kernel
+  table.
   [Kernel words](motion16/vm/kernel-words.md).
 - **Capability** — a named boolean on the [profile](#profile) that says how a
   build behaves where builds differ, each measured at a disassembly address.
@@ -50,7 +51,7 @@
   the engine composed, for a comparison against the original.
   [Debugging](debugging.md), [The verification method](verification-method.md).
 - **Generation** — which of the two engines made a game: MOTION 32-bit
-  (`ENGINE.EXE`) or MOTION 16-bit (the four builds). [Index](README.md#the-engine-and-its-two-generations).
+  (`ENGINE.EXE`) or MOTION 16-bit (the five builds). [Index](README.md#the-engine-and-its-two-generations).
 - **GFXCRUNCH** — the LZW codec both generations' packed sprites, fonts and
   containers use. [The GFXCRUNCH LZW codec](formats/lzw.md).
 - **HMI** — the music format of the 32-bit games, inside blocks, played

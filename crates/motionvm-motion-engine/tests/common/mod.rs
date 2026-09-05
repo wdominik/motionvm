@@ -11,7 +11,7 @@
 //! does not is an assertion, a digest name or an address — those are a suite's
 //! own evidence, and moving them out of the file that argues with them is how
 //! a test stops being readable. So there is no `boot_the_16_bit_game` here:
-//! each of the four does something the others do not, and the file that drives
+//! each of the five does something the others do not, and the file that drives
 //! one says which.
 //!
 //! It cannot live in `motionvm-motion-testutil`, which is where the gamedata

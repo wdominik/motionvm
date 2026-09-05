@@ -2,15 +2,15 @@
 
 # The other MOTION games
 
-*Three MOTION games whose files the readers open and measure, and which no page here describes and the player does not play: Checker 2000 on the 32-bit engine, Compaq and Eddy M. on the 16-bit one. What is on this page is what the files say and what `motionvm-motion-tools` reads out of them, with the game's own directory name as its key; nothing here was played.*
+*Two MOTION games whose files the readers open and measure, and which no page here describes and the player does not play: Checker 2000 on the 32-bit engine, Compaq on the 16-bit one. What is on this page is what the files say and what `motionvm-motion-tools` reads out of them, with the game's own directory name as its key; nothing here was played.*
 
-MOTION made more games than the five motionvm plays, and three of them are
+MOTION made more games than the six motionvm plays, and two of them are
 on hand. They matter to this documentation twice over. The format pages
 measure over their containers, which is how a claim about a *generation*
 rather than about one game is made at all — the two framings of the 16-bit
 container, which segments are packed, where a volume's items begin. And they
 are the cases the openers refuse: a directory that has the generation's
-shape and is not one of the five is exactly what the detection has to say
+shape and is not one of the six is exactly what the detection has to say
 no to, by name.
 
 ## Checker 2000 — `CHECKER`
@@ -66,44 +66,18 @@ later framing uses for a volume count holds 2 over one file
 ([the DATA container](../motion16/formats/container.md#the-earlier-framing)).
 It ships no blocks at all, so no music. Its boot is module 100, word 1000.
 
-What stops the reader short is the binary: `COMPAQ.EXE` is none of the four
+What stops the reader short is the binary: `COMPAQ.EXE` is none of the five
 players whose kernel tables have been read, so the modules come out as bytes
-and not as listings — the tool says so, naming the four.
-
-## Eddy M. — `EDDIEM`
-
-A 16-bit game of the later framing on **three** volumes, the most any game
-on hand has: `DATA.-1-`, `DATA.-2-` and `DATA.-3-` (216 697, 1 265 145 and
-1 195 841 bytes, stamped October 1994), a player called `STERN.EXE` (167 334
-bytes, 1994-10-06), the PSM 2 sound stack the 1995/96 games ship
-(`SOUND.EXE`, `MUSADL.DRV`, the four `DMA*.DRV`, `DETECTOR.DRV`), a
-`MAKEBOOT.EXE` its readme explains — a boot floppy for a machine short of
-EMS or base memory — and a `MOUSE.SYS`.
-
-It is the game that gives the later framing its third volume, and its
-occupancy words are the reason the reader takes them as a bitmask: the
-header declares 3, one spare offset-table entry, and every segment packed —
-1772 of 2500 sprite slots, 119 blocks, 62 modules, all 25 palettes, 2 fonts,
-the font reference table and 51 text tables, packed to the last. Three of
-the blocks are PSM 2 songs. It is also the one game whose second and third
-volumes leave 24 bytes between the tables' end and the first item, which is
-why that offset is documented as where items *may* begin and not where they
-must ([the DATA container](../motion16/formats/container.md#occupancy-table-offset-38)).
-The packing flags and the shape of the items agree in all 28 segments of
-the four multi-volume-capable games, this one included. Its boot is module
-100, word 411.
-
-As with Compaq, the binary is the edge: `STERN.EXE` is not one of the four
-read players, so its modules are bytes to the tool.
+and not as listings — the tool says so, naming the five.
 
 ## What they are not
 
-No page describes any of the three as a game — its story, its locations,
+No page describes either of the two as a game — its story, its locations,
 its modules — and motionvm does not open them: the 32-bit opener refuses
 Checker 2000 by its missing signature, and the 16-bit opener claims a
 directory by the player beside its container, which none of these is. What
 they are is evidence: a claim on a format page that names a generation was
-measured over them as well as over the five, and a reader that reads them
+measured over them as well as over the six, and a reader that reads them
 has read the generation rather than one game's habit of it.
 
 ## See also

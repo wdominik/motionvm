@@ -228,6 +228,10 @@ impl Player {
 
 impl crate::Player for Player {
     type Song = Song;
+    /// There is none: the 32-bit digital layer is not ported, no shipped
+    /// script reaches it, and a type with no values says so where a no-op
+    /// would only look like an implementation.
+    type Sample = std::convert::Infallible;
 
     fn rate(&self) -> u32 {
         self.rate
@@ -266,6 +270,16 @@ impl crate::Player for Player {
         }
         self.seq = None;
         self.period = Self::master_ticks(Self::DEFAULT_TICK_HZ);
+    }
+
+    /// Nothing to leave out: this driver's stop has no fade, so a cut is the
+    /// stop.
+    fn cut(&mut self) {
+        self.stop();
+    }
+
+    fn sample(&mut self, sample: std::convert::Infallible) {
+        match sample {}
     }
 
     fn fill(&mut self, out: &mut [i16]) {

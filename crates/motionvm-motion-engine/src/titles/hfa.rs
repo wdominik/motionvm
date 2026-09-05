@@ -23,9 +23,9 @@ use crate::titles::{Title, motion16};
 /// every script and nothing to draw. Unlike Jeff Jet's, these two volumes
 /// store their items plainly: two volumes and packed items are independent
 /// choices, and this game makes them differently. `BMZ.EXE` is read, not run:
-/// the 232-word kernel table is lifted out of it. It is the third of the four
-/// builds, one word short of `ENVIRO.EXE`'s table, so the table has to come
-/// from this game's own binary.
+/// the 232-word kernel table is lifted out of it. It is the fourth of the
+/// five builds, one word short of `ENVIRO.EXE`'s table, so the table has to
+/// come from this game's own binary.
 const REQUIRED: &[(&str, &str)] = &[
     ("DATA.-1-", "scripts, texts and music"),
     (
@@ -40,9 +40,8 @@ pub(super) const ENGINE: &str = "BMZ.EXE";
 
 /// Where it keeps the location it is in and the one it is going to.
 ///
-/// The scheme the three 1995/96 builds' games share, named here rather than
-/// assumed: this
-/// game's module 601 declares all three variables.
+/// The scheme the four 1994–96 builds' games share, named here rather than
+/// assumed: this game's module 601 declares all three variables.
 pub(super) const LOCATION: LocationScheme = motion16::MODULE_601;
 
 /// Which of the required files `dir` does not hold, as `(what, what for)`.

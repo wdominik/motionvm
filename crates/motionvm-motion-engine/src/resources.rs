@@ -380,6 +380,21 @@ impl Engine {
         self.sound.playing = true;
         handle
     }
+
+    /// `PLAYSAMPLE`'s second half (`STERN.EXE` `15e5:03b8`): the block,
+    /// spelled through the `#F0R3i.blk` template and loaded whole, copied
+    /// into the digital driver's buffer and handed to the driver's play
+    /// entry — here, over the [`crate::MusicSink`] whole, the way a tune
+    /// goes. A block that is not there plays nothing, as a tune that is not
+    /// there does; the sink is silent where no sound card is.
+    pub(crate) fn play_sample(&mut self, block: i32) {
+        let Some(sample) = self.resources.as_ref().and_then(|r| r.block(block)) else {
+            return;
+        };
+        if let Some(music) = self.sound.sink.as_mut() {
+            music.sample(block, &sample);
+        }
+    }
 }
 
 /// An absolute, symlink-free path for a directory that need not exist yet.

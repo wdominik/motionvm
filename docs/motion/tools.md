@@ -71,7 +71,7 @@ motionvm-motion-tools sprite /path/to/gamedata 1010
 One script module on stdout: its header, its symbol table, and its threaded
 code disassembled with kernel words resolved by name — through `ENGINE.EXE`'s
 table for a 32-bit module, and through `ENVIRO.EXE`'s, `HPPLAY.EXE`'s,
-`BMZ.EXE`'s or `LL.EXE`'s, whichever the directory holds, for a 16-bit one. The
+`BMZ.EXE`'s, `STERN.EXE`'s or `LL.EXE`'s, whichever the directory holds, for a 16-bit one. The
 table has to come from the game's own build: ordinals shift between builds, and
 a table from the wrong one names every word some distance along without saying
 anything is wrong.

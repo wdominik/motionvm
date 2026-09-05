@@ -7,8 +7,8 @@
 //! the boot is a header word rather than a bootstrap file, and the frame
 //! handler is installed by the scripts with `SCRCTRL`.
 //!
-//! A game's own module — [`super::enviro`], [`super::hfa`], [`super::jeffjet`],
-//! [`super::vloomes`] — says which files it ships, which binary the kernel
+//! A game's own module — [`super::eddiem`], [`super::enviro`], [`super::hfa`],
+//! [`super::jeffjet`], [`super::vloomes`] — says which files it ships, which binary the kernel
 //! comes out of and where it keeps its location, and nothing more. Rust allows
 //! one [`Driven`] for one concrete `Game<m16::Vm>`, so the games share this one
 //! and answer [`Driven::name`] out of the field the opener set.
@@ -42,7 +42,7 @@ pub(super) fn missing_data(
 /// The games this engine knows on the 16-bit machine, each with the binary
 /// its kernel table comes out of.
 ///
-/// The binary is what tells them apart: all four ship a `DATA.-1-`, and none
+/// The binary is what tells them apart: all five ship a `DATA.-1-`, and none
 /// ships another's player. A game added here without a line in this table
 /// opens when it is named and is not found by looking.
 const GAMES: &[(Title, &str)] = &[
@@ -50,6 +50,7 @@ const GAMES: &[(Title, &str)] = &[
     (Title::JeffJet, super::jeffjet::ENGINE),
     (Title::HilfeFuerAmajambere, super::hfa::ENGINE),
     (Title::VictorLoomes, super::vloomes::ENGINE),
+    (Title::FalschesSpielMitEddieM, super::eddiem::ENGINE),
 ];
 
 /// Which 16-bit game `dir` holds, or `None` if the binary beside its container
@@ -65,12 +66,12 @@ pub(super) fn detect(dir: &Path) -> Option<Title> {
         .map(|&(title, _)| title)
 }
 
-/// The location scheme the three 1995/96 builds' games share.
+/// The location scheme the four 1994–96 builds' games share.
 ///
-/// Module 601 declares `NEXTLOC`, `ACTLOC` and `STARTLOC` in all three, with
+/// Module 601 declares `NEXTLOC`, `ACTLOC` and `STARTLOC` in all four, with
 /// -1 for "none": `CTRL` polls `NEXTLOC`, `ACTLOC` says whether a location has
 /// been entered at all, and `STARTLOC` holds the one `RUN` entered. It lives
-/// here rather than three times over because the three games really do share
+/// here rather than four times over because the four games really do share
 /// it — Victor Loomes, which does not, keeps its own in its own module.
 pub(super) const MODULE_601: LocationScheme = LocationScheme {
     module: 601,
@@ -113,7 +114,7 @@ pub(super) fn open(
         motionvm_motion_formats::find_ci(dir, exe).ok_or_else(|| Error::missing_file(dir, exe))?;
     let img = mz::Image::open(&exe).map_err(|e| Error::data(&exe, e))?;
     let words = mz::kernel_words(&img);
-    // Read from this build's own `?XINSIDE`, because the four builds do not
+    // Read from this build's own `?XINSIDE`, because the five builds do not
     // agree — and not by date: `ENVIRO.EXE` and `BMZ.EXE` pass over an
     // all-zero hot area, `HPPLAY.EXE` and `LL.EXE` take it as a rectangle at
     // the origin, and Jeff Jet's build is the younger of its pair.
@@ -140,7 +141,7 @@ pub(super) fn open(
     vm.load(item, &parsed)?;
     // 320×200: the mode `TOGFX` enters in this engine, which has no
     // `SETRES` to ask for another.
-    // The four capabilities that differ between the four 16-bit builds go
+    // The four capabilities that differ between the five 16-bit builds go
     // into the profile before the engine exists, which is the whole point of
     // there being one: nothing writes a capability into a built engine.
     let profile = crate::Profile {
@@ -175,7 +176,8 @@ impl Game<m16::Vm> {
     /// header names — module 100's `RUN`, word id 401 — which loads the
     /// library, plays the intro, enters its first location and runs
     /// `ANIMPLAY`. Which location that is, is the game's: 1 in Die Enviro-Kids
-    /// greifen ein, 13 in Jeff Jet, 20 in Hilfe für Amajambere.
+    /// greifen ein, 13 in Jeff Jet, 20 in Hilfe für Amajambere, 3 in Falsches
+    /// Spiel mit Eddie M.
     pub fn start(&mut self) -> Result<()> {
         let Some(Resources::Motion16(c)) = self.engine.resources.as_ref() else {
             return Err(Error::NoContainer);
@@ -330,7 +332,7 @@ mod tests {
     }
 
     /// Each of them names a different binary, which is the whole of how they
-    /// are told apart: all four ship a `DATA.-1-`.
+    /// are told apart: all five ship a `DATA.-1-`.
     #[test]
     fn each_game_is_found_by_a_binary_of_its_own() {
         for (i, &(title, exe)) in GAMES.iter().enumerate() {

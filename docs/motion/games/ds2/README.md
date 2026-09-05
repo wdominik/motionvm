@@ -8,7 +8,7 @@ A point-and-click adventure about a teenager who finds the town's memorial
 stone daubed with far-right graffiti and follows the trail — through a
 bulletin board where the people who did it talk to each other — back to the
 people he thought he had seen the last of. It is the only game in this corpus
-on the 32-bit engine, and the newest of the five.
+on the 32-bit engine, and the newest of the six.
 
 ## At a glance
 

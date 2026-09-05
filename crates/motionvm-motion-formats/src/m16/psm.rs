@@ -7,8 +7,9 @@
 //! nine in place and hands the first section to the music driver, which
 //! checks it for the tag `PLX\0` (`MUSADL.DRV` offset `0xe3b`) — so section 0
 //! is the whole of the Ad Lib song. The `MDH\0` chunk at offset 56 and the
-//! `SM8\0` sample sections belong to the digital sound-effect driver, which
-//! nothing here plays.
+//! `SM8\0` sample sections belong to the digital driver, which nothing here
+//! plays; a sample also ships as a block of its own, thirteen times in
+//! Falsches Spiel mit Eddie M., and [`Sample`] reads that form's header.
 //!
 //! The `PLX` section, as the driver reads it (`MUSADL.DRV` `0xcb4`):
 //!
@@ -33,6 +34,89 @@ pub const MAGIC: &[u8; 16] = b"MTCVTS PSM 2.00\0";
 
 /// The tag the Ad Lib section carries, module or not.
 pub const TAG: &[u8; 4] = b"PLX\0";
+
+/// The tag a digital sample carries, as a section of a module or as a block
+/// of its own.
+pub const SAMPLE_TAG: &[u8; 4] = b"SM8\0";
+
+/// The PC's timer clock in Hz — the unit both PSM 2 drivers count in.
+/// `MUSADL.DRV` takes its tempo word as a period in these cycles, and the
+/// digital driver takes a sample's rate word the same way.
+pub const PIT_HZ: u32 = 1_193_182;
+
+/// Whether a block is a digital sample on its own — the form `PLAYSAMPLE`
+/// asks for by block number.
+pub fn is_sample(item: &[u8]) -> bool {
+    item.starts_with(SAMPLE_TAG)
+}
+
+/// A digital sample as its block stores it: ten bytes of header, then the
+/// PCM.
+///
+/// Read off the thirteen sample blocks of Falsches Spiel mit Eddie M. —
+/// blocks 1, 9, 10, 12–15, 17, 18 and 20–23, 2305 to 31 960 bytes — and off
+/// the driver that plays them. The header is `SM8\0`, `u16 0x0100`, `u16
+/// length`, `u16 period`, and the length is the block's less ten in every
+/// one. `DMABLAST.DRV`'s play path (`0x0611`) skips the tag and the version,
+/// takes the length as the DMA count, and turns the last word into the DSP's
+/// time constant through a 256-entry table at `0x60` — `256 − round(w · 1000
+/// / 1193)`, the word in whole microseconds at 1.193 cycles each, `table[59]`
+/// being `0xcf` — so the word is the **sample period in PIT cycles**, the
+/// same unit `MUSADL.DRV`'s tempo is in, and what the DAC plays is the
+/// driver's rounding of it, which the audio crate's voice reproduces. Its
+/// multi-channel mixer (`0x196b`) reads the word at `+8` out of the header
+/// the same way, as the step against the mixer's own period.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sample {
+    /// The header's second word — `0x0100` in every shipped block. The
+    /// mixer path reads it as the channel's volume, taking `0x0100` as "the
+    /// default" (`0x2090`); the direct path the games run never reads it.
+    pub version: u16,
+    /// The sample period in PIT cycles: 56 to 179 across the shipped blocks,
+    /// which is 21.3 kHz down to 6.7 kHz — see [`Sample::rate`].
+    pub period: u16,
+    /// Unsigned 8-bit PCM, as many bytes as the header's length word says.
+    pub pcm: Vec<u8>,
+}
+
+impl Sample {
+    /// Reads a sample block: the tag, the three header words, and exactly
+    /// the PCM the length word claims.
+    pub fn parse(item: &[u8]) -> Result<Self> {
+        if !is_sample(item) {
+            return Err(Error::Corrupt {
+                what: "PSM 2 sample",
+                detail: "the SM8 tag is missing".into(),
+            });
+        }
+        let [version, length, period] = words::<3>(item, 4)?;
+        let start = 10;
+        let end = start + usize::from(length);
+        let pcm = item
+            .get(start..end)
+            .ok_or_else(|| Error::Truncated {
+                off: start,
+                need: usize::from(length),
+                have: item.len().saturating_sub(start),
+            })?
+            .to_vec();
+        Ok(Self {
+            version,
+            period,
+            pcm,
+        })
+    }
+
+    /// The sample rate the header names, in Hz: the PIT clock over the
+    /// period. The DAC plays the driver's rounding of it — the period in
+    /// whole microseconds, so 8000 Hz where this says 8008 — which is the
+    /// audio crate's to reproduce; this is what the block says. A period of
+    /// zero, which no shipped block carries, answers the clock itself rather
+    /// than dividing by nothing.
+    pub fn rate(&self) -> u32 {
+        PIT_HZ.checked_div(u32::from(self.period)).unwrap_or(PIT_HZ)
+    }
+}
 
 /// Where the tags of one module sit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,5 +231,34 @@ impl Plx {
             channels,
             bytes,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Sample, is_sample};
+
+    /// The header as the shipped blocks have it, over four bytes of PCM.
+    #[test]
+    fn a_sample_block_reads_its_header_and_its_pcm() {
+        let block = [
+            b'S', b'M', b'8', 0, 0x00, 0x01, 4, 0, 59, 0, 0x80, 0x84, 0x7f, 0x7a,
+        ];
+        assert!(is_sample(&block));
+        let s = Sample::parse(&block).expect("a sample");
+        assert_eq!(s.version, 0x0100);
+        assert_eq!(s.period, 59);
+        assert_eq!(s.pcm, [0x80, 0x84, 0x7f, 0x7a]);
+        assert_eq!(s.rate(), 20223, "1 193 182 / 59");
+    }
+
+    /// A length word past the block is refused, and so is the wrong tag.
+    #[test]
+    fn a_short_block_and_a_wrong_tag_are_refused() {
+        let short = [b'S', b'M', b'8', 0, 0x00, 0x01, 9, 0, 59, 0, 0x80];
+        assert!(Sample::parse(&short).is_err());
+        let plx = [b'P', b'L', b'X', 0, 13, 0, 0, 0, 0, 0, 0];
+        assert!(!is_sample(&plx));
+        assert!(Sample::parse(&plx).is_err());
     }
 }

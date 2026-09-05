@@ -16,7 +16,7 @@ the hardware, which has opinions, gets in the way.
 | Released | 1995 by its launcher's own sign-off; the shipped files are re-stamped 1998-04-10 |
 | Commissioned by | Hewlett Packard GmbH |
 | Made by | Promotion Software GmbH, Tübingen |
-| Engine | MOTION 16-bit — `HPPLAY.EXE`, the second of the four builds |
+| Engine | MOTION 16-bit — `HPPLAY.EXE`, the third of the five builds |
 | Display | 320×200 in 256 colors |
 | Given away | Free of charge |
 

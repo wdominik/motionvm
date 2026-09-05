@@ -44,12 +44,12 @@ impl Engine {
                 let handle = s.handle;
                 self.forget_rebuilds(handle);
             }
+            // The 32-bit reading: the current screen goes, and nothing is
+            // taken. No shipped 32-bit script calls it; the 16-bit word pops
+            // the handle and is `REMSCR_16`.
             Word::REMSCR => {
                 if let Some(h) = self.display.current {
-                    self.forget_rebuilds(h);
-                    self.scene.descriptors.retain(|d| d.screen != h);
-                    self.display.screens.retain(|s| s.handle != h);
-                    self.display.current = self.display.screens.last().map(|s| s.handle);
+                    self.remove_screen(h);
                 }
             }
             Word::SETBUF => {
@@ -59,5 +59,19 @@ impl Engine {
             _ => return Ok(None),
         }
         Ok(Some(()))
+    }
+}
+
+impl Engine {
+    /// Takes screen `handle` out of the display with the descriptors on it,
+    /// and moves the current screen to the last one left where it was the one
+    /// removed.
+    pub(crate) fn remove_screen(&mut self, handle: u32) {
+        self.forget_rebuilds(handle);
+        self.scene.descriptors.retain(|d| d.screen != handle);
+        self.display.screens.retain(|s| s.handle != handle);
+        if self.display.current == Some(handle) {
+            self.display.current = self.display.screens.last().map(|s| s.handle);
+        }
     }
 }

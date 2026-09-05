@@ -6,7 +6,7 @@
 
 A point-and-click adventure in which four children run a newspaper supplement
 and use it to find out where their town's rubbish actually goes. It is the
-newest of the four games on the 16-bit engine, and the build it ships,
+newest of the five games on the 16-bit engine, and the build it ships,
 `ENVIRO.EXE`, is the one the whole 16-bit half of this documentation is
 measured on.
 
@@ -17,7 +17,7 @@ measured on.
 | Released | 1996 — `ENVIRO.EXE` 1996-08-27, `DATA.-1-` 1996-08-26 |
 | Commissioned by | Ministerium für Umwelt, Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen |
 | Made by | Art Department Werbeagentur GmbH |
-| Engine | MOTION 16-bit — `ENVIRO.EXE`, the latest of the four builds |
+| Engine | MOTION 16-bit — `ENVIRO.EXE`, the latest of the five builds |
 | Display | 320×200 in 256 colors |
 | Given away | Free of charge |
 

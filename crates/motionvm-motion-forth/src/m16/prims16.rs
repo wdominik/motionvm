@@ -429,7 +429,7 @@ impl Vm {
                 )?;
                 self.push(cell::sign16(v));
             }
-            // `J` binds in none of the four 16-bit builds — no kernel table
+            // `J` binds in none of the five 16-bit builds — no kernel table
             // names it — so this is the layout's answer rather than a
             // handler's: the outer index sits under the inner loop's pair.
             Prim::OuterLoopIndex => {

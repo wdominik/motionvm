@@ -28,14 +28,15 @@
 //! release — a debug build measures the optimizer, not the code.
 //!
 //! Every game the workspace plays is here, because the two machines are
-//! different interpreters and the four 16-bit games exercise the same one over
+//! different interpreters and the five 16-bit games exercise the same one over
 //! four sets of scripts. A change that speeds one up and slows another down is
 //! the interesting case and would be invisible from one game.
 
 use motionvm_motion_engine::{Game, titles};
 use motionvm_motion_forth::{Counters, Machine as _};
 use motionvm_motion_testutil::{
-    gamedata_ds2, gamedata_enviro, gamedata_hfa, gamedata_jeffjet, gamedata_vloomes,
+    gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
+    gamedata_vloomes,
 };
 use std::time::{Duration, Instant};
 
@@ -157,7 +158,7 @@ fn dunkle_schatten_2() {
     report("Dunkle Schatten 2 (32-bit)", &measure!(game));
 }
 
-/// The four 16-bit games, each in its own intro.
+/// The five 16-bit games, each in its own intro.
 ///
 /// The intro rather than a location, because it is what every one of them
 /// reaches from `RUN` alone, with no shortcut and no game-specific
@@ -203,4 +204,10 @@ sixteen_bit!(
     titles::vloomes::open,
     gamedata_vloomes,
     "Victor Loomes (16-bit)"
+);
+sixteen_bit!(
+    falsches_spiel_mit_eddie_m,
+    titles::eddiem::open,
+    gamedata_eddiem,
+    "Falsches Spiel mit Eddie M. (16-bit)"
 );

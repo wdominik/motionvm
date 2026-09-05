@@ -1,0 +1,9 @@
+# Reference digests for eddiem, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+intro  0x01846e4be09c2362
+location_3  0xf853f5eab5ab7dd4

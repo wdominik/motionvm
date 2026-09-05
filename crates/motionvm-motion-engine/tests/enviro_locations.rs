@@ -608,6 +608,8 @@ fn ending_the_tune_holds_the_room_change_for_half_a_second() {
     impl motionvm_motion_engine::MusicSink for Silent {
         fn start(&mut self, _handle: i32, _tune: i32, _looping: bool, _song: &[u8]) {}
         fn stop(&mut self, _handle: i32) {}
+        fn cut(&mut self, _handle: i32) {}
+        fn sample(&mut self, _block: i32, _sample: &[u8]) {}
     }
     let mut game = settled_in_the_game(&dir);
     game.set_music(Box::new(Silent));

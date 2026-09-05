@@ -9,8 +9,10 @@
 use crate::error::{Error, Result};
 
 /// The PC timer's rate in Hz; the driver counts its tick periods in PIT
-/// cycles (`0x4a9` = 1193 of them to a millisecond in the fade arithmetic).
-pub const PIT_HZ: u32 = 1_193_182;
+/// cycles (`0x4a9` = 1193 of them to a millisecond in the fade arithmetic),
+/// and the digital driver counts a sample's period the same way — one
+/// constant, the format's.
+pub use motionvm_motion_formats::m16::psm::PIT_HZ;
 
 /// The four tables `MUSADL.DRV` carries, checked out of the file.
 ///

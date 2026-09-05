@@ -296,11 +296,14 @@ so a different core can be substituted at that seam. Which core, and the license
 obligation it carries, are recorded in `NOTICE`.
 
 **Every game plays its Ad Lib rendition, whatever its sound setup said.** The
-four 16-bit games shipped a `SOUND.EXE` that let a player pick a digital
+five 16-bit games shipped a `SOUND.EXE` that let a player pick a digital
 renderer instead — the `DMA*.DRV` drivers, which play the same tunes out of the
 modules' `SM8` sample sections rather than synthesizing them, and a
 digital-only configuration still has music. Their internals are unread, so
-motionvm plays the FM rendition for every game and every setting. The 32-bit
+motionvm plays the FM rendition for every game and every setting. The one
+word that reaches those drivers for a *sample* rather than a tune,
+`PLAYSAMPLE`, is another matter: its path through the driver is read and
+rebuilt ([the 16-bit machine](#the-16-bit-machine)). The 32-bit
 game's digital layer is the same story from the other end: `ENGINE.EXE` has one,
 `?SOUND` reports it, and it is not ported. A player who remembers the sampled
 mix will hear the synthesized one. Both are
@@ -522,6 +525,44 @@ on into whatever memory follows it. motionvm ends a run at the room. A walk
 that long is one Victor Loomes has not been seen to make; the pass itself,
 and the stale headings a shorter walk leaves behind the marker, are
 reproduced as read ([the walk](motion16/engine/interaction.md)).
+
+**`PLAYSAMPLE` cuts the tune, then plays the sample at the DAC's full scale.**
+The handler (`STERN.EXE` `15e5:0349`, the one build whose game calls it) is two
+halves, and motionvm runs both — it is a machine with an Ad Lib card *and* a
+Sound Blaster, the configuration `SOUND.EXE` writes when both are on. First,
+with a tune playing, `ENDTUNE`'s stop routine without the fade that routine
+starts first — the tick counter reset, a spin until it reads 100, the flag
+cleared, the driver's Stop — so the tune sounds on at full volume for half a
+second and is cut. Then the block, whole, to the digital driver's play entry,
+where `STERN.EXE` has installed the driver with **one channel** (the sixth
+install argument is the caller's `DI`, 1 at `1058:01bd`), so the driver takes
+its direct path (`DMABLAST.DRV` `0x0611`): the length word is the DMA count,
+the period word becomes the DSP's time constant through the table at `0x60`
+— the period in whole microseconds, so the DAC runs on the DSP's rounding of
+the header's clock, 8000 Hz where the PIT would say 8008 — and the bytes
+reach the DAC as they are — unsigned 8-bit, once, at full scale, with silence
+(`0x80`) written when the transfer ends. What the rebuild decides
+that the files do not: the level of those eight bits against the OPL. The card
+mixed the two in analog and no shipped byte says how loud; the rebuild gives
+the DAC full scale over the OPL's own output, which is the level DOSBox-X
+gives it — a recording of the original's opening scene under it peaks where
+the rebuild does — and a player who remembers the card's mix may remember
+another balance.
+And the driver's *other* path — a software mixer of up to eight channels with
+per-channel volume (`0x196b`), which `PLAYSAMPLE` never reaches with one
+channel installed — is read and not rebuilt: nothing in shipped play would
+sound through it. `ENVIRO.EXE` carries
+the first half alone (`1696:0357`), and no game of that build calls the word.
+([PSM 2 music](motion16/formats/psm-music.md),
+[open questions](open-questions.md#motion-16-bit))
+
+**`GIVEDATE` answers the UTC date.** The handler (`STERN.EXE` `0cd3:37d9`)
+is DOS function 2Ah, the machine's local date; `std` has the seconds since
+the epoch and no time zone, and a dependency for the zone would buy a day's
+difference in the hours either side of midnight and nothing else. The one
+caller is Falsches Spiel mit Eddie M.'s `STNR`, which turns the date into the
+week's issue number of the magazine; a suite fixes the date so a scene
+composes the same on any day ([kernel words](motion16/vm/kernel-words.md)).
 
 ## See also
 

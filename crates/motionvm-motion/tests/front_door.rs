@@ -53,6 +53,7 @@ fn the_refusal_names_every_game_and_what_it_needs() {
          \x20 Jeff Jet needs DATA.-1-, DATA.-2- and HPPLAY.EXE\n\
          \x20 Hilfe für Amajambere needs DATA.-1-, DATA.-2- and BMZ.EXE\n\
          \x20 Victor Loomes needs DATA.-1- and LL.EXE\n\
+         \x20 Falsches Spiel mit Eddie M. needs DATA.-1-, DATA.-2-, DATA.-3- and STERN.EXE\n\
          \x20 Another MOTION game, or an incomplete copy of one of these; \
          see \"What a game needs\" in the README.",
         dir.display()

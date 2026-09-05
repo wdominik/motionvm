@@ -14,16 +14,16 @@
 //! That is the stronger claim, and the one worth holding — a word only a
 //! debugger's path reaches is still a word a player could meet the day that
 //! path is taken. The suites that play the games say which words are *inert*;
-//! this one says which are *absent*. For the four 16-bit games the answer is
+//! this one says which are *absent*. For the five 16-bit games the answer is
 //! none. Dunkle Schatten 2 names seven, every one of them out of reach, and
 //! [`UNBUILT_DS2`] carries each with the reason it stays unbuilt — so a word
 //! that goes missing is a red test, and so is one of the seven getting built
 //! without its line coming out.
 //!
 //! Needs the games' files and skips, game by game, without them. The games
-//! this file drives are all five: Dunkle Schatten 2 (MOTION 32-bit) and Die
-//! Enviro-Kids greifen ein, Jeff Jet, Hilfe für Amajambere and Victor Loomes
-//! (MOTION 16-bit).
+//! this file drives are all six: Dunkle Schatten 2 (MOTION 32-bit) and Die
+//! Enviro-Kids greifen ein, Jeff Jet, Hilfe für Amajambere, Victor Loomes and
+//! Falsches Spiel mit Eddie M. (MOTION 16-bit).
 
 use motionvm_motion_engine::Engine;
 use motionvm_motion_formats::Generation;
@@ -31,7 +31,8 @@ use motionvm_motion_formats::m16::{self, Container, Segment, mz};
 use motionvm_motion_formats::m32::{self, Kind, rsc::Bank};
 use motionvm_motion_forth as forth;
 use motionvm_motion_testutil::{
-    game_file, gamedata_ds2, gamedata_enviro, gamedata_hfa, gamedata_jeffjet, gamedata_vloomes,
+    game_file, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
+    gamedata_vloomes,
 };
 use std::path::Path;
 
@@ -225,4 +226,16 @@ fn every_word_victor_loomes_reaches_for_is_built() {
         return;
     };
     assert_all_built("Victor Loomes", &unbuilt_m16(&dir, "LL.EXE"));
+}
+
+#[test]
+fn every_word_falsches_spiel_mit_eddie_m_reaches_for_is_built() {
+    let Some(dir) = gamedata_eddiem() else {
+        eprintln!("skipping: no Falsches Spiel mit Eddie M. gamedata directory");
+        return;
+    };
+    assert_all_built(
+        "Falsches Spiel mit Eddie M.",
+        &unbuilt_m16(&dir, "STERN.EXE"),
+    );
 }

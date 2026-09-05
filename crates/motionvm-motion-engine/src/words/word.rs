@@ -12,8 +12,8 @@
 //! groups in turn, each a `match name`, the first to recognize it winning,
 //! would make the order of those calls load-bearing with nothing checking it:
 //! two groups could claim one name and the earlier one would win silently.
-//! That is not hypothetical — **eleven names mean different things on the two
-//! machines**, and a call order would be the only thing telling them apart:
+//! That is not hypothetical — **thirteen names mean different things on the
+//! two machines**, and a call order would be the only thing telling them apart:
 //!
 //! | name | 32-bit | 16-bit |
 //! |---|---|---|
@@ -22,6 +22,7 @@
 //! | `SCRX`, `SCRPOS`, `GSCRX`, `GSCRY` | the shared screen words | this engine's own |
 //! | `STARTTUNE`, `ENDTUNE` | start and stop | with `ENDTUNE`'s half-second wait |
 //! | `=>ERASE` | frees the slot | frees the slot and unloads the module |
+//! | `REMSCR` | the current screen, nothing taken | `( handle -- )` (`05f1:08d4`) |
 //!
 //! Each of those is two values — the 16-bit one carrying a `_16` suffix —
 //! decided by which resolver ran, so the difference is in the type rather than
@@ -346,6 +347,7 @@ pub(crate) enum Word {
     FADEIN_16,
     /// `FADEOUT`
     FADEOUT_16,
+    GIVEDATE,
     GSCRPOS,
     /// `GSCRX`
     GSCRX_16,
@@ -353,6 +355,9 @@ pub(crate) enum Word {
     GSCRY_16,
     KEY,
     NEWANIM,
+    PLAYSAMPLE,
+    /// `REMSCR`
+    REMSCR_16,
     /// `SCRPOS`
     SCRPOS_16,
     /// `SCRX`
@@ -469,6 +474,7 @@ impl Word {
         Word::GFXTO,
         Word::GFXVFLIP,
         Word::GSCRACT,
+        Word::GIVEDATE,
         Word::GSCRPOS,
         Word::GSCRVSIZE,
         Word::GSCRX,
@@ -488,6 +494,8 @@ impl Word {
         Word::MOUSEXY,
         Word::MOUSEY,
         Word::NEWANIM,
+        Word::PLAYSAMPLE,
+        Word::REMSCR_16,
         Word::NEWDESC,
         Word::NEWSCREEN,
         Word::NEWSETDESC,
@@ -804,7 +812,7 @@ impl Word {
         })
     }
 
-    /// What a name means to the **16-bit** kernel. The eleven words whose
+    /// What a name means to the **16-bit** kernel. The thirteen words whose
     /// handler differs answer their `_16` variant here; everything else
     /// answers the same value [`Word::of_m32`] does.
     pub(crate) fn of_m16(name: &str) -> Option<Word> {
@@ -890,6 +898,7 @@ impl Word {
             "GFXSTAT-" => Word::GFXSTAT_MINUS,
             "GFXTO" => Word::GFXTO,
             "GFXVFLIP" => Word::GFXVFLIP,
+            "GIVEDATE" => Word::GIVEDATE,
             "GSCRACT" => Word::GSCRACT,
             "GSCRPOS" => Word::GSCRPOS,
             "GSCRVSIZE" => Word::GSCRVSIZE,
@@ -915,10 +924,11 @@ impl Word {
             "PALSTAT" => Word::PALSTAT,
             "PALSTAT+" => Word::PALSTAT_PLUS,
             "PALSTAT-" => Word::PALSTAT_MINUS,
+            "PLAYSAMPLE" => Word::PLAYSAMPLE,
             "PUT" => Word::PUT,
             "PUTANIM" => Word::PUTANIM,
             "QUITANIM" => Word::QUITANIM,
-            "REMSCR" => Word::REMSCR,
+            "REMSCR" => Word::REMSCR_16,
             "REQUEST" => Word::REQUEST,
             "RESETANIM" => Word::RESETANIM,
             "RESETBUF" => Word::RESETBUF_16,
@@ -1113,6 +1123,7 @@ impl Word {
             Word::GFXTO => "GFXTO",
             Word::GFXVFLIP => "GFXVFLIP",
             Word::GSCRACT => "GSCRACT",
+            Word::GIVEDATE => "GIVEDATE",
             Word::GSCRPOS => "GSCRPOS",
             Word::GSCRVSIZE => "GSCRVSIZE",
             Word::GSCRX => "GSCRX",
@@ -1143,6 +1154,7 @@ impl Word {
             Word::PUTANIM => "PUTANIM",
             Word::QUITANIM => "QUITANIM",
             Word::REMSCR => "REMSCR",
+            Word::REMSCR_16 => "REMSCR",
             Word::REQUEST => "REQUEST",
             Word::RESETANIM => "RESETANIM",
             Word::RESETBUF => "RESETBUF",
@@ -1246,6 +1258,7 @@ impl Word {
             Word::XTXTSTAT => "XTXTSTAT",
             Word::XTXTSTAT_PLUS => "XTXTSTAT+",
             Word::XTXTSTAT_MINUS => "XTXTSTAT-",
+            Word::PLAYSAMPLE => "PLAYSAMPLE",
             Word::POOR => "_POOR",
         }
     }
@@ -1428,7 +1441,7 @@ mod tests {
     #[test]
     fn a_split_word_means_one_thing_per_machine() {
         let split: Vec<Word> = Word::ALL.iter().copied().filter(|&w| is_16(w)).collect();
-        assert_eq!(split.len(), 12, "the split set changed");
+        assert_eq!(split.len(), 13, "the split set changed");
         for w in split {
             let name = w.name();
             assert_eq!(Word::of_m16(name), Some(w), "{name} on the 16-bit machine");

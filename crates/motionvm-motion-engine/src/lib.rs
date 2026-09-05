@@ -9,6 +9,7 @@
 //! underflows.
 
 mod buffer;
+mod calendar;
 mod clock;
 mod curtain;
 mod cycle;
@@ -129,6 +130,9 @@ pub struct Engine {
     /// The music sink, the handles it hands out, and whether a tune is
     /// playing. See [`Sound`].
     pub(crate) sound: Sound,
+    /// The date `GIVEDATE` answers once a suite has fixed one; `None` reads
+    /// the clock. See [`Engine::fix_date`].
+    pub(crate) today: Option<(i32, i32, i32)>,
     /// The curtains, wipes and scroll in flight, and the fade log.
     /// See [`Transitions`].
     pub(crate) transitions: Transitions,
@@ -560,6 +564,24 @@ impl Engine {
         self.sound.sink = Some(sink);
     }
 
+    /// Fixes the date `GIVEDATE` answers — day, month, year — in place of
+    /// the machine's own.
+    ///
+    /// For a suite. The one game that reads the date turns it into the
+    /// current issue number of a weekly magazine, so a run on the clock
+    /// answers differently every Thursday. Nothing else in the engine reads a
+    /// clock, which is what makes a scene compose the same on two machines
+    /// and lets its digest be checked in; this keeps that true for the one
+    /// word that would break it.
+    pub fn fix_date(&mut self, day: i32, month: i32, year: i32) {
+        self.today = Some((day, month, year));
+    }
+
+    /// The date `GIVEDATE` pushes: the fixed one, or today's.
+    pub(crate) fn today(&self) -> (i32, i32, i32) {
+        self.today.unwrap_or_else(calendar::today)
+    }
+
     /// Takes one press into the keyboard buffer, translated on the way in.
     ///
     /// The buffer is the BIOS type-ahead buffer `?KEY` reads through INT 16h:
@@ -638,6 +660,7 @@ impl Engine {
             cursor_state: Cursor::starting(profile.pointer_starts_visible),
             persistence: Persistence::default(),
             sound: Sound::default(),
+            today: None,
             transitions: Transitions::default(),
             input: Input::default(),
             display: Display::with_size(profile.display),

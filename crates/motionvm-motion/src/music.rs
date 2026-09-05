@@ -28,7 +28,7 @@ use motionvm_motion_audio::m16::Cue;
 use motionvm_motion_audio::{Player, m16, m32};
 use motionvm_motion_engine::MusicSink;
 use motionvm_motion_engine::titles;
-use motionvm_motion_formats::m16::psm::Plx;
+use motionvm_motion_formats::m16::psm::{Plx, Sample};
 use motionvm_motion_formats::m32::DriverArchive;
 use motionvm_motion_formats::m32::bnk::Bank as InstrumentBank;
 use motionvm_motion_formats::m32::hmi::Song;
@@ -39,9 +39,11 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 /// What crosses from the game thread to the audio one. Boxed because a parsed
 /// song is far larger than the rest of the enum and the channel would carry
 /// that size on every message.
-enum Command<S> {
-    Start(Box<S>),
+enum Command<P: Player> {
+    Start(Box<P::Song>),
     Stop,
+    Cut,
+    Sample(Box<P::Sample>),
 }
 
 /// The audio thread's side: drain the command channel, then render.
@@ -51,18 +53,21 @@ enum Command<S> {
 /// player's.
 struct Backend<P: Player> {
     player: P,
-    rx: Receiver<Command<P::Song>>,
+    rx: Receiver<Command<P>>,
 }
 
 impl<P: Player + Send + 'static> AudioSource for Backend<P>
 where
     P::Song: Send + 'static,
+    P::Sample: Send + 'static,
 {
     fn fill(&mut self, out: &mut [i16]) {
         while let Ok(command) = self.rx.try_recv() {
             match command {
                 Command::Start(song) => self.player.start(*song),
                 Command::Stop => self.player.stop(),
+                Command::Cut => self.player.cut(),
+                Command::Sample(sample) => self.player.sample(*sample),
             }
         }
         self.player.fill(out);
@@ -75,7 +80,7 @@ where
 /// The parse happens here, on the game thread: reading, checking and
 /// allocating have no business in an audio callback.
 struct Music {
-    tx: Sender<Command<Song>>,
+    tx: Sender<Command<m32::Player>>,
     /// Tunes that would not decode, kept for [`MusicSink::diagnostics`].
     notes: Vec<String>,
 }
@@ -98,6 +103,19 @@ impl MusicSink for Music {
         let _ = self.tx.send(Command::Stop);
     }
 
+    fn cut(&mut self, _handle: i32) {
+        let _ = self.tx.send(Command::Cut);
+    }
+
+    /// No 32-bit word reaches this: the words that would, `STARTSAMPLE` and
+    /// `->STARTSAMPLE`, are unbuilt, and the stack has no sample type to
+    /// send. Noted rather than dropped, should a word ever get here.
+    fn sample(&mut self, block: i32, _sample: &[u8]) {
+        self.notes.push(format!(
+            "sample {block}: the 32-bit stack has no digital layer"
+        ));
+    }
+
     fn diagnostics(&self) -> Vec<String> {
         self.notes.clone()
     }
@@ -107,7 +125,7 @@ impl MusicSink for Music {
 /// site in those games — endless — and the driver reads it unsigned, so the
 /// bool comes back out as the count it stands for.
 struct PsmMusic {
-    tx: Sender<Command<Cue>>,
+    tx: Sender<Command<m16::Player>>,
     /// Tunes that would not decode, as [`Music`] keeps them.
     notes: Vec<String>,
 }
@@ -127,6 +145,24 @@ impl MusicSink for PsmMusic {
         let _ = self.tx.send(Command::Stop);
     }
 
+    fn cut(&mut self, _handle: i32) {
+        let _ = self.tx.send(Command::Cut);
+    }
+
+    /// The block parsed here, on the game thread, as a song is; a block that
+    /// is not an `SM8` sample is worth saying out loud and not worth stopping
+    /// for.
+    fn sample(&mut self, block: i32, sample: &[u8]) {
+        match Sample::parse(sample) {
+            Ok(sample) => {
+                let _ = self.tx.send(Command::Sample(Box::new(sample)));
+            }
+            Err(e) => self
+                .notes
+                .push(format!("sample {block} did not parse: {e}")),
+        }
+    }
+
     fn diagnostics(&self) -> Vec<String> {
         self.notes.clone()
     }
@@ -140,8 +176,8 @@ impl MusicSink for PsmMusic {
 /// second time. The files are the game's own — `HMIMDRV.386` and the two
 /// instrument banks for the 32-bit game, the same three files `ENGINE.EXE`
 /// hands its MIDI layer; `MUSADL.DRV` for the 16-bit games, the same file
-/// their player loads whole and installs. All four 16-bit games ship that
-/// driver: the three later ones carry byte-identical copies, Victor Loomes
+/// their player loads whole and installs. All five 16-bit games ship that
+/// driver: the four later ones carry byte-identical copies, Victor Loomes
 /// an older build with one entry fewer, and `m16::Driver` reads either — so
 /// one opener serves them.
 pub(crate) fn open_music(

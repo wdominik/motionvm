@@ -8,7 +8,7 @@ How the game's 36 script modules organize into a running adventure: the
 setting, the location scheme and its two module series, the verbs, the
 characters, and saving. For what each module contains, see the
 [module map](module-map.md); for the family's boot sequence and the shape all
-four 16-bit games share, [boot and frame loop](../../motion16/engine/game-loop.md).
+five 16-bit games share, [boot and frame loop](../../motion16/engine/game-loop.md).
 
 ## Setting
 

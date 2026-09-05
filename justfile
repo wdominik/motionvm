@@ -7,9 +7,10 @@
 # The game data is not in the repository and cannot be. Point GAMEDATA_DS2 at
 # your copy of Dunkle Schatten 2, GAMEDATA_ENVIRO at your copy of Die
 # Enviro-Kids greifen ein, GAMEDATA_JEFFJET at your copy of Jeff Jet -
-# Abenteuer InfoHighway, GAMEDATA_HFA at your copy of Hilfe für Amajambere and
-# GAMEDATA_VLOOMES at your copy of Victor Loomes – Das Spiel
-# — the defaults are directories next to this one, which
+# Abenteuer InfoHighway, GAMEDATA_HFA at your copy of Hilfe für Amajambere,
+# GAMEDATA_VLOOMES at your copy of Victor Loomes – Das Spiel and GAMEDATA_EDDIEM
+# at your copy of Falsches Spiel mit Eddie M. — the defaults are directories
+# next to this one, which
 # is where a checkout beside installed copies of the games finds them. Tests
 # that need data and cannot find it skip themselves; a *wrong* path panics
 # rather than skipping, so a typo cannot read as "no data on this machine".
@@ -23,6 +24,8 @@ DEFAULT_GAMEDATA_HFA := justfile_directory() / ".." / "games" / "HFA"
 GAMEDATA_HFA := DEFAULT_GAMEDATA_HFA
 DEFAULT_GAMEDATA_VLOOMES := justfile_directory() / ".." / "games" / "VLOOMES"
 GAMEDATA_VLOOMES := DEFAULT_GAMEDATA_VLOOMES
+DEFAULT_GAMEDATA_EDDIEM := justfile_directory() / ".." / "games" / "EDDIEM"
+GAMEDATA_EDDIEM := DEFAULT_GAMEDATA_EDDIEM
 
 # What actually reaches the suite.
 #
@@ -30,7 +33,7 @@ GAMEDATA_VLOOMES := DEFAULT_GAMEDATA_VLOOMES
 # built-in default is passed only when the data is really there — otherwise a
 # clone on a machine that has no copy of a game would panic on the very
 # command this file exists to define, instead of skipping the way the README
-# describes. The four 16-bit games are told apart by their engine binary: they
+# describes. The five 16-bit games are told apart by their engine binary: they
 # all ship a DATA.-1-, so probing for that would let any of those defaults match
 # another game's directory.
 _DATA_DS2 := if GAMEDATA_DS2 != DEFAULT_GAMEDATA_DS2 { GAMEDATA_DS2 } \
@@ -48,6 +51,9 @@ _DATA_HFA := if GAMEDATA_HFA != DEFAULT_GAMEDATA_HFA { GAMEDATA_HFA } \
 _DATA_VLOOMES := if GAMEDATA_VLOOMES != DEFAULT_GAMEDATA_VLOOMES { GAMEDATA_VLOOMES } \
     else if path_exists(GAMEDATA_VLOOMES / "LL.EXE") == "true" { GAMEDATA_VLOOMES } \
     else { "" }
+_DATA_EDDIEM := if GAMEDATA_EDDIEM != DEFAULT_GAMEDATA_EDDIEM { GAMEDATA_EDDIEM } \
+    else if path_exists(GAMEDATA_EDDIEM / "STERN.EXE") == "true" { GAMEDATA_EDDIEM } \
+    else { "" }
 
 # Savegames cannot be reconstructed, only played to, so there is no default that
 # could work. Set it to the directory the games' own save directories are under
@@ -59,14 +65,15 @@ SAVES := ""
 
 # Where every game reaches a cargo command, written once.
 #
-# Three recipes hand the suite its data. Spelling the five variables out in
-# each would make a sixth game a matter of remembering all three; this is the
-# one block they share, and adding a game touches it once.
+# Three recipes hand the suite its data. Spelling the six variables out in
+# each would make a seventh game a matter of remembering all three; this is
+# the one block they share, and adding a game touches it once.
 _GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
     'MOTIONVM_GAMEDATA_ENVIRO="' + _DATA_ENVIRO + '" ' + \
     'MOTIONVM_GAMEDATA_JEFFJET="' + _DATA_JEFFJET + '" ' + \
     'MOTIONVM_GAMEDATA_HFA="' + _DATA_HFA + '" ' + \
     'MOTIONVM_GAMEDATA_VLOOMES="' + _DATA_VLOOMES + '" ' + \
+    'MOTIONVM_GAMEDATA_EDDIEM="' + _DATA_EDDIEM + '" ' + \
     'MOTIONVM_SAVES="' + SAVES + '"'
 
 _default:
@@ -197,12 +204,12 @@ doc:
         cargo doc --workspace --no-deps --document-private-items
 
 # One of the games: `just run ds2`, `just run enviro`, `just run jeffjet`,
-# `just run hfa`, `just run vloomes`.
+# `just run hfa`, `just run vloomes`, `just run eddiem`.
 #
 # The slug is required and there is no default, which is the rule this file has
 # always kept — a `just run` that picked a game would pick it for everyone.
-# What changed is that the five recipes were five copies of one line, so a
-# sixth game meant a sixth copy; now it means a row in the case below.
+# Six recipes would be six copies of one line, and a seventh game a seventh
+# copy; a row in the case below is what a game costs instead.
 run GAME *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -212,7 +219,8 @@ run GAME *ARGS:
         jeffjet) dir='{{ GAMEDATA_JEFFJET }}' ;;
         hfa)     dir='{{ GAMEDATA_HFA }}' ;;
         vloomes) dir='{{ GAMEDATA_VLOOMES }}' ;;
-        *) echo "just run <ds2|enviro|jeffjet|hfa|vloomes> [args]" >&2; exit 2 ;;
+        eddiem)  dir='{{ GAMEDATA_EDDIEM }}' ;;
+        *) echo "just run <ds2|enviro|jeffjet|hfa|vloomes|eddiem> [args]" >&2; exit 2 ;;
     esac
     cargo run --release -p motionvm-app -- "$dir" {{ ARGS }}
 

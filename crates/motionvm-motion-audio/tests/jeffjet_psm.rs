@@ -5,7 +5,7 @@
 //! themselves.
 //!
 //! The driver file is byte-identical to Die Enviro-Kids greifen ein's and
-//! Hilfe für Amajambere's — the three 1995/96 builds ship the same one — so what is
+//! Hilfe für Amajambere's — four of the five games ship the same one — so what is
 //! being asked here is not whether the player works — `enviro_psm.rs` asks
 //! that — but whether it works on songs written outside the window that game's
 //! ten happen to fall in. Jeff Jet's nine put their `PLX` section between 369 and 2723

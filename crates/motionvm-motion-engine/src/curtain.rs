@@ -156,6 +156,9 @@ impl Engine {
             if let Some((tune, looping)) = w.then_tune {
                 self.start_tune(tune, looping);
             }
+            if let Some(block) = w.then_sample {
+                self.play_sample(block);
+            }
         }
     }
 
@@ -252,6 +255,11 @@ pub struct Wipe {
     /// `0e87:01f2`) runs the stop routine first when a tune is playing, so
     /// the new one begins only after the old one's half-second wait.
     pub(crate) then_tune: Option<(i32, i32)>,
+    /// A sample block to play when this wait is over: `PLAYSAMPLE` over a
+    /// playing tune spins its half second before it loads the block
+    /// (`STERN.EXE` `15e5:036c` then `15e5:03b8`), so the sample starts
+    /// where the tune stopped.
+    pub(crate) then_sample: Option<i32>,
 }
 
 impl Wipe {
@@ -282,6 +290,7 @@ impl Wipe {
             palette_after: None,
             hold: true,
             then_tune: None,
+            then_sample: None,
         }
     }
 
@@ -314,6 +323,7 @@ impl Wipe {
             palette_after: None,
             hold: false,
             then_tune: None,
+            then_sample: None,
         }
     }
 

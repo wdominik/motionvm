@@ -35,6 +35,11 @@ pub trait Player {
     /// section and a repeat count for the 16-bit ones.
     type Song;
 
+    /// What one digital sample is on this stack — an `SM8` block for the
+    /// 16-bit games, and nothing at all for the 32-bit one, whose digital
+    /// layer no shipped game reaches.
+    type Sample;
+
     /// The sample rate it was made with.
     fn rate(&self) -> u32;
 
@@ -45,6 +50,16 @@ pub trait Player {
     /// business: the 16-bit one fades first, and stays [`Player::playing`]
     /// while it does.
     fn stop(&mut self);
+
+    /// Stops what is playing **without the fade**: the driver's hard stop
+    /// alone, landing where a stop's would. The 16-bit `PLAYSAMPLE` cuts a
+    /// tune this way before it would play a sample; the 32-bit driver has no
+    /// fade, so there a stop already is one.
+    fn cut(&mut self);
+
+    /// Plays `sample` once, in place of whatever sample was playing, over
+    /// the music: the 16-bit `PLAYSAMPLE`'s hand-over to the digital driver.
+    fn sample(&mut self, sample: Self::Sample);
 
     /// Whether anything is still sounding.
     fn playing(&self) -> bool;

@@ -202,7 +202,7 @@ pub fn kernel_words(img: &Image) -> Vec<KernelWord> {
 /// `140e:002f` in `ENVIRO.EXE`, `13d9:002f` in `HPPLAY.EXE`, `140a:0039` in
 /// `BMZ.EXE`), so this looks for that comparison behind the one place in the
 /// image that mentions the name's offset. Exactly one place does, in each of
-/// the four builds.
+/// the five builds.
 ///
 /// `ds` is the data segment, which is the segment every kernel word's *name*
 /// pointer is relative to — the scan takes it from the words it already found.
@@ -312,7 +312,7 @@ pub fn newsetdesc_capped(img: &Image, words: &[KernelWord]) -> bool {
 }
 
 /// How far the walk builder's body reaches from `CROUTE`'s entry: past the
-/// longest of the four (`LL.EXE`'s, `0x8d4` bytes with its closing pass) and
+/// longest of the five (`LL.EXE`'s, `0x8d4` bytes with its closing pass) and
 /// short of the routines behind it.
 const CROUTE_REACH: usize = 0xa00;
 

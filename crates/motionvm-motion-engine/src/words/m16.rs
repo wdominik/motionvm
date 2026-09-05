@@ -360,6 +360,72 @@ impl Engine {
                 self.polled();
                 stack.push(self.input.key);
             }
+            // `( handle -- )`: the handler (`ENVIRO.EXE` `05f1:08d4`; the same
+            // shape at `05e1:0884` in `STERN.EXE`, `05f0:08d5` in `BMZ.EXE`
+            // and `0104:14b6` in `LL.EXE`) pops the screen, frees its surface
+            // where one is allocated (`+0x20`/`+0x22`) and clears the slot's
+            // in-use flag (`+0x1e`); the current-screen variable it leaves
+            // alone. Every game's intro tears its screen down with
+            // `_MS @ REMSCR`, and a word that left the handle behind would
+            // leave every later frame one cell deep — which Falsches Spiel mit
+            // Eddie M.'s `CTRL` notices: it opens on `DUP 10 !=`, against the
+            // ten constants `RUN` pushes before `TOGFX` and never pops, and
+            // prints the top of the stack with `.` and `EMIT` when the check
+            // fails. The 32-bit reading, which takes nothing, is
+            // [`Word::REMSCR`].
+            Word::REMSCR_16 => {
+                let handle = pop1(stack, "REMSCR")?;
+                self.remove_screen(cell::unsigned(handle.max(0)));
+            }
+            // `( block mode -- )`: a digital sound effect. Read in
+            // `STERN.EXE` (`15e5:0349`, file `0x19399`), the one build whose
+            // game calls it; `ENVIRO.EXE`'s (`1696:0357`) is the same
+            // handler's first half alone, and no game of that build reaches
+            // it. Both cells are popped and the mode is never read again.
+            // What follows is two halves. **A tune that is playing is
+            // stopped first**: the handler tests the driver's flag
+            // (`ds:1af8`, the one `ENDTUNE` tests), resets the tick counter,
+            // spins until it reads 100 (`cmp $0x64` — half a second), clears
+            // the flag, calls the music driver's Stop entry and the digital
+            // driver's StopAll (`1933:0276`, entry 18). That is `ENDTUNE`'s
+            // stop routine (`1614:0003`) **without** the 2000 ms fade-out the
+            // routine starts first: the tune plays on at full volume through
+            // the half second and is cut. **Then the sample**: with a digital
+            // driver installed (`ds:108c`) and the configuration's digital
+            // flag read as 1 (`ds:7770` set to `0x71` at `1058:00ca`), the
+            // block is loaded through the `#F0R3i.blk` template, copied whole
+            // into the driver's buffer and handed to the driver's play entry
+            // (`1933:0271`, entry 17) with a mode of 0 — always 0, whatever
+            // the script passed. motionvm is a machine with an Ad Lib card
+            // and a Sound Blaster, the configuration `SOUND.EXE` writes when
+            // both are on, so both halves run: the cut, and after the half
+            // second the sample, over the sink the way a tune goes.
+            Word::PLAYSAMPLE => {
+                let a = pop_n(stack, 2, "PLAYSAMPLE")?;
+                let block = a[0];
+                if self.sound.playing {
+                    self.cut_tune16();
+                    if let Some(hold) = self.transitions.wipes.back_mut() {
+                        hold.then_sample = Some(block);
+                    }
+                } else {
+                    self.play_sample(block);
+                }
+            }
+            // `( -- day month year )`: the date, from DOS. The handler
+            // (`STERN.EXE` `0cd3:37d9`, file `0x13709`; `ENVIRO.EXE`
+            // `0d34:3a01`) calls INT 21h function 2Ah and pushes `dl`, `dh`
+            // and `cx` in that order — the day of the month, the month, and
+            // the year in full. Falsches Spiel mit Eddie M. is the one game
+            // that reads it, to work out the current issue number of the
+            // magazine it advertises. The date is the machine's, read in
+            // UTC; a suite pins it with [`Engine::fix_date`].
+            Word::GIVEDATE => {
+                let (day, month, year) = self.today();
+                stack.push(day);
+                stack.push(month);
+                stack.push(year);
+            }
             _ => return Ok(None),
         }
         Ok(Some(()))
@@ -390,6 +456,21 @@ impl Engine {
         self.sound.playing = false;
         if let Some(music) = self.sound.sink.as_mut() {
             music.stop(0);
+        }
+        self.transitions
+            .wipes
+            .push_back(Wipe::hold(Self::ENDTUNE_HOLD_TICKS));
+    }
+
+    /// `PLAYSAMPLE`'s stop of a playing tune (`STERN.EXE` `15e5:035d`): the
+    /// stop routine's wait and its hard stop, without the fade-out that
+    /// routine starts first. The script holds half a second
+    /// ([`Wipe::hold`]) while the tune plays on at full volume; the audio
+    /// side lands the driver's Stop entry when that half second is up.
+    pub(crate) fn cut_tune16(&mut self) {
+        self.sound.playing = false;
+        if let Some(music) = self.sound.sink.as_mut() {
+            music.cut(0);
         }
         self.transitions
             .wipes

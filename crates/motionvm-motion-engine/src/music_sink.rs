@@ -20,6 +20,18 @@ pub trait MusicSink: Send {
     fn start(&mut self, handle: i32, tune: i32, looping: bool, song: &[u8]);
     /// Stops the song that `handle` was started under.
     fn stop(&mut self, handle: i32);
+    /// Stops the song that `handle` was started under **without the fade**:
+    /// the driver's Stop entry alone, landing where a stop's would, half a
+    /// second on. The 16-bit `PLAYSAMPLE` stops a tune this way before it
+    /// would play its sample (`STERN.EXE` `15e5:035d`); no 32-bit word asks
+    /// for it.
+    fn cut(&mut self, handle: i32);
+    /// Plays a digital sample: `block` names it, `sample` is the whole block
+    /// — tag, header and PCM — as the 16-bit `PLAYSAMPLE` copies it into the
+    /// digital driver's buffer and hands it to the driver's play entry
+    /// (`STERN.EXE` `15e5:0425`). The sink owns the format. One sample plays
+    /// at a time: the word stops the one before, and so does the sink.
+    fn sample(&mut self, block: i32, sample: &[u8]);
     /// What the sink has to say about the songs it was handed — a tune that
     /// would not decode, and nothing else so far.
     ///

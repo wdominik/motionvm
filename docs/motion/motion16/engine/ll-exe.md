@@ -2,7 +2,7 @@
 
 # LL.EXE — The Oldest Build of the MOTION 16-bit Player
 
-*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
+*MOTION 16-bit — the engine as shipped in `ENVIRO.EXE` with Die Enviro-Kids greifen ein, in `HPPLAY.EXE` with Jeff Jet - Abenteuer InfoHighway, in `BMZ.EXE` with Hilfe für Amajambere, in `STERN.EXE` with Falsches Spiel mit Eddie M. and in `LL.EXE` with Victor Loomes – Das Spiel, which are older builds of the same player. What is measured here is measured on Die Enviro-Kids greifen ein's files unless a sentence names another game. The 32-bit engine is documented under [MOTION 32-bit](../../README.md#motion-32-bit).*
 
 `LL.EXE` (123 222 bytes, 1993-05-20) is the same player as
 [`ENVIRO.EXE`](enviro-exe.md), built three years earlier — the oldest MOTION
@@ -14,16 +14,16 @@ the one that makes every address on every other page useless here.
 
 ## The binary
 
-| Field | `LL.EXE` | `ENVIRO.EXE` | `BMZ.EXE` | `HPPLAY.EXE` |
-|---|---|---|---|---|
-| Size | 123 222 | 167 430 | 166 806 | 165 702 |
-| Header | **`0x1e00`**, load image 115 542 bytes | `0x3200`, 154 630 | `0x3200`, 154 006 | `0x3200`, 152 902 |
-| Relocations | 1853 | 3160 | 3162 | 3157 |
-| Entry | `CS:IP = 0000:0000`, `SS:SP = 1c27:00e6` | `SS:SP = 25b2:00e6` | `SS:SP = 258b:00e6` | `SS:SP = 2546:00e6` |
-| Data segment | `0x1271` | `0x1c24` | `0x1c03` | `0x1bce` |
-| Turbo C banner | file `0x14514` | file `0x1f444` | file `0x1f234` | file `0x1eee4` |
+| Field | `LL.EXE` | `ENVIRO.EXE` | `BMZ.EXE` | `HPPLAY.EXE` | `STERN.EXE` |
+|---|---|---|---|---|---|
+| Size | 123 222 | 167 430 | 166 806 | 165 702 | 167 334 |
+| Header | **`0x1e00`**, load image 115 542 bytes | `0x3200`, 154 630 | `0x3200`, 154 006 | `0x3200`, 152 902 | `0x3200`, 154 534 |
+| Relocations | 1853 | 3160 | 3162 | 3157 | 3123 |
+| Entry | `CS:IP = 0000:0000`, `SS:SP = 1c27:00e6` | `SS:SP = 25b2:00e6` | `SS:SP = 258b:00e6` | `SS:SP = 2546:00e6` | `SS:SP = 25ac:00e6` |
+| Data segment | `0x1271` | `0x1c24` | `0x1c03` | `0x1bce` | `0x1bcb` |
+| Turbo C banner | file `0x14514` | file `0x1f444` | file `0x1f234` | file `0x1eee4` | file `0x1eeb4` |
 
-**The load image starts at file `0x1e00`, not `0x3200`.** The other three
+**The load image starts at file `0x1e00`, not `0x3200`.** The other four
 builds share a 800-paragraph header, and every `seg:off` this documentation
 gives for them converts with the same constant. This one has 480 paragraphs,
 so a far pointer here is `file = 0x1e00 + segment * 16 + offset`. Together
@@ -41,13 +41,14 @@ strips and `BMZ.EXE` and `HPPLAY.EXE` keep.
 | Build | Domain words | Core words | Total | Domain base |
 |---|---:|---:|---:|---:|
 | `LL.EXE` | 124 | 80 | 204 | **102** |
+| `STERN.EXE` | 146 | 80 | 226 | **102** |
 | `HPPLAY.EXE` | 146 | 82 | 228 | 105 |
 | `BMZ.EXE` | 150 | 82 | 232 | 105 |
 | `ENVIRO.EXE` | 151 | 82 | 233 | 105 |
 
 The word counts are the story the other build pages tell — a table grows by
 appending, so fewer words means earlier — and this build is the shortest of
-the four. Its domain table is `ENVIRO.EXE`'s less 27 words: the whole
+the five. Its domain table is `ENVIRO.EXE`'s less 27 words: the whole
 inventory group, the walk and order words, the print group, the digital-sound
 words and the `SETMOUSE*` four, none of which existed yet. Its core table is
 `ENVIRO.EXE`'s less the two that build appends, `_PutStringAdr` and `$->`; the
@@ -62,7 +63,8 @@ bounded by `0afe:009a  cmp $0x15,%si` — 21 of them), then the domain table
 (`013a:0011`). Each registration writes the running counter at `ds:8688` into
 the word's header and steps it (`0af7:0167`, at `01ed` and `01f7`).
 
-So the first domain word binds at `80 + 21 + 1 = 102`. The three later builds
+So the first domain word binds at `80 + 21 + 1 = 102` — here and in
+`STERN.EXE`, whose core table is this one's eighty. The three later builds
 run the same three loops with 82 core words and 22 placeholders —
 `140e:002f` in `ENVIRO.EXE`, `140a:0039` in `BMZ.EXE`, `13d9:002f` in
 `HPPLAY.EXE` — which is where their 105 comes from. The gap between the two
@@ -83,11 +85,12 @@ that reaches them.
 **`?XINSIDE` has no hole case.** In `ENVIRO.EXE` (`0a40:1b37`) and `BMZ.EXE`
 the four corner comparisons are followed by four more asking whether every
 corner is zero, and an entry that is all zeroes is passed over — 101
-instructions. Here, and in `HPPLAY.EXE`, the handler stops after the
-comparisons: 71 instructions, no `cmpw $0` among them. So in this game a hole
-in a hot-area table is a rectangle at the origin. Note which builds those are:
-the two that test are not the two later ones by date. The behavior is read out
-of the handler, not derived from the game.
+instructions. Here, in `STERN.EXE` and in `HPPLAY.EXE`, the handler stops
+after the comparisons: 71 instructions, no `cmpw $0` among them. So in this
+game a hole in a hot-area table is a rectangle at the origin. The split
+follows the order of the tables — the two later builds test, the three
+earlier do not. The behavior is read out of the handler, not derived from the
+game.
 
 **`?INSIDE` exists and is called.** It is `?XINSIDE` over a single record
 (`0104:2b0f`): three values popped, four inclusive comparisons against the
@@ -179,9 +182,10 @@ Each kept in the [ledger](../../open-questions.md#motion-16-bit):
 
 ## See also
 
-- [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the four share
-- [BMZ.EXE](bmz-exe.md) — the third build, whose ordinals do not shift
+- [ENVIRO.EXE](enviro-exe.md) — the latest build, and everything the five share
+- [BMZ.EXE](bmz-exe.md) — the fourth build, whose ordinals do not shift
 - [HPPLAY.EXE](hpplay-exe.md) — the build whose ordinals do
+- [STERN.EXE](stern-exe.md) — the next build after this one, with this core table and a base of 102
 - [Kernel words](../vm/kernel-words.md) — the two tables, entry by entry
 - [The DATA container](../formats/container.md) — the earlier framing this game ships
 - [Other files (Victor Loomes)](../../games/vloomes/other-files.md) — what else the installation holds

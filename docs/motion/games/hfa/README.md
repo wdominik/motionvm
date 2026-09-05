@@ -6,7 +6,7 @@
 
 A point-and-click adventure about development aid, in which the player is an
 agricultural expert sent to a highland region whose harvests are failing. It
-is the one game of the five where the subject matter *is* the game: it is
+is the one game of the six where the subject matter *is* the game: it is
 carried almost entirely by dialogue rather than by puzzles.
 
 ## At a glance
@@ -16,7 +16,7 @@ carried almost entirely by dialogue rather than by puzzles.
 | Released | 1995 — `BMZ.EXE` 1995-06-05, the containers 1995-06-06 |
 | Commissioned by | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung |
 | Made by | ART DEPARTMENT WA GmbH, Bochum |
-| Engine | MOTION 16-bit — `BMZ.EXE`, the third of the four builds; the client's acronym names the binary |
+| Engine | MOTION 16-bit — `BMZ.EXE`, the fourth of the five builds; the client's acronym names the binary |
 | Display | 320×200 in 256 colors |
 | Given away | Freeware, copyable unmodified for at most 5 DM |
 
