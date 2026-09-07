@@ -191,7 +191,7 @@ impl Engine {
                     }
                     self.rebuild_current_screen();
                 } else {
-                    self.set_screen_origin_x(0);
+                    self.set_screen_scroll(false, 0);
                 }
             }
             // `?INVINCL ( item list -- f )`: is it in there?

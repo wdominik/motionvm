@@ -32,6 +32,22 @@ pub trait MusicSink: Send {
     /// (`STERN.EXE` `15e5:0425`). The sink owns the format. One sample plays
     /// at a time: the word stops the one before, and so does the sink.
     fn sample(&mut self, block: i32, sample: &[u8]);
+    /// Starts a 32-bit sample: `handle` is the token [`MusicSink::stop_sample`]
+    /// will name it by, `wav` the whole WAV file as the block or the file
+    /// holds it, `volume` the sound layer's level, `0x7fff` full scale — the
+    /// quarter `STARTSAMPLE` sets or the whole `->STARTSAMPLE` does — and
+    /// `loops` the start word's second argument, the layer's loop count: 0
+    /// plays the sample once, a positive count that many times more, a
+    /// negative one until it is stopped (see `crate::sample`). Samples sound
+    /// together: the layer keeps 34 slots and mixes every one that is taken,
+    /// and the engine refuses a start only when all of them are.
+    fn start_sample(&mut self, handle: i32, wav: &[u8], volume: u16, loops: i32);
+    /// Stops the sample started under `handle`, as `STOPSAMPLE` does, and
+    /// leaves the others sounding.
+    fn stop_sample(&mut self, handle: i32);
+    /// Sets the music's volume on the sound layer's scale: `MUSVOLUME`'s
+    /// `0x3800` to duck it under speech, `0x7fff` to restore it.
+    fn music_volume(&mut self, volume: u16);
     /// What the sink has to say about the songs it was handed — a tune that
     /// would not decode, and nothing else so far.
     ///

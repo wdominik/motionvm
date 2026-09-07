@@ -156,14 +156,15 @@ impl Engine {
         // own `SHOWMOUSE`/`HIDEMOUSE` state and nothing is claimed here about
         // how the two nest. The 16-bit wipes bracket their ring loops the
         // same way (`05f1:28f5`/`05f1:29d7`, `05f1:2aff`/`05f1:2c8b`).
-        if self.cursor_state.visible
+        if self.cursor_state.visible()
             && self.transitions.curtains.is_empty()
             && self.transitions.wipes.is_empty()
-            && let Some((id, hx, hy)) = self.cursor_state.shape
+            && let Some(shape) = self.cursor_state.shape
         {
+            let (hx, hy) = shape.hotspot();
             let (mx, my) = (self.input.mouse.x, self.input.mouse.y);
-            if let Some(sprite) = self.sprite(id) {
-                out.blit_scaled(&sprite, mx - hx, my - hy, 1000, 1000);
+            if let Some(picture) = self.pointer_picture() {
+                out.blit_scaled(&picture, mx - hx, my - hy, 1000, 1000);
             }
         }
         self.presented = out;
@@ -202,6 +203,8 @@ impl Engine {
 
     pub(crate) fn draw_screens(&mut self, only: Option<u32>) {
         let mine = |screen: u32| only.is_none_or(|o| screen == o);
+        self.draw_pass += 1;
+        let pass = self.draw_pass;
 
         // 0x6e8c8, once over the chain before anything is drawn: a descriptor
         // joins the pass when a tile it covers is waiting for a repaint at or
@@ -258,6 +261,9 @@ impl Engine {
                 continue;
             }
             let d = d.clone();
+            // Drawn by this pass, as far as a paint on the surface is
+            // concerned: over every paint made before it.
+            self.scene.descriptors[i].drawn_at = pass;
             region.push((d.screen, self.drawn_rect(&d)));
         }
         if region.is_empty() {
@@ -302,7 +308,9 @@ impl Engine {
         }
     }
 
-    /// Every active descriptor of one screen, over a cleared surface.
+    /// Every active descriptor of one screen, over a cleared surface —
+    /// with whatever was painted straight onto the surface where the
+    /// surface would hold it.
     ///
     /// The whole picture, the way the drawer would build it if nothing had ever
     /// been drawn. `draw_screens` paints into this and then publishes only the
@@ -326,7 +334,31 @@ impl Engine {
                 self.scene.descriptors[i].stamp,
             )
         });
-        for i in order {
+        // A paint went over everything a pass up to its own had drawn and
+        // under everything a later pass draws — the order the original's
+        // surface holds, see [`crate::paint`]. A descriptor never drawn is
+        // being drawn now, which is after every paint.
+        let paints: Vec<crate::paint::Paint> = self
+            .display
+            .screens
+            .iter()
+            .find(|s| s.handle == screen)
+            .map(|s| s.paints.clone())
+            .unwrap_or_default();
+        let mut later = order;
+        for paint in paints {
+            let (under, over): (Vec<usize>, Vec<usize>) = later.into_iter().partition(|&i| {
+                let at = self.scene.descriptors[i].drawn_at;
+                at > 0 && at <= paint.after_pass
+            });
+            for i in under {
+                let d = self.scene.descriptors[i].clone();
+                self.paint_descriptor(&d);
+            }
+            self.apply_paint(&paint, Some(screen));
+            later = over;
+        }
+        for i in later {
             let d = self.scene.descriptors[i].clone();
             self.paint_descriptor(&d);
         }
@@ -393,7 +425,9 @@ impl Engine {
     /// Lines break on newlines that are already in the resource; word wrapping
     /// (`SDWORD`) is a separate thing and not done here.
     pub(crate) fn draw_text_descriptor(&mut self, d: &Descriptor) {
-        let Some(text) = self.descriptor_text(d) else {
+        // As laid out: the line window and the inserts are in, see
+        // [`crate::layout`].
+        let Some(text) = self.shown_text(d) else {
             return;
         };
         // `+FONT` only registers a font and hands back a handle; choosing one

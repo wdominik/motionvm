@@ -22,7 +22,7 @@ fn digests() -> Digests {
 
 /// Runs `ticks` ticks and returns every message with the tick it fell on.
 fn play(song: Song, ticks: u32) -> Vec<(u32, Message)> {
-    let mut seq = Sequencer::new(song, Fm::DEVICE);
+    let mut seq = Sequencer::new(song, Fm::DEVICE, Sequencer::FULL_VOLUME);
     let mut out = Vec::new();
     let mut buf = Vec::new();
     for t in 0..ticks {
@@ -342,7 +342,7 @@ fn the_songs_write_the_registers_they_wrote_before() {
     digests().check("songs", ids.value());
 
     for (id, song) in songs {
-        let mut seq = Sequencer::new(song, Fm::DEVICE);
+        let mut seq = Sequencer::new(song, Fm::DEVICE, Sequencer::FULL_VOLUME);
         let mut fm = Fm::new(device, &melodic, &drums).expect("the driver's tables");
         let mut messages = Vec::new();
         let mut writes = Vec::new();

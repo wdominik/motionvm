@@ -178,12 +178,12 @@ impl Engine {
             // `SETBUSY`/`SETNOBUSY`. Run here as a transition: the slide is
             // queued, the interpreter is held the way a fade holds it, and
             // each frame moves one step and presents.
-            Word::TO_SCRX | Word::TO_SCRY => {
+            Word::TO_SCRX_16 | Word::TO_SCRY_16 => {
                 let a = pop_n(stack, 3, "->SCRX")?;
                 let (screen, to, step) = (a[0], a[1], a[2]);
                 self.transitions.scroll = Some(crate::Scroll {
                     screen: cell::unsigned(screen),
-                    vertical: word == Word::TO_SCRY,
+                    vertical: word == Word::TO_SCRY_16,
                     target: to,
                     step,
                 });
@@ -196,7 +196,7 @@ impl Engine {
             // scripts scroll a wide location with it (`34 SCRX`, `152 SCRX`
             // in the location macros) and add it to the mouse for world
             // coordinates.
-            Word::SCRX_16 | Word::SCRY => {
+            Word::SCRX_16 | Word::SCRY_16 => {
                 let v = pop1(stack, "SCRX")?;
                 if let Some(s) = self.display.current_mut() {
                     if word == Word::SCRX_16 {
@@ -411,20 +411,6 @@ impl Engine {
                 } else {
                     self.play_sample(block);
                 }
-            }
-            // `( -- day month year )`: the date, from DOS. The handler
-            // (`STERN.EXE` `0cd3:37d9`, file `0x13709`; `ENVIRO.EXE`
-            // `0d34:3a01`) calls INT 21h function 2Ah and pushes `dl`, `dh`
-            // and `cx` in that order — the day of the month, the month, and
-            // the year in full. Falsches Spiel mit Eddie M. is the one game
-            // that reads it, to work out the current issue number of the
-            // magazine it advertises. The date is the machine's, read in
-            // UTC; a suite pins it with [`Engine::fix_date`].
-            Word::GIVEDATE => {
-                let (day, month, year) = self.today();
-                stack.push(day);
-                stack.push(month);
-                stack.push(year);
             }
             _ => return Ok(None),
         }

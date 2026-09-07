@@ -44,7 +44,10 @@ pub(crate) struct Anim {
     /// to be replaced wholesale, and an index into the old one means nothing.
     pub(crate) current: Option<u32>,
     pub(crate) screen: Option<u32>,
-    pub(crate) pointer_visible: bool,
+    /// The pointer's show counter: a hide inside a hide is one hide short
+    /// of shown, and a game saved there comes back there
+    /// ([`crate::cursor`]).
+    pub(crate) pointer_shows: i32,
     pub(crate) dialog_offset: i32,
     pub(crate) dialog_return: i32,
     pub(crate) palette: [u8; 768],
@@ -54,7 +57,7 @@ pub(crate) struct Anim {
     pub(crate) descriptors: Vec<DescriptorState>,
     /// The 16-bit engine's off-screen buffers — the switch, and each
     /// allocated buffer's number and size. Only the 16-bit layout carries
-    /// them; the 32-bit game has none.
+    /// them; the 32-bit games have none.
     pub(crate) buffers_on: bool,
     pub(crate) buffers: Vec<(i32, u16, u16)>,
 }
@@ -67,7 +70,6 @@ pub(crate) struct ScreenState {
     pub(crate) view: (u16, u16),
     pub(crate) view_pos: (i16, i16),
     pub(crate) pos: (i16, i16),
-    pub(crate) origin: (i16, i16),
 }
 
 /// One descriptor, flattened. The named fields travel as names: the map holds
@@ -94,6 +96,9 @@ pub(crate) struct DescriptorState {
     pub(crate) active: bool,
     pub(crate) auto_buffer: bool,
     pub(crate) fields: Vec<(String, i32)>,
+    /// The five insert slots, as `(value, kind)`. Always five: the record has
+    /// five, and a 16-bit descriptor carries five noughts.
+    pub(crate) inserts: [(i32, i32); crate::descriptor::SLOTS],
     /// The buffer `SDBUF` attached, 16-bit layout only.
     pub(crate) buffer: Option<i32>,
 }
@@ -115,7 +120,7 @@ pub(super) fn write_globals(w: &mut Writer, a: &Anim) {
     w.u32(a.next_descriptor);
     w.option_i32(a.current.map(cell::signed));
     w.option_i32(a.screen.map(cell::signed));
-    w.u8(u8::from(a.pointer_visible));
+    w.i32(a.pointer_shows);
     w.i32(a.dialog_offset);
     w.i32(a.dialog_return);
     for byte in a.palette {
@@ -132,7 +137,7 @@ pub(super) fn write_screens(w: &mut Writer, screens: &[ScreenState]) {
             w.i32(i32::from(pair.0));
             w.i32(i32::from(pair.1));
         }
-        for pair in [s.view_pos, s.pos, s.origin] {
+        for pair in [s.view_pos, s.pos] {
             w.i32(i32::from(pair.0));
             w.i32(i32::from(pair.1));
         }
@@ -177,6 +182,10 @@ pub(super) fn write_descriptors(
         for (name, value) in &d.fields {
             w.string(name);
             w.i32(*value);
+        }
+        for (value, kind) in d.inserts {
+            w.i32(value);
+            w.i32(kind);
         }
         if layout == Generation::Motion16 {
             w.option_i32(d.buffer);
@@ -249,7 +258,7 @@ struct Globals {
     next_descriptor: u32,
     current: Option<u32>,
     screen: Option<u32>,
-    pointer_visible: bool,
+    pointer_shows: i32,
     dialog_offset: i32,
     dialog_return: i32,
     palette: [u8; 768],
@@ -268,7 +277,7 @@ impl Globals {
             next_descriptor: self.next_descriptor,
             current: self.current,
             screen: self.screen,
-            pointer_visible: self.pointer_visible,
+            pointer_shows: self.pointer_shows,
             dialog_offset: self.dialog_offset,
             dialog_return: self.dialog_return,
             palette: self.palette,
@@ -285,7 +294,7 @@ fn read_globals(r: &mut Reader<'_>) -> Result<Globals> {
     let next_descriptor = r.u32()?;
     let current = r.option_i32()?.map(cell::unsigned);
     let screen = r.option_i32()?.map(cell::unsigned);
-    let pointer_visible = r.u8()? != 0;
+    let pointer_shows = r.i32()?;
     let dialog_offset = r.i32()?;
     let dialog_return = r.i32()?;
     let mut palette = [0u8; 768];
@@ -294,7 +303,7 @@ fn read_globals(r: &mut Reader<'_>) -> Result<Globals> {
         next_descriptor,
         current,
         screen,
-        pointer_visible,
+        pointer_shows,
         dialog_offset,
         dialog_return,
         palette,
@@ -308,7 +317,7 @@ fn read_screens(r: &mut Reader<'_>) -> Result<Vec<ScreenState>> {
         let mut u = || -> Result<(u16, u16)> { Ok((r_u16(r)?, r_u16(r)?)) };
         let (size, full_view, view) = (u()?, u()?, u()?);
         let mut i = || -> Result<(i16, i16)> { Ok((r_i16(r)?, r_i16(r)?)) };
-        let (view_pos, pos, origin) = (i()?, i()?, i()?);
+        let (view_pos, pos) = (i()?, i()?);
         screens.push(ScreenState {
             handle,
             size,
@@ -316,7 +325,6 @@ fn read_screens(r: &mut Reader<'_>) -> Result<Vec<ScreenState>> {
             view,
             view_pos,
             pos,
-            origin,
         });
     }
     Ok(screens)
@@ -350,6 +358,10 @@ fn read_descriptors(r: &mut Reader<'_>, layout: Generation) -> Result<Vec<Descri
             let name = r.string()?;
             fields.push((name, r.i32()?));
         }
+        let mut inserts = [(0, 0); crate::descriptor::SLOTS];
+        for slot in &mut inserts {
+            *slot = (r.i32()?, r.i32()?);
+        }
         let buffer = match layout {
             Generation::Motion32 => None,
             Generation::Motion16 => r.option_i32()?,
@@ -372,6 +384,7 @@ fn read_descriptors(r: &mut Reader<'_>, layout: Generation) -> Result<Vec<Descri
             active,
             auto_buffer,
             fields,
+            inserts,
             buffer,
         });
     }

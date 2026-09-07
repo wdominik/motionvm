@@ -15,15 +15,16 @@
 //! debugger's path reaches is still a word a player could meet the day that
 //! path is taken. The suites that play the games say which words are *inert*;
 //! this one says which are *absent*. For the five 16-bit games the answer is
-//! none. Dunkle Schatten 2 names seven, every one of them out of reach, and
-//! [`UNBUILT_DS2`] carries each with the reason it stays unbuilt — so a word
-//! that goes missing is a red test, and so is one of the seven getting built
-//! without its line coming out.
+//! none. Dunkle Schatten 2 names ten and Checker 2000 three, every one of
+//! them out of reach, and [`UNBUILT_DS2`] and [`UNBUILT_CHECKER`] carry each
+//! with the reason it stays unbuilt — so a word that goes missing is a red
+//! test, and so is one of them getting built without its line coming out.
 //!
 //! Needs the games' files and skips, game by game, without them. The games
-//! this file drives are all six: Dunkle Schatten 2 (MOTION 32-bit) and Die
-//! Enviro-Kids greifen ein, Jeff Jet, Hilfe für Amajambere, Victor Loomes and
-//! Falsches Spiel mit Eddie M. (MOTION 16-bit).
+//! this file drives are all seven: Dunkle Schatten 2 and Checker 2000
+//! (MOTION 32-bit) and Die Enviro-Kids greifen ein, Jeff Jet, Hilfe für
+//! Amajambere, Victor Loomes and Falsches Spiel mit Eddie M. (MOTION
+//! 16-bit).
 
 use motionvm_motion_engine::Engine;
 use motionvm_motion_formats::Generation;
@@ -31,8 +32,8 @@ use motionvm_motion_formats::m16::{self, Container, Segment, mz};
 use motionvm_motion_formats::m32::{self, Kind, rsc::Bank};
 use motionvm_motion_forth as forth;
 use motionvm_motion_testutil::{
-    game_file, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
-    gamedata_vloomes,
+    game_file, gamedata_checker, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa,
+    gamedata_jeffjet, gamedata_vloomes,
 };
 use std::path::Path;
 
@@ -43,17 +44,6 @@ use std::path::Path;
 /// The addresses are the modules' own, as `motionvm-motion-tools script`
 /// lists them.
 const UNBUILT_DS2: &[(&str, &str)] = &[
-    (
-        "?STIME",
-        "the sampled-speech pump: `SAMPLE_TIMING` (module 4, `0x00080`) and \
-         `SPEECHSEQ->` (module 5, `0x028f0`), which nothing calls — the \
-         speech path plays WAV files no copy of the game ships",
-    ),
-    (
-        "->STARTSAMPLE",
-        "`->SPEECHSEQ` (module 5, `0x02860`), the start of the same speech \
-         path, which nothing calls",
-    ),
     (
         "VIEWG8",
         "module 312, the scene macro of location 12, whose location-table \
@@ -82,6 +72,54 @@ const UNBUILT_DS2: &[(&str, &str)] = &[
          test that it is already non-zero, so the shipped game cannot open \
          the layer",
     ),
+    // The shell's own words — registered by the authoring shell's init, not
+    // out of a kernel table — that the sprite inspector reaches for.
+    (
+        "->RSCPATH",
+        "module 399, the authoring sprite inspector shipped by accident and \
+         never loaded",
+    ),
+    (
+        "?EXIST",
+        "module 399, the authoring sprite inspector — unreachable, as above",
+    ),
+    (
+        "RSCINCLUDE",
+        "module 399, the authoring sprite inspector — unreachable, as above",
+    ),
+    (
+        "RSCRESCAN",
+        "module 399, the authoring sprite inspector — unreachable, as above",
+    ),
+    (
+        "RSCSTATUS",
+        "module 399, the authoring sprite inspector's `ICTRL` — unreachable, \
+         as above",
+    ),
+];
+
+/// The same for Checker 2000: what its modules name that the engine does not
+/// implement, each with why. All three are in one module the game never
+/// loads — module 99, a test module of the authoring environment shipped in
+/// the container: `TEST1` runs `TEMAKE` over the text sources 10 to 263, and
+/// `X3` puts a sprite on the screen with `->SCREEN` and waits on `KEY`. No
+/// module names `99 =>GET`; the 99s in the scripts are item and text
+/// numbers.
+const UNBUILT_CHECKER: &[(&str, &str)] = &[
+    (
+        "TEMAKE",
+        "module 99, an authoring test module never loaded: `TEST1` compiles \
+         text sources into text tables",
+    ),
+    (
+        "->SCREEN",
+        "module 99, the same test module: `X3` puts a sprite straight on the \
+         screen",
+    ),
+    (
+        "KEY",
+        "module 99, the same test module: `X3` waits for a key",
+    ),
 ];
 
 /// The kernel words a 32-bit game reaches for that neither the interpreter
@@ -90,7 +128,8 @@ fn unbuilt_m32(dir: &Path) -> Vec<(String, usize)> {
     let bank = Bank::open_dir(dir).expect("the containers open");
     let img = m32::le::Image::open(game_file(dir, "ENGINE.EXE")).expect("ENGINE.EXE reads");
     let kernel = m32::le::kernel_words(&img);
-    let mut dis = m32::disasm::Disassembler::new(&kernel);
+    let binding = m32::le::binding_of(&img, &kernel).expect("the kernel binds");
+    let mut dis = m32::disasm::Disassembler::new(&binding);
     let mut modules = Vec::new();
     for (_, id) in bank.present(Kind::Script) {
         let item = bank
@@ -180,11 +219,38 @@ fn every_word_dunkle_schatten_2_reaches_for_is_built_or_named_here() {
     );
 }
 
+/// The same both ways for Checker 2000, the other 32-bit game.
+#[test]
+fn every_word_checker_2000_reaches_for_is_built_or_named_here() {
+    let Some(dir) = gamedata_checker() else {
+        eprintln!("skipping: no Checker 2000 gamedata directory");
+        return;
+    };
+    let unbuilt = unbuilt_m32(&dir);
+    let found: Vec<&str> = unbuilt.iter().map(|(name, _)| name.as_str()).collect();
+    let named: Vec<&str> = UNBUILT_CHECKER.iter().map(|&(name, _)| name).collect();
+    let missing: Vec<_> = unbuilt
+        .iter()
+        .filter(|(name, _)| !named.contains(&name.as_str()))
+        .cloned()
+        .collect();
+    assert_all_built("Checker 2000", &missing);
+    let built: Vec<&str> = named
+        .iter()
+        .copied()
+        .filter(|name| !found.contains(name))
+        .collect();
+    assert!(
+        built.is_empty(),
+        "these are listed as unbuilt and are built now; take their lines out: {built:?}"
+    );
+}
+
 /// Every reason names where the word is reached from, which is what makes
 /// the list reviewable rather than a list of exemptions.
 #[test]
 fn every_unbuilt_word_says_where_it_is_reached_from() {
-    for (name, why) in UNBUILT_DS2 {
+    for (name, why) in UNBUILT_DS2.iter().chain(UNBUILT_CHECKER) {
         assert!(why.contains("module"), "{name}: the reason names no module");
     }
 }

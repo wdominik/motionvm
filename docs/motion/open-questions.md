@@ -8,8 +8,8 @@ A consolidated list of everything that is documented as unknown, unverified,
 or hypothetical, for both generations of the engine. Each topic page carries
 its own short "Open questions" section; this page collects them with links.
 The sections down to *The music's clock* concern the **32-bit engine** and
-Dunkle Schatten 2; [MOTION 16-bit](#motion-16-bit) collects the 16-bit
-engine's and its four games'. An entry that names a game is that game's.
+its two games; [MOTION 16-bit](#motion-16-bit) collects the 16-bit engine's
+and its five games'. An entry that names a game is that game's.
 
 ## Remaining unmapped kernel words and handler regions
 
@@ -38,21 +38,25 @@ What remains:
 
 See [Kernel words](motion32/vm/kernel-words.md).
 
-**Seven kernel words the modules name are not built, and none is
-reachable.** The test suite disassembles every module the game ships and
-holds each kernel word it names to be implemented; these are the ones left,
-with what reaches for them: `?STIME` and `->STARTSAMPLE` in the
-sampled-speech pump — `SAMPLE_TIMING` (module 4), `->SPEECHSEQ` and
-`SPEECHSEQ->` (module 5) — which nothing calls, the speech path playing WAV
-files no copy of the game ships; `VIEWG8`, `->SCREEN` and `GGFXYLEN` in
-module 312, the scene macro of location 12, whose table entry is
+**Five kernel words Dunkle Schatten 2's modules name are not built, and
+none is reachable.** The test suite disassembles every module the game
+ships and holds each kernel word it names to be implemented; these are the
+ones left, with what reaches for them: `VIEWG8`, `->SCREEN` and `GGFXYLEN`
+in module 312, the scene macro of location 12, whose table entry is
 uninitialized; `XYCUT` in module 330, a scene macro no entry names, and with
 `VIEWG8` in module 399, the authoring sprite inspector shipped by accident;
 and `INTERPRET$`, the shell's live Forth line inside a debug layer that the
 shipped game cannot switch on — module 2 initializes `_DEBUGON` to 0 and
-every store to it in `ICTRL` is gated on its being non-zero already. What
-each would do is read from the handlers as far as the audio and shell pages
-say; none is built because nothing can reach it.
+every store to it in `ICTRL` is gated on its being non-zero already. Module
+399 also names five words of the authoring shell's own — `->RSCPATH`,
+`?EXIST`, `RSCINCLUDE`, `RSCRESCAN`, `RSCSTATUS` — which no kernel table
+holds. Checker 2000's three are `TEMAKE`, `->SCREEN` and `KEY` in module
+99, a test module of the authoring environment that no `=>GET` names. What
+each would do is read from the handlers as far as the shell pages say; none
+is built because nothing can reach it. (The sampled-speech pump — `?STIME`,
+`->STARTSAMPLE`, `SAMPLE_TIMING`, `->SPEECHSEQ` — is built and reached: it
+is how Checker 2000 speaks, and Dunkle Schatten 2 ships no WAV file for it
+to play.)
 
 ## Virtual machine
 
@@ -61,8 +65,6 @@ say; none is built because nothing can reach it.
   area holds is not knowable from the outside, so reads of it answer 0 and are
   reported (see [Execution model](motion32/vm/execution-model.md)).
   ([Execution model](motion32/vm/execution-model.md))
-- **Table 1's ordinal base** — its compiling words never appear as cells.
-  ([Threaded code](motion32/vm/threaded-code.md))
 - **`_LoopStart`'s ordinal** — arithmetic suggests 389; unconfirmed.
   ([Threaded code](motion32/vm/threaded-code.md))
 - **`_ChElseDup`** — unmeasured; does not occur in the game's modules.
@@ -84,12 +86,10 @@ say; none is built because nothing can reach it.
 
 ## Engine behavior
 
-- **`SCRVPOS`/`SCRPOS` interpretation** is a hypothesis (strongly supported
-  by the pixel-exact title composition, unconfirmed in code).
-  ([Screens](motion32/engine/screens.md))
-- **Fade mode 2** — a branch exists, nothing invokes it: every one of the
-  180 `FADEIN`/`FADEOUT` call sites in the shipped modules pushes the
-  literal 1, so the branch is unreachable and not built.
+- **`FADEOUT` mode 2** — what its translucent bands are for. The drawing is
+  read; no shipped script reaches it — every `FADEOUT` in both games pushes
+  the literal 1, and the one script that says 2 says it to `FADEIN`, whose
+  mode 2 is the boxed opening Checker 2000's information book uses.
   ([Transitions](motion32/engine/transitions.md))
 - **`NEWSETDESC`'s fifth argument** — popped and discarded everywhere
   observed. ([Descriptors](motion32/engine/descriptors.md))
@@ -101,9 +101,12 @@ say; none is built because nothing can reach it.
   `SDSPR` (`0x71715`), `SDBL`, `SDTXT` (`0x71b4f`) and `SDTB` (`0x71d45`) for
   what they write at `+0x02`.
   ([Descriptors](motion32/engine/descriptors.md))
-- **Descriptor fields still known by name only** — `SDBUF`,
-  `SDSTARTLINE`, `SDALINES`, `SDTRANS`, `SDSHADE`, `SDINSERT`; modes
-  `SDNORM`/`SDPOS`. ([Descriptors](motion32/engine/descriptors.md))
+- **Descriptor fields still known by name only** — `SDBUF`, `SDTRANS`,
+  `SDSHADE`; modes `SDNORM`/`SDPOS`. ([Descriptors](motion32/engine/descriptors.md))
+- **The retrace the scroll slide waits on.** `->SCRX` and `->SCRY` move the
+  view four pixels a vertical retrace toward their target; motionvm takes the
+  60 Hz of mode `0x101` — seventeen master ticks a step — and the card's
+  actual rate was the card's. ([Screens](motion32/engine/screens.md))
 - **Descriptor flag `0x10`** — raised beside the dirty bit by `0x6ab6e` and
   cleared with it by the drawer, it picks between two blitters:
   `0x27765`/`0x29ae9` against `0x273e8`/`0x299e1`, whose destination is the
@@ -116,8 +119,6 @@ say; none is built because nothing can reach it.
   ([Other files](games/ds2/other-files.md))
 - **The tune loop flag** — set by `STARTTUNE`, never observed being read;
   looping may be the driver default. ([Audio](motion32/engine/audio.md))
-- **The sample-start words' second argument** — most plausibly a loop
-  count. ([Audio](motion32/engine/audio.md))
 - **Dialogue script-record fields** beyond id/line count/text table (the
   *engine-side* conversation layout is mapped — see
   [Dialogue machine](motion32/engine/dialogue-machine.md)).
@@ -205,7 +206,7 @@ something the others do not. What is open:
   ([PSM 2 music](motion16/formats/psm-music.md))
 - **What *Motion 1.0* is, and who Michel "Babe" Stigler and EGO Software
   are.** Victor Loomes' credits close on *Erstellt unter · Motion 1.0 ·
-  Michel "Babe" Stigler · EGO Software*. Two of the six games name the
+  Michel "Babe" Stigler · EGO Software*. Two of the seven games name the
   engine — Dunkle Schatten 2's credits carry *"Motion"-Präsentations-System
   von S. Hoffmann* — but only this one gives it a version, and `1.0` sits
   three years before the builds this documentation is written from. Whether

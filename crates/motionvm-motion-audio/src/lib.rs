@@ -1,7 +1,7 @@
 //! The music.
 //!
 //! Two stacks, one per engine generation, because the games' songs are two
-//! formats: the 32-bit game's are [HMI](motionvm_motion_formats::m32::hmi) sequences
+//! formats: the 32-bit games' are [HMI](motionvm_motion_formats::m32::hmi) sequences
 //! played through the FM driver out of `HMIMDRV.386`, the 16-bit games' are
 //! [PSM 2](motionvm_motion_formats::m16::psm) sections played through `MUSADL.DRV`.
 //! They are under [`m32`] and [`m16`], and they share no code path — only the
@@ -31,13 +31,13 @@ pub use error::{Error, Result};
 /// different files. So there is no constructor here, and the generation is
 /// chosen once, by whoever opens the game's music files.
 pub trait Player {
-    /// What one song is on this stack — a sequence for the 32-bit game, a
+    /// What one song is on this stack — a sequence for the 32-bit games, a
     /// section and a repeat count for the 16-bit ones.
     type Song;
 
     /// What one digital sample is on this stack — an `SM8` block for the
-    /// 16-bit games, and nothing at all for the 32-bit one, whose digital
-    /// layer no shipped game reaches.
+    /// 16-bit games, a WAV file with the sound layer's volume and loop count
+    /// for the 32-bit ones.
     type Sample;
 
     /// The sample rate it was made with.
@@ -57,9 +57,25 @@ pub trait Player {
     /// fade, so there a stop already is one.
     fn cut(&mut self);
 
-    /// Plays `sample` once, in place of whatever sample was playing, over
-    /// the music: the 16-bit `PLAYSAMPLE`'s hand-over to the digital driver.
+    /// Plays `sample` over the music: the 16-bit `PLAYSAMPLE`'s hand-over to
+    /// the digital driver, whose one channel drops whatever sample was
+    /// playing, and the 32-bit start words' to the sound layer, which mixes
+    /// it with every other sample sounding.
     fn sample(&mut self, sample: Self::Sample);
+
+    /// Stops the sample started under `handle`: the 32-bit `STOPSAMPLE`'s
+    /// stop (`0x6f478`) of that one sample among the sounding ones. The
+    /// 16-bit driver's `StopAll` takes no handle and no 16-bit word reaches
+    /// it for a sample alone; that player stops its one sample whatever the
+    /// handle.
+    fn stop_sample(&mut self, handle: i32);
+
+    /// Sets the music's volume on the sound layer's `0x7fff` scale — the
+    /// 32-bit `MUSVOLUME`'s duck under speech, which the sequencer turns
+    /// into controller 7 on every channel. The 16-bit stack has no such
+    /// control and no word asks; its player takes the call and changes
+    /// nothing.
+    fn music_volume(&mut self, volume: u16);
 
     /// Whether anything is still sounding.
     fn playing(&self) -> bool;

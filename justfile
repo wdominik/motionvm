@@ -8,9 +8,9 @@
 # your copy of Dunkle Schatten 2, GAMEDATA_ENVIRO at your copy of Die
 # Enviro-Kids greifen ein, GAMEDATA_JEFFJET at your copy of Jeff Jet -
 # Abenteuer InfoHighway, GAMEDATA_HFA at your copy of Hilfe für Amajambere,
-# GAMEDATA_VLOOMES at your copy of Victor Loomes – Das Spiel and GAMEDATA_EDDIEM
-# at your copy of Falsches Spiel mit Eddie M. — the defaults are directories
-# next to this one, which
+# GAMEDATA_VLOOMES at your copy of Victor Loomes – Das Spiel, GAMEDATA_EDDIEM
+# at your copy of Falsches Spiel mit Eddie M. and GAMEDATA_CHECKER at your copy
+# of Checker 2000 — the defaults are directories next to this one, which
 # is where a checkout beside installed copies of the games finds them. Tests
 # that need data and cannot find it skip themselves; a *wrong* path panics
 # rather than skipping, so a typo cannot read as "no data on this machine".
@@ -26,6 +26,8 @@ DEFAULT_GAMEDATA_VLOOMES := justfile_directory() / ".." / "games" / "VLOOMES"
 GAMEDATA_VLOOMES := DEFAULT_GAMEDATA_VLOOMES
 DEFAULT_GAMEDATA_EDDIEM := justfile_directory() / ".." / "games" / "EDDIEM"
 GAMEDATA_EDDIEM := DEFAULT_GAMEDATA_EDDIEM
+DEFAULT_GAMEDATA_CHECKER := justfile_directory() / ".." / "games" / "CHECKER"
+GAMEDATA_CHECKER := DEFAULT_GAMEDATA_CHECKER
 
 # What actually reaches the suite.
 #
@@ -35,9 +37,11 @@ GAMEDATA_EDDIEM := DEFAULT_GAMEDATA_EDDIEM
 # command this file exists to define, instead of skipping the way the README
 # describes. The five 16-bit games are told apart by their engine binary: they
 # all ship a DATA.-1-, so probing for that would let any of those defaults match
-# another game's directory.
+# another game's directory. The two 32-bit games both ship 001.RSC and
+# ENGINE.EXE, so each is probed for the file the other lacks: the loose 000.PAL
+# of Dunkle Schatten 2, the ENGINE.RSC of Checker 2000.
 _DATA_DS2 := if GAMEDATA_DS2 != DEFAULT_GAMEDATA_DS2 { GAMEDATA_DS2 } \
-    else if path_exists(GAMEDATA_DS2 / "001.RSC") == "true" { GAMEDATA_DS2 } \
+    else if path_exists(GAMEDATA_DS2 / "000.PAL") == "true" { GAMEDATA_DS2 } \
     else { "" }
 _DATA_ENVIRO := if GAMEDATA_ENVIRO != DEFAULT_GAMEDATA_ENVIRO { GAMEDATA_ENVIRO } \
     else if path_exists(GAMEDATA_ENVIRO / "ENVIRO.EXE") == "true" { GAMEDATA_ENVIRO } \
@@ -54,6 +58,9 @@ _DATA_VLOOMES := if GAMEDATA_VLOOMES != DEFAULT_GAMEDATA_VLOOMES { GAMEDATA_VLOO
 _DATA_EDDIEM := if GAMEDATA_EDDIEM != DEFAULT_GAMEDATA_EDDIEM { GAMEDATA_EDDIEM } \
     else if path_exists(GAMEDATA_EDDIEM / "STERN.EXE") == "true" { GAMEDATA_EDDIEM } \
     else { "" }
+_DATA_CHECKER := if GAMEDATA_CHECKER != DEFAULT_GAMEDATA_CHECKER { GAMEDATA_CHECKER } \
+    else if path_exists(GAMEDATA_CHECKER / "ENGINE.RSC") == "true" { GAMEDATA_CHECKER } \
+    else { "" }
 
 # Savegames cannot be reconstructed, only played to, so there is no default that
 # could work. Set it to the directory the games' own save directories are under
@@ -65,8 +72,8 @@ SAVES := ""
 
 # Where every game reaches a cargo command, written once.
 #
-# Three recipes hand the suite its data. Spelling the six variables out in
-# each would make a seventh game a matter of remembering all three; this is
+# Three recipes hand the suite its data. Spelling the seven variables out in
+# each would make an eighth game a matter of remembering all three; this is
 # the one block they share, and adding a game touches it once.
 _GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
     'MOTIONVM_GAMEDATA_ENVIRO="' + _DATA_ENVIRO + '" ' + \
@@ -74,6 +81,7 @@ _GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
     'MOTIONVM_GAMEDATA_HFA="' + _DATA_HFA + '" ' + \
     'MOTIONVM_GAMEDATA_VLOOMES="' + _DATA_VLOOMES + '" ' + \
     'MOTIONVM_GAMEDATA_EDDIEM="' + _DATA_EDDIEM + '" ' + \
+    'MOTIONVM_GAMEDATA_CHECKER="' + _DATA_CHECKER + '" ' + \
     'MOTIONVM_SAVES="' + SAVES + '"'
 
 _default:
@@ -203,13 +211,13 @@ doc:
     RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links -D warnings" \
         cargo doc --workspace --no-deps --document-private-items
 
-# One of the games: `just run ds2`, `just run enviro`, `just run jeffjet`,
-# `just run hfa`, `just run vloomes`, `just run eddiem`.
+# One of the games: `just run ds2`, `just run checker`, `just run enviro`,
+# `just run jeffjet`, `just run hfa`, `just run vloomes`, `just run eddiem`.
 #
 # The slug is required and there is no default, which is the rule this file has
 # always kept — a `just run` that picked a game would pick it for everyone.
-# Six recipes would be six copies of one line, and a seventh game a seventh
-# copy; a row in the case below is what a game costs instead.
+# Seven recipes would be seven copies of one line, and an eighth game an
+# eighth copy; a row in the case below is what a game costs instead.
 run GAME *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -220,7 +228,8 @@ run GAME *ARGS:
         hfa)     dir='{{ GAMEDATA_HFA }}' ;;
         vloomes) dir='{{ GAMEDATA_VLOOMES }}' ;;
         eddiem)  dir='{{ GAMEDATA_EDDIEM }}' ;;
-        *) echo "just run <ds2|enviro|jeffjet|hfa|vloomes|eddiem> [args]" >&2; exit 2 ;;
+        checker) dir='{{ GAMEDATA_CHECKER }}' ;;
+        *) echo "just run <ds2|checker|enviro|jeffjet|hfa|vloomes|eddiem> [args]" >&2; exit 2 ;;
     esac
     cargo run --release -p motionvm-app -- "$dir" {{ ARGS }}
 

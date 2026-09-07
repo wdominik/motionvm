@@ -2,7 +2,7 @@
 
 # The Game Loop
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 The game's frame cycle is a collaboration between the engine's native
 loop and a script word registered as a callback. The shape is unusual
@@ -25,12 +25,14 @@ So the "native loop" is the engine's frame pump inside the blocking
 words, and the game-side loop body is `ICTRL` — an ordinary Forth word,
 fully described under [Shell](../../games/ds2/library/shell.md).
 
-## The frame rate: 25 frames per second
+## The frame rate: what `DELAY` says
 
 `DELAY ( n -- )` does not wait — it sets the frame length: its handler
 (`0x7065d`) computes `0xdb4b8 = 200 / n` (−1 passes through as "no
-limit"). The bootstrap runs `25 DELAY`, so **the game runs at 25 frames
-per second**, each frame 8 ticks of the engine's 200 Hz tick base long.
+limit"). Dunkle Schatten 2's bootstrap runs `25 DELAY`, so **that game runs
+at 25 frames per second**, each frame 8 ticks of the engine's 200 Hz tick
+base long. Checker 2000's runs `8 DELAY`: 25 ticks a frame, **eight frames a
+second**, and its fades of thirty-one frames take four seconds.
 
 ### Where the 200 Hz comes from, and where it stops
 

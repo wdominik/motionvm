@@ -9,8 +9,11 @@
 use crate::Descriptor;
 use crate::Engine;
 use crate::Field;
+use crate::Insert;
 use crate::Placement;
 use crate::Shows;
+use crate::descriptor::SLOTS;
+use crate::profile::TextInserts;
 use crate::stack::pop_n;
 use crate::stack::pop1;
 use crate::words::Word;
@@ -159,10 +162,16 @@ impl Engine {
             // `_TSPEED` percent. With zero the first branch always won, and
             // every line in the game stood for the same two seconds instead of
             // a time that follows what it says.
+            //
+            // Counted on the text as laid out: both handlers run the layout
+            // first (`0x731cd` → `0x6c9f8`, R78 `0x5ea51` → `0x5a100`) and
+            // answer the length of its buffer — R109 from the layout's own
+            // `+0x18`, R78 through `strlen` (`0x11b80`). A text with inserts
+            // is measured with them in.
             Word::GDTEXTLEN | Word::GDTXTLEN => {
                 let d = self.descriptor_mut().cloned().unwrap_or_default();
                 let n = self
-                    .descriptor_text(&d)
+                    .laid_out_text(&d, mem)
                     .map_or(0, |s| cell::count(s.chars().count()));
                 stack.push(n);
             }
@@ -187,13 +196,45 @@ impl Engine {
             }
             // A toggle with no argument.
             Word::SDPOS => self.note_no_effect(word),
+            // `( value slot -- )` on R78 (`0x611c0`), `( value kind slot -- )`
+            // on R109 (`0x75cfe`): the slot is popped first, the value last,
+            // and which build this is was read off the handler
+            // ([`crate::Profile`]'s text-insert capability). Both store only
+            // for a slot below five (`cmpl $5; jge` past everything, `0x75d4a`
+            // and `0x61204`) and then mark the descriptor as any change is
+            // marked (`0x6ab6e`, R78 `0x58ae0`) — R109 measuring it afresh
+            // (`0x6c8c1`), which lays it out; so does this. A negative slot
+            // passes the test and writes below the array in the original,
+            // into the record's line window and buffer pointer; nothing
+            // shipped does it, and it is noted rather than modelled.
             Word::SDINSERT => {
-                let a = pop_n(stack, 3, "SDINSERT")?;
-                if let Some(d) = self.descriptor_mut() {
-                    d.fields.set(Field::INSERT, a[0]);
+                let (value, kind, slot) = match self.profile.inserts {
+                    TextInserts::Kinded => {
+                        let a = pop_n(stack, 3, "SDINSERT")?;
+                        (a[0], a[1], a[2])
+                    }
+                    TextInserts::Addresses => {
+                        let a = pop_n(stack, 2, "SDINSERT")?;
+                        (a[0], 0, a[1])
+                    }
+                    TextInserts::Absent => {
+                        return Err(motionvm_motion_forth::Error::Unsupported(
+                            "SDINSERT on a kernel whose text records have no insert slots".into(),
+                        ));
+                    }
+                };
+                if slot >= cell::count(SLOTS) {
+                    return Ok(Some(()));
                 }
-                // What it inserts is part of what the descriptor shows, so the
-                // change is marked like any other (0x6ab6e).
+                let Some(index) = cell::at(slot) else {
+                    self.note_unhandled(word, Some(format!("slot {slot} below the array")));
+                    return Ok(Some(()));
+                };
+                let Some(d) = self.descriptor_mut() else {
+                    return Ok(Some(()));
+                };
+                d.inserts[index] = Insert { value, kind };
+                self.lay_out_current(mem);
                 self.touch_current();
             }
             // The placement words differ only in what the value means, and the
@@ -252,6 +293,13 @@ impl Engine {
                     // The screening is the machine's, so it happens here.
                     _ => self.set_callback(mem.callable(v))?,
                 }
+                // A new text or table is a new layout, which the original's
+                // setters measure on the spot (`0x6c8c1` in both, R78
+                // `0x58ae0`); the mark above was against the old one.
+                if matches!(word, Word::SDTXT | Word::SDTB) {
+                    self.lay_out_current(mem);
+                    self.touch_current();
+                }
             }
             // Getters, for completeness and for the oracle round-trips. Each
             // answers with one value; what each one means is on its method.
@@ -301,8 +349,7 @@ impl Engine {
             // onwards: find the index, `+0x418--`, shift the rest down).
             //
             // The group half has nothing to do here yet: nothing models group
-            // membership, `SDINSERT` only files a value away under its name. It
-            // is the first thing to revisit when groups arrive.
+            // membership. It is the first thing to revisit when groups arrive.
             Word::KILLDESC => {
                 let handle = cell::unsigned(pop1(stack, "KILLDESC")?);
                 self.forget_descriptors(|d| d.handle == handle);
@@ -389,6 +436,13 @@ impl Engine {
                 };
                 let v = pop1(stack, "descriptor setter")?;
                 self.set_field(key, v);
+                // The line window is part of the layout (`0x610e0`, `0x61150`
+                // mark and measure like any change), so it is laid out again
+                // here as `SDTXT` is above.
+                if matches!(key, Field::SDSTARTLINE | Field::SDALINES) {
+                    self.lay_out_current(mem);
+                    self.touch_current();
+                }
             }
         }
         Ok(Some(()))

@@ -6,6 +6,100 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-07
+
+**Savegames written by earlier builds do not load.** The layout changed
+shape: the descriptor record carries the text record's five insert slots,
+the screen record carries one scroll position, and the head carries the
+pointer's show count. There is one reader, for the layout this build writes;
+a slot from before fails to read by section and byte, and is left on disk.
+
+### Added
+
+- **Checker 2000** (1996), the seventh game and the second on the 32-bit
+  engine — on its earlier build, `ENGINE.EXE` V0.04.15/R78, 375 kernel words
+  to Dunkle Schatten 2's 410. The game ships a fifth container, `ENGINE.RSC`,
+  for the system font and palette, fills nineteen sprite ids and one palette
+  in two containers at once, enters graphics without a `SETRES` and gets
+  640×480 because the kernel init seeds the selection, uses the text
+  record's five insert slots for its registration and highscore, scrolls
+  its information pages by `SDSTARTLINE` and `->SCRY`, and **speaks**: 73
+  WAV files under the directory `SMPPATH` names, one a passage, with 39
+  effects as blocks beside them. To play it the engine grew what the game
+  reaches and the other does not, each read from R78 and found again in
+  R109: the text layout — the line window, the insert slots and the
+  engine's own `#`-formatter — the four timer words on the 200 Hz clock,
+  the scroll slide of `->SCRX`/`->SCRY` at four pixels a retrace,
+  `WHITEBOX`, `GIVEDATE`, `TEXT->PRINTER`, and the HMI digital layer's five
+  sample words: 34 sample slots that sound together, the loop count a start
+  word's second argument sets (−1 for ever, which the beach's ambience
+  uses), `?STIME`'s 1.3-duration rule, and the mixer's own arithmetic — a
+  frame unchanged from a volume of `0x7ff0` up, twice the high word of the
+  16×16 product below, the DSP at 22 050 Hz, read out of the SOS mixer and
+  confirmed from a recording. The two readings the builds disagree on —
+  `SDINSERT`'s arity, and whether a curtain waits between its bands, which
+  R78's does not — are probed off the binary and carried as capabilities.
+  The audio crate mixes the samples into the music at their own rate,
+  clipped as the mixer clips them. `docs/motion/games/checker/` and
+  `docs/motion/motion32/engine/engine-r78.md` describe the game and the
+  build; the registration board in two states, the main menu and two pages
+  of the information book are held pixel for pixel against recordings of
+  the original under DOSBox-X, the classroom's speech by the frame, and the
+  beach scene against a capture from the game's archive.
+- **The engine's own arrow pointer.** `TOGFX` installs the system palette —
+  `000.PAL`, or `ENGINE.RSC`'s palette 0 — and with it the 16×16 arrow in
+  `ENGINE.EXE`'s data, the same bytes in both builds, its body and outline
+  resolved to the nearest entries by the engine's own lookup, and shows it;
+  `NORMMOUSE` installs the arrow again against the palette of the moment.
+  Checker 2000 never says `SHOWMOUSE` and reaches `XATMOUSE` only in its
+  story, so every board it shows is pointed at with this arrow, which was
+  missing — and so was the palette in force before a script's first
+  `SETPAL`.
+- **`FADEIN`'s mode 2, and paints that stay.** The one place a shipped
+  script reaches the mode — Checker 2000's shell opens every page of its
+  information book with it — is the mode-1 curtain with `WHITEBOX`'s box
+  painted first, white at 25,122, 452 by 317 with the black frame two in,
+  and no wait between bands, read on both builds; it was refused as "not
+  this effect", which left the book's pages black. A box `WHITEBOX` or the
+  fade paints is no descriptor, so the drawer now keeps every such paint
+  with the pass it came after and every descriptor with the pass that last
+  drew it, rebuilds a rectangle in that order, and drops a paint a later
+  fill covers whole — which is what puts the book's text onto its white
+  page rather than onto the photo behind.
+
+### Changed
+
+- **The kernel binding is derived from the binary's own init** rather than
+  tabled, so both 32-bit builds — and a third — bind by the same reading.
+- **The scroll position is one register.** `SCRPOS`, `SCRX`, `SCRY`,
+  `->SCRX` and `->SCRY` all write `+0x24`/`+0x26` of the screen record, in
+  both builds; the display kept an origin pair beside its scroll offset, and
+  carries one now.
+- **One nearest-entry lookup for every color the engine resolves.**
+  `RGB->COL`, `NORMMOUSE`, `WHITEBOX` and `TOGFX` all go through the
+  original's routine — the sum over the channels of the squared distance
+  plus one, the first lowest score winning — over the palette the script
+  last set. `RGB->COL` had its own metric, plain squares.
+- **`GET` of a block no container holds leaves the memory as it was** and
+  counts the miss, where it stopped with an error; the original copies from
+  the interrupt vector table, which nothing can reproduce.
+
+### Fixed
+
+- **`?SOUND` answers for the sound layer.** It answered a fixed 0 — the
+  reference runs of Dunkle Schatten 2 had no sound card, and that game
+  never reads the answer — so Checker 2000's `_SPEECH` stayed clear and
+  every scene took its caption path. It now answers as the original does
+  for its digital driver's status bit (R78 `0x6b340`, `0xbb7d4` bit 4): 1
+  with an audio sink attached, 0 without. With a sink the game speaks and
+  shows no subtitle, as the original with a card does; without one it
+  captions.
+- **`SHOWMOUSE` and `HIDEMOUSE` count on the 32-bit engine.** The pair was
+  a plain switch here and is read now: the same counted show and hide as
+  the 16-bit one, inert until `TOGFX` armed the layer, and a conversation
+  hides on `TALK` as it does on `INFO` and `GIVE`. The savegame keeps the
+  count.
+
 ## [0.9.0] - 2026-09-06
 
 ### Added
@@ -1183,7 +1277,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/wdominik/motionvm/releases/tag/v0.10.0
 [0.9.0]: https://github.com/wdominik/motionvm/releases/tag/v0.9.0
 [0.8.0]: https://github.com/wdominik/motionvm/releases/tag/v0.8.0
 [0.7.2]: https://github.com/wdominik/motionvm/releases/tag/v0.7.2

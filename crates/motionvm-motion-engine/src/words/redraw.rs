@@ -1,4 +1,4 @@
-//! Screen activation, redraw, and the two music words.
+//! Screen activation, redraw, and the box drawn past the descriptors.
 //!
 //! One of the groups `plain_word32` hands a word to, in the order the
 //! original's own match had them — **an order that is load-bearing**: two of
@@ -7,6 +7,7 @@
 //! does not know the word answers `None` and the next one is asked.
 
 use crate::Engine;
+use crate::stack::pop_n;
 use crate::words::Word;
 use motionvm_motion_forth::AddressSpace;
 use motionvm_motion_forth::Result;
@@ -41,6 +42,7 @@ impl Engine {
                     return Ok(Some(()));
                 };
                 s.buffer.fill(0);
+                s.paints.clear();
                 let handle = s.handle;
                 self.forget_rebuilds(handle);
             }
@@ -56,6 +58,14 @@ impl Engine {
                 self.inert(stack, 3, Word::SETBUF)?;
             }
             Word::RESETBUF => self.note_no_effect(word),
+            // `( x y w h -- )`: a white box with a black inner edge, drawn
+            // straight into the software surface — see [`crate::paint`] for
+            // the reading of R78 `0x61030`. Four pops, `h` on top.
+            Word::WHITEBOX => {
+                let a = pop_n(stack, 4, "WHITEBOX")?;
+                let (x, y, w, h) = (a[0], a[1], a[2], a[3]);
+                self.white_box(x, y, w, h);
+            }
             _ => return Ok(None),
         }
         Ok(Some(()))

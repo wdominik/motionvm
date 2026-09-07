@@ -62,8 +62,9 @@ const REQUIRED: &[(&str, &str)] = &[
 /// [`crate::Driven::start_location`], and `_NEXTLOC` is the cell a script
 /// writes to ask for the next one, which `ICTRL` acts on inside its own frame.
 /// A container that does not define them is not a container this code can
-/// drive, whatever else it holds.
-pub(super) const SIGNATURE: &[&str] = &["_STARTLOC", "_NEXTLOC"];
+/// drive, whatever else it holds — and Checker 2000's module 2, the same
+/// template earlier in its life, has neither.
+pub(super) const SIGNATURE: &[(u32, &str)] = &[(2, "_STARTLOC"), (2, "_NEXTLOC")];
 
 /// Where it keeps the location it is in and the one it is going to.
 ///
@@ -75,7 +76,7 @@ pub(super) const SIGNATURE: &[&str] = &["_STARTLOC", "_NEXTLOC"];
 /// `None` before that is the lookup failing rather than a sentinel.
 pub(super) const LOCATION: LocationScheme = LocationScheme {
     module: 2,
-    next: "_STARTLOC",
+    next: Some("_STARTLOC"),
     fallback: None,
     unset_below: None,
 };
@@ -97,12 +98,20 @@ impl Game<m32::Vm> {
     /// Opens Dunkle Schatten 2 in `dir`.
     ///
     /// An associated function rather than a free one, unlike the 16-bit
-    /// games': there is one 32-bit game today, so `Game::<m32::Vm>::open` names its
-    /// machine unambiguously, and it is the name the tests already use. The
-    /// work is `motion32::open`'s; what this hands it is what makes the
-    /// container this game's — `REQUIRED` and `SIGNATURE`.
+    /// games' and Checker 2000's: it is the name the suites of the first game
+    /// on this machine use, and `Game::<m32::Vm>::open` still names one game
+    /// because the other has a free `checker::open`. The work is
+    /// `motion32::open`'s; what this hands it is what makes the container
+    /// this game's — `REQUIRED` and `SIGNATURE`.
     pub fn open(dir: &Path) -> Result<Self> {
-        motion32::open(dir, Title::DunkleSchatten2, REQUIRED, SIGNATURE, LOCATION)
+        motion32::open(
+            dir,
+            Title::DunkleSchatten2,
+            REQUIRED,
+            SIGNATURE,
+            LOCATION,
+            SHELL,
+        )
     }
 }
 

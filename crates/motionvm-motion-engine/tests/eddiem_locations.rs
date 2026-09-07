@@ -32,6 +32,9 @@ impl MusicSink for Samples {
     fn start(&mut self, _handle: i32, _tune: i32, _looping: bool, _song: &[u8]) {}
     fn stop(&mut self, _handle: i32) {}
     fn cut(&mut self, _handle: i32) {}
+    fn start_sample(&mut self, _handle: i32, _wav: &[u8], _volume: u16, _loops: i32) {}
+    fn stop_sample(&mut self, _handle: i32) {}
+    fn music_volume(&mut self, _volume: u16) {}
     fn sample(&mut self, block: i32, _sample: &[u8]) {
         self.0.lock().unwrap().push(block);
     }

@@ -2,7 +2,7 @@
 
 # ENGINE.EXE — The MOTION Engine Binary
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 `ENGINE.EXE` is not game-specific code. It is **MOTION**, a general
 adventure authoring system by DigiTales (Stefan Hoffmann), version
@@ -24,6 +24,11 @@ drops into the MOTION IDE instead and creates a project file `NONAME.PRJ`.
 The game asks for VESA mode `0x101` — 640×480 in 256 colors — through
 `640x480x256 SETRES`; the engine's own table knows seven modes, from plain
 VGA 320×200 to 1024×768 in 32K colors ([screens](screens.md#the-video-mode)).
+Checker 2000's bootstrap never says `SETRES` and enters the same mode: the
+engine's own init seeds the selection with it before `SYSTEM.RSC` is read.
+Its `SYSTEM.RSC` also opens with a `->RSCPATH` line, which tells the
+resource manager where one container lives
+([Checker 2000's other files](../../games/checker/other-files.md#systemrsc)).
 
 ## LE image structure
 
@@ -121,20 +126,19 @@ indexed also come from this layer.
 What is open about this binary as a binary, each kept in the
 [ledger](../../open-questions.md):
 
-- **Table 1's ordinal base**, the one of the three kernel tables whose base
-  is inferred rather than read ([kernel words](../vm/kernel-words.md#open-questions)).
 - **Who feeds the tick counter** behind the pointer at `0xE7F38`, and at
   what rate: the binary programs no timer of its own, and its arithmetic
   assumes a 1020 Hz master
   ([game loop](game-loop.md#where-the-200-hz-comes-from-and-where-it-stops)).
 - **The handlers still unread**, word by word, under the ledger's
   [*Remaining unmapped kernel words and handler regions*](../../open-questions.md#remaining-unmapped-kernel-words-and-handler-regions)
-  — and the seven the shipped game names and cannot reach, which stay
+  — and the five the shipped game names and cannot reach, which stay
   unbuilt with their reasons there.
 - **`RSC.INF`**, the resource metadata beside the containers, not analyzed.
 
 ## See also
 
+- [ENGINE.EXE V0.04.15/R78](engine-r78.md) — the earlier build, under Checker 2000
 - [Kernel words](../vm/kernel-words.md)
 - [Execution model](../vm/execution-model.md)
 - [Other files](../../games/ds2/other-files.md) — DOS4GW, SYSTEM.RSC, and the

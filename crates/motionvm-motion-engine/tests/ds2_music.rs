@@ -50,6 +50,9 @@ impl MusicSink for Log {
     fn cut(&mut self, handle: i32) {
         self.0.lock().unwrap().push(Call::Cut { handle });
     }
+    fn start_sample(&mut self, _handle: i32, _wav: &[u8], _volume: u16, _loops: i32) {}
+    fn stop_sample(&mut self, _handle: i32) {}
+    fn music_volume(&mut self, _volume: u16) {}
     fn sample(&mut self, block: i32, _sample: &[u8]) {
         self.0.lock().unwrap().push(Call::Sample { block });
     }

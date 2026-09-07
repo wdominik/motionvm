@@ -2,7 +2,7 @@
 
 # Transitions — FADEOUT and FADEIN
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 Scene transitions are a **curtain (wipe), not a palette fade**, despite the
 names. Neither handler touches the DAC: the palette writer is `0x82078`, its
@@ -14,7 +14,9 @@ FADEOUT ( mode duration step -- )
 FADEIN  ( mode duration step -- )
 ```
 
-and the game calls them with `1 50 8` throughout.
+and Dunkle Schatten 2 calls them with `1 50 8` throughout; Checker 2000
+too, but for the one `2 50 8 FADEIN` that opens its information book
+([The mode argument](#the-mode-argument)).
 
 ## The arguments
 
@@ -37,18 +39,33 @@ look at. Origins are `+0x2C`/`+0x2E`.
 
 ## The mode argument
 
-Both handlers compare the mode against 1 and have a second branch for mode 2
-that the game never invokes — all 180 call sites pass 1.
+Both handlers compare the mode against 1 and have a second branch for mode
+2. Dunkle Schatten 2 never takes either — all 180 of its call sites pass 1
+— and Checker 2000 takes one: `FADEIN`'s.
 
-Mode 2 is **not** a black curtain. `FADEOUT` mode 2 advances in steps of two
+`FADEOUT` mode 2 is **not** a black curtain. It advances in steps of two
 and fills its bands through `0x28479` with color `0x102` (`0x74eef`), in up
 to four phase-shifted offsets. `0x102` is not a color: the 8-bit fill path
 at `0x18584` treats a value ≥ 256 as a row in the **darkening tables** the
 second half of `SETPAL` builds (`0x147ff` and its siblings, one table per
-subtracted amount). So mode 2 is a *translucent* fade — an interlaced
-dimming, not a blanking. `FADEIN` mode 2 draws a white box and a black frame
-at (25,122)–(452,317) before its band loop, which looks like authoring-tool
-furniture rather than a game effect.
+subtracted amount). So it is a *translucent* fade — an interlaced dimming,
+not a blanking — and no shipped script reaches it.
+
+`FADEIN` mode 2 (`0x74b6e`; R78 `0x60447`) is the mode-1 curtain with one
+thing before its band loop: it paints **`WHITEBOX`'s box** onto the
+software surface — the same two routines with the same arguments, the fill
+(`0x188fd`; R78 `0x17310`) at 25,122, 452 wide and 317 tall in the nearest
+white, then the one-pixel frame (`0x1888b`; R78 `0x17290`) two in, 27,124,
+448 by 313, in the nearest black — after the handler's own draw of the
+screen and before the update map is cleared, so the bands open onto the
+picture with the box on it. And it waits between bands on neither build:
+the branch has no timer call (`0x74c2f`–`0x74c6b`). What it is for is
+Checker 2000's information book: the shell's `SI2` opens every page below
+700 with `2 50 8 FADEIN` (module 218, `0x0342c`), activates the page's
+texts once the curtain is up, and they are drawn onto the box — the white
+paper the information stands on. The pages from 700 up take mode 1 and say
+`25 122 452 317 WHITEBOX` themselves, or `50 50 540 380 WHITEBOX` for the
+regional ones ([game structure](../../games/checker/game-structure.md#the-boards)).
 
 ## Geometry
 
@@ -186,6 +203,20 @@ minimum** — a `delay` of 0 waits not at all — and `bands == 0` (a view
 under 16 rows) would divide by zero. Neither is reachable with Dunkle Schatten 2's
 screens.
 
+**R78 waits for nothing.** Its two handlers (`0x60360`, `0x60560`) pop the
+three arguments, work out `half` — and never the delay: there is no
+division and no timer call in either, and the duration is stored and not
+read again. Each pass marks its band (`0x16ec0`) and presents (`0x143c0`),
+and the next pass follows at once, so a curtain on Checker 2000 takes the
+presenter's time and no more. Under DOSBox-X, recorded at 70 frames a
+second, the shell's fade-out closes within one frame and the fade-in opens
+over three — about 40 ms for 31 passes — where the same curtain on R109
+would take 0.18 s. motionvm reads which of the two a build is off the
+handlers and carries it as a capability ([ENGINE.EXE R78](engine-r78.md));
+an unwaiting curtain moves every band in one step and costs the clock
+nothing, the presenter's milliseconds being nothing it models
+([departures](../../departures.md#display-and-timing)).
+
 (motionvm clamps both divisions rather than reproducing the division by
 zero — a [departure](../../departures.md), invisible with Dunkle Schatten 2's screens.)
 
@@ -259,8 +290,8 @@ the order come out right.
 
 ## Open questions
 
-- What `FADEIN` mode 2's white box and frame are for. The drawing is read;
-  the intent is not.
+- What `FADEOUT` mode 2's translucent bands are for. The drawing is read;
+  no shipped script reaches it.
 
 ## See also
 

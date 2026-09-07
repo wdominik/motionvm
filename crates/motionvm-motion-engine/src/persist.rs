@@ -125,7 +125,7 @@ impl Engine {
                 .and_then(|i| self.scene.descriptors.get(i))
                 .map(|d| d.handle),
             screen: self.display.current,
-            pointer_visible: self.cursor_state.visible,
+            pointer_shows: self.cursor_state.shows,
             dialog_offset: self.dialogue.offset,
             dialog_return: self.dialogue.return_node,
             palette: self.script_palette().raw,
@@ -140,7 +140,6 @@ impl Engine {
                     view: s.view,
                     view_pos: s.view_pos,
                     pos: s.pos,
-                    origin: s.origin,
                 })
                 .collect(),
             flips: self.persistence.flips.clone(),
@@ -177,6 +176,7 @@ impl Engine {
                         .iter()
                         .map(|(f, v)| (f.name().to_string(), v))
                         .collect(),
+                    inserts: d.inserts.map(|i| (i.value, i.kind)),
                     buffer: d.buffer,
                 })
                 .collect(),
@@ -223,11 +223,12 @@ impl Engine {
                 template: d.template,
                 wait: d.wait,
                 callback: d.callback,
-                // Kept by a 16-bit savegame; the 32-bit game never sets it.
+                // Kept by a 16-bit savegame; the 32-bit engine never sets it.
                 buffer: d.buffer,
                 x_mode: placement_of(d.x_mode)?,
                 y_mode: placement_of(d.y_mode)?,
                 fields,
+                inserts: d.inserts.map(|(value, kind)| crate::Insert { value, kind }),
                 active: d.active,
                 // A savegame carries the game's state, not the surface: the
                 // original reloads the location and paints it again. So
@@ -236,6 +237,8 @@ impl Engine {
                 auto_buffer: d.auto_buffer,
                 dirty: true,
                 changed: true,
+                // Never drawn here: the surface it was drawn on is gone.
+                drawn_at: 0,
             });
         }
 
@@ -251,12 +254,11 @@ impl Engine {
             screen.set_view(s.view.0, s.view.1);
             screen.view_pos = s.view_pos;
             screen.pos = s.pos;
-            screen.origin = s.origin;
         }
         self.display.current = anim.screen;
         self.display.palette = motionvm_render::Palette::from_6bit(&anim.palette);
         self.scene.next_descriptor = anim.next_descriptor;
-        self.cursor_state.visible = anim.pointer_visible;
+        self.cursor_state.shows = anim.pointer_shows;
         self.dialogue.offset = anim.dialog_offset;
         self.dialogue.return_node = anim.dialog_return;
         // In the per-screen scheme the number names a descriptor of the

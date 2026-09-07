@@ -2,7 +2,7 @@
 
 # Screens
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 The display is composed from **screens**: independent layers, each with its
 own pixel buffer, onto which [descriptors](descriptors.md) are drawn. The
@@ -37,13 +37,26 @@ standing. `HICOLOR` answers the flag the selection sets for the three
 that size, its clip rectangle `(0, 0, w, h)` and its damage map — the
 picture is built at that moment and not before. It copies the width and
 height into the display's own words (`0xf26bc`, `0xf26be`), installs the
-palette a `SETPAL` before it left waiting (`0x14734`, when `0xd66fc` is
-set), sets the default colors and the mouse, and registers `GFXTO` to run
-when the program exits. `GFXTO` (`0x6ef45`) unregisters that, returns to
+**system palette** (`0x14734` through the handle at `0xd66fc`, which the
+init filled from `000.pal` — palette 0 of whatever holds it — and which no
+`SETPAL` touches, so this is `000.PAL` in Dunkle Schatten 2 and
+`ENGINE.RSC`'s palette 0 in Checker 2000, whatever a script set before),
+gives the pointer the engine's own arrow in white and dark teal resolved
+against that palette and shows it
+([interaction](interaction.md#the-engines-own-arrow)), and registers
+`GFXTO` to run when the program exits. `GFXTO` (`0x6ef45`) unregisters that, returns to
 text mode 3 and frees the four buffers (`0x1433e`). Before any `SETRES` the
-mode number is initialized to `0x13` and the width and height to zero, so a
-`TOGFX` with no `SETRES` before it would enter VGA 320×200 with a display
-size of nought; every shipped script selects first.
+mode number is initialized to `0x13` and the width and height to zero — but
+the *selection* is not nought: the kernel init (`0x6845a`; R78 `0x56d00`)
+takes it as its second argument and stores it at `0xdb4a0`, and its one
+caller, the Forth system's init (`0x37297`; R78 `0x2fd5b`), passes **2**
+before `system.rsc` is read. So a `TOGFX` with no `SETRES` before it enters
+640×480 in 256 colors — which is what Checker 2000's `STARTUP` does, and
+Dunkle Schatten 2's selects the same mode first. Both builds agree on every
+address here: R78's `SETRES` is `0x5b050`, its table `0x13e00`, its `TOGFX`
+`0x5aec0`, its entry `0x14030`, its selection `0xba4ec` and its mode words
+`0xb5790`, `0xb5798` and `0xb579a`
+([ENGINE.EXE R78](engine-r78.md#where-r78-differs)).
 
 motionvm's display follows the same order: `TOGFX` sizes the composed
 picture to the selected mode, and a mode this renderer cannot draw is
@@ -67,13 +80,17 @@ NEWSCREEN            ( -- handle )    create, becomes current
 set and clear its active flag; `ERASESCR` clears its buffer; `REMSCR`
 removes it. `DRAWSCR`/`FRESHSCREEN` request a redraw.
 
-### Interpretation of the position words
+### The position words
 
-The reading of `SCRVPOS` as "where the view sits on the display" and
-`SCRPOS` as "scroll offset within the surface" is a **hypothesis** — it is
-the interpretation under which the startup layout (below) tiles the display
-exactly and under which the composed title screen matches the original
-pixel for pixel. It has not been confirmed against the handler code.
+`SCRVPOS` is where the view sits on the display, and `SCRPOS` is the offset
+of the view into the surface — and that offset is **one register**, read off
+the handlers of both builds. `SCRPOS` writes `+0x24`/`+0x26` of the screen's
+record whole (R109 `0x7098b`/`0x70995`, R78 `0x5cb1e`/`0x5cb28`); `SCRX`
+and `SCRY` write one half of the same pair, `GSCRX`/`GSCRY` read it back,
+and `->SCRX`/`->SCRY` slide it toward a target four pixels a vertical
+retrace. Checker 2000 is the game that scrolls: its information pages move
+their view with `->SCRY`, a screen tall at a time, and its office scene
+follows the cast with `->SCRX`.
 
 ### What the pixel-exact match does and does not settle
 
@@ -98,10 +115,9 @@ measures exactly twice its size in the rendered frame.
 
 What that settles: composition (`SCRPOS` against `SCRVPOS`), layer order,
 scaling through `SD%SHR`, and the palette chain all agree with the original
-engine for this frame. What it does not settle is the *meaning* of the two
-position words — one frame in which both readings would produce the same
-picture cannot distinguish them. It is strong evidence, not a reading of the
-code.
+engine for this frame. The meaning of the two position words is the
+handlers' to settle, above; the frame is the measurement that the
+composition built on them is right.
 
 ## The startup layout
 
@@ -212,15 +228,12 @@ Known fields of the engine's screen structure:
 | `+0x12` | Flag word; `NEWSCREEN` initializes it to `0xD000` (bit 7 of the flag byte set — a fresh screen is active) |
 | `+0x13` | Flag byte; bit `0x80` = active (read by `GSCRACT`, cleared by `FADEOUT`, set by `FADEIN`); bit 2 = frozen |
 | `+0x1C` / `+0x1E` | View size, read by `GSCRVSIZE` (height first, width on top) |
-| `+0x24` / `+0x26` | Origin x / y, set by `SCRX`, read by `GSCRX` / `GSCRY` |
+| `+0x24` / `+0x26` | The scroll position — the view's offset into the surface — written whole by `SCRPOS`, one half each by `SCRX` and `SCRY`, slid by `->SCRX` and `->SCRY`, read by `GSCRX` / `GSCRY` |
 | `+0x2C`, `+0x2E` | Origin values used by the transition curtain |
 | `+0x30` | Descriptor list (count at `+0x418`) |
 
 ## Open questions
 
-- **The meaning of `SCRVPOS` and `SCRPOS`.** The reading above is a
-  hypothesis, strongly supported by the startup layout and by the
-  pixel-exact title composition, and unconfirmed against the handlers.
 - **Descriptor flag `0x10`.** Set beside the dirty bit by `0x6ab6e` and
   cleared with it by the drawer, it picks between two blitters —
   `0x27765`/`0x29ae9` against `0x273e8`/`0x299e1`, whose destination is the

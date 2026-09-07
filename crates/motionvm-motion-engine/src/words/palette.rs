@@ -59,13 +59,14 @@ impl Engine {
                 self.note_no_effect(word);
             }
 
-            // The handler pops blue, green, red and hands them to a lookup that
-            // returns a single 16-bit value: a palette index, not a packed
-            // color. Six-bit components, the same scale the palettes are
-            // stored in.
+            // The handler pops blue, green, red and hands them to the
+            // engine's nearest-entry lookup (R78 `0x61289` → `0x1b940`, R109
+            // `0x75e57` → `0x1ee26`), which answers a palette index, not a
+            // packed color. Six-bit components, the same scale the palettes
+            // are stored in; the lookup's own metric is in [`crate::paint`].
             Word::RGB_TO_COL => {
                 let c = pop_n(stack, 3, "RGB->COL")?;
-                let want = [
+                let [r, g, b] = [
                     cell::low8(c[0].clamp(0, 63)),
                     cell::low8(c[1].clamp(0, 63)),
                     cell::low8(c[2].clamp(0, 63)),
@@ -73,23 +74,8 @@ impl Engine {
                 // The script's palette, not the display's: after a `SETPAL`
                 // the original's lookup already searches the new entries,
                 // even while a fade still hides the switch.
-                let pal = self.script_palette();
-                // Nearest entry rather than an exact match: the game asks for
-                // pure white, and whether the palette in force holds exactly
-                // 63,63,63 is not something a caller can know.
-                let best = (0..256)
-                    .min_by_key(|&i| {
-                        let o = i * 3;
-                        want.iter()
-                            .zip(&pal.raw[o..o + 3])
-                            .map(|(&a, &b)| {
-                                let d = i32::from(a) - i32::from(b & 63);
-                                d * d
-                            })
-                            .sum::<i32>()
-                    })
-                    .unwrap_or(0);
-                stack.push(cell::count(best));
+                let best = self.nearest_color(r, g, b);
+                stack.push(i32::from(best));
             }
             _ => return Ok(None),
         }

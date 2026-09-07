@@ -36,6 +36,7 @@ use crate::chip::{Chip, Write};
 use crate::error::{Error, Result};
 use crate::m32::fm::Fm;
 use crate::m32::sequencer::{Message, Sequencer};
+use crate::m32::voice::{Sample, Voice};
 use crate::num;
 use motionvm_motion_formats::m32::bnk::Bank;
 use motionvm_motion_formats::m32::drv::Driver;
@@ -61,6 +62,16 @@ pub struct Player {
     ticks: u64,
     messages: Vec<Message>,
     writes: Vec<Write>,
+    /// The samples sounding — the layer's slots that are taken, in the order
+    /// they were started.
+    voices: Vec<Voice>,
+    /// The mixer's 32-bit accumulators for one step of frames, interleaved
+    /// stereo; sized to the largest buffer asked for so far.
+    mix: Vec<i32>,
+    /// The sound layer's master volume for the sequences, as `MUSVOLUME`
+    /// leaves it (`0xbe9d0` in R78): `0x7f` at start, `0x38` ducked. Kept
+    /// across songs, as the global is, and handed to every sequencer.
+    master: u8,
 }
 
 impl std::fmt::Debug for Player {
@@ -73,6 +84,8 @@ impl std::fmt::Debug for Player {
             .field("playing", &self.seq.is_some())
             .field("clock", &self.clock)
             .field("ticks", &self.ticks)
+            .field("voices", &self.voices.len())
+            .field("master", &self.master)
             .finish_non_exhaustive()
     }
 }
@@ -152,6 +165,9 @@ impl Player {
             ticks: 0,
             messages: Vec::with_capacity(64),
             writes: Vec::with_capacity(512),
+            voices: Vec::with_capacity(Self::SLOTS),
+            mix: Vec::with_capacity(8192),
+            master: Sequencer::FULL_VOLUME,
         })
     }
 
@@ -189,7 +205,9 @@ impl Player {
             let step = crate::clock::frames_to_tick(self.clock, self.tick_period(), Self::PIT_HZ)
                 .min(frames - done);
             if step > 0 {
-                self.chip.render(&mut out[done * 2..(done + step) * 2]);
+                let frames = &mut out[done * 2..(done + step) * 2];
+                self.chip.render(frames);
+                self.mix_voices(frames);
                 done += step;
                 self.clock += num::frames(step) * u64::from(Self::PIT_HZ);
             }
@@ -226,20 +244,42 @@ impl Player {
     }
 }
 
+impl Player {
+    /// The sample slots the sound layer keeps (`0x6ee60` walks 34 of them
+    /// for a free or finished one): how many voices can sound at once.
+    pub const SLOTS: usize = 34;
+
+    /// The samples over the music for one step of `frames`: every voice
+    /// into the mixer's 32-bit accumulators, the sum clipped to sixteen
+    /// bits, and that added to what the OPL filled — the DSP's output and
+    /// the OPL's met at the card's mixer.
+    fn mix_voices(&mut self, frames: &mut [i16]) {
+        if self.voices.is_empty() {
+            return;
+        }
+        if self.mix.len() < frames.len() {
+            self.mix.resize(frames.len(), 0);
+        }
+        let mix = &mut self.mix[..frames.len()];
+        mix.fill(0);
+        self.voices.retain_mut(|voice| voice.mix(mix));
+        for (frame, &sum) in frames.iter_mut().zip(mix.iter()) {
+            *frame = frame.saturating_add(num::sample(sum));
+        }
+    }
+}
+
 impl crate::Player for Player {
     type Song = Song;
-    /// There is none: the 32-bit digital layer is not ported, no shipped
-    /// script reaches it, and a type with no values says so where a no-op
-    /// would only look like an implementation.
-    type Sample = std::convert::Infallible;
+    type Sample = Sample;
 
     fn rate(&self) -> u32 {
         self.rate
     }
 
-    /// A song is loaded and has not run out.
+    /// A song is loaded and has not run out, or a sample is still sounding.
     fn playing(&self) -> bool {
-        self.seq.is_some()
+        self.seq.is_some() || !self.voices.is_empty()
     }
 
     /// Stops whatever was playing first. The game never overlaps two tunes —
@@ -251,7 +291,7 @@ impl crate::Player for Player {
         self.period = Self::master_ticks(num::unsigned(i32::from(song.tick_hz)));
         self.clock = 0;
         self.ticks = 0;
-        self.seq = Some(Sequencer::new(song, Fm::DEVICE));
+        self.seq = Some(Sequencer::new(song, Fm::DEVICE, self.master));
     }
 
     /// Silences what the song left sounding, the way the original's stop path
@@ -278,8 +318,34 @@ impl crate::Player for Player {
         self.stop();
     }
 
-    fn sample(&mut self, sample: std::convert::Infallible) {
-        match sample {}
+    /// The sample takes a slot beside whatever else is sounding — the layer
+    /// mixes every slot — and the engine, which models the slots, refuses a
+    /// start only when all of them are taken.
+    fn sample(&mut self, sample: Sample) {
+        self.voices.push(Voice::new(sample, self.rate));
+    }
+
+    /// `STOPSAMPLE`'s stop (`0x6f478`): the sample falls silent at once, and
+    /// the others go on.
+    fn stop_sample(&mut self, handle: i32) {
+        self.voices.retain(|voice| voice.handle() != handle);
+    }
+
+    /// `MUSVOLUME`: the master for every sequence (`0x70590` with `-1` for
+    /// all), which the sequencer answers with a controller 7 on each of its
+    /// channels at the scaled level; the master stays for the songs after.
+    fn music_volume(&mut self, volume: u16) {
+        self.master = num::byte(u32::from(volume.min(0x7fff)) >> 8);
+        let Some(seq) = &mut self.seq else { return };
+        self.messages.clear();
+        seq.set_master_volume(self.master, &mut self.messages);
+        for m in self.messages.drain(..) {
+            self.fm.send(m);
+        }
+        self.fm.take_into(&mut self.writes);
+        for w in self.writes.drain(..) {
+            self.chip.write(w);
+        }
     }
 
     fn fill(&mut self, out: &mut [i16]) {

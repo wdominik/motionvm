@@ -6,7 +6,7 @@
 
 The kernel has a family of buffer words — `BUFON`, `SETBUF`, `SDBUF`,
 `RESETBUF`, `KILLNBUF`, and the descriptor mode `SDBLK` beside them — that
-the 32-bit game never exercises: in Dunkle Schatten 2 `SETBUF`/`RESETBUF`
+the 32-bit games never exercise: in Dunkle Schatten 2 `SETBUF`/`RESETBUF`
 are inert bookkeeping. In Die Enviro-Kids greifen ein they carry the intro and
 every person
 sprite, so they cannot be stubs here. What follows is what the call sites

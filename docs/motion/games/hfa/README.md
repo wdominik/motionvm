@@ -6,7 +6,7 @@
 
 A point-and-click adventure about development aid, in which the player is an
 agricultural expert sent to a highland region whose harvests are failing. It
-is the one game of the six where the subject matter *is* the game: it is
+is the one game of the seven where the subject matter *is* the game: it is
 carried almost entirely by dialogue rather than by puzzles.
 
 ## At a glance

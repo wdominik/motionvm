@@ -29,13 +29,21 @@ impl Engine {
                 let a = pop_n(stack, 3, "FADEIN/FADEOUT")?;
                 let (mode, duration) = (a[0], a[1]);
                 let opening = word == Word::FADEIN;
-                if mode != 1 {
-                    // Mode 2 is not this effect. It is a *translucent* fade:
-                    // 0x74eef fills its bands with color 0x102, which the fill
-                    // routine reads as shade level 2 in the darkening tables
-                    // `SETPAL` builds (0x147ff and its siblings), not as a
-                    // color. No call in the game reaches it — all 180 pass
-                    // mode 1 — so it is left unbuilt rather than guessed at.
+                // Both handlers take mode 1 and mode 2 and nothing else.
+                // `FADEIN`'s mode 2 (R78 `0x60447`, R109 `0x74b6e`) is the
+                // mode-1 curtain with one thing before its band loop: the
+                // white box and black frame `WHITEBOX` paints, at 25,122 and
+                // 452 by 317 — the same two routines with the same
+                // arguments, `0x17310` and `0x17290` on R78 — and no wait
+                // between bands on either build. Checker 2000's shell opens
+                // every information page with it (module 218, `SI2`), and
+                // the page's texts go onto the box. `FADEOUT`'s mode 2 is a
+                // different effect — a translucent fade, its bands filled
+                // through the darkening tables `SETPAL` builds (R109
+                // `0x74eef`, color `0x102`) — which no shipped call reaches,
+                // so it stays unbuilt rather than guessed at.
+                let boxed = mode == 2 && opening;
+                if mode != 1 && !boxed {
                     self.note_unhandled(word, Some(format!("mode {mode}")));
                     return Ok(Some(()));
                 }
@@ -120,6 +128,12 @@ impl Engine {
                     // had changed since, and a fade would open onto scraps.
                     self.repaint_screen(screen);
                     self.draw_screen(screen);
+                    if boxed {
+                        // After the draw and before the loop, onto the
+                        // surface the bands then reveal (R78 `0x604a8`–
+                        // `0x604f8`).
+                        self.white_box(25, 122, 452, 317);
+                    }
                 } else {
                     // `0x74d44`: `FADEOUT` fills the screen's rectangle with
                     // color 0 before the first band moves. It matters because
@@ -129,6 +143,7 @@ impl Engine {
                     // copies are of a picture that is no longer there.
                     if let Some(s) = self.display.screen_mut(screen) {
                         s.buffer.fill(0);
+                        s.paints.clear();
                     }
                     self.forget_rebuilds(screen);
                 }
@@ -156,9 +171,22 @@ impl Engine {
                     // is a panic reachable only from data that does not exist,
                     // and written down here because a guard nobody knows about
                     // is how a rebuild quietly stops being a reproduction.
-                    ticks_per_band: {
+                    //
+                    // **R78 waits for nothing**, in either mode: its loops
+                    // mark and present and go on (`0x6040f`–`0x6043b`), the
+                    // duration is popped and never read, and a curtain takes
+                    // the presenter's time and no more — on DOSBox-X the
+                    // whole fade is over within one to three frames at 70 a
+                    // second. Nor does mode 2 wait on R109 (`0x74c2f`–
+                    // `0x74c6b`, no timer call). Nought ticks a band is that
+                    // pace here: every band in one step, the step costing
+                    // the master clock nothing; the presenter's own
+                    // milliseconds are not modeled.
+                    ticks_per_band: if self.profile.curtains_wait && !boxed {
                         let bands = (area.3 / 16).max(1);
                         (duration / bands).max(1)
+                    } else {
+                        0
                     },
                     banked: 0,
                     palette_after: None,

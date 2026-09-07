@@ -14,7 +14,7 @@
 //! the handles, the frame order and the marking — is [`table`], and the
 //! `SD…`/`GD…` words that change one is [`words`].
 
-use crate::Fields;
+use crate::{Field, Fields};
 
 mod table;
 mod words;
@@ -150,6 +150,11 @@ pub struct Descriptor {
     /// values — they are needed to reproduce a frame — without inventing a
     /// meaning for each one before it has been measured.
     pub fields: Fields,
+    /// `SDINSERT`: the text record's five insert slots (`+0x20`), which the
+    /// text layout turns into the `#`-formatter's arguments — the engine's
+    /// `layout` module. Cleared when `SDTXT` or `SDTB` first makes the
+    /// descriptor a text (`0x71c03`, R78 `0x5da4e`), as the record is.
+    pub inserts: [Insert; SLOTS],
     /// Whether the drawer visits it at all — bit 0x80 of the flag byte at
     /// +0x13, set and cleared only by `SDACTIVE`/`SDINACTIVE`.
     ///
@@ -168,6 +173,16 @@ pub struct Descriptor {
     /// (0x69659). Without it a descriptor is skipped even while active
     /// (0x694ed, 0x69680).
     pub dirty: bool,
+    /// The drawer's pass that last drew this descriptor, nought for never.
+    ///
+    /// Not a flag of the original's: its surface remembers what was drawn
+    /// over what by holding the pixels, and this is what stands in for that
+    /// where a rectangle is built again from the list — anything painted
+    /// straight onto the surface goes over what was drawn before it and
+    /// under what is drawn after (the `paint` module). Public because the struct is built by
+    /// the tests with `..Default::default()`, which needs every field
+    /// visible; nothing outside the drawer reads or writes it.
+    pub drawn_at: u64,
     /// Bit 0x10: this descriptor is what changed, as opposed to a neighbour.
     ///
     /// Set beside [`Descriptor::dirty`] by 0x6ab6e and cleared by the drawer
@@ -207,6 +222,27 @@ pub struct Descriptor {
     pub auto_buffer: bool,
 }
 
+/// How many insert slots a text record has: five, `+0x20` to `+0x30`.
+pub(crate) const SLOTS: usize = 5;
+
+/// One insert slot of a text record — what `SDINSERT` put there.
+///
+/// In every shipped script the value is an address: a name buffer the player
+/// types into, a date or a score a script word has spelled out into cells
+/// (`_NAME1 0 SDINSERT`, `_SSCORE1 0 SDINSERT` in Checker 2000's module 318).
+/// Dunkle Schatten 2's debug overlay is the one caller that passes numbers,
+/// and it says so with the kind. What a slot means to the layout is the
+/// build's — [`crate::Profile`]'s text-insert capability — not the slot's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Insert {
+    /// The value `SDINSERT` stored.
+    pub value: i32,
+    /// R109's kind (`+0x34`): 0 an address whose bytes are the string, 1 a
+    /// number, 2 an address whose cell is the number. A build whose
+    /// `SDINSERT` takes no kind leaves it 0.
+    pub kind: i32,
+}
+
 /// What a descriptor shows: the original's `+0x10`.
 ///
 /// One word over two id spaces. Bit 15 marks a sprite and the rest is a
@@ -241,6 +277,17 @@ impl Descriptor {
     /// then read as the id of a text table rather than of a picture.
     pub fn is_text(&self) -> bool {
         self.text.is_some()
+    }
+
+    /// Makes the descriptor a text showing `entry`, with the text record as
+    /// the 32-bit engine allocates it (`0x71b87`, R78 `0x5d9dd`; `SDTB`'s
+    /// own allocation at `0x71d45` is the same): the five insert slots
+    /// cleared, the line window 0 and 99 — the unset values.
+    pub(crate) fn make_text_record(&mut self, entry: i32) {
+        self.text = Some(entry);
+        self.inserts = Default::default();
+        self.fields.clear(Field::SDSTARTLINE);
+        self.fields.clear(Field::SDALINES);
     }
 }
 

@@ -76,7 +76,11 @@ fn render32(
     let melodic = bnk::Bank::parse(&game_file(dir, "MELODIC.BNK")?)?;
     let drums = bnk::Bank::parse(&game_file(dir, "DRUM.BNK")?)?;
     let mut fm = Fm::new(device, &melodic, &drums)?;
-    let mut seq = motionvm_motion_audio::m32::Sequencer::new(song, Fm::DEVICE);
+    let mut seq = motionvm_motion_audio::m32::Sequencer::new(
+        song,
+        Fm::DEVICE,
+        motionvm_motion_audio::m32::Sequencer::FULL_VOLUME,
+    );
     let mut writes = Vec::new();
     let mut messages = Vec::new();
     let mut count = 0;

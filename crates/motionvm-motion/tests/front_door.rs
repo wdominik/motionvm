@@ -49,6 +49,7 @@ fn the_refusal_names_every_game_and_what_it_needs() {
     let expected = format!(
         "{} is not a game motionvm can open\n\
          \x20 Dunkle Schatten 2 needs 001.RSC and ENGINE.EXE\n\
+         \x20 Checker 2000 needs 001.RSC to 004.RSC, ENGINE.EXE and ENGINE.RSC\n\
          \x20 Die Enviro-Kids greifen ein needs DATA.-1- and ENVIRO.EXE\n\
          \x20 Jeff Jet needs DATA.-1-, DATA.-2- and HPPLAY.EXE\n\
          \x20 Hilfe für Amajambere needs DATA.-1-, DATA.-2- and BMZ.EXE\n\

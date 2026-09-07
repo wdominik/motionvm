@@ -2,7 +2,7 @@
 
 # The Interaction Machine
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 Pointing, clicking, the verb menu, and verb execution form one native
 subsystem of roughly 4,800 instructions — the largest coherent piece of
@@ -279,18 +279,64 @@ them.
 
 The cursor is the mouse layer's own drawing, not a descriptor.
 `SHOWMOUSE` (0x2541d) and `HIDEMOUSE` (0x2560d) wrap a nesting counter
-(`0xD672C`); the draw helper 0x2543e composes into an 8-aligned scratch
-block — save-under from the video surface `[0xE7D7C]`, then the masked
-blit 0x26594 at the `& 7` x-remainder — and copies the block back, so
-the net position is exactly pointer minus hotspot
-(`0xD6724`/`0xD6728`), color 0 transparent. `XATMOUSE` (0x73525)
-resolves the sprite, hides, defines the shape (0x24637) and shows
-again. The callers of hide/show, found by searching the relocated image for
-calls to them, are the driver layer
-(the pointer follows movement in the interrupt) and engine routines
-bracketing their own blits — fades included — so the pointer sits on
-top of every shown frame, curtain and all — above the curtain, not
-behind it, and above every descriptor regardless of level.
+(`0xD672C`; R78 `0x20310`/`0x20510` around `0xb5884`): a show adds one and
+draws when the count reaches one, a hide takes one and restores when it
+reaches nought, so the pointer is on screen while the count is one or
+more — and both leave without touching it until a shape has armed the
+layer (`0xD6718`; R78 `0xb5870`). The show's drawing (0x2543e, the
+routine behind the handler; R78 `0x20340`) composes into an 8-aligned
+scratch block — save-under from the video surface
+`[0xE7D7C]`, then the masked blit 0x26594 at the `& 7` x-remainder — and
+copies the block back, so the net position is exactly pointer minus
+hotspot (`0xD6724`/`0xD6728`), color 0 transparent. `XATMOUSE` (0x73525)
+resolves the sprite, hides, defines the shape (0x24637) and shows again to
+the count it found. The callers of hide/show, found by searching the
+relocated image for calls to them, are the driver layer (the pointer
+follows movement in the interrupt), engine routines bracketing their own
+blits — fades included — so the pointer sits on top of every shown frame,
+curtain and all — above the curtain, not behind it, and above every
+descriptor regardless of level, and the conversation: `TALK`, `INFO` and
+`GIVE` hide it (0x7c7c5, 0x7ca68, 0x7cd2f), the answer menu shows it
+(0x7ba40), a pick hides it (0x7e43d, 0x7e507), the end shows it (0x7e8d9).
+
+### The engine's own arrow
+
+What arms the layer is the first shape installed, and that is `TOGFX`'s.
+The shape definer (0x24637; R78 `0x1f500`) takes a kind — 1 a sprite of
+the game's, 2 and 3 two 16×16 pictures in the engine's own data, the same
+524 bytes in both builds (R109 `0xd6754`, R78 `0xb58ac`): an **arrow** with
+its hotspot at the corner and a crosshair with its hotspot at 7,7 — and two
+colors. A built-in picture is three values, 0 clear, 8 the body and 15 the
+outline, and the definer replaces 8 and 15 by the two colors it is handed,
+or leaves them standing for a color of −1. Nothing reaches the crosshair.
+The arrow is reached twice:
+
+- **`TOGFX`** (0x6eec5–0x6ef23; R78 `0x5af21`–`0x5af7f`), once the mode is
+  entered and the system palette installed, defines kind 2 at hotspot 0,0
+  with white (63,63,63) for the body and a dark teal (0,47,47) for the
+  outline, puts the pointer at 0,0 and calls `SHOWMOUSE` — the first show,
+  which draws. So a 32-bit game has a pointer from `TOGFX` on without ever
+  saying `SHOWMOUSE`, which Checker 2000 never does.
+- **`NORMMOUSE`** (0x735ac; R78 `0x5ed50`) is the same call without the
+  show: the arrow again, in the same two colors, the count untouched.
+
+Each color goes through the nearest-entry lookup (0x1ee26; R78 `0x1b940`)
+over the engine's copy of the DAC, 256 six-bit entries (R78 `0xbad74`),
+scored as the sum over the channels of the square of the distance plus one
+— `inc %edx` after every `sub` — with the first lowest score winning; in a
+32K-color mode the lookup packs five bits a channel instead. What the arrow
+keeps is the two *indices*, so a later `SETPAL` recolors it with the rest
+of the frame: at `TOGFX` the palette in force is the system palette, and
+Checker 2000's arrow resolves to its entries 1 and 52, which board 5's
+palette 105 then shows as a dark red inside a blue-green line — the frame a
+DOSBox-X recording of the original has at the corner, pixel for pixel
+([verification](../../verification.md)).
+
+The 16-bit layer is the same code (`14ee:000e`; the count at `14ee:16b4`,
+the arming flag at `14ee:16aa`), and its `TOGFX` (`05f1:011a`) defines the
+same arrow with −1 for both colors and no show, so the pointer stays down
+until the script's first `SHOWMOUSE` — and every 16-bit game gives it a
+sprite before that ([game loop](../../motion16/engine/game-loop.md)).
 
 ## Open questions
 

@@ -165,19 +165,46 @@ impl Resources {
         }
     }
 
-    /// The font a text draws in when nothing chose one: the loose `000.FNT`
-    /// beside the 32-bit banks; for a 16-bit game font 0 of the container —
-    /// the text face, which is what `0 SDFNT` at eight of its sites reads as.
-    /// Read now, both ends: `SDFNT` (`05f1:1375`) stores a bare table index
-    /// at `+0x2b`, and `NEWANIM` (`05f1:0021`) runs `0 +FONT` first thing —
-    /// the container's font 0 is the first entry of that table, the face a
-    /// fresh descriptor's zero picks.
+    /// The font a text draws in when nothing chose one: font 0, wherever
+    /// the game keeps it. The 32-bit engine opens `000.fnt` by name through
+    /// its resource layer (R78 `0x21b05`–`0x21b41`), which resolves the name
+    /// to font 0 of whatever holds it (`0x44ad0`–`0x44b2b`) — item 0 of the
+    /// engine's own container, `ENGINE.RSC`, in Checker 2000, and the loose
+    /// file of that name in Dunkle Schatten 2, whose `001.RSC` carries the
+    /// same bytes as item 0 besides. Which of the two the layer prefers when
+    /// both exist is not observable in either game and is not read; the
+    /// container is asked first here. For a 16-bit game font 0 of the
+    /// container — the text face, which is what `0 SDFNT` at eight of its
+    /// sites reads as. Read now, both ends: `SDFNT` (`05f1:1375`) stores a
+    /// bare table index at `+0x2b`, and `NEWANIM` (`05f1:0021`) runs `0
+    /// +FONT` first thing — the container's font 0 is the first entry of
+    /// that table, the face a fresh descriptor's zero picks.
     pub(crate) fn system_font(&self, dir: &std::path::Path) -> Option<Font> {
         match self {
-            Resources::Motion32(_) => motionvm_motion_formats::find_ci(dir, "000.FNT")
-                .and_then(|p| std::fs::read(p).ok())
-                .and_then(|d| motionvm_motion_formats::m32::font::parse(&d).ok()),
+            Resources::Motion32(_) => self.font(0).or_else(|| {
+                motionvm_motion_formats::find_ci(dir, "000.FNT")
+                    .and_then(|p| std::fs::read(p).ok())
+                    .and_then(|d| motionvm_motion_formats::m32::font::parse(&d).ok())
+            }),
             Resources::Motion16(_) => self.font(0),
+        }
+    }
+
+    /// The palette the 32-bit `TOGFX` installs on entering graphics, and the
+    /// one the engine's arrow pointer takes its colors from: `000.pal`,
+    /// opened by name right after `000.fnt` (R78 `0x21b4c`–`0x21b72`) and
+    /// resolved the same way — palette 0 of `ENGINE.RSC` in Checker 2000,
+    /// the loose file in Dunkle Schatten 2, whose `001.RSC` holds the same
+    /// 768 bytes as palette 0 besides. The 16-bit `TOGFX` installs none.
+    pub(crate) fn system_palette(&self, dir: &std::path::Path) -> Option<Palette> {
+        match self {
+            Resources::Motion32(_) => self.palette(0).or_else(|| {
+                motionvm_motion_formats::find_ci(dir, "000.PAL")
+                    .and_then(|p| std::fs::read(p).ok())
+                    .filter(|d| d.len() == Palette::BYTES)
+                    .map(|d| Palette::from_6bit(&d))
+            }),
+            Resources::Motion16(_) => None,
         }
     }
 }
@@ -197,8 +224,20 @@ impl Engine {
         self.dir = Some(dir.to_path_buf());
         self.scene.font_refs = resources.font_refs(dir);
         self.scene.system_font = resources.system_font(dir);
+        self.scene.system_palette = resources.system_palette(dir);
+        self.sample_dir = sample_dir(dir);
         self.resources = Some(resources);
         self
+    }
+
+    /// A speech file by the name a script passes to `->STARTSAMPLE`, out of
+    /// the directory `SMPPATH` names — or `None` where there is no such
+    /// directory or no such file, which is where the original asks for the
+    /// CD forever.
+    pub(crate) fn sample_file(&self, name: &str) -> Option<Vec<u8>> {
+        let dir = self.sample_dir.as_ref()?;
+        let path = motionvm_motion_formats::find_ci(dir, name)?;
+        std::fs::read(path).ok()
     }
 
     /// Puts a module in the first free descriptor slot, as `=>GET` does.
@@ -395,6 +434,54 @@ impl Engine {
             music.sample(block, &sample);
         }
     }
+}
+
+/// The directory the game's speech files are in, from the game's own files.
+///
+/// `SMPPATH` names it as the 1996 installation knew it — `C:\Checker\wavs`
+/// — and `SYSTEM.RSC`, the boot script, names the installation's root the
+/// same way in its first line, `" C:\checker\"`, before `3 ->RSCPATH`. The
+/// directory a copy sits in stands for that root, so the sample directory is
+/// what `SMPPATH` names under the root the boot script names, resolved under
+/// the game directory: `WAVS`. A copy whose boot script names no root, or
+/// whose `SMPPATH` lies outside it, keeps the last component of the path,
+/// which is what an installer would have laid beside the game. Case is not
+/// trusted on either side: the two shipped files spell the root `checker`
+/// and `Checker`.
+fn sample_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    use motionvm_motion_formats::m32::smppath;
+    let named = motionvm_motion_formats::find_ci(dir, "SMPPATH")
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|text| smppath::parse(&text))?;
+    let mut path = smppath::components(&named);
+    // The root the boot script names, if it names one: a quoted string at
+    // the start of the file.
+    let root = motionvm_motion_formats::find_ci(dir, "SYSTEM.RSC")
+        .and_then(|p| std::fs::read(p).ok())
+        .map(|text| motionvm_motion_formats::cp437_to_string(&text))
+        .and_then(|text| {
+            let quoted = text.trim_start().strip_prefix('"')?;
+            let (inside, _) = quoted.split_once('"')?;
+            Some(smppath::components(inside.trim()))
+        })
+        .unwrap_or_default();
+    let under_root = !root.is_empty()
+        && root.len() < path.len()
+        && root
+            .iter()
+            .zip(path.iter())
+            .all(|(a, b)| a.eq_ignore_ascii_case(b));
+    if under_root {
+        path.drain(..root.len());
+    } else if let Some(last) = path.pop() {
+        path = vec![last];
+    }
+    let mut out = dir.to_path_buf();
+    for part in path {
+        // Each step case-insensitively, so a lower-cased copy resolves.
+        out = motionvm_motion_formats::find_ci(&out, &part).unwrap_or_else(|| out.join(part));
+    }
+    out.is_dir().then_some(out)
 }
 
 /// An absolute, symlink-free path for a directory that need not exist yet.

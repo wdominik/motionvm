@@ -1,7 +1,7 @@
 //! Off-screen buffers, as the 16-bit kernel's `SETBUF`, `SDBUF`, `BUFON` and
 //! `KILLNBUF` keep them.
 //!
-//! The 16-bit game draws through buffers where the 32-bit game never does:
+//! The 16-bit games draw through buffers where the 32-bit games never do:
 //! `RUN` switches them on with `BUFON`, the intro gives every motif a buffer
 //! of its own (`2 SDBUF` … `6 SDBUF`) and a 320×200 one to the screen it ends
 //! on (`320 200 1 SETBUF 1 SDBUF`), and `NEWPERS` hands every person sprite
@@ -15,7 +15,7 @@
 //! and saves again.
 //!
 //! This module keeps the buffers as state — sizes, attachments, the switch —
-//! and the drawer composes the scene graph as it does for the 32-bit game,
+//! and the drawer composes the scene graph as it does for the 32-bit games,
 //! rebuilding the place a buffered descriptor leaves from the descriptor
 //! list. On a compositor that redraws from the descriptor list a save-under
 //! changes no pixel, so the picture is the same; where the two could

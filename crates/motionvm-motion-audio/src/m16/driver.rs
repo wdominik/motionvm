@@ -1,6 +1,6 @@
 //! The four data tables `MUSADL.DRV` carries, read out of the shipped file.
 //!
-//! Read rather than embedded, the way the 32-bit game's FM driver reads
+//! Read rather than embedded, the way the 32-bit games' FM driver reads
 //! `HMIMDRV.386`: the file is part of every install, and the bytes stay the
 //! original's.
 //!

@@ -1,5 +1,5 @@
 //! The four commands over a 32-bit game — `NNN.RSC` containers beside
-//! `ENGINE.EXE`, as Dunkle Schatten 2 ships them.
+//! `ENGINE.EXE`, as Dunkle Schatten 2 and Checker 2000 ship them.
 
 use motionvm_motion_formats::font;
 use motionvm_motion_formats::m32::{Kind, ScrModule, Sprite, disasm::Disassembler, rsc::Bank};
@@ -167,7 +167,8 @@ pub(crate) fn extract(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::
     // Scripts: raw module plus a disassembly of its threaded code.
     let img = motionvm_motion_formats::m32::le::Image::open(engine_exe(dir)?)?;
     let kernel = motionvm_motion_formats::m32::le::kernel_words(&img);
-    let mut dis = Disassembler::new(&kernel);
+    let binding = motionvm_motion_formats::m32::le::binding_of(&img, &kernel)?;
+    let mut dis = Disassembler::new(&binding);
     let scr_dir = out.join("scripts");
     std::fs::create_dir_all(&scr_dir)?;
     let mut modules = Vec::new();
@@ -248,7 +249,8 @@ pub(crate) fn script(dir: &Path, id: usize) -> Result<(), Box<dyn std::error::Er
     let m = ScrModule::parse(item)?;
     let img = motionvm_motion_formats::m32::le::Image::open(engine_exe(dir)?)?;
     let kernel = motionvm_motion_formats::m32::le::kernel_words(&img);
-    let mut dis = Disassembler::new(&kernel);
+    let binding = motionvm_motion_formats::m32::le::binding_of(&img, &kernel)?;
+    let mut dis = Disassembler::new(&binding);
     for (_, other) in bank.present(Kind::Script) {
         if let Some(raw) = bank.item(Kind::Script, other)?
             && let Ok(parsed) = ScrModule::parse(raw)

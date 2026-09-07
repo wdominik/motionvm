@@ -46,6 +46,7 @@ mod screens;
 mod sound;
 mod state;
 mod text;
+mod timers;
 mod transitions;
 
 // The dispatchers: the two `Host` impls, which answer the words that need the
@@ -130,7 +131,7 @@ impl Engine {
     /// It is kept as the original's own section order because that is a
     /// reader's map of the kernel, and because changing it would gain nothing.
     ///
-    /// The fifteen near-identical blocks are written out rather than folded:
+    /// The sixteen near-identical blocks are written out rather than folded:
     /// a loop over function pointers would put a layer between the reader and
     /// the list of groups, and the list is the only thing here worth reading.
     pub(crate) fn word32(
@@ -140,6 +141,9 @@ impl Engine {
         mem: &mut m32::Memory,
     ) -> motionvm_motion_forth::Result<bool> {
         if self.words_state(word, stack, mem)?.is_some() {
+            return Ok(true);
+        }
+        if self.words_timers(word, stack, mem)?.is_some() {
             return Ok(true);
         }
         if self.words_screens(word, stack, mem)?.is_some() {

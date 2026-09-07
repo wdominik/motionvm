@@ -56,7 +56,7 @@ pub(super) const ENGINE: &str = "LL.EXE";
 /// and 0 rather than -1 is what means "none yet".
 pub(super) const LOCATION: LocationScheme = LocationScheme {
     module: 605,
-    next: "NAO",
+    next: Some("NAO"),
     fallback: Some(("AO", "AO")),
     unset_below: Some(1),
 };

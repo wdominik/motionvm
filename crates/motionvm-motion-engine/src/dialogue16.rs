@@ -319,7 +319,7 @@ impl Engine {
     /// each the next one's height plus 7 lower; the quiet line at 130. All
     /// in the answers' color and the left template. Ends in mode 14.
     fn choose16(&mut self, vm: &mut m16::Vm, order: u32, t: &Tables, first: i32) -> Result<()> {
-        self.cursor_state.visible = true;
+        self.show_pointer();
         self.run16(vm, order, g::FINISHED, &[])?;
         let arrow = block(vm, order, g::ARROW)?;
         self.run16(vm, order, g::SET_CURSOR, &[arrow, 0, 0])?;
@@ -503,7 +503,7 @@ impl Engine {
                         store(vm, flag, v & 0xfe)?;
                     }
                 }
-                self.cursor_state.visible = false;
+                self.hide_pointer();
                 self.run16(vm, order, g::PICKED, &[])?;
                 self.calc16(vm, order, 0)?;
                 break;
@@ -544,7 +544,7 @@ impl Engine {
     /// exit word if there is one.
     fn over16(&mut self, vm: &mut m16::Vm, order: u32) -> Result<()> {
         self.run16(vm, order, g::TALK, &[-1])?;
-        self.cursor_state.visible = true;
+        self.show_pointer();
         set_block(vm, order, g::MODE, 0)?;
         self.run16(vm, order, g::FINISHED, &[])?;
         self.run16(vm, order, g::EXIT, &[])

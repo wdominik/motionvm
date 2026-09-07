@@ -17,7 +17,7 @@
 //! [`registers`].
 //!
 //! The directory's files say which generation it is: `NNN.RSC` containers
-//! beside `ENGINE.EXE` are a 32-bit game (Dunkle Schatten 2) and go to
+//! beside `ENGINE.EXE` are a 32-bit game (Dunkle Schatten 2 or Checker 2000) and go to
 //! [`m32`], a `DATA.-1-` is a 16-bit game (Die Enviro-Kids greifen ein, Jeff
 //! Jet, Hilfe für Amajambere, Victor Loomes or Falsches Spiel mit Eddie M.,
 //! told apart by the engine binary beside it) and goes to [`m16`]. The two command sets write the same kinds
@@ -76,7 +76,8 @@ usage: motionvm-motion-tools <command> [arguments]
                                      difference.
 
 <gamedata> is the directory the game was installed into: 001.RSC and
-ENGINE.EXE for Dunkle Schatten 2 (MOTION 32-bit), DATA.-1- and ENVIRO.EXE for
+ENGINE.EXE for Dunkle Schatten 2, with ENGINE.RSC beside them for Checker 2000
+(both MOTION 32-bit), DATA.-1- and ENVIRO.EXE for
 Die Enviro-Kids greifen ein, DATA.-1-, DATA.-2- and HPPLAY.EXE for Jeff Jet,
 DATA.-1-, DATA.-2- and BMZ.EXE for Hilfe für Amajambere, DATA.-1- and LL.EXE
 for Victor Loomes, DATA.-1-, DATA.-2-, DATA.-3- and STERN.EXE for Falsches

@@ -1,4 +1,4 @@
-//! Starting and stopping a tune.
+//! Starting and stopping a tune, and the 32-bit engine's five sample words.
 //!
 //! One of the groups `plain_word32` hands a word to, in the order the
 //! original's own match had them — **an order that is load-bearing**: two of
@@ -17,7 +17,7 @@ impl Engine {
         &mut self,
         word: Word,
         stack: &mut Vec<i32>,
-        _mem: &mut dyn AddressSpace,
+        mem: &dyn AddressSpace,
     ) -> Result<Option<()>> {
         match word {
             // The music. `0x7F98D` takes the loop flag, `0x7F99A` the tune
@@ -45,6 +45,41 @@ impl Engine {
                 if let Some(music) = self.sound.sink.as_mut() {
                     music.stop(handle);
                 }
+            }
+            // The samples — see [`crate::sample`] for the reading of the
+            // five handlers. `( block loops -- handle )`: the count on top
+            // (`0x6ad23` pops it first) goes to the layer's record, where the
+            // mixer reads it as the data runs out.
+            Word::STARTSAMPLE => {
+                let a = pop_n(stack, 2, "STARTSAMPLE")?;
+                let [block, loops] = [a[0], a[1]];
+                stack.push(self.start_block_sample(block, loops));
+            }
+            // `( name$ loops -- handle )`: the string's address is resolved
+            // into module memory (`0x568f0`) and the name read out of it.
+            Word::TO_STARTSAMPLE => {
+                let a = pop_n(stack, 2, "->STARTSAMPLE")?;
+                let name = mem.read_bytes(a[0], 80).unwrap_or_default();
+                let name = motionvm_motion_formats::cp437_to_string(
+                    motionvm_motion_formats::nul_terminated(&name),
+                );
+                stack.push(self.start_file_sample(&name, a[1]));
+            }
+            // `( handle -- )`.
+            Word::STOPSAMPLE => {
+                let handle = pop1(stack, "STOPSAMPLE")?;
+                self.stop_sample(handle);
+            }
+            // `( handle -- t | -1 )`.
+            Word::Q_STIME => {
+                let handle = pop1(stack, "?STIME")?;
+                let t = self.sample_time(handle);
+                stack.push(t);
+            }
+            // `( f -- )`: zero ducks, anything else restores (`0x6b39b`).
+            Word::MUSVOLUME => {
+                let f = pop1(stack, "MUSVOLUME")?;
+                self.music_volume(f != 0);
             }
             _ => return Ok(None),
         }

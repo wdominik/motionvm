@@ -8,6 +8,7 @@
 
 use crate::Engine;
 use crate::Placement;
+use crate::cursor::NORMAL_COLORS;
 use crate::stack::pop_n;
 use crate::stack::pop1;
 use crate::words::Word;
@@ -58,30 +59,16 @@ impl Engine {
     ) -> Result<Option<()>> {
         match word {
             // --- mouse pointer ----------------------------------------------
-            // The 16-bit pair keeps a show counter and is inert until a
-            // shape armed the pointer (`14ee:0874`, `14ee:094b`); see
-            // [`Engine::pointer_shows`]. The 32-bit pair is unread and
-            // stays the plain switch.
-            Word::HIDEMOUSE => {
-                if self.profile.pointer_counted {
-                    if self.cursor_state.shape.is_some() {
-                        self.cursor_state.shows -= 1;
-                        self.cursor_state.visible = self.cursor_state.shows >= 1;
-                    }
-                } else {
-                    self.hide_pointer();
-                }
-            }
-            Word::SHOWMOUSE | Word::NORMMOUSE => {
-                if self.profile.pointer_counted {
-                    if self.cursor_state.shape.is_some() {
-                        self.cursor_state.shows += 1;
-                        self.cursor_state.visible = self.cursor_state.shows >= 1;
-                    }
-                } else {
-                    self.cursor_state.visible = true;
-                }
-            }
+            // Both pairs keep the show counter and are inert until a shape
+            // armed the layer (R78 `0x20340`/`0x20540`, `14ee:0874`/
+            // `14ee:094b`); see [`crate::cursor`].
+            Word::HIDEMOUSE => self.hide_pointer(),
+            Word::SHOWMOUSE => self.show_pointer(),
+            // The engine's own arrow, in white and a dark teal resolved
+            // against the palette in force (R78 `0x5ed50`, R109 `0x735ac`).
+            // The count is untouched: a hidden pointer stays hidden, wearing
+            // the arrow. Only the 32-bit kernels have the word.
+            Word::NORMMOUSE => self.arm_arrow(Some(NORMAL_COLORS)),
             Word::SETMOUSEX => self.input.mouse.x = pop1(stack, "SETMOUSEX")?,
             Word::SETMOUSEY => self.input.mouse.y = pop1(stack, "SETMOUSEY")?,
             Word::SETMOUSELB => self.input.mouse.left = pop1(stack, "SETMOUSELB")?,
@@ -303,13 +290,11 @@ impl Engine {
                 stack.extend([self.input.mouse.y, self.input.mouse.x]);
             }
 
-            // --- input, timers, sound ---------------------------------------
-            // Gives the pointer a shape. The handler looks the sprite up, hides
-            // the pointer and installs the new one at the given hotspot — state,
-            // not nothing, which is why it is not on the inert list.
+            // Gives the pointer a sprite of the game's at the given hotspot;
+            // see [`Engine::arm_sprite`].
             Word::XATMOUSE => {
                 let a = pop_n(stack, 3, "XATMOUSE")?;
-                self.set_pointer_sprite(a[2], a[0], a[1]);
+                self.arm_sprite(a[2], a[0], a[1]);
             }
             // The handler pops one value and pushes 0, 0 and it back before
             // calling `XATMOUSE`: a cursor sprite with the hotspot at its
@@ -318,31 +303,11 @@ impl Engine {
             // round, since the hotspot is an offset *into* the sprite.
             Word::ATMOUSE => {
                 let sprite = pop1(stack, "ATMOUSE")?;
-                self.set_pointer_sprite(sprite, 0, 0);
+                self.arm_sprite(sprite, 0, 0);
             }
             _ => return Ok(None),
         }
         Ok(Some(()))
-    }
-}
-
-impl Engine {
-    /// `HIDEMOUSE`: takes the pointer off the screen.
-    ///
-    /// `SHOWMOUSE` and `NORMMOUSE` put it back. Only visibility: the shape and
-    /// the hotspot stay as [`Engine::set_pointer_sprite`] left them.
-    pub(crate) fn hide_pointer(&mut self) {
-        self.cursor_state.visible = false;
-    }
-
-    /// `XATMOUSE`: gives the pointer a shape.
-    ///
-    /// The handler looks the sprite up, hides the pointer and installs the new
-    /// one at the given hotspot — state, not nothing, which is why it is not on
-    /// the inert list. A negative sprite is floored at zero, as the handler's
-    /// lookup does.
-    pub(crate) fn set_pointer_sprite(&mut self, sprite: i32, hot_x: i32, hot_y: i32) {
-        self.cursor_state.shape = Some((cell::unsigned(sprite.max(0)), hot_x, hot_y));
     }
 }
 

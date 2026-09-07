@@ -19,6 +19,7 @@ impl Engine {
         !self.transitions.curtains.is_empty()
             || !self.transitions.wipes.is_empty()
             || self.transitions.scroll.is_some()
+            || self.transitions.slide.is_some()
     }
 
     /// Moves the running transition on, dropping it when finished.
@@ -77,6 +78,10 @@ impl Engine {
     }
 
     pub(crate) fn advance_curtain(&mut self) {
+        if self.transitions.slide.is_some() {
+            self.advance_slide();
+            return;
+        }
         if self.transitions.scroll.is_some() {
             self.advance_scroll();
             return;
@@ -87,8 +92,9 @@ impl Engine {
         }
         // A step, not a frame — see [`Self::step_ticks`]. During a curtain this
         // is exactly one band's worth, so one call moves one band and paints
-        // it, the way the handler's loop does.
-        let ticks = self.step_ticks().max(1);
+        // it, the way the handler's loop does — or nought, for a curtain that
+        // waits for nothing and moves every band at once.
+        let ticks = self.step_ticks();
         let Some(c) = self.transitions.curtains.front_mut() else {
             return;
         };
@@ -414,6 +420,10 @@ pub struct Curtain {
     /// Advancing one band per frame instead ties the fade to the frame rate,
     /// and it showed the moment the frame rate became the right one: at 25
     /// frames a second a band took 40 ms instead of 10.
+    ///
+    /// Nought is a curtain that waits for nothing — R78's, and mode 2's on
+    /// either build: every band in the one step it takes, the step costing
+    /// the clock nothing (`Profile::curtains_wait`).
     pub ticks_per_band: i32,
     /// The band the curtain has reached, in ticks banked toward the next.
     pub banked: i32,
@@ -455,10 +465,17 @@ impl Curtain {
         }
     }
 
-    /// Banks a frame's worth of ticks and moves as many bands as they buy.
+    /// Banks a frame's worth of ticks and moves as many bands as they buy —
+    /// or every band left, for a curtain that waits for nothing.
     pub(crate) fn advance(&mut self, ticks: i32) {
+        if self.ticks_per_band <= 0 {
+            while !self.done() {
+                self.offset += if self.opening { -self.step } else { self.step };
+            }
+            return;
+        }
         self.banked += ticks.max(0);
-        let per = self.ticks_per_band.max(1);
+        let per = self.ticks_per_band;
         while self.banked >= per && !self.done() {
             self.banked -= per;
             self.offset += if self.opening { -self.step } else { self.step };

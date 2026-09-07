@@ -2,7 +2,7 @@
 
 # Threaded Code — Cell Encoding
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 Word bodies are sequences of 32-bit cells. This page describes how the cells
 encode kernel words, calls, literals, and control flow. The interpreter's
@@ -57,11 +57,18 @@ The kernel's words live in three tables inside `ENGINE.EXE` (see
 | Table | Contents | Base |
 |---|---|---|
 | 0 | Core Forth and compiler runtimes | 104 |
-| 1 | Compiling words (`:`, `IF`, `DO`, …) | **unknown** |
+| 1 | Compiling words (`:`, `IF`, `DO`, …) | 634 |
 | 2 | Domain words (`NEWSCREEN`, `SDIAL`, `ANIMPLAY`, …) | 1039 |
 
-Table 1's base has never been observed because its words run at compile
-time and never appear as a cell. Anchor values confirming the formula:
+Table 1's base is never seen in a cell — its words run at compile time —
+and is read out of the init like the other two: every registered word takes
+five bytes of the dictionary and its ordinal is the dictionary pointer plus
+four, so the bases are counts. Table 0 begins at 104; `_FNAME`, registered
+by itself, is 609; a gap of twenty puts table 1 at 634; the shell's 54 words
+follow one by one, `TEST` at 769 and `PROGINFO` at 1034; and table 2 begins
+at 1039. Checker 2000's build counts to 104, 559, 584, 719 and 934 the same
+way ([ENGINE.EXE R78](../engine/engine-r78.md#the-kernel)). Anchor values
+confirming the formula:
 
 | Word | Table, index | Ordinal |
 |---|---|---|
@@ -130,7 +137,6 @@ The compiler's emissions for each construct:
 
 ## Open questions
 
-- Table 1's ordinal base (its words never appear as cells).
 - `_LoopStart`'s ordinal: arithmetic suggests 389 (table 0, the only gap
   between `_Repeat` = 384 and `_LoopEnd` = 394), but this has not been
   confirmed.

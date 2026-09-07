@@ -315,7 +315,7 @@ impl Engine {
                     vm.mem.store(flag, v & 0xfe)?;
                 }
             }
-            self.cursor_state.visible = false;
+            self.hide_pointer();
             self.order_callback(vm, order, PICKED, &[])?;
             self.calc_dialog(vm, order, 0)?;
             break;
@@ -380,7 +380,7 @@ impl Engine {
     /// the conversation as over.
     pub(crate) fn dialog_over(&mut self, vm: &mut m32::Vm, order: u32) -> Result<bool> {
         self.order_callback(vm, order, 0x50, &[-1])?;
-        self.cursor_state.visible = true;
+        self.show_pointer();
         vm.mem.store(Self::field(order, 0x0c), 0)?;
         self.order_callback(vm, order, 0x124, &[])?;
         if Self::cell(&vm.mem, order, 0x1d8)? != 0 {
@@ -465,7 +465,7 @@ impl Engine {
         } = talk;
         let o = |off: u32| Self::field(order, off);
         let voice = vm.mem.fetch(o(SPEAKERS))?;
-        self.cursor_state.visible = true;
+        self.show_pointer();
         self.order_callback(vm, order, 0x124, &[])?;
         let arrow = cell::signed(vm.mem.fetch(o(ARROW))?);
         self.order_callback(vm, order, 0xb8, &[arrow, 0, 0])?;

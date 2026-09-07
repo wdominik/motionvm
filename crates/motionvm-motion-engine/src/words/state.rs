@@ -1,4 +1,4 @@
-//! Video mode, the subsystem flags, and the two block-file words.
+//! Video mode, the subsystem flags, the two block-file words, and the date.
 //!
 //! One of the groups `plain_word32` hands a word to, in the order the
 //! original's own match had them — **an order that is load-bearing**: two of
@@ -36,9 +36,21 @@ impl Engine {
             Word::SETRES => self.select_mode(pop1(stack, "SETRES")?),
             Word::TOGFX => self.enter_graphics()?,
             Word::GFXTO => self.leave_graphics(),
-            // No sound, matching how the reference runs; `HICOLOR` answers for
-            // the selected mode, as the original does (`0xd6600`).
-            Word::Q_SOUND => stack.push(0),
+            // `?SOUND` (R78 `0x6b340`) tests bit 4 of the sound layer's
+            // status byte (`0xbb7d4`) and pushes 1 or 0. The layer's init
+            // (`0x6fb44`–`0x6fbd4`) sets bit 1 for its timer, bit 2 when the
+            // MIDI driver came up, bit 4 when the **digital** driver did —
+            // the card `HMISET.CFG` names, and its init succeeding — and bit
+            // 8 when that driver streams. Here the sound layer is the sink:
+            // with one attached, the digital side is what plays the samples
+            // the words below start, so the answer is 1; without, 0 — the
+            // original with no card configured, whose start words answer 0
+            // and whose scripts skip every sample behind this flag. Checker
+            // 2000 keeps the answer in `_SPEECH` and speaks by it; Dunkle
+            // Schatten 2 keeps it and never reads it.
+            Word::Q_SOUND => stack.push(i32::from(self.sound.sink.is_some())),
+            // `HICOLOR` answers for the selected mode, as the original does
+            // (`0xd6600`).
             Word::HICOLOR => stack.push(i32::from(self.hicolor())),
             Word::RESETANIM | Word::RESETFONT => self.note_no_effect(word),
             // The resource loader, and the reason nothing was ever drawn while
@@ -82,8 +94,24 @@ impl Engine {
                         };
                         mem.write_bytes(addr, &data[..n])?;
                     }
-                    // A missing resource is not a no-op: something downstream
-                    // will read the memory that should have been filled.
+                    // A block that is nowhere. The 32-bit fetch (R78
+                    // `0x47840`, R109's twin) answers a null pointer: the
+                    // catalog names no container, the loose file is not
+                    // there, and the diagnostic it would print carries an id
+                    // the printer drops — and `GET` then copies `size` bytes
+                    // from linear address 0, the real-mode interrupt vector
+                    // table under DOS/4GW (`0x5605e`). Checker 2000 runs
+                    // into it on every fresh install: its high-score module
+                    // reads block 98 before anything has written it (module
+                    // 218, `READSAVE`), so the original fills its table with
+                    // the machine's interrupt vectors. Those bytes exist
+                    // nowhere here, so the destination is left as it stands
+                    // — zero in a fresh module — and the miss is counted;
+                    // `docs/motion/departures.md` carries it. The 16-bit
+                    // fetch's miss is not read, and stops by name.
+                    None if self.profile.get_skips_missing_block => {
+                        self.note_unhandled(Word::GET, Some(format!("block {id} missing")));
+                    }
                     None => {
                         return Err(Error::MissingResource {
                             kind: "block",
@@ -139,6 +167,24 @@ impl Engine {
                 self.inert(stack, 3, Word::DREQUEST)?;
             }
             Word::RESETTI => self.note_no_effect(word),
+            // `( -- day month year )`: the date, from DOS. Both machines'
+            // handlers call INT 21h function 2Ah and push `dl`, `dh` and
+            // `cx` in that order — the day of the month, the month, and the
+            // year in full: `STERN.EXE` `0cd3:37d9` (file `0x13709`) and
+            // `ENVIRO.EXE` `0d34:3a01` on the 16-bit machine, `ENGINE.EXE`
+            // V0.04.15/R78 `0x61320` on the 32-bit one, where it pushes the
+            // bytes at `-0x10`, `-0xf` and the word at `-0x14` of the
+            // register block the call filled. Falsches Spiel mit Eddie M.
+            // reads it for the current issue number of the magazine it
+            // advertises, Checker 2000 to stamp its high-score entries. The
+            // date is the machine's, read in UTC; a suite pins it with
+            // [`Engine::fix_date`].
+            Word::GIVEDATE => {
+                let (day, month, year) = self.today();
+                stack.push(day);
+                stack.push(month);
+                stack.push(year);
+            }
             _ => return Ok(None),
         }
         Ok(Some(()))

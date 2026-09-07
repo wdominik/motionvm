@@ -317,8 +317,75 @@ fn the_shipped_kernel_binds_the_inline_words_where_the_measurement_says() {
     let img = motionvm_motion_formats::m32::le::Image::open(game_file(&dir, "ENGINE.EXE"))
         .expect("parse LE");
     let words = motionvm_motion_formats::m32::le::kernel_words(&img);
-    let binding = motionvm_motion_formats::m32::le::binding_of(&words);
+    let binding =
+        motionvm_motion_formats::m32::le::binding_of(&img, &words).expect("the kernel binds");
     assert_eq!(binding.inline, motionvm_motion_formats::m32::le::INLINE);
+}
+
+/// The ordinals the init gives the kernel's words are the ones the original
+/// compiler emits.
+///
+/// The binding is read out of the registration code — where the dictionary
+/// pointer starts, what the kernel init registers between its two tables,
+/// how many words the shell registers before the graphics init — and these
+/// are the anchors it is held to: cells the original compiler emitted for
+/// `DUP`, `DROP`, `_PutLit`, `_PutAdr`, `_PutConst`, `TOGFX` and `NEWSCREEN`,
+/// read back out of probe modules it compiled. The domain table's base is the
+/// one a second build moves, and 1039 is this build's.
+#[test]
+fn the_shipped_kernel_binds_where_the_compiler_emits() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let img = motionvm_motion_formats::m32::le::Image::open(game_file(&dir, "ENGINE.EXE"))
+        .expect("parse LE");
+    let words = motionvm_motion_formats::m32::le::kernel_words(&img);
+    let binding =
+        motionvm_motion_formats::m32::le::binding_of(&img, &words).expect("the kernel binds");
+    for (name, ordinal) in [
+        ("##", 104),
+        ("DUP", 139),
+        ("DROP", 154),
+        ("_PutLit", 174),
+        ("_PutAdr", 179),
+        ("_PutConst", 184),
+        ("TOGFX", 1039),
+        ("NEWSCREEN", 1144),
+    ] {
+        assert_eq!(binding.ordinal(name), Some(ordinal), "{name}");
+    }
+    // What the reading places between the tables: `_FNAME` right after
+    // table 0, the compiling words after the twenty-byte gap, and the
+    // shell's fifty-four words before the domain table — none of which the
+    // shipped modules name, and all of which have to be counted for `TOGFX`
+    // to land where it does.
+    assert_eq!(binding.ordinal("_FNAME"), Some(609));
+    assert_eq!(binding.ordinal(":"), Some(634));
+    assert_eq!(binding.ordinal("TEST"), Some(769));
+    assert_eq!(binding.ordinal("->RSCPATH"), Some(769 + 5 * 35));
+    assert_eq!(binding.ordinal("PROGINFO"), Some(1034));
+    assert_eq!(
+        binding.len(),
+        356 + 1 + 54,
+        "every registered word is bound"
+    );
+}
+
+/// The two handlers the two 32-bit builds disagree on, read off this one:
+/// `SDINSERT` pops a kind beside the value and the slot, and the curtains
+/// divide their duration by the band count and wait (`0x74ac5`, `0x74cf6`).
+#[test]
+fn this_build_files_insert_kinds_and_waits_between_bands() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let img = motionvm_motion_formats::m32::le::Image::open(game_file(&dir, "ENGINE.EXE"))
+        .expect("parse LE");
+    let words = motionvm_motion_formats::m32::le::kernel_words(&img);
+    assert!(motionvm_motion_formats::m32::le::sdinsert_takes_kind(&img, &words).unwrap());
+    assert!(motionvm_motion_formats::m32::le::fades_wait(&img, &words).unwrap());
 }
 
 #[test]
@@ -342,7 +409,16 @@ fn engine_executable_relocates_and_yields_the_kernel_word_table() {
     );
 
     let words = motionvm_motion_formats::m32::le::kernel_words(&img);
-    assert_eq!(words.len(), 356, "kernel words");
+    let in_tables = words
+        .iter()
+        .filter(|w| w.table != motionvm_motion_formats::m32::le::SHELL_GROUP)
+        .count();
+    assert_eq!(in_tables, 356, "kernel words in the three tables");
+    assert_eq!(
+        words.len(),
+        356 + 54,
+        "and the shell's, registered one by one"
+    );
 
     let by_name = |n: &str| words.iter().find(|w| w.name == n);
 
@@ -380,11 +456,12 @@ fn engine_executable_relocates_and_yields_the_kernel_word_table() {
     let newscreen = by_name("NEWSCREEN").expect("NEWSCREEN missing");
     assert_eq!(newscreen.table, 2);
 
-    let mut per_table = [0usize; 3];
+    // The three tables, and the shell's words registered one at a time.
+    let mut per_group = [0usize; 4];
     for w in &words {
-        per_table[w.table] += 1;
+        per_group[w.table] += 1;
     }
-    assert_eq!(per_table, [101, 27, 228], "table sizes");
+    assert_eq!(per_group, [101, 27, 228, 54], "group sizes");
 }
 
 /// The Ad Lib banks the music is actually played with.

@@ -1,0 +1,11 @@
+# Reference digests for checker, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+board-2  0x4b51d6a74ccc34df
+info-page  0x7c0fdde7be2c957e
+registration  0x40dbfaeac2ec5ef7
+registration-name  0x8af14878306a986c

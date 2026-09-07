@@ -5,14 +5,16 @@
 //! `{name, handler}` pairs inside the engine binary — 8-byte pairs of 32-bit
 //! pointers in the relocated LE image of the 32-bit engine
 //! ([`crate::m32::le`]), 8-byte pairs of far pointers in the 16-bit MZ image
-//! ([`crate::m16::mz`]). A [`KernelWord`] is one such entry. How an ordinal
-//! in threaded code maps onto an entry differs per generation — five per
-//! table index from a measured base in the 32-bit engine, one per index from
-//! 1 and from a per-build base in the 16-bit one, 105 in the three later
-//! builds and 102 in `LL.EXE` — and a [`Binding`] is that answer made
-//! concrete: the ordinal-to-name map, plus the ordinals of the words that
-//! carry an operand in the cell after them, which is what a machine or a
-//! disassembler has to know before it can walk a body.
+//! ([`crate::m16::mz`]); the 32-bit engine's shell registers a further few
+//! dozen one at a time, out of its init code rather than a table. A
+//! [`KernelWord`] is one such entry. How an ordinal in threaded code maps onto
+//! an entry differs per generation — five bytes per registered word in the
+//! order the 32-bit engine's inits register them, one per index from 1 and
+//! from a per-build base in the 16-bit one, 105 in the three later builds and
+//! 102 in `LL.EXE` — and a [`Binding`] is that answer made concrete: the
+//! ordinal-to-name map, plus the ordinals of the words that carry an operand
+//! in the cell after them, which is what a machine or a disassembler has to
+//! know before it can walk a body.
 
 /// One entry of the Forth kernel's word table.
 #[derive(Debug, Clone)]
@@ -23,11 +25,15 @@ pub struct KernelWord {
     /// the relocated image for the 32-bit engine, a file offset for the 16-bit
     /// one.
     pub handler: u32,
-    /// Address of the table entry itself, in the same space as `handler`.
+    /// Address of the table entry itself, in the same space as `handler` —
+    /// for a word the 32-bit shell registers without a table, the address of
+    /// the call that registers it.
     pub entry: u32,
-    /// Which of the kernel's tables this came from, in address order.
+    /// Which of the kernel's word groups this came from: the tables, in
+    /// address order, and on the 32-bit engine
+    /// [`crate::m32::le::SHELL_GROUP`] for the shell's words.
     pub table: usize,
-    /// Index within that table.
+    /// Index within that group.
     pub index: usize,
 }
 
@@ -142,12 +148,12 @@ impl Inline {
     /// of that name, or `None` if any name but `_ChElseDup` and
     /// `_PutStringAdr` is missing.
     ///
-    /// This is how the 16-bit kernel's set is bound. It is a derivation, not
-    /// a measurement — the measurement is that walking all 65 modules of
-    /// Die Enviro-Kids greifen ein
-    /// modules with this set meets no unknown ordinal and ends every body at
-    /// the next word's header. The 32-bit kernel's set is measured directly
-    /// and kept as constants ([`crate::m32::le::INLINE`]).
+    /// This is how both kernels' sets are bound. It is a derivation, not a
+    /// measurement — the measurement is that walking all 65 modules of Die
+    /// Enviro-Kids greifen ein with this set meets no unknown ordinal and ends
+    /// every body at the next word's header, and that the 32-bit set so read
+    /// agrees with the one measured on the original compiler's output, which
+    /// is kept as constants ([`crate::m32::le::INLINE`]) for that comparison.
     pub fn by_name(words: &[(u32, String)]) -> Option<Inline> {
         let find = |name: &str| words.iter().find(|(_, n)| n == name).map(|&(o, _)| o);
         Some(Inline {

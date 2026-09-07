@@ -5,10 +5,13 @@
 //! front door installs. What is kept here is only what the *script* can ask
 //! about — the handle a tune was started under, and whether one is playing,
 //! which is what the 16-bit `ENDTUNE` reads before it decides to wait. A
-//! sample goes the same way, whole, and nothing of it is kept here: no word
-//! of the games asks after one.
+//! 16-bit sample goes the same way, whole, and nothing of it is kept: no
+//! word of those games asks after one. The 32-bit samples are asked after —
+//! `?STIME` and `STOPSAMPLE` take the handle back — so their nodes are kept,
+//! in [`crate::sample`]'s reading.
 
 use crate::MusicSink;
+use crate::sample::SampleNode;
 
 /// The music, from the script's side of the seam.
 pub(crate) struct Sound {
@@ -28,6 +31,11 @@ pub(crate) struct Sound {
     /// ask for comes while a song is still playing, and Victor Loomes'
     /// jingle, played once, still gets its fade.
     pub(crate) playing: bool,
+
+    /// The 32-bit samples started and not stopped, newest last — the list at
+    /// `0xcb308` (R78), which the start words push onto and `STOPSAMPLE`
+    /// unlinks from.
+    pub(crate) samples: Vec<SampleNode>,
 }
 
 impl Default for Sound {
@@ -38,6 +46,7 @@ impl Default for Sound {
             sink: None,
             next_handle: 1,
             playing: false,
+            samples: Vec::new(),
         }
     }
 }

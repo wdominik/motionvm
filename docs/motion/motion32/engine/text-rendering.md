@@ -2,7 +2,7 @@
 
 # Text Rendering
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 Text is drawn through text [descriptors](descriptors.md). The string
 comes from a [text table](../formats/text-tables.md); the glyphs from a
@@ -21,8 +21,56 @@ the cached layout. `DRAWSCR` draws nothing — it only marks.
   production credit and the intro backstory; read 0-based, stray debug
   texts appear.)
 - UI descriptors idle on `SDTXT 1` = entry 0, the empty string.
-- `GDTXTLEN`/`GDTEXTLEN` return the entry's string length **including**
-  newline characters (measured: 79 and 380 for entries 108/109).
+- `GDTXTLEN`/`GDTEXTLEN` return the length of the text **as laid out** —
+  the line window and the inserts in, newline characters included (measured:
+  79 and 380 for entries 108/109, whole texts with no slot set). Both
+  handlers run the layout first (`0x731cd` → `0x6c9f8`; R78 `0x5ea51` →
+  `0x5a100`) and answer for its buffer.
+
+## The layout: the line window and the inserts
+
+What a text descriptor shows is not the entry as the table holds it but the
+**layout's** version of it, made by `0x6c9f8` (R78 `0x5a100`) inside the
+drawer and again inside every word that measures a text (`0x6c8c1`). Both
+builds lay out the same way up to one branch:
+
+1. The entry is fetched by table and entry (`0x6c846`; R78 `0x5a0a0`).
+2. Its **line window** is copied into a buffer (`0xee700`; R78 `0xc9028`):
+   newlines are counted, the copy starts once `SDSTARTLINE` (`+0x18` of the
+   text record) of them have gone by and stops once the count reaches
+   `SDSTARTLINE + SDALINES` (`+0x1c`) — the newline that ends the last line
+   goes with it. `SDTXT` and `SDTB` write 0 and 99 there when they make the
+   record, so a text nobody windowed is whole. Checker 2000's information
+   pages scroll by fifteen lines at a time this way.
+3. The five **insert slots** (`+0x20`), written by `SDINSERT`, become the
+   arguments of the engine's own `#`-formatter (`0x11d66`; R78 `0x11bd0`),
+   and the window is formatted into the record's text buffer (`+0xc`).
+
+The formatter is `printf` with `#` for `%`: a directive is `#`, an optional
+fill `F<c>`, an optional width `L<n>` (pad after) or `R<n>` (pad before), an
+optional `u`, then `i` or `l` for a number, `s` for the string at a pointer,
+`c` for a byte. A sign is written before the padding, so a right-aligned
+negative number comes out `- 15`. Any other letter is consumed and prints
+nothing — `##` prints nothing, and a `#` before a newline eats the newline,
+which is how one of Checker 2000's help texts loses a blank line. Checker
+2000's highscore is `1. #s\n\n2. #s …` with five name buffers in the slots,
+its registration `#s<` with the name buffer and the cursor after it; a
+keystroke shows without a new `SDINSERT`, because the string is read where
+the pointer points when the text is laid out.
+
+The branch: **R109 looks for a set slot first** (`0x6cb00`) and, when there
+is none, points the record at the entry as it stands (`0x6cd39`) — no
+window, no formatting, a literal `#` stays. R78 has no such look and formats
+every text. And a slot is not the same thing on the two: `SDINSERT` takes
+`( value kind slot -- )` on R109 (`0x75cfe`) and files the kind beside the
+value (`+0x34`), which the layout converts by — 0 a pointer at the string, 1
+the number as it stands, 2 the number in the cell the address names; on
+R78 it takes `( value slot -- )` (`0x611c0`) and the layout hands every set
+slot over as a pointer. Dunkle Schatten 2's one caller is its debug overlay,
+with numbers; every one of Checker 2000's passes an address. motionvm reads
+which of the two a build is off its `SDINSERT` handler and carries it as a
+capability; what the original owes to its own address space — a `#i` handed
+a pointer — is a [departure](../../departures.md#display-and-timing).
 
 ## Selecting the font
 

@@ -158,15 +158,27 @@ fn a_container_beside_no_engine_binary_is_not_guessed_at() {
 }
 
 #[test]
-fn a_32_bit_directory_missing_a_required_file_names_it() {
-    // `detect` reads file names only, so a lone `001.RSC` is answered as the
-    // 32-bit game; what it is missing has to come out of the opener.
+fn a_32_bit_container_with_no_scripts_is_nobodys() {
+    // Both 32-bit games ship `NNN.RSC` beside an `ENGINE.EXE`, so a file name
+    // goes no further than the generation: which game a container is comes
+    // out of the words its scripts export. A container with no scripts is
+    // therefore no one's — naming Dunkle Schatten 2 and then failing on its
+    // missing files would be worse than saying so — and the refusal is the
+    // roster's, naming what each game needs, this one's engine binary among
+    // them.
     let d = dir("rsc_alone");
     put(&d, "001.RSC", &empty_rsc());
-    assert_eq!(titles::detect(&d), Some(Title::DunkleSchatten2));
-    let text = refused_naming_dir(&d, "a container with no engine binary");
+    assert_eq!(titles::detect(&d), None);
+    let text = refused_naming_dir(&d, "a container with no scripts");
+    assert!(
+        text.contains("Dunkle Schatten 2 needs"),
+        "the roster: {text}"
+    );
+    assert!(
+        text.contains("Checker 2000 needs"),
+        "both 32-bit games: {text}"
+    );
     assert!(text.contains("ENGINE.EXE"), "should name it: {text}");
-    assert!(text.contains("000.FRT"), "and the font table: {text}");
 
     assert_eq!(
         titles::ds2::missing_data(&d)
@@ -337,15 +349,19 @@ fn a_lower_cased_install_is_found_and_an_almost_container_is_not() {
     // A copy that has been through a CD-ROM driver, an archiver or a file
     // manager often arrives lower-cased, and on a case-sensitive filesystem
     // an exact-case join reports the files as absent while they sit right
-    // there. It must reach the same error as the upper-cased copy — the
-    // engine binary — and not "no game here".
+    // there. Every file has to be found under its lower-cased name: the
+    // container counts as one (the directory is a 32-bit game's shape, though
+    // an empty container names no game), and the game's required files are
+    // all present to the opener that looks for them.
     let d = dir("lower_case");
     put(&d, "001.rsc", &empty_rsc());
     put(&d, "engine.exe", b"not an executable");
     put(&d, "000.frt", &[0u8; 512]);
-    assert_eq!(titles::detect(&d), Some(Title::DunkleSchatten2));
+    assert!(motionvm_motion_formats::m32::has_container(&d));
+    assert_eq!(titles::detect(&d), None, "an empty container is no one's");
     refused_naming_dir(&d, "a lower-cased install");
     assert!(titles::ds2::missing_data(&d).is_empty());
+    assert!(titles::checker::missing_data(&d).is_empty());
 
     // The pattern is three digits and nothing else: the engine loads
     // `%03d.rsc` and a file named otherwise is not one of its containers.

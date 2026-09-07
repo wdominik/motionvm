@@ -75,7 +75,44 @@ has to walk a body rather than run it, keeps the compiler's
 `"GANRUFBA"`, at four sites, where both routes reach the same return with the
 same stack. ([Word semantics](motion32/vm/word-semantics.md))
 
+**`GET` of a block no container holds copies nothing, and says nothing.**
+Both 32-bit builds copy from linear address 0 — the interrupt vector table —
+into the module, as their fetch has no miss path; motionvm leaves the memory
+as it was and counts the miss. Checker 2000's first run makes it once, for
+the highscore block 98 it has not written yet — and there the original does
+say something first: its resource layer puts up two of the engine's own error
+boxes, one after the other, each a grey *Fehler* panel with an *OK* button
+at 40,40 over a black screen, and the game waits at each for the click.
+The texts are messages 24 and 37 of the engine's message table (R78
+`0xb5ffc`): *RSC-Item mit Namen 098.BLK nicht verfügbar!* and *Freies
+Blk-Item auf 'frei' gesetzt: BlkNr 98*. After the second *OK* the
+registration board comes up as it does here. motionvm shows neither box —
+the engine's native error box is not rebuilt — and counts the miss instead.
+Read on a DOSBox-X recording of the original.
+([Game structure](games/checker/game-structure.md#saving))
+
 ## Display and timing
+
+**An unwaiting curtain takes no time at all.** R78's `FADEIN` and `FADEOUT`
+wait between bands for nothing but the presenter, and `FADEIN`'s mode 2
+waits on neither build; a curtain of theirs is 31 passes of marking and
+copying, about 40 ms under DOSBox-X. motionvm moves every band of such a
+curtain in one step that costs the master clock nothing and shows no
+partial picture, where the original shows one to three at 70 frames a
+second. The presenter's own milliseconds are not modeled anywhere.
+([Transitions](motion32/engine/transitions.md#timing))
+
+**A box painted onto the surface is kept by when it was painted.** The
+original's drawer paints onto a surface that persists, so `WHITEBOX`'s box
+— and `FADEIN` mode 2's — goes over what was drawn before it and under what
+is drawn after, and the copy `SDAUTOBUF` pastes back was taken with the
+box in it. motionvm's drawer builds a rectangle it has to draw again out
+of the descriptor list, and keeps each paint on its screen with the pass
+it came after and each descriptor with the pass that last drew it, so the
+rebuilt rectangle draws the older descriptors, then the paint, then the
+newer — the order the surface would hold. The difference could show only
+if a descriptor below the paint were redrawn without the ones above it,
+which the original's map never does. ([Screens](motion32/engine/screens.md#the-drawn-buffer))
 
 **The fade clamps its two divisions; the original does not.** `bands` and
 `delay` are each taken to be at least 1. With the three screens Dunkle Schatten 2 has —
@@ -190,6 +227,15 @@ for a game's lifetime. Dunkle Schatten 2 asks for `640x480x256` once, so none
 of the three is reached.
 ([Screens](motion32/engine/screens.md#the-video-mode))
 
+**A text's `#i` of an address prints the address.** The 32-bit layout hands
+the `#`-formatter every set insert slot as a pointer into its own memory,
+and a text that says `#i` where a script inserted an address prints where
+DOS/4GW happened to put the module; the cell address stands in, and the
+case is counted. No shipped text does it. `#s` of a number prints nothing
+where the original reads its memory at that number, and `TEXT->PRINTER`
+prints nothing at all: there is no printer.
+([Text rendering](motion32/engine/text-rendering.md#the-layout-the-line-window-and-the-inserts))
+
 ## Savegames
 
 **They are not interchangeable, in either direction.** `NEWSCREEN` and `NEWDESC`
@@ -303,10 +349,15 @@ digital-only configuration still has music. Their internals are unread, so
 motionvm plays the FM rendition for every game and every setting. The one
 word that reaches those drivers for a *sample* rather than a tune,
 `PLAYSAMPLE`, is another matter: its path through the driver is read and
-rebuilt ([the 16-bit machine](#the-16-bit-machine)). The 32-bit
-game's digital layer is the same story from the other end: `ENGINE.EXE` has one,
-`?SOUND` reports it, and it is not ported. A player who remembers the sampled
-mix will hear the synthesized one. Both are
+rebuilt ([the 16-bit machine](#the-16-bit-machine)). The 32-bit engine's
+digital layer plays its samples — Checker 2000's speech and effects — as
+its mixer does, read: unchanged at full volume, `2 × ⌊frame × volume /
+65 536⌋` below it, at the DSP's 22 050 Hz. What the original never sums
+digitally is the music: the OPL3 and the DSP meet in the card's analog
+mixer, and here the voice is added to the OPL's frame with saturation
+([audio](motion32/engine/audio.md#the-digital-mixer)). A player who
+remembers the sampled rendition of a 16-bit tune will hear the
+synthesized one. Both are
 [open questions](open-questions.md) before they are choices; they are here
 because the choice is what a player meets.
 ([Audio](motion32/engine/audio.md))

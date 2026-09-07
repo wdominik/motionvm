@@ -2,7 +2,7 @@
 
 # Kernel Words
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 The Forth kernel's built-in words are registered in three arrays inside
 `ENGINE.EXE`'s data segment. Each array is a NULL-terminated list of 8-byte
@@ -35,8 +35,9 @@ Table 1 holds exactly these 27 compiling words, in table order:
 BEGIN  UNTIL  WHILE  REPEAT  [N]  ."  "  .""  $"  F"  /*  //  COMPILE  ALLOT
 ```
 
-They run at compile time only and never appear in compiled code (which is
-why their ordinal base is unknown — see
+They run at compile time only and never appear in compiled code; their
+ordinal base is read out of the init all the same — 634 here, 584 in
+Checker 2000's build — because the registration is a count (see
 [Threaded code](threaded-code.md)). Note the comparison family `IF`/`>IF`/
 `=IF`/`=>IF`: two-operand conditionals compiled to `_CheckIf`-style
 runtimes, and both comment forms (`/*`, `//`).
@@ -45,6 +46,11 @@ runtimes, and both comment forms (`/*`, `//`).
 real scope of any reimplementation. Counted by disassembling all 86 script
 modules and taking the union of the kernel names their cells name; no module
 word shares a name with a kernel word, so the count is exact.
+
+Checker 2000's build, V0.04.15/R78, has **375** — 91, 27 and 214 in the
+three tables and 43 registered by the shell — and its 119 modules use 138
+of them. Every word it has, this build has; the 35 it lacks are listed on
+[its page](../engine/engine-r78.md#the-kernel).
 
 A count taken any other way comes out low. Walking a module only as far as
 `0x50 + 16004` misses the words appended past module memory, and a static
@@ -167,7 +173,7 @@ Small words whose handlers have been read completely:
 | `ANIMPLAY` | Pops **none** of the ten values the game pushes for it |
 | `640x480x256` etc. | The mode words push small ordinals — 2, 1, 4 — not packed dimensions; `SETRES` consumes them, and `0x13fc0` maps them to VESA mode numbers ([screens](../engine/screens.md#the-video-mode)) |
 | `GFXCRUNCH` / `XGFXCRUNCH` | Toggle one flag bit in a record — no pixel work |
-| `RGB->COL ( b g r -- i )` | 6-bit components in, a palette index out |
+| `RGB->COL ( r g b -- i )` | 6-bit components in, red deepest and blue on top — the handler (`0x75e0e`) pops them into the nearest-entry lookup at `0x1ee26`, the one `NORMMOUSE` and `WHITEBOX` use, which answers the index of the closest entry of the script's palette ([interaction](../engine/interaction.md#the-engines-own-arrow)) |
 | `MOUSEXY` | Pushes y first, then x (x ends on top) |
 | `?ACTDESC` / `GDNR` | The same two instructions — both return the current descriptor handle |
 
@@ -192,7 +198,6 @@ The engine has no word that saves its own screen contents.
   pins down most others; what remains (native animation, dialogue
   requesters, `MOUSEINFO`/`DOORDER` internals, module persistence) is
   listed in [Open questions](../../open-questions.md).
-- Table 1's ordinal base.
 
 ## See also
 

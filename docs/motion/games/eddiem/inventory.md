@@ -109,5 +109,5 @@ on `##`. The numbering is in the [module map](module-map.md).
 
 - [Module map](module-map.md) — what each module does
 - [Game structure](game-structure.md) — what they add up to
-- [The DATA container](../../motion16/formats/container.md) — the format, across the six 16-bit games
+- [The DATA container](../../motion16/formats/container.md) — the format, across the five 16-bit games
 - [Resource inventory (Jeff Jet - Abenteuer InfoHighway)](../jeffjet/inventory.md) — two volumes, packed

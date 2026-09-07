@@ -124,10 +124,17 @@ pub struct Sequencer {
     /// Set when a track's `FE 15` asked for a branch; applied to every track.
     branch_to: Option<i16>,
     finished: bool,
-    /// The engine's own controller-7 cache, `chan+0x1C` (`0x98C4D`). Every song
-    /// sets it on every channel before its first note; 127 is what an
-    /// untouched channel would be worth.
+    /// The controller-7 value each channel was last given, `chan+0x14`
+    /// (`0x98C4D` stores it beside the scaled one). Every song sets it on
+    /// every channel before its first note; 127 is what an untouched channel
+    /// would be worth.
     volume: [u8; 16],
+    /// The sound layer's master volume, `0xbe9d0` in R78 (`0xbe9d0` set at
+    /// `0x7b1bc`): what every controller 7 is scaled by on its way to the
+    /// device, `chan+0x1c = value × master / 127` at `0x8371e` (R78), and
+    /// what the drum fold reads (`0x98aa8` in R109 reads `+0x1c`). `0x7f`
+    /// until `MUSVOLUME` ducks it to `0x38`.
+    master: u8,
     /// The track that was stopped for running away, if one was.
     ///
     /// Recorded rather than reported on the spot because there is nowhere to
@@ -160,7 +167,7 @@ impl Sequencer {
     /// opening tune carries a bass and a second guitar for other devices,
     /// and on the OPL3 they are silent, which is what a recording of the
     /// original shows.
-    pub fn new(song: Song, device: u32) -> Self {
+    pub fn new(song: Song, device: u32, master: u8) -> Self {
         let song = Song {
             tracks: song
                 .tracks
@@ -188,7 +195,46 @@ impl Sequencer {
             branch_to: None,
             finished: false,
             volume: [0x7f; 16],
+            master,
             runaway: None,
+        }
+    }
+
+    /// The master volume a sequence starts under: full.
+    pub const FULL_VOLUME: u8 = 0x7f;
+
+    /// A channel's volume as it reaches the device: the last controller 7
+    /// scaled by the master, `value × master / 127` truncating (`0x8371e`
+    /// in R78; the sequence's own volume and the channel's factor at `+0x18`
+    /// are both 127 in every song and leave the product alone).
+    fn effective(&self, channel: u8) -> u8 {
+        let raw = u32::from(self.volume[usize::from(channel & 0x0f)]);
+        num::byte(raw * u32::from(self.master) / 127)
+    }
+
+    /// `MUSVOLUME`'s path (`0x70590` → `0x7b1b9` → `0x7afad`): the master
+    /// changes, and every channel the song plays on is sent a controller 7 at
+    /// its new effective level — channel 9 included, which the event path
+    /// withholds and this one does not (`0x7b053` tests only that the
+    /// channel is mapped).
+    pub fn set_master_volume(&mut self, master: u8, out: &mut Vec<Message>) {
+        self.master = master;
+        let mut channels: Vec<u8> = self
+            .song
+            .tracks
+            .iter()
+            .map(|t| num::lo(t.channel) & 0x0f)
+            .collect();
+        channels.sort_unstable();
+        channels.dedup();
+        for channel in channels {
+            out.push(Message {
+                channel,
+                kind: Kind::Control {
+                    controller: 7,
+                    value: self.effective(channel),
+                },
+            });
         }
     }
 
@@ -343,7 +389,7 @@ impl Sequencer {
                 // 105, reaches the chip as attenuation 0x10. Only 80·105/127 =
                 // 66 followed by the driver's (105·66)>>7 = 54 gives that.
                 let velocity = if channel == 9 {
-                    num::byte(u32::from(velocity) * u32::from(self.volume[9]) / 127)
+                    num::byte(u32::from(velocity) * u32::from(self.effective(9)) / 127)
                 } else {
                     velocity
                 };
@@ -411,9 +457,15 @@ impl Sequencer {
     /// driver on channel 9: the drums come out attenuated by the channel volume
     /// twice over, which only happens if the driver has it too.
     fn control(&mut self, channel: u8, controller: u8, value: u8, out: &mut Vec<Message>) {
-        if controller == 7 {
+        // A controller 7 is cached raw and leaves scaled by the master — the
+        // same number while the master is full, which is every recording
+        // this driver was held against.
+        let value = if controller == 7 {
             self.volume[usize::from(channel & 0x0f)] = value;
-        }
+            self.effective(channel)
+        } else {
+            value
+        };
         match controller {
             // 103, 104, 106 and 107 are the sequencer's own bookkeeping, 105
             // turns the track's voice on and off, 108 is its internal

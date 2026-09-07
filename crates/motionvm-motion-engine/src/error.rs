@@ -117,6 +117,13 @@ pub enum Error {
         /// The variable.
         name: String,
     },
+    /// A location was asked for of a game whose locations cannot be asked
+    /// for: its scripts enter them from a story list, not from a variable a
+    /// caller could write.
+    NoLocationRequest {
+        /// The game, in its short form.
+        title: &'static str,
+    },
     /// A 16-bit entry point was reached with no container behind it.
     NoContainer,
     /// A word was stepped to the frame budget without finishing.
@@ -192,6 +199,12 @@ impl fmt::Display for Error {
             Error::NoWord { module, name } => write!(f, "module {module} has no word {name}"),
             Error::NoVariable { module, name } => {
                 write!(f, "module {module} has no variable {name}")
+            }
+            Error::NoLocationRequest { title } => {
+                write!(
+                    f,
+                    "{title} enters its locations from a story list; there is no location to ask for"
+                )
             }
             Error::NoContainer => write!(f, "the engine holds no 16-bit container"),
             Error::Unfinished => write!(f, "the word never finished"),

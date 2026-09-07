@@ -10,11 +10,12 @@
 - **Block** — a resource of the `Block` segment: mixed binary data — a song,
   an animation catalog, a location's tables. [32-bit](motion32/formats/blocks.md),
   [16-bit](motion16/formats/blocks.md).
-- **Build** — one shipped binary of the 16-bit engine: `ENVIRO.EXE`,
-  `BMZ.EXE`, `HPPLAY.EXE`, `STERN.EXE`, `LL.EXE`, each with its own kernel
-  table.
+- **Build** — one shipped binary of an engine, each with its own kernel
+  table: the 16-bit engine's five, `ENVIRO.EXE`, `BMZ.EXE`, `HPPLAY.EXE`,
+  `STERN.EXE` and `LL.EXE`; the 32-bit engine's two, `ENGINE.EXE`
+  V0.06.06/R109 under Dunkle Schatten 2 and V0.04.15/R78 under Checker 2000.
   [Kernel words](motion16/vm/kernel-words.md).
-- **Capability** — a named boolean on the [profile](#profile) that says how a
+- **Capability** — a named boolean on the *profile*, below, that says how a
   build behaves where builds differ, each measured at a disassembly address.
   `ARCHITECTURE.md`.
 - **Cell** — the unit of the Forth machine: 32 bits on the 32-bit engine, 16
@@ -99,9 +100,9 @@
 - **Segment** — one of the seven resource kinds of a 16-bit container — gfx,
   blk, scr, pal, fnt, frt, txt — each with its own slots.
   [The DATA container](motion16/formats/container.md).
-- **Slug** — the key a game's files are kept under: `ds2`, `enviro`,
-  `jeffjet`, `hfa`, `vloomes`; it names a directory, a variable, a page,
-  never a sentence. `CONTRIBUTING.md`.
+- **Slug** — the key a game's files are kept under: `ds2`, `checker`,
+  `enviro`, `jeffjet`, `hfa`, `vloomes`, `eddiem`; it names a directory, a
+  variable, a page, never a sentence. `CONTRIBUTING.md`.
 - **Speaker table** — the conversation's list of speaking figures, each with
   the word its animation hears and its colors. [Dialogue machine](motion32/engine/dialogue-machine.md).
 - **Task manager** — a location's `LTMANAGER`: the script that runs the

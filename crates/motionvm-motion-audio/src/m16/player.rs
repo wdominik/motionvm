@@ -177,6 +177,17 @@ impl crate::Player for Player {
         self.voice = Some(Voice::new(sample, self.rate));
     }
 
+    /// The driver's `StopAll` on its one channel. No 16-bit word reaches it
+    /// for a sample alone — `PLAYSAMPLE` replaces, and nothing stops — so
+    /// this answers the trait and no game.
+    fn stop_sample(&mut self, _handle: i32) {
+        self.voice = None;
+    }
+
+    /// `MUSADL.DRV` has no master volume among the entries the games
+    /// install, and no 16-bit word asks for one: the call changes nothing.
+    fn music_volume(&mut self, _volume: u16) {}
+
     /// `STARTTUNE`'s path, `SetSong` then `Play`. The first song builds the
     /// sequencer; every later one goes through [`Sequencer::play`], keeping
     /// the register shadow, exactly as the resident driver keeps its state

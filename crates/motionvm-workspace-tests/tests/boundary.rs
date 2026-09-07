@@ -320,7 +320,9 @@ fn every_game_has_a_module_of_its_own() {
         .join("motionvm-motion-engine")
         .join("src")
         .join("titles");
-    for slug in ["ds2", "eddiem", "enviro", "hfa", "jeffjet", "vloomes"] {
+    for slug in [
+        "checker", "ds2", "eddiem", "enviro", "hfa", "jeffjet", "vloomes",
+    ] {
         let path = dir.join(format!("{slug}.rs"));
         assert!(
             path.is_file(),
@@ -333,7 +335,12 @@ fn every_game_has_a_module_of_its_own() {
     let mut extra: Vec<String> = sources(&dir)
         .iter()
         .filter_map(|p| p.file_stem()?.to_str().map(str::to_owned))
-        .filter(|n| !["ds2", "eddiem", "enviro", "hfa", "jeffjet", "vloomes"].contains(&n.as_str()))
+        .filter(|n| {
+            ![
+                "checker", "ds2", "eddiem", "enviro", "hfa", "jeffjet", "vloomes",
+            ]
+            .contains(&n.as_str())
+        })
         .collect();
     extra.sort();
     assert_eq!(

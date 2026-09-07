@@ -28,15 +28,16 @@
 //! release — a debug build measures the optimizer, not the code.
 //!
 //! Every game the workspace plays is here, because the two machines are
-//! different interpreters and the five 16-bit games exercise the same one over
-//! four sets of scripts. A change that speeds one up and slows another down is
+//! different interpreters, the two 32-bit games run the same one over two
+//! builds' kernels, and the five 16-bit games exercise the other over five
+//! sets of scripts. A change that speeds one up and slows another down is
 //! the interesting case and would be invisible from one game.
 
 use motionvm_motion_engine::{Game, titles};
 use motionvm_motion_forth::{Counters, Machine as _};
 use motionvm_motion_testutil::{
-    gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
-    gamedata_vloomes,
+    gamedata_checker, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa,
+    gamedata_jeffjet, gamedata_vloomes,
 };
 use std::time::{Duration, Instant};
 
@@ -156,6 +157,32 @@ fn dunkle_schatten_2() {
         game.step().expect("a frame on the way in");
     }
     report("Dunkle Schatten 2 (32-bit)", &measure!(game));
+}
+
+/// Checker 2000, on the registration board its shell opens with.
+///
+/// Reached by the game's own path — `START` runs to `ANIMPLAY`, and the
+/// board is up sixty frames on — and measured there because it is the one
+/// scene every run of the game passes through: a text board with the
+/// engine's arrow over it, and the task manager polling the pointer.
+#[test]
+#[ignore = "a measurement rig, not a test: `just bench`"]
+fn checker_2000() {
+    let Some(dir) = gamedata_checker() else {
+        eprintln!("skipping: no Checker 2000 gamedata directory");
+        return;
+    };
+    let mut game = titles::checker::open(&dir).expect("game opens");
+    let saves = std::env::temp_dir().join(format!("motionvm-throughput-{}", std::process::id()));
+    std::fs::create_dir_all(&saves).expect("a save directory");
+    game.set_saves(&saves).expect("saves");
+    game.start().expect("START");
+    while game.pump().expect("START runs to ANIMPLAY") {}
+    for _ in 0..60 {
+        game.set_input(0, 0, false, false, 0).expect("input");
+        game.step().expect("a frame on the way to the board");
+    }
+    report("Checker 2000 (32-bit, R78)", &measure!(game));
 }
 
 /// The five 16-bit games, each in its own intro.

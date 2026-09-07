@@ -45,7 +45,7 @@ pub struct Profile {
     /// a build without `SETRES`, the one `TOGFX` enters: 320×200 for the
     /// 16-bit engine. The 32-bit engine's `TOGFX` sizes the display to the
     /// mode `SETRES` selected ([`Profile::has_setres`]), so 640×480 here is
-    /// the mode its one game asks for, and what a frame composed before
+    /// the mode both its games run in, and what a frame composed before
     /// `TOGFX` would be.
     pub(crate) display: Size,
 
@@ -64,12 +64,9 @@ pub struct Profile {
     /// no such word and its `TOGFX` enters 320×200.
     pub(crate) has_setres: bool,
 
-    /// Whether the pointer is drawn before anything has shown it.
-    ///
-    /// Not a capability — no handler behaves differently — but the
-    /// generation's all the same: the 16-bit engine counts shows and starts at
-    /// zero, so nothing is drawn until `SHOWMOUSE` runs.
-    pub(crate) pointer_starts_visible: bool,
+    /// What `TOGFX` leaves the pointer as, see [`TogfxPointer`]. Read on
+    /// both 32-bit builds and on `ENVIRO.EXE`.
+    pub(crate) togfx_pointer: TogfxPointer,
 
     /// Whether `?XINSIDE` passes over a hot area whose four corners are all
     /// zero. This is the build's and not the format's: `ENVIRO.EXE`
@@ -108,7 +105,7 @@ pub struct Profile {
     /// Die Enviro-Kids greifen ein builds its backgrounds out of 80-pixel
     /// block strips that are dark where they hold index 0, and drawing those
     /// keyed let the previous location show through. The 32-bit drawer's
-    /// block path is not read on this point; the 32-bit game keeps the keyed
+    /// block path is not read on this point; the 32-bit games keep the keyed
     /// blit it has always had.
     ///
     /// Read on the latest build and set for the whole 16-bit generation,
@@ -182,21 +179,97 @@ pub struct Profile {
     /// across screens and stay as they were.
     pub(crate) per_screen_descriptors: bool,
 
-    /// Whether this machine's `SHOWMOUSE`/`HIDEMOUSE` keep that counter —
-    /// the read 16-bit behavior. The 32-bit pair is unread and keeps the
-    /// plain on/off it always had here.
-    pub(crate) pointer_counted: bool,
+    /// Whether `GET` of a block that no container and no save file holds
+    /// carries on. The 32-bit fetch (`ENGINE.EXE` V0.04.15/R78 `0x47840`,
+    /// R109 alike) answers a null pointer on a miss and the word copies
+    /// from linear address 0 (`0x5605e`) — bytes this port cannot
+    /// reproduce, so it leaves the destination alone and counts the miss.
+    /// The 16-bit fetch's miss path is not read, and the word stops by
+    /// name there.
+    pub(crate) get_skips_missing_block: bool,
+
+    /// What the text record makes of `SDINSERT`, and so what its layout
+    /// makes of the five insert slots. See [`TextInserts`]. The 32-bit
+    /// opener reads it off the handler
+    /// ([`motionvm_motion_formats::m32::le::sdinsert_takes_kind`]); the
+    /// 16-bit kernels have no such word.
+    pub(crate) inserts: TextInserts,
+
+    /// Whether a curtain waits between its bands. R109's `FADEIN` and
+    /// `FADEOUT` divide the duration by the band count and spin on the
+    /// timer after every band; R78's mark and present and nothing else, so
+    /// a curtain there takes the presenter's time and the duration goes
+    /// unread — read off both handlers
+    /// (`motionvm_motion_formats::m32::le::fades_wait`), and the 32-bit
+    /// opener sets it from the binary. `FADEIN`'s mode 2 waits on neither
+    /// build. The 16-bit curtains wait (`05f1:29e4`, `05f1:2827`).
+    pub(crate) curtains_wait: bool,
 
     /// Which game's savegame files this engine writes and reads.
     pub(crate) save_layout: Generation,
 }
 
+/// What a build's text record does with `SDINSERT` — the one point where the
+/// two shipped 32-bit builds' text handling differs, read on both.
+///
+/// Both keep five insert slots at `+0x20` of the text record, both clear them
+/// when `SDTXT` or `SDTB` first makes a descriptor a text, and both lay a
+/// text out by copying its line window and running it through the engine's
+/// own `#`-formatter with the five slots as arguments (R109 `0x6c9f8`, R78
+/// `0x5a100`). What differs is what a slot *is*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextInserts {
+    /// No such word. The 16-bit kernels have neither the slots nor the
+    /// formatter behind their texts; a `#` there is the run drawer's ragged
+    /// mark, see [`Profile::text_runs`].
+    Absent,
+    /// `SDINSERT ( value slot -- )`, R78 `0x611c0`: a slot is an address or
+    /// nothing, and the layout hands every set slot to the formatter as a
+    /// pointer into the machine's memory (`0x568f0`), whatever the text's
+    /// directive then makes of it. Every text goes through the formatter,
+    /// so its line window always applies and a literal `#` never shows.
+    Addresses,
+    /// `SDINSERT ( value kind slot -- )`, R109 `0x75cfe`: the kind is filed
+    /// beside the value (`+0x34`) and the layout converts by it — 0 an
+    /// address of a string, 1 a number as it stands, 2 an address whose cell
+    /// is the number, anything else nought. A text with no slot set skips
+    /// the formatter altogether (`0x6cb32`), so its line window does not
+    /// apply and a literal `#` stays.
+    Kinded,
+}
+
+/// What `TOGFX` does with the pointer once the mode is entered.
+///
+/// Every build's `TOGFX` installs the engine's own arrow — the mouse layer
+/// is the same code in both generations, and the first install is what
+/// arms it, so `SHOWMOUSE` and `HIDEMOUSE` count from here on
+/// ([`crate::cursor`]). What differs is the colors the arrow is given and
+/// whether `TOGFX` shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TogfxPointer {
+    /// R109 `0x6eec5`–`0x6ef23`, R78 `0x5af21`–`0x5af7f`: the arrow in
+    /// `NORMMOUSE`'s two colors — white and a dark teal, each the nearest
+    /// entry of the system palette the same handler has just installed —
+    /// then the pointer at 0,0 and `SHOWMOUSE`. So a 32-bit game has a
+    /// pointer from `TOGFX` on, whether or not it ever says `SHOWMOUSE`:
+    /// Checker 2000 never does.
+    Shown,
+    /// `05f1:011a`: the arrow with the bitmap's own indices, 8 for the body
+    /// and 15 for the outline, the pointer at 159,99 and no show. The
+    /// pointer stays down until the script's first `SHOWMOUSE`, and every
+    /// 16-bit game gives it a sprite of its own before that.
+    Armed,
+}
+
 impl Profile {
-    /// The 32-bit engine, as Dunkle Schatten 2 runs on it.
+    /// The 32-bit engine, as its two games run on it.
     ///
-    /// Every field here is that build's reading. Nothing is probed: there is
-    /// one 32-bit engine in the corpus, and a second one would be read the way
-    /// the 16-bit builds are.
+    /// Every field here is a reading of one build, and the two shipped
+    /// builds — V0.06.06/R109 under Dunkle Schatten 2, V0.04.15/R78 under
+    /// Checker 2000 — agree on each that was read on both, save two:
+    /// `Profile::inserts` and `Profile::curtains_wait`, which the opener
+    /// reads off the binary the way the 16-bit builds' four are, and which
+    /// stand here as R109 reads.
     pub fn motion32() -> Self {
         Self {
             display: Size {
@@ -205,7 +278,7 @@ impl Profile {
             },
             screen_holds_a_hundred: false,
             has_setres: true,
-            pointer_starts_visible: true,
+            togfx_pointer: TogfxPointer::Shown,
             skips_holes: true,
             walk_defaults_shrink: true,
             walk_smooths_headings: false,
@@ -218,12 +291,14 @@ impl Profile {
             sd_marks_always: false,
             callbacks_need_active: false,
             per_screen_descriptors: false,
-            pointer_counted: false,
+            get_skips_missing_block: true,
+            inserts: TextInserts::Kinded,
+            curtains_wait: true,
             save_layout: Generation::Motion32,
         }
     }
 
-    /// The 16-bit engine, as its four games run on it.
+    /// The 16-bit engine, as its five games run on it.
     ///
     /// Four of these differ between the five builds and are **probed out of
     /// the shipped binary** by the opener, which corrects them here before the
@@ -240,7 +315,7 @@ impl Profile {
             },
             screen_holds_a_hundred: true,
             has_setres: false,
-            pointer_starts_visible: false,
+            togfx_pointer: TogfxPointer::Armed,
             opaque_blocks: true,
             text_runs: true,
             sdtb_allocates_text: false,
@@ -250,7 +325,8 @@ impl Profile {
             sd_marks_always: true,
             callbacks_need_active: true,
             per_screen_descriptors: true,
-            pointer_counted: true,
+            get_skips_missing_block: false,
+            inserts: TextInserts::Absent,
             save_layout: Generation::Motion16,
             ..Self::motion32()
         }

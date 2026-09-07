@@ -4,8 +4,8 @@
 
 *motionvm's own — this page describes files this program writes, not files any original MOTION player wrote. Why they cannot be the original's is in [Departures](departures.md#savegames); what the original writes, and when, is under [MOTION 32-bit](README.md#motion-32-bit) and [MOTION 16-bit](README.md#motion-16-bit).*
 
-Every MOTION game saves through the same three files per slot, named from the
-id `701 + slot`:
+Every MOTION game with a save menu saves through the same three files per
+slot, named from the id `701 + slot`:
 
 | File | Written by | Holds |
 |---|---|---|
@@ -16,12 +16,18 @@ id `701 + slot`:
 `NNN.blk` is written and read straight through, so its bytes are the
 original's: four on the 32-bit engine, two on the 16-bit one, and no header at
 all. The other two are motionvm's own layout, and this page is what they are.
+Checker 2000 has no save menu and no `PUTANIM`: its shell writes one block of
+its own, 184 bytes of task, score and highscores, as `098.blk` through the
+same `PUT`, and reads it back with `GET`
+([Checker 2000](games/checker/game-structure.md#saving)) — a `.blk` file
+alone, and nothing on this page besides the first row applies to it.
 
 ## Where they live
 
 Under the platform's data directory, one directory per game named for it —
-`saves/ds2/`, `saves/enviro/`, `saves/jeffjet/`, `saves/hfa/`,
-`saves/vloomes/`. Every game names its slots alike, and on the 16-bit engine
+`saves/ds2/`, `saves/checker/`, `saves/enviro/`, `saves/jeffjet/`,
+`saves/hfa/`, `saves/vloomes/`, `saves/eddiem/`. Every game names its slots
+alike, and on the 16-bit engine
 the magic below is the engine's rather than the game's, so two games sharing a
 directory would find each other's slots. The name is put on inside the engine,
 so nothing that embeds it can leave it off, and it is in the header as well —
@@ -92,11 +98,9 @@ will not load, who needs to know which build made it before anything else can
 be worked out.
 
 Every section carries its length, so a reader steps over a tag it does not
-know. That is what lets a later build **add** a section without moving the
-version number. Inside a section the layout belongs to the version that
-defines it and is fixed: bytes left over in a section this build knows are a
-reader and a writer disagreeing, and are reported as such. Growth is a new
-section, never a field appended to an old one.
+know. Inside a section the layout is fixed: bytes left over in a section
+this build knows, or too few of them, are a reader and a writer
+disagreeing, and are reported as such, by section and byte.
 
 ## `NNN.FRZ` — the resident modules
 
@@ -126,7 +130,7 @@ Four sections, and a fifth on the 16-bit engine.
 ```text
 HEAD   u32 next_descriptor
        optional current_descriptor   optional current_screen
-       u8 pointer_visible
+       i32 pointer_shows
        i32 dialogue_offset   i32 dialogue_return
        u8[768] palette
 
@@ -163,6 +167,11 @@ BUFS   u8 on                                     (16-bit only)
 `shows_tag` is 0 for nothing, 1 for a sprite, 2 for a picture, and
 `shows_value` its id — one field, because a descriptor shows one thing.
 
+`pointer_shows` is the mouse layer's show counter: the pointer is drawn while
+it stands at one or more, and a hide inside a hide is one hide short of
+shown ([interaction](motion32/engine/interaction.md#the-pointer-draws-itself)).
+The pointer's shape is not kept — `INCLLOC` gives it one again.
+
 The named fields travel as **names** rather than as offsets, so a field this
 build does not know is a named error rather than a silent drop.
 
@@ -183,17 +192,15 @@ Deliberately absent: whether a screen is frozen or inactive. At the moment of
 a save the picture is frozen, because the game's own menu is open over it, and
 restoring that would load a game that stands still.
 
-## What a version change does
+## The one version
 
-`version` is 1. A bump means the *file* changed shape — a field added to a
-section, a section whose meaning moved — and not that the engine did; a new
-section beside the known ones needs no bump at all, which is the whole reason
-the body is sectioned.
-
-**There is one reader, for this version.** A file of any other version is
-refused **by name** and left on disk — nothing here deletes a savegame it
-cannot read — and nothing converts one. Until the first stable release a
-change to the layout is a bump and a refusal, and the release notes say so.
+`version` is 1, and **there is one reader, for this version.** A file of any
+other version is refused **by name** and left on disk — nothing here deletes
+a savegame it cannot read — and nothing converts one. A file of this version
+that does not read is refused the same way, by the section and the byte
+where it stopped fitting. Before the first stable release the layout is free
+to change shape under the same number, and the release notes say when it
+does.
 
 ```text
 701.FRZ: savegame version 0, this build writes 1

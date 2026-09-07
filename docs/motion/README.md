@@ -7,6 +7,7 @@ motionvm plays today:
 | Game | Year | Commissioned by | Made by | Directory | Engine |
 |---|---|---|---|---|---|
 | [*Im Netzwerk gefangen – Dunkle Schatten 2*](games/ds2/README.md) | 1996 | Bundesministerium des Innern | DigiTales GmbH, Hamburg, produced by Art Department WA GmbH, Bochum | `DS2` | **32-bit** — `ENGINE.EXE` V0.06.06/R109, 1996-10-22 |
+| [*Checker 2000*](games/checker/README.md) | 1996 | The AOK — the regional health insurers of the new federal states, as its texts speak for them | Promotion Software GmbH, Tübingen (attributed; the files name no studio) | `CHECKER` | **32-bit** — `ENGINE.EXE` V0.04.15/R78, the earlier build |
 | [*Die Enviro-Kids greifen ein*](games/enviro/README.md) | 1996 | Ministerium für Umwelt, Raumordnung und Landwirtschaft NRW | Art Department Werbeagentur GmbH | `ENVIRO` | **16-bit** — `ENVIRO.EXE`, 1996-08-27: the latest build |
 | [*Jeff Jet - Abenteuer InfoHighway*](games/jeffjet/README.md) | 1995 | Hewlett Packard GmbH | Promotion Software GmbH, Tübingen | `JEFFJET` | **16-bit** — `HPPLAY.EXE`: the third build |
 | [*Hilfe für Amajambere*](games/hfa/README.md) | 1995 | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung | ART DEPARTMENT WA GmbH, Bochum | `HFA` | **16-bit** — `BMZ.EXE`, 1995-06-05: the fourth build |
@@ -19,7 +20,7 @@ sign-off, or, where the files say nothing, the published record named as such.
 Jeff Jet's year is its launcher's sign-off; its shipped files are re-stamped
 1998-04-10.
 
-**Two of the six name the engine**, at the two ends of the corpus. Victor
+**Two of the seven name the engine**, at the two ends of the corpus. Victor
 Loomes' credits close on *Erstellt unter · Motion 1.0 · Michel "Babe" Stigler
 · EGO Software* (text table 8), and Dunkle Schatten 2 names it in its
 programming entry: *Basierend auf: … "Motion"-Präsentations-System von
@@ -44,10 +45,10 @@ binary. A game made with it is *data* — compiled Forth script modules plus
 sprites, palettes, fonts, texts and music in resource containers. The engine
 binary reads that data and runs it.
 
-Those six were built with two generations of that system, and so were the
-two [other MOTION games](games/others.md) on hand — *Checker 2000* and
-*Compaq* — whose files the readers open and the format pages measure over,
-and which no page describes as a game. The generations
+Those seven were built with two generations of that system, and so was the
+[one other MOTION game](games/others.md) on hand — *Compaq* — whose files the
+readers open and the format pages measure over, and which no page describes
+as a game. The generations
 share the *language* and most of the *vocabulary*; they do not share the
 *machine*:
 
@@ -70,8 +71,8 @@ most kernel words (161 of the 16-bit kernel's 233 names occur verbatim in the
 32-bit kernel), the descriptor/screen model, the three-argument fades, the
 save-slot scheme and the module operators. What does not: ordinals, addresses,
 the return cell, the container, the asset encodings, the music format, and —
-in the 16-bit generation — off-screen buffer words that the 32-bit game never
-exercises.
+in the 16-bit generation — off-screen buffer words that the 32-bit games never
+exercise.
 
 ## Global conventions
 
@@ -91,7 +92,10 @@ exercises.
 - Resources are addressed by *(type, id)*; script module ids equal module
   numbers.
 - **Provenance.** A page under `motion32/` describes the 32-bit engine as
-  measured on the files of Dunkle Schatten 2; a page under `motion16/`
+  measured on the files of Dunkle Schatten 2 and, where it says so, of
+  Checker 2000 — the two builds are one program half a year apart, and a
+  page names the build wherever the two differ
+  ([ENGINE.EXE R78](motion32/engine/engine-r78.md)); a page under `motion16/`
   describes the 16-bit engine
   as measured on the files of Die Enviro-Kids greifen ein, and on Jeff Jet's,
   Hilfe für Amajambere's or Victor Loomes' where the builds differ.
@@ -123,7 +127,8 @@ exercises.
 | [Word semantics](motion32/vm/word-semantics.md) | Behavior of the core Forth words (with the deviations from standard Forth) |
 | [Kernel words](motion32/vm/kernel-words.md) | The 356-word kernel, calling convention, arities |
 | [ENGINE.EXE](motion32/engine/engine-exe.md) | The LE binary, fixups, what lives where |
-| [Game loop](motion32/engine/game-loop.md) | The 25 fps frame cycle, tasks, input |
+| [ENGINE.EXE V0.04.15/R78](motion32/engine/engine-r78.md) | The earlier build under Checker 2000: its kernel, its bases, where it differs |
+| [Game loop](motion32/engine/game-loop.md) | The frame cycle — 25 frames a second or 8, as `DELAY` says — tasks, input |
 | [Interaction machine](motion32/engine/interaction.md) | Clicks, the verb menu, `DOORDER`/`EXECORDER` |
 | [Dialogue machine](motion32/engine/dialogue-machine.md) | The native conversation apparatus |
 | [Screens](motion32/engine/screens.md) | Display layers, the drawn buffer, compositing |
@@ -180,6 +185,16 @@ exercises.
 | [Dialogue](games/ds2/library/dialogue.md) | Module 13: global verb handlers, global tasks, the info book |
 | [The BBS](games/ds2/library/bbs.md) | Module 216: the in-game network terminal |
 
+### Checker 2000
+
+| Page | Covers |
+|---|---|
+| [The game](games/checker/README.md) | What it is, who it was for, and what is documented |
+| [Game structure](games/checker/game-structure.md) | Startup, the shell and its boards, the registration, the task sequence, saving, speech |
+| [Resource inventory](games/checker/inventory.md) | What the five containers hold, by the numbers |
+| [Module map](games/checker/module-map.md) | What each of the 119 script modules does |
+| [Other files](games/checker/other-files.md) | The two bootstraps, `ENGINE.RSC`, the sample path, sound setup, the readme |
+
 ### Die Enviro-Kids greifen ein
 
 | Page | Covers |
@@ -230,11 +245,11 @@ exercises.
 | [Resource inventory](games/eddiem/inventory.md) | What the three `DATA.-n-` volumes hold, by the numbers |
 | [Other files](games/eddiem/other-files.md) | The sound stack, the boot-disk tooling, the readme |
 
-### The other MOTION games
+### The other MOTION game
 
 | Page | Covers |
 |---|---|
-| [The other MOTION games](games/others.md) | Checker 2000 and Compaq: what their files are, what the readers make of them, and why the player refuses them |
+| [The other MOTION game](games/others.md) | Compaq: what its files are, what the readers make of them, and why the player refuses it |
 
 ### Reference
 
@@ -267,7 +282,23 @@ exercises.
 | `DRUM.BNK`, `MELODIC.BNK` | [Ad Lib instrument banks](motion32/formats/adlib-bank.md) |
 | `SNDSETUP.*`, `HMI*.386`, `LOADPATS.EXE`, `PATCHES.INI`, `TEST.*` | Sound setup and drivers ([other files](games/ds2/other-files.md)) |
 | `LIESMICH.DOK`, `LIESMICH.TXT` | German readme files |
-| `RSC.INF` | Resource metadata (not analyzed) |
+| `RSC.INF` | The resource catalog: which containers hold each id ([containers](motion32/formats/container.md)) |
+
+### Checker 2000
+
+| File(s) | Format |
+|---|---|
+| `001.RSC`–`004.RSC`, `ENGINE.RSC` | [Resource containers](motion32/formats/container.md) — the fifth holds the system font and palette |
+| `SYSTEM.RSC`, `PATH1.RSC` | Plain-text Forth bootstraps ([other files](games/checker/other-files.md)) |
+| `ENGINE.EXE` | [The MOTION 32-bit engine, build R78](motion32/engine/engine-r78.md) |
+| `DOS4GW.EXE` | The DOS extender |
+| `000.FRT` | [Font reference table](motion32/formats/font-reference-table.md) |
+| `SMPPATH`, `WAVS/` | The speech: a path and 73 WAV files ([audio](motion32/engine/audio.md)) |
+| `CHECKER.BAT` | Launcher |
+| `DRUM.BNK`, `MELODIC.BNK` | [Ad Lib instrument banks](motion32/formats/adlib-bank.md) |
+| `SETUP.*`, `HMI*.386`, `TEST.*` | Sound setup and drivers ([other files](games/checker/other-files.md)) |
+| `README.TXT` | German readme |
+| `RSC.INF` | The resource catalog |
 
 ### Die Enviro-Kids greifen ein
 

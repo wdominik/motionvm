@@ -2,7 +2,7 @@
 
 # Resource Containers — `NNN.RSC`
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 The `.RSC` files (`001.RSC`, `002.RSC`, `003.RSC`) are the game's resource
 containers. Each one is a flat archive of typed, numbered items: sprites,
@@ -67,21 +67,39 @@ Text). The table order above is the one that matches the data.
 
 ## Multi-file overlay
 
-The resource manager loads every container matching the pattern `%03d.rsc`
-(a file name whose stem is exactly three decimal digits) from the directory
-named by the `RSCPATH` setting, and overlays them into **one shared id
-space**. In practice no id is filled by more than one container, so no
-shadowing rules are needed.
+The resource manager registers `ENGINE.RSC`, where the game has one, and
+then every container matching the pattern `%03d.rsc` (a file name whose stem
+is exactly three decimal digits), and overlays them into **one shared id
+space** — six container slots, `ENGINE.RSC` slot 0 and the numbered files
+after it. `->RSCPATH ( path$ slot -- )` gives one slot a directory of its
+own; Checker 2000's bootstrap uses it to keep `003.RSC` on the hard disk
+([its other files](../../games/checker/other-files.md#systemrsc)).
+
+An id filled by more than one container resolves to the **lowest slot**.
+This is read off the catalog `RSC.INF` carries: its record for each kind
+holds a byte per id with one bit per slot that has the item, and the lookup
+(`0x44710`, at `0x4485c`) walks the slots from 0 upward and takes the first
+whose bit is set. Both shipped games' catalogs were held against their
+containers for every kind and every id — Dunkle Schatten 2 fills sprite 1324
+twice, Checker 2000 nineteen sprites and palette 147, sixteen of the sprites
+with different pictures — and the catalog names the lowest slot each time,
+and no slot without the item.
 
 Contents of the shipped containers:
 
-| File | Contents |
-|---|---|
-| `001.RSC` | 2 GFX8 items, 133 text tables, 250 blocks, 9 fonts, 86 script modules, 60 palettes |
-| `002.RSC` | 1619 GFX8 items |
-| `003.RSC` | 57 GFX8 items |
+| Game | File | Contents |
+|---|---|---|
+| Dunkle Schatten 2 | `001.RSC` | 2 GFX8 items, 133 text tables, 250 blocks, 9 fonts, 86 script modules, 60 palettes |
+| | `002.RSC` | 1619 GFX8 items |
+| | `003.RSC` | 57 GFX8 items |
+| Checker 2000 | `ENGINE.RSC` | The system font and palette, both id 0 |
+| | `001.RSC` | 33 GFX8 items, 264 text tables, 80 blocks, 119 script modules, 65 palettes |
+| | `002.RSC` | 1321 GFX8 items, 3 fonts |
+| | `003.RSC` | 88 GFX8 items, 88 palettes |
+| | `004.RSC` | 43 blocks — the speech as WAV, and four songs |
 
-Across all containers there are 1678 GFX8 sprites and no GFX16 items.
+Across Dunkle Schatten 2's containers there are 1678 GFX8 sprites, across
+Checker 2000's 1442, and no GFX16 items in either.
 
 ## Trailing unreferenced data
 

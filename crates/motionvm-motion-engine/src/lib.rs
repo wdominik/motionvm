@@ -22,13 +22,17 @@ mod error;
 mod game;
 mod geometry;
 mod keys;
+mod layout;
 mod menu;
 mod order;
+mod paint;
 mod persist;
 mod request;
 mod resources;
+mod sample;
 mod save;
 mod screen;
+mod slide;
 mod stack;
 // Public because the metrics suites hold `text::text_width` and
 // `text::backing_map` against measurements of the original; its twin
@@ -48,6 +52,7 @@ mod persistence;
 pub(crate) use persistence::Persistence;
 mod cursor;
 pub(crate) use cursor::Cursor;
+pub use cursor::PointerShape;
 mod dialogue;
 pub(crate) use dialogue::Dialogue;
 mod scene;
@@ -72,7 +77,9 @@ mod music_sink;
 // that they are here is everyone else's.
 pub use buffer::{Buffer, Buffers};
 pub use curtain::{Curtain, Fade, Wipe};
-pub use descriptor::{Descriptor, Placement, Shows, TextTemplate};
+pub use descriptor::{Descriptor, Insert, Placement, Shows, TextTemplate};
+pub use sample::SampleNode;
+pub(crate) use slide::Slide;
 
 use crate::geometry::line_height;
 use std::collections::BTreeMap;
@@ -92,6 +99,14 @@ use motionvm_render::Picture;
 use motionvm_motion_forth::Address;
 use motionvm_motion_forth::cell;
 use motionvm_render::Framebuffer;
+
+/// A palette index that names a surface column, for the tests that paint a
+/// surface so that every column tells its own position: the column modulo
+/// 256, never the transparent zero except at zero itself.
+#[cfg(test)]
+pub(crate) fn cell_of(x: i32) -> u8 {
+    cell::low8(x)
+}
 
 /// A window slide the 16-bit `->SCRX`/`->SCRY` started; see [`Transitions::scroll`].
 #[derive(Clone, Copy, Debug)]
@@ -133,6 +148,13 @@ pub struct Engine {
     /// The date `GIVEDATE` answers once a suite has fixed one; `None` reads
     /// the clock. See [`Engine::fix_date`].
     pub(crate) today: Option<(i32, i32, i32)>,
+    /// The master counter — the original's ~1020 Hz tick behind the pointer
+    /// at `0xe7f38` (R109) and `0xc3be0` (R78) — as it stands after the
+    /// frames so far, advanced by [`Engine::advance_clock`]. What the timer
+    /// objects and the samples' clocks measure against; see [`crate::clock`].
+    pub(crate) master_ticks: u64,
+    /// The timer objects `OPENTIMER` has handed out. See [`clock::Timers`].
+    pub(crate) timers: clock::Timers,
     /// The curtains, wipes and scroll in flight, and the fade log.
     /// See [`Transitions`].
     pub(crate) transitions: Transitions,
@@ -146,6 +168,9 @@ pub struct Engine {
     /// The video mode: what `SETRES` selected and `TOGFX` entered. See
     /// [`video::Video`].
     pub(crate) mode: video::Video,
+    /// What each text descriptor shows, by handle, as last laid out against
+    /// the machine's memory — see [`layout`] and [`Engine::lay_out_texts`].
+    pub(crate) laid_out: BTreeMap<u32, String>,
     resources: Option<resources::Resources>,
     /// Words that were reached but do nothing yet, with how often.
     pub(crate) stubbed: BTreeMap<Stub, usize>,
@@ -163,6 +188,10 @@ pub struct Engine {
     /// The original remembers a copy of the picture instead and pastes it back
     /// (0x6ac33); see [`Descriptor::auto_buffer`].
     pub(crate) rebuild: Vec<(u32, (i32, i32, i32, i32))>,
+    /// How many passes the drawer has made: the stamp a descriptor takes
+    /// when a pass draws it, and a paint when it is painted between passes
+    /// ([`crate::paint`]).
+    pub(crate) draw_pass: u64,
     /// The word `CTRL` was handed: the game's own per-frame controller.
     ///
     /// `START` ends with `0x42150 CTRL`, and that address is `ICTRL` in module
@@ -198,6 +227,10 @@ pub struct Engine {
     pub(crate) frame_ticks: i32,
     /// Where the game data is, for the few words that touch files directly.
     dir: Option<std::path::PathBuf>,
+    /// Where `->STARTSAMPLE`'s files are, as `SMPPATH` names it; `None` for
+    /// a game that ships no such file, or names a directory the copy has not
+    /// got. See `resources::sample_dir`.
+    sample_dir: Option<std::path::PathBuf>,
     /// The mode `MOUSEINFO` last saw, in the global the handler keeps at
     /// 0xdbd5c. A mode switch counts as a change even if nothing moved.
     last_info_mode: Option<i32>,
@@ -221,7 +254,7 @@ pub struct Engine {
     /// drives the words directly leaves it as.
     pub(crate) words: Vec<Option<Word>>,
     /// The off-screen buffers of the 16-bit kernel's `SETBUF`/`SDBUF`/`BUFON`
-    /// family — see [`buffer::Buffers`]. Empty for the 32-bit game, whose
+    /// family — see [`buffer::Buffers`]. Empty for the 32-bit games, whose
     /// `SETBUF` is inert.
     pub(crate) buffers: Buffers,
     /// The text backing's remap row, kept until the palette changes.
@@ -530,14 +563,16 @@ impl Engine {
         out
     }
 
-    /// The pointer's shape and hotspot, as `XATMOUSE` set them.
-    pub fn cursor(&self) -> Option<(u32, i32, i32)> {
+    /// The pointer's shape: the sprite and hotspot `XATMOUSE` installed, or
+    /// the engine's own arrow in the two indices `TOGFX` or `NORMMOUSE`
+    /// resolved for it. `None` before graphics.
+    pub fn cursor(&self) -> Option<PointerShape> {
         self.cursor_state.shape
     }
 
-    /// Whether the pointer is drawn.
+    /// Whether the pointer is drawn: its show counter stands at one or more.
     pub fn pointer_visible(&self) -> bool {
-        self.cursor_state.visible
+        self.cursor_state.visible()
     }
 
     /// The word `CTRL` was handed: the game's own per-frame controller.
@@ -657,21 +692,25 @@ impl Engine {
         Self {
             scene: Scene::default(),
             dialogue: Dialogue::default(),
-            cursor_state: Cursor::starting(profile.pointer_starts_visible),
+            cursor_state: Cursor::unarmed(),
             persistence: Persistence::default(),
             sound: Sound::default(),
             today: None,
+            master_ticks: 0,
+            timers: clock::Timers::default(),
             transitions: Transitions::default(),
             input: Input::default(),
             display: Display::with_size(profile.display),
             profile,
-            mode: video::Video::default(),
+            mode: video::Video::seeded(),
+            laid_out: BTreeMap::new(),
             resources: None,
             stubbed: BTreeMap::new(),
             palette_cycle: None,
             request: None,
             dirty: false,
             rebuild: Vec::new(),
+            draw_pass: 0,
             controller: None,
             main_loop: false,
             entering_loop: false,
@@ -679,6 +718,7 @@ impl Engine {
             // overwrites it during startup.
             frame_ticks: 8,
             dir: None,
+            sample_dir: None,
             last_info_mode: None,
             system_fg: 0,
             system_bg: 2,
@@ -1363,8 +1403,12 @@ mod tests {
                 pixels: vec![9; 4],
             },
         );
-        e.cursor_state.shape = Some((99, 0, 0));
-        e.cursor_state.visible = true;
+        e.cursor_state.shape = Some(PointerShape::Sprite {
+            id: 99,
+            hot_x: 0,
+            hot_y: 0,
+        });
+        e.cursor_state.shows = 1;
         e.input.mouse.x = 0;
         e.input.mouse.y = 0;
         assert_eq!(
@@ -1380,32 +1424,82 @@ mod tests {
             "and not while a curtain is up"
         );
         assert!(
-            e.cursor_state.visible,
+            e.cursor_state.visible(),
             "the script's own state is left alone"
         );
     }
 
-    /// Mode 2 is a different effect, and asking for it must not bring us down.
-    ///
-    /// It is a *translucent* fade: 0x74eef fills its bands with color 0x102,
-    /// which the fill routine reads as a level in the darkening tables
-    /// `SETPAL` builds (0x147ff and its siblings) rather than as a color. All
-    /// 180 calls in the game pass mode 1, so it is recorded and skipped. It
-    /// must not go through `note_no_effect`, whose `debug_assert!` fires for
-    /// any name not on `NO_EFFECT`, and neither fade word is on that list.
+    /// `FADEIN`'s mode 2 is the curtain with `WHITEBOX`'s box painted
+    /// first — at 25,122, 452 by 317, the frame two in — and no wait
+    /// between its bands: one step opens it whole, and the box is on the
+    /// screen's surface under everything the bands reveal.
     #[test]
-    fn a_mode_two_fade_is_recorded_rather_than_fatal() {
+    fn a_mode_two_fade_in_paints_the_box_and_opens_at_once() {
+        let mut mem = mem();
+        let mut e = Engine::new(Profile::motion32());
+        e.select_mode(video::MODE_640X480X256);
+        e.enter_graphics().expect("the mode");
+        // A palette with a white at 5 and a black at 9 among grays, so the
+        // two indices are neither each other nor the surface's own 0.
+        let mut raw = [20u8; motionvm_render::Palette::BYTES];
+        raw[15..18].copy_from_slice(&[63, 63, 63]);
+        raw[27..30].copy_from_slice(&[0, 0, 0]);
+        e.display.palette = motionvm_render::Palette { raw };
+        let (white, black) = (5, 9);
+        let h = e.display.new_screen();
+        let s = e.display.screen_mut(h).unwrap();
+        s.set_size(640, 480);
+        s.set_view(640, 480);
+        e.display.set_current(h);
+        let mut stack = vec![2, 50, 8];
+        e.plain_word32("FADEIN", &mut stack, &mut mem).unwrap();
+        assert!(e.in_transition(), "mode 2 is the curtain");
+        assert_eq!(e.step_ticks(), 0, "and it waits for nothing");
+        e.advance_curtain();
+        assert!(!e.in_transition(), "one step opens it whole");
+        let picture = e.render();
+        let at = |x, y| picture.get(x, y);
+        assert_eq!(at(25, 122), Some(white), "the box's corner");
+        assert_eq!(at(27, 124), Some(black), "the frame, two in");
+        assert_eq!(at(30, 130), Some(white), "white inside the frame");
+        assert_eq!(at(476, 438), Some(white), "the box's far corner");
+        assert_eq!(at(477, 439), Some(0), "and nothing past it");
+    }
+
+    /// `FADEOUT`'s mode 2 is a different effect — a translucent fade through
+    /// the darkening tables (0x74eef, color 0x102) — that no shipped call
+    /// reaches, so it is recorded and skipped. It must not go through
+    /// `note_no_effect`, whose `debug_assert!` fires for any name not on
+    /// `NO_EFFECT`, and neither fade word is on that list.
+    #[test]
+    fn a_mode_two_fade_out_is_recorded_rather_than_fatal() {
         let mut mem = mem();
         let mut e = two_screens(3, 7);
         e.display.set_current(1);
         let mut stack = vec![2, 50, 8];
-        e.plain_word32("FADEIN", &mut stack, &mut mem).unwrap();
+        e.plain_word32("FADEOUT", &mut stack, &mut mem).unwrap();
         assert!(!e.in_transition(), "mode 2 is not the curtain");
         assert_eq!(
-            e.stubbed().get("FADEIN (mode 2)"),
+            e.stubbed().get("FADEOUT (mode 2)"),
             Some(&1),
             "and it is reported, not swallowed"
         );
+    }
+
+    /// R78's curtains wait for nothing: with the capability off, a mode-1
+    /// fade opens in one step of no ticks.
+    #[test]
+    fn an_unwaiting_build_opens_its_curtain_in_one_step() {
+        let mut mem = mem();
+        let mut e = two_screens(3, 7);
+        e.profile.curtains_wait = false;
+        e.display.set_current(1);
+        let mut stack = vec![1, 50, 8];
+        e.plain_word32("FADEIN", &mut stack, &mut mem).unwrap();
+        assert!(e.in_transition());
+        assert_eq!(e.step_ticks(), 0);
+        e.advance_curtain();
+        assert!(!e.in_transition());
     }
 
     /// Every fade's pace, worked out from the handler and checked at three

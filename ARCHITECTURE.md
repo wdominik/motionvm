@@ -1,8 +1,9 @@
 # The architecture of motionvm
 
 motionvm virtualizes game engines. It ships one engine *family* today —
-MOTION, in a 16-bit and a 32-bit generation, the 16-bit one in four distinct
-builds, with the games on top — and holds the family apart from the window
+MOTION, in a 16-bit and a 32-bit generation, the 16-bit one in five distinct
+builds and the 32-bit one in two, with the games on top — and holds the
+family apart from the window
 that plays it the same way it holds the generations apart from each other.
 Family, generation, build and game are four different axes, and almost every
 decision in this tree is about keeping them apart.
@@ -167,8 +168,8 @@ and anything that holds for one carries its number, `dialogue32.rs` beside
 
 This is the most distinctive part of the design, and the part that pays for
 itself when an unknown build turns up. The five 16-bit builds differ in kernel
-size, in ordinal base and in one behavior, and **none of that is keyed on a
-game name**:
+size, in ordinal base and in a few behaviors, the two 32-bit builds in kernel
+size and in two behaviors, and **none of that is keyed on a game name**:
 
 - The kernel binding is scanned out of the shipped executable, and the domain
   ordinal base is derived by disassembling the registration loop in the MZ
@@ -183,6 +184,14 @@ game name**:
   entries, not by asking which game is running.
 - The 16-bit container's two framings are told apart by a structural identity
   test on the offset tables.
+- The 32-bit kernel binding is derived from the binary's own init rather
+  than tabled, so both shipped builds — and a third — bind by one reading.
+- What a 32-bit build's `SDINSERT` pops — a slot and a value, or a kind
+  beside them — is counted off the handler's pop calls, and the text layout
+  converts the five insert slots by that reading.
+- Whether a 32-bit build's curtains wait between their bands is read off
+  `FADEIN` and `FADEOUT`: the one division of the duration by the band count
+  is there in R109's handlers and absent from R78's.
 
 ### Game is an enum and a manifest
 
@@ -195,7 +204,7 @@ family's own front door picks a music stack.
 `slug()` is the universal key: it names the environment variable, the saves
 subdirectory, the documentation tree and the module. A game's module under
 `titles/` is a manifest — the files it ships and what each is for, the binary
-its kernel comes out of, where it keeps its location, and for the 32-bit game
+its kernel comes out of, where it keeps its location, and for a 32-bit game
 the words that tell its container from another's. It holds constants and no
 behavior.
 
@@ -224,21 +233,23 @@ in `motionvm-motion-engine` names a title.
 ## Behavior differences are named capabilities
 
 Where the two generations really do behave differently, the engine carries
-thirteen named booleans and a savegame layout — `opaque_blocks`, `text_runs`,
-`per_screen_descriptors`, `skips_holes` and the rest — each documented with the
-disassembly address it was measured at. They live on the `Profile`, which is
-built whole before the engine exists: `Profile::motion32` and
-`Profile::motion16` are the two readings, and `skips_holes`,
-`walk_defaults_shrink` and `walk_smooths_headings` are probed out of the
-shipped binary by the 16-bit opener, which puts what it read into the profile
-rather than into a built engine.
+sixteen named booleans, two named enums — what `TOGFX` does with the pointer,
+what a text record makes of `SDINSERT` — a display size and a savegame layout
+— `opaque_blocks`, `text_runs`, `per_screen_descriptors`, `skips_holes` and
+the rest — each documented with the disassembly address it was measured at.
+They live on the `Profile`, which is built whole before the engine exists:
+`Profile::motion32` and `Profile::motion16` are the two readings. Six of the
+fields are probed out of the shipped binary by the opener, which puts what it
+read into the profile rather than into a built engine: `skips_holes`,
+`walk_defaults_shrink`, `walk_smooths_headings` and `screen_holds_a_hundred`
+on the 16-bit side, `inserts` and `curtains_wait` on the 32-bit.
 
-Ten of them are, today, two-valued functions of "is this the 16-bit engine",
-and folding them into the `Generation` above would lose nothing that is
-currently true. It is deliberately not done. Each was *measured separately*, each names a
-behavior rather than a version, and `skips_holes` and the walk builder's two
-already vary within a generation — which is the whole case for capabilities
-over version tests in a family whose next build is unknown.
+Eleven of the booleans are, today, two-valued functions of "is this the
+16-bit engine", and folding them into the `Generation` above would lose
+nothing that is currently true. It is deliberately not done. Each was
+*measured separately*, each names a behavior rather than a version, and the
+six probed ones already vary within a generation — which is the whole case
+for capabilities over version tests in a family whose next build is unknown.
 
 ## The rule for sharing, and the rule for not
 
@@ -273,13 +284,13 @@ search. Each names what it would buy and what it would cost, in the present
 tense, because the cost is still there.
 
 - **A loop over function pointers for the kernel-word groups.** `word32` and
-  `word16` in `words/mod.rs` ask fifteen or seventeen groups in turn, written
+  `word16` in `words/mod.rs` ask sixteen or seventeen groups in turn, written
   out. A table of function pointers would fold that to five lines and put a
   layer between the reader and the list of groups — and the list, in the
   original's own section order, is the reader's map of the kernel.
 - **Kernel words dispatched by name.** A `match name` per group, the first to
   recognize a string winning, makes the order of the groups load-bearing with
-  nothing checking it: thirteen names mean a different handler on the two
+  nothing checking it: sixteen names mean a different handler on the two
   machines, and a call order would be the only thing telling them apart. A
   word is one value of an enum instead, resolved once per kernel when the
   game opens, and a duplicate name is a compile error (`words/word.rs`).

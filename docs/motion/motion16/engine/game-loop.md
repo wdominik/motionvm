@@ -24,12 +24,17 @@ In order:
    320×200×256 is the mode `TOGFX` enters.
 4. `0 SETPAL`, `NEWANIM`, **`BUFON`** — buffer compositing on from the start
    ([off-screen buffers](buffers.md)).
-5. `399 FATMOUSE` — sprite 399 (16×15) becomes the pointer. It stays
-   invisible: `SHOWMOUSE` and `HIDEMOUSE` (`14ee:0874`, `14ee:094b`) move
-   a show counter that starts at zero — the pointer shows from one up —
-   and both are inert until a shape has armed the pointer (`ds:0x16AA`).
+5. `399 FATMOUSE` — sprite 399 (16×15) becomes the pointer, in place of
+   the engine's own arrow that `TOGFX` installed a step earlier
+   (`05f1:011a`: kind 2 of the shape definer `14ee:000e`, the bitmap's
+   indices 8 and 15 as they are, no show). It stays invisible: `SHOWMOUSE`
+   and `HIDEMOUSE` (`14ee:0874`, `14ee:094b`) move a show counter that
+   starts at zero — the pointer shows from one up — and both are inert
+   until a shape has armed the pointer (`ds:0x16AA`), which `TOGFX`'s did.
    `RUN`'s one `SHOWMOUSE` comes after `STARTINTRO`, so the intro runs
-   without a pointer.
+   without a pointer, and the arrow is never seen: every 16-bit game's
+   `RUN` says `FATMOUSE` before its first `SHOWMOUSE`
+   ([the 32-bit pointer](../../motion32/engine/interaction.md#the-engines-own-arrow)).
 6. `=>GET 610`, `STARTINTRO`, `=>ERASE 610` — the intro plays and its module
    is dropped.
 7. `125 _TSPEED !`, `1 SETPAL`, `396 0 0 FXATMOUSE`, `SHOWMOUSE`.
@@ -40,7 +45,7 @@ In order:
     38, 27, 42, 6). `XDEFTDT` (module 603) is `>R 1 1 -1 -1 -1 -1 _SHFONT @
     R> DEFTDT`, so the kernel's `DEFTDT` receives nine values — the number,
     `1 1 -1 -1 -1 -1`, the shadow font's handle and the template id — the
-    same count as in the 32-bit game, whose first value is a constant 8.
+    same count as in Dunkle Schatten 2, whose first value is a constant 8.
     The leading number is the shadow color — the last value the handler
     pops (`05f1:2ee7`); see [text rendering](text-rendering.md).
 11. `15 DELAY`, `_MS SSACT`, **`400 SCRCTRL`** — `CTRL` becomes the frame
@@ -74,7 +79,7 @@ the whole game happens inside step 15.
 - in the game `400 SCRCTRL` — `CTRL` in module 100 (1219 cells), always
   resident.
 
-`ANIMPLAY` takes no arguments here; the 32-bit game pushes ten values
+`ANIMPLAY` takes no arguments here; Dunkle Schatten 2 pushes ten values
 before it that its handler never pops. `QUITANIM` is in the kernel and
 called from four sites. `NEWANIM` is called once, before `BUFON`.
 
@@ -122,7 +127,7 @@ frames a second.
 
 ## Saves
 
-Five slots, 701–705, three files each, the same names as the 32-bit game's
+Five slots, 701–705, three files each, the same names as Dunkle Schatten 2's
 — `NNN.blk`, `NNN.anm`, `NNN.FRZ` — written and read by the same words in
 the same order. The save page (`DOINVSAVE` in module 650, reached from
 the inventory bar's menu) runs
@@ -152,7 +157,7 @@ descriptors with their buffers, the screens, the palette, the off-screen
 buffers; only `.blk` — two raw bytes here, four there — coincides with the
 original's. And every game keeps its saves apart: all of them name their
 slots alike and each asks at start-up whether a slot exists — and among the
-four games on this engine even the magics match, so one would open another's
+five games on this engine even the magics match, so one would open another's
 slot rather than refuse it. See the
 [savegame departure](../../departures.md#savegames).
 

@@ -25,7 +25,7 @@
 mod common;
 
 use common::settled_in;
-use motionvm_motion_engine::Game;
+use motionvm_motion_engine::{Game, PointerShape};
 use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
 use motionvm_motion_testutil::gamedata_ds2;
@@ -508,10 +508,14 @@ fn the_pointer_draws_itself_over_the_frame() {
         assert!(guard < 400, "no frame ever showed a pointer");
     }
 
-    let (id, hx, hy) = game
+    let PointerShape::Sprite { id, hot_x, hot_y } = game
         .engine
         .cursor()
-        .expect("FATMOUSE gave the pointer a shape");
+        .expect("FATMOUSE gave the pointer a shape")
+    else {
+        panic!("the pointer still wears TOGFX's arrow");
+    };
+    let (hx, hy) = (hot_x, hot_y);
     assert!(
         game.engine.pointer_visible(),
         "nothing has hidden the pointer"

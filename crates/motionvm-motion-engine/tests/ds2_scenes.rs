@@ -177,6 +177,13 @@ fn the_intro_text_page() {
 /// behind, a figure in it, and four lines of proportional text on top. Getting
 /// here at all exercises startup, the location loader, the task machine and the
 /// dialogue apparatus in one run.
+///
+/// One thing the frame has not got is the pointer. The jump past the title
+/// leaves after `323:START_MACRO`'s `HIDEMOUSE` and before the `SHOWMOUSE`
+/// that `223:LTMANAGER`'s phase 7 answers it with, so the pointer's show
+/// counter stands at nought when the classroom's conversation begins, and
+/// the conversation itself is balanced — `TALK` hides once, the answer menu
+/// shows once. A player who came through the title has a pointer here.
 #[test]
 fn the_dialogue_answer_menu() {
     let Some(dir) = gamedata_ds2() else {

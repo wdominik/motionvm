@@ -30,6 +30,7 @@ use motionvm_motion_engine::MusicSink;
 use motionvm_motion_engine::titles;
 use motionvm_motion_formats::m16::psm::{Plx, Sample};
 use motionvm_motion_formats::m32::DriverArchive;
+use motionvm_motion_formats::m32::Wav;
 use motionvm_motion_formats::m32::bnk::Bank as InstrumentBank;
 use motionvm_motion_formats::m32::hmi::Song;
 use motionvm_playable::{AudioSource, Result};
@@ -44,6 +45,8 @@ enum Command<P: Player> {
     Stop,
     Cut,
     Sample(Box<P::Sample>),
+    StopSample(i32),
+    MusicVolume(u16),
 }
 
 /// The audio thread's side: drain the command channel, then render.
@@ -68,13 +71,15 @@ where
                 Command::Stop => self.player.stop(),
                 Command::Cut => self.player.cut(),
                 Command::Sample(sample) => self.player.sample(*sample),
+                Command::StopSample(handle) => self.player.stop_sample(handle),
+                Command::MusicVolume(volume) => self.player.music_volume(volume),
             }
         }
         self.player.fill(out);
     }
 }
 
-/// What the 32-bit game's engine talks to. Everything it is handed goes over
+/// What the 32-bit games' engine talks to. Everything it is handed goes over
 /// the channel.
 ///
 /// The parse happens here, on the game thread: reading, checking and
@@ -107,13 +112,40 @@ impl MusicSink for Music {
         let _ = self.tx.send(Command::Cut);
     }
 
-    /// No 32-bit word reaches this: the words that would, `STARTSAMPLE` and
-    /// `->STARTSAMPLE`, are unbuilt, and the stack has no sample type to
-    /// send. Noted rather than dropped, should a word ever get here.
+    /// The 16-bit `PLAYSAMPLE`'s hand-over, which no 32-bit word makes: the
+    /// 32-bit samples arrive through [`MusicSink::start_sample`] with a
+    /// handle and a volume. Noted rather than dropped, should a word ever get
+    /// here.
     fn sample(&mut self, block: i32, _sample: &[u8]) {
         self.notes.push(format!(
-            "sample {block}: the 32-bit stack has no digital layer"
+            "sample {block}: a 16-bit sample on the 32-bit stack"
         ));
+    }
+
+    /// The WAV parsed here, on the game thread, as a song is; one that will
+    /// not parse is worth saying out loud and not worth stopping for.
+    fn start_sample(&mut self, handle: i32, wav: &[u8], volume: u16, loops: i32) {
+        match Wav::parse(wav) {
+            Ok(wav) => {
+                let _ = self.tx.send(Command::Sample(Box::new(m32::Sample {
+                    handle,
+                    wav,
+                    volume,
+                    loops,
+                })));
+            }
+            Err(e) => self
+                .notes
+                .push(format!("sample {handle} did not parse: {e}")),
+        }
+    }
+
+    fn stop_sample(&mut self, handle: i32) {
+        let _ = self.tx.send(Command::StopSample(handle));
+    }
+
+    fn music_volume(&mut self, volume: u16) {
+        let _ = self.tx.send(Command::MusicVolume(volume));
     }
 
     fn diagnostics(&self) -> Vec<String> {
@@ -163,6 +195,19 @@ impl MusicSink for PsmMusic {
         }
     }
 
+    /// No 16-bit word reaches the three below — they are the 32-bit sample
+    /// words' — so a start is worth a note, and a stop or a volume for a
+    /// sample that never started is worth nothing.
+    fn start_sample(&mut self, handle: i32, _wav: &[u8], _volume: u16, _loops: i32) {
+        self.notes.push(format!(
+            "sample {handle}: a 32-bit sample on the 16-bit stack"
+        ));
+    }
+
+    fn stop_sample(&mut self, _handle: i32) {}
+
+    fn music_volume(&mut self, _volume: u16) {}
+
     fn diagnostics(&self) -> Vec<String> {
         self.notes.clone()
     }
@@ -174,7 +219,7 @@ impl MusicSink for PsmMusic {
 /// Which stack comes up is the opened game's answer: its generation names
 /// the format, and it is asked rather than detected from the directory a
 /// second time. The files are the game's own — `HMIMDRV.386` and the two
-/// instrument banks for the 32-bit game, the same three files `ENGINE.EXE`
+/// instrument banks for the 32-bit games, the same three files `ENGINE.EXE`
 /// hands its MIDI layer; `MUSADL.DRV` for the 16-bit games, the same file
 /// their player loads whole and installs. All five 16-bit games ship that
 /// driver: the four later ones carry byte-identical copies, Victor Loomes

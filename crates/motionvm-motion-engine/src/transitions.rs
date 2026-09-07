@@ -34,6 +34,10 @@ pub(crate) struct Transitions {
     /// interpreter held, the way the fades are.
     pub(crate) scroll: Option<Scroll>,
 
+    /// The 32-bit `->SCRX`/`->SCRY` in flight — a strip of the old and the
+    /// new view blitted a window at a time; see [`crate::Slide`].
+    pub(crate) slide: Option<crate::Slide>,
+
     /// Every fade that has been started, in order — see [`Fade`].
     pub(crate) fades: Vec<Fade>,
 }

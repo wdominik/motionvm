@@ -75,7 +75,7 @@ pub(super) fn detect(dir: &Path) -> Option<Title> {
 /// it — Victor Loomes, which does not, keeps its own in its own module.
 pub(super) const MODULE_601: LocationScheme = LocationScheme {
     module: 601,
-    next: "NEXTLOC",
+    next: Some("NEXTLOC"),
     fallback: Some(("ACTLOC", "STARTLOC")),
     unset_below: Some(0),
 };
@@ -161,6 +161,7 @@ pub(super) fn open(
         engine,
         title,
         location,
+        shell: None,
         buttons: (false, false),
         stretched: (false, false),
         running: false,

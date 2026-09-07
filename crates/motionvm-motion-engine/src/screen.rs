@@ -10,7 +10,6 @@
 //! engine's side of them. `words/screens.rs` is the stack ABI over what is here.
 
 use crate::Engine;
-use crate::words::Word;
 use motionvm_motion_forth::cell;
 
 impl Engine {
@@ -35,44 +34,59 @@ impl Engine {
         }
     }
 
-    /// `GSCRX`: the horizontal origin of the active screen.
-    ///
-    /// Two registers answer here, one per generation: the 32-bit `SCRX`
-    /// writes `origin` (+0x24; that game only ever passes zero), the
-    /// 16-bit `SCRX` writes `pos` (the scroll at scr+0, which the town
-    /// views move). Each generation leaves the other's register at zero,
-    /// so the sum is the right answer for both — the same base
-    /// `Screen::span` uses for the damage map. Reading only `origin`
-    /// made every native `GSCRX`-relative placement (the verb strip's
-    /// clamp, `MOUSEINFO`, the 16-bit conversation) drop the scroll
-    /// term.
+    /// `GSCRX`: the horizontal scroll of the active screen — the register
+    /// `SCRPOS`, `SCRX` and `->SCRX` write, `+0x24` of the record hanging off
+    /// the screen on the 32-bit machine and `scr+0` on the 16-bit one, which
+    /// is the base every `GSCRX`-relative placement (the verb strip's clamp,
+    /// `MOUSEINFO`, the 16-bit conversation) adds to.
     pub(crate) fn screen_origin_x(&mut self) -> i32 {
         self.display
             .current_mut()
-            .map(|s| i32::from(s.origin.0) + i32::from(s.pos.0))
+            .map(|s| i32::from(s.pos.0))
             .unwrap_or(0)
     }
 
-    /// `SCRX`: writes the horizontal origin that [`Engine::screen_origin_x`]
-    /// reads back.
+    /// The 32-bit `SCRX` and `SCRY`: one half of the scroll register, and a
+    /// whole redraw when it changes.
     ///
-    /// What it shifts is not established — the game only ever sets it to zero —
-    /// so nothing composites with it yet. A non-zero value is counted so it
-    /// cannot pass unnoticed if that ever changes.
-    pub(crate) fn set_screen_origin_x(&mut self, v: i32) {
-        if v != 0 {
-            self.note_unhandled(Word::SCRX, Some("non-zero".into()));
+    /// `SCRY` (R78 `0x5ee40`) compares the new value with `+0x26`, stores it
+    /// and calls the screen's redraw marker (`0x58db0`) only when it differs;
+    /// `SCRX` is its twin on `+0x24`. The marker sets bits `0x40` and `0x10`
+    /// of the screen's flags, which the next drawer pass reads as "draw every
+    /// active descriptor under the view again" — here, the view's rectangle
+    /// goes onto the rebuild list, and the map is marked from the bottom, so
+    /// the pass repaints what the moved window now shows.
+    pub(crate) fn set_screen_scroll(&mut self, vertical: bool, v: i32) {
+        let Some(s) = self.display.current_mut() else {
+            return;
+        };
+        let slot = if vertical { &mut s.pos.1 } else { &mut s.pos.0 };
+        if *slot == cell::short(v) {
+            return;
         }
-        if let Some(s) = self.display.current_mut() {
-            s.origin.0 = cell::short(v);
-        }
+        *slot = cell::short(v);
+        let handle = s.handle;
+        self.redraw_view(handle);
     }
 
-    /// `GSCRY`: the vertical origin. See [`Engine::screen_origin_x`].
+    /// The 32-bit redraw marker (`0x58db0`) on one screen: everything under
+    /// its view is drawn again on the next pass.
+    pub(crate) fn redraw_view(&mut self, handle: u32) {
+        let Some(s) = self.display.screen_mut(handle) else {
+            return;
+        };
+        let (x, y) = (i32::from(s.pos.0), i32::from(s.pos.1));
+        let (w, h) = (i32::from(s.view.0), i32::from(s.view.1));
+        s.mark(x, y, w, h, i32::from(i16::MIN));
+        self.rebuild.push((handle, (x, y, w, h)));
+        self.dirty = true;
+    }
+
+    /// `GSCRY`: the vertical scroll. See [`Engine::screen_origin_x`].
     pub(crate) fn screen_origin_y(&mut self) -> i32 {
         self.display
             .current_mut()
-            .map(|s| i32::from(s.origin.1) + i32::from(s.pos.1))
+            .map(|s| i32::from(s.pos.1))
             .unwrap_or(0)
     }
 

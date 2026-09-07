@@ -8,18 +8,19 @@
 //!
 //! ## Why a value and not a name
 //!
-//! A word that arrived as a `&str` and was offered to fifteen or seventeen
+//! A word that arrived as a `&str` and was offered to sixteen or seventeen
 //! groups in turn, each a `match name`, the first to recognize it winning,
 //! would make the order of those calls load-bearing with nothing checking it:
 //! two groups could claim one name and the earlier one would win silently.
-//! That is not hypothetical — **thirteen names mean different things on the
+//! That is not hypothetical — **sixteen names mean different things on the
 //! two machines**, and a call order would be the only thing telling them apart:
 //!
 //! | name | 32-bit | 16-bit |
 //! |---|---|---|
 //! | `FADEIN`, `FADEOUT` | a band curtain | a box wipe (`05f1:2827`, `05f1:29e4`) |
 //! | `SETBUF`, `RESETBUF`, `SDBUF` | inert, or a descriptor field | real buffers |
-//! | `SCRX`, `SCRPOS`, `GSCRX`, `GSCRY` | the shared screen words | this engine's own |
+//! | `SCRX`, `SCRY`, `SCRPOS`, `GSCRX`, `GSCRY` | the shared screen words | this engine's own |
+//! | `->SCRX`, `->SCRY` | `( x -- )`, a slide of the view over a copy of old and new (R78 `0x60690`) | `( screen x step -- )`, one step a tick (file `0xc149`) |
 //! | `STARTTUNE`, `ENDTUNE` | start and stop | with `ENDTUNE`'s half-second wait |
 //! | `=>ERASE` | frees the slot | frees the slot and unloads the module |
 //! | `REMSCR` | the current screen, nothing taken | `( handle -- )` (`05f1:08d4`) |
@@ -94,6 +95,13 @@ pub(crate) enum Word {
     SETRES,
     SPEEDMODE,
     TOGFX,
+    GIVEDATE,
+
+    // The 32-bit engine's timer objects.
+    CLOSETIMER,
+    GIVETIMER,
+    OPENTIMER,
+    SETTIMER,
 
     // Screens: making them, sizing them, moving their views.
     ACTSCR,
@@ -109,6 +117,11 @@ pub(crate) enum Word {
     SCRVPOS,
     SCRVSIZE,
     SCRX,
+    SCRY,
+    /// `->SCRX`
+    TO_SCRX,
+    /// `->SCRY`
+    TO_SCRY,
     UNFREEZESCR,
 
     // Descriptors: making them, selecting them, setting and getting their fields.
@@ -184,6 +197,8 @@ pub(crate) enum Word {
     /// `+FONT`
     PLUS_FONT,
     DEFTDT,
+    /// `TEXT->PRINTER`
+    TEXT_TO_PRINTER,
 
     // The savegame words.
     /// `=>ERASE`
@@ -290,6 +305,13 @@ pub(crate) enum Word {
     // Music.
     ENDTUNE,
     STARTTUNE,
+    MUSVOLUME,
+    /// `?STIME`
+    Q_STIME,
+    STARTSAMPLE,
+    STOPSAMPLE,
+    /// `->STARTSAMPLE`
+    TO_STARTSAMPLE,
 
     // The pointer.
     /// `?INSIDE`
@@ -321,6 +343,7 @@ pub(crate) enum Word {
     // Redrawing, and the buffer words the 32-bit engine walks past.
     DRAWSCR,
     ERASESCR,
+    WHITEBOX,
     FRESHSCREEN,
     REMSCR,
     RESETBUF,
@@ -330,9 +353,9 @@ pub(crate) enum Word {
 
     // The 16-bit engine's own words, and its own readings of shared ones.
     /// `->SCRX`
-    TO_SCRX,
+    TO_SCRX_16,
     /// `->SCRY`
-    TO_SCRY,
+    TO_SCRY_16,
     /// `-FONT`
     MINUS_FONT,
     /// `.`
@@ -347,7 +370,6 @@ pub(crate) enum Word {
     FADEIN_16,
     /// `FADEOUT`
     FADEOUT_16,
-    GIVEDATE,
     GSCRPOS,
     /// `GSCRX`
     GSCRX_16,
@@ -362,7 +384,8 @@ pub(crate) enum Word {
     SCRPOS_16,
     /// `SCRX`
     SCRX_16,
-    SCRY,
+    /// `SCRY`
+    SCRY_16,
     SETCYCLE,
     SETSHADE,
     SFT,
@@ -390,7 +413,10 @@ impl Word {
     pub(crate) const ALL: &'static [Word] = &[
         Word::PLUS_FONT,
         Word::TO_SCRX,
+        Word::TO_SCRX_16,
         Word::TO_SCRY,
+        Word::TO_SCRY_16,
+        Word::TO_STARTSAMPLE,
         Word::MINUS_FONT,
         Word::DOT,
         Word::MODE_320X200X256,
@@ -407,6 +433,7 @@ impl Word {
         Word::Q_INVINCL,
         Word::Q_KEY,
         Word::Q_SOUND,
+        Word::Q_STIME,
         Word::Q_XINSIDE,
         Word::ACTDESC,
         Word::ACTSCR,
@@ -529,6 +556,7 @@ impl Word {
         Word::SCRX,
         Word::SCRX_16,
         Word::SCRY,
+        Word::SCRY_16,
         Word::SD_PCT_SHR,
         Word::SDACTIVE,
         Word::SDALINES,
@@ -579,6 +607,15 @@ impl Word {
         Word::SHOWMOUSE,
         Word::SPEEDMODE,
         Word::STARTTUNE,
+        Word::STARTSAMPLE,
+        Word::STOPSAMPLE,
+        Word::MUSVOLUME,
+        Word::OPENTIMER,
+        Word::SETTIMER,
+        Word::GIVETIMER,
+        Word::CLOSETIMER,
+        Word::WHITEBOX,
+        Word::TEXT_TO_PRINTER,
         Word::STARTTUNE_16,
         Word::STEPMULTI,
         Word::SUBFROMINV,
@@ -620,6 +657,9 @@ impl Word {
     pub(crate) fn of_m32(name: &str) -> Option<Word> {
         Some(match name {
             "+FONT" => Word::PLUS_FONT,
+            "->SCRX" => Word::TO_SCRX,
+            "->SCRY" => Word::TO_SCRY,
+            "->STARTSAMPLE" => Word::TO_STARTSAMPLE,
             "320x200x256" => Word::MODE_320X200X256,
             "640x480x256" => Word::MODE_640X480X256,
             "640x480x32K" => Word::MODE_640X480X32K,
@@ -632,6 +672,7 @@ impl Word {
             "?INVINCL" => Word::Q_INVINCL,
             "?KEY" => Word::Q_KEY,
             "?SOUND" => Word::Q_SOUND,
+            "?STIME" => Word::Q_STIME,
             "?XINSIDE" => Word::Q_XINSIDE,
             "ACTDESC" => Word::ACTDESC,
             "ACTSCR" => Word::ACTSCR,
@@ -643,6 +684,7 @@ impl Word {
             "BLKSTAT+" => Word::BLKSTAT_PLUS,
             "BLKSTAT-" => Word::BLKSTAT_MINUS,
             "CCALCINV" => Word::CCALCINV,
+            "CLOSETIMER" => Word::CLOSETIMER,
             "CTRL" => Word::CTRL,
             "CUTPAL" => Word::CUTPAL,
             "DEFTDT" => Word::DEFTDT,
@@ -692,6 +734,8 @@ impl Word {
             "GFXSTAT-" => Word::GFXSTAT_MINUS,
             "GFXTO" => Word::GFXTO,
             "GFXVFLIP" => Word::GFXVFLIP,
+            "GIVEDATE" => Word::GIVEDATE,
+            "GIVETIMER" => Word::GIVETIMER,
             "GSCRACT" => Word::GSCRACT,
             "GSCRVSIZE" => Word::GSCRVSIZE,
             "GSCRX" => Word::GSCRX,
@@ -706,10 +750,12 @@ impl Word {
             "MOUSEX" => Word::MOUSEX,
             "MOUSEXY" => Word::MOUSEXY,
             "MOUSEY" => Word::MOUSEY,
+            "MUSVOLUME" => Word::MUSVOLUME,
             "NEWDESC" => Word::NEWDESC,
             "NEWSCREEN" => Word::NEWSCREEN,
             "NEWSETDESC" => Word::NEWSETDESC,
             "NORMMOUSE" => Word::NORMMOUSE,
+            "OPENTIMER" => Word::OPENTIMER,
             "PALSTAT" => Word::PALSTAT,
             "PALSTAT+" => Word::PALSTAT_PLUS,
             "PALSTAT-" => Word::PALSTAT_MINUS,
@@ -735,6 +781,7 @@ impl Word {
             "SCRVPOS" => Word::SCRVPOS,
             "SCRVSIZE" => Word::SCRVSIZE,
             "SCRX" => Word::SCRX,
+            "SCRY" => Word::SCRY,
             "SD%SHR" => Word::SD_PCT_SHR,
             "SDACTIVE" => Word::SDACTIVE,
             "SDALINES" => Word::SDALINES,
@@ -777,16 +824,21 @@ impl Word {
             "SETMOUSEY" => Word::SETMOUSEY,
             "SETPAL" => Word::SETPAL,
             "SETRES" => Word::SETRES,
+            "SETTIMER" => Word::SETTIMER,
             "SHOWMOUSE" => Word::SHOWMOUSE,
             "SPEEDMODE" => Word::SPEEDMODE,
+            "STARTSAMPLE" => Word::STARTSAMPLE,
             "STARTTUNE" => Word::STARTTUNE,
+            "STOPSAMPLE" => Word::STOPSAMPLE,
             "STEPMULTI" => Word::STEPMULTI,
             "SUBFROMINV" => Word::SUBFROMINV,
+            "TEXT->PRINTER" => Word::TEXT_TO_PRINTER,
             "TOGFX" => Word::TOGFX,
             "TXTSTAT" => Word::TXTSTAT,
             "TXTSTAT+" => Word::TXTSTAT_PLUS,
             "TXTSTAT-" => Word::TXTSTAT_MINUS,
             "UNFREEZESCR" => Word::UNFREEZESCR,
+            "WHITEBOX" => Word::WHITEBOX,
             "XATMOUSE" => Word::XATMOUSE,
             "XBLKSTAT" => Word::XBLKSTAT,
             "XBLKSTAT+" => Word::XBLKSTAT_PLUS,
@@ -818,8 +870,8 @@ impl Word {
     pub(crate) fn of_m16(name: &str) -> Option<Word> {
         Some(match name {
             "+FONT" => Word::PLUS_FONT,
-            "->SCRX" => Word::TO_SCRX,
-            "->SCRY" => Word::TO_SCRY,
+            "->SCRX" => Word::TO_SCRX_16,
+            "->SCRY" => Word::TO_SCRY_16,
             "-FONT" => Word::MINUS_FONT,
             "." => Word::DOT,
             "320x200x256" => Word::MODE_320X200X256,
@@ -947,7 +999,7 @@ impl Word {
             "SCRVPOS" => Word::SCRVPOS,
             "SCRVSIZE" => Word::SCRVSIZE,
             "SCRX" => Word::SCRX_16,
-            "SCRY" => Word::SCRY,
+            "SCRY" => Word::SCRY_16,
             "SD%SHR" => Word::SD_PCT_SHR,
             "SDACTIVE" => Word::SDACTIVE,
             "SDALINES" => Word::SDALINES,
@@ -1039,7 +1091,10 @@ impl Word {
         match self {
             Word::PLUS_FONT => "+FONT",
             Word::TO_SCRX => "->SCRX",
+            Word::TO_SCRX_16 => "->SCRX",
             Word::TO_SCRY => "->SCRY",
+            Word::TO_SCRY_16 => "->SCRY",
+            Word::TO_STARTSAMPLE => "->STARTSAMPLE",
             Word::MINUS_FONT => "-FONT",
             Word::DOT => ".",
             Word::MODE_320X200X256 => "320x200x256",
@@ -1056,6 +1111,7 @@ impl Word {
             Word::Q_INVINCL => "?INVINCL",
             Word::Q_KEY => "?KEY",
             Word::Q_SOUND => "?SOUND",
+            Word::Q_STIME => "?STIME",
             Word::Q_XINSIDE => "?XINSIDE",
             Word::ACTDESC => "ACTDESC",
             Word::ACTSCR => "ACTSCR",
@@ -1177,6 +1233,7 @@ impl Word {
             Word::SCRX => "SCRX",
             Word::SCRX_16 => "SCRX",
             Word::SCRY => "SCRY",
+            Word::SCRY_16 => "SCRY",
             Word::SD_PCT_SHR => "SD%SHR",
             Word::SDACTIVE => "SDACTIVE",
             Word::SDALINES => "SDALINES",
@@ -1226,7 +1283,16 @@ impl Word {
             Word::SFT => "SFT",
             Word::SHOWMOUSE => "SHOWMOUSE",
             Word::SPEEDMODE => "SPEEDMODE",
+            Word::STARTSAMPLE => "STARTSAMPLE",
             Word::STARTTUNE => "STARTTUNE",
+            Word::STOPSAMPLE => "STOPSAMPLE",
+            Word::MUSVOLUME => "MUSVOLUME",
+            Word::OPENTIMER => "OPENTIMER",
+            Word::SETTIMER => "SETTIMER",
+            Word::GIVETIMER => "GIVETIMER",
+            Word::CLOSETIMER => "CLOSETIMER",
+            Word::WHITEBOX => "WHITEBOX",
+            Word::TEXT_TO_PRINTER => "TEXT->PRINTER",
             Word::STARTTUNE_16 => "STARTTUNE",
             Word::STEPMULTI => "STEPMULTI",
             Word::SUBFROMINV => "SUBFROMINV",
@@ -1335,6 +1401,7 @@ impl Word {
                 | Word::SDPOS
                 | Word::SETBUF
                 | Word::SPEEDMODE
+                | Word::TEXT_TO_PRINTER
                 | Word::XGFXCRUNCH
         )
     }
@@ -1441,7 +1508,7 @@ mod tests {
     #[test]
     fn a_split_word_means_one_thing_per_machine() {
         let split: Vec<Word> = Word::ALL.iter().copied().filter(|&w| is_16(w)).collect();
-        assert_eq!(split.len(), 13, "the split set changed");
+        assert_eq!(split.len(), 16, "the split set changed");
         for w in split {
             let name = w.name();
             assert_eq!(Word::of_m16(name), Some(w), "{name} on the 16-bit machine");

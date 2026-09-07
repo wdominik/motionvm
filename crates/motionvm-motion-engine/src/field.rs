@@ -39,16 +39,16 @@ pub enum Field {
     SDH_PCT_SHR,
     /// `SDBUF` — the buffer a 16-bit descriptor draws through.
     SDBUF,
-    /// `SDSTARTLINE` — the first line of a text block that is drawn.
+    /// `SDSTARTLINE` — the text record's `+0x18`: the first line of the
+    /// text the layout copies (the engine's `layout` module).
     SDSTARTLINE,
-    /// `SDALINES` — how many lines of it.
+    /// `SDALINES` — the record's `+0x1c`: how many lines it copies. Unset
+    /// stands for the 99 the record is made with.
     SDALINES,
     /// `SDTRANS` — the transparency setting.
     SDTRANS,
     /// `SDSHADE` — the shade setting.
     SDSHADE,
-    /// `INSERT` — what `SDINSERT` puts into a text.
-    INSERT,
     /// `SDBLK` — block justification: every line starts at the block's left
     /// edge and its inner spaces stretch to the widest line. Set by its own
     /// word and cleared by `SDNORM`, so it is present or absent rather than
@@ -58,7 +58,7 @@ pub enum Field {
 
 impl Field {
     /// Every field, in the order they are stored.
-    pub const ALL: [Field; 10] = [
+    pub const ALL: [Field; 9] = [
         Field::SD_PCT_SHR,
         Field::SDV_PCT_SHR,
         Field::SDH_PCT_SHR,
@@ -67,7 +67,6 @@ impl Field {
         Field::SDALINES,
         Field::SDTRANS,
         Field::SDSHADE,
-        Field::INSERT,
         Field::SDBLK,
     ];
 
@@ -82,7 +81,6 @@ impl Field {
             Field::SDALINES => "SDALINES",
             Field::SDTRANS => "SDTRANS",
             Field::SDSHADE => "SDSHADE",
-            Field::INSERT => "INSERT",
             Field::SDBLK => "SDBLK",
         }
     }

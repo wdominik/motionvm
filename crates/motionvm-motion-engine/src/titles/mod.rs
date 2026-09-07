@@ -127,6 +127,7 @@ pub trait Driven: Send {
     fn start_location(&self) -> Option<i32>;
 }
 
+pub mod checker;
 pub mod ds2;
 pub mod eddiem;
 pub mod enviro;
@@ -149,6 +150,11 @@ pub mod vloomes;
 /// The variants are the short form in PascalCase, ASCII for the umlaut.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Title {
+    /// *Checker 2000*, on the older of the two builds of the 32-bit engine:
+    /// `NNN.RSC` containers and the engine's own `ENGINE.RSC` beside an
+    /// `ENGINE.EXE` — told from the other 32-bit game by the words its
+    /// module 4 exports.
+    Checker2000,
     /// *Die Enviro-Kids greifen ein*, on the 16-bit engine: one `DATA.-1-`
     /// beside `ENVIRO.EXE`.
     DieEnviroKidsGreifenEin,
@@ -174,6 +180,7 @@ impl Title {
     /// The game's full title, as a window shows it.
     pub fn name(self) -> &'static str {
         match self {
+            Title::Checker2000 => "Checker 2000",
             Title::DieEnviroKidsGreifenEin => "Die Enviro-Kids greifen ein",
             Title::DunkleSchatten2 => "Im Netzwerk gefangen – Dunkle Schatten 2",
             Title::FalschesSpielMitEddieM => "Falsches Spiel mit Eddie M.",
@@ -185,11 +192,12 @@ impl Title {
 
     /// The game's title without its subtitle — what prose calls it.
     ///
-    /// Two of the six titles carry a second half after a dash; those lose it.
-    /// The other four are already as short as they get and answer the same as
-    /// [`Title::name`].
+    /// Two of the seven titles carry a second half after a dash; those lose
+    /// it. The other five are already as short as they get and answer the
+    /// same as [`Title::name`].
     pub fn short(self) -> &'static str {
         match self {
+            Title::Checker2000 => "Checker 2000",
             Title::DieEnviroKidsGreifenEin => "Die Enviro-Kids greifen ein",
             Title::DunkleSchatten2 => "Dunkle Schatten 2",
             Title::FalschesSpielMitEddieM => "Falsches Spiel mit Eddie M.",
@@ -215,6 +223,7 @@ impl Title {
     /// the whole roster's slugs, not just its own family's.
     pub fn slug(self) -> &'static str {
         match self {
+            Title::Checker2000 => "checker",
             Title::DieEnviroKidsGreifenEin => "enviro",
             Title::DunkleSchatten2 => "ds2",
             Title::FalschesSpielMitEddieM => "eddiem",
@@ -231,6 +240,7 @@ impl Title {
     /// without a line here does not compile.
     pub fn needs(self) -> &'static str {
         match self {
+            Title::Checker2000 => "001.RSC to 004.RSC, ENGINE.EXE and ENGINE.RSC",
             Title::DieEnviroKidsGreifenEin => "DATA.-1- and ENVIRO.EXE",
             Title::DunkleSchatten2 => "001.RSC and ENGINE.EXE",
             Title::FalschesSpielMitEddieM => "DATA.-1-, DATA.-2-, DATA.-3- and STERN.EXE",
@@ -246,6 +256,7 @@ impl Title {
     /// reason: a game added without an answer here does not compile.
     pub fn generation(self) -> Generation {
         match self {
+            Title::Checker2000 => Generation::Motion32,
             Title::DieEnviroKidsGreifenEin => Generation::Motion16,
             Title::DunkleSchatten2 => Generation::Motion32,
             Title::FalschesSpielMitEddieM => Generation::Motion16,
@@ -255,10 +266,11 @@ impl Title {
         }
     }
 
-    /// Every game, in the order the documentation lists them: the 32-bit game
-    /// first, then the 16-bit ones as they were taken on.
-    pub const ALL: [Title; 6] = [
+    /// Every game, in the order the documentation lists them: the 32-bit
+    /// games first, then the 16-bit ones as they were taken on.
+    pub const ALL: [Title; 7] = [
         Title::DunkleSchatten2,
+        Title::Checker2000,
         Title::DieEnviroKidsGreifenEin,
         Title::JeffJet,
         Title::HilfeFuerAmajambere,
@@ -273,8 +285,9 @@ impl Title {
 /// The container names the generation and nothing more — a `DATA.-1-` is the
 /// 16-bit machine's, `NNN.RSC` the 32-bit one's — so which game it is, is a
 /// question each generation answers for its own roster: [`motion16`] by the
-/// engine binary beside the container, [`motion32`] by the shape, with the
-/// container's own script settling what the shape cannot.
+/// engine binary beside the container, [`motion32`] by the words the
+/// container's own scripts export, because every 32-bit game ships an
+/// `ENGINE.EXE`.
 /// Every lookup is case-insensitive, because a copied install is often
 /// lower-cased.
 pub fn detect(dir: &Path) -> Option<Title> {
@@ -297,6 +310,7 @@ pub fn open(dir: &Path) -> Result<Box<dyn Driven>> {
         Some(Title::JeffJet) => Ok(Box::new(jeffjet::open(dir)?)),
         Some(Title::VictorLoomes) => Ok(Box::new(vloomes::open(dir)?)),
         Some(Title::FalschesSpielMitEddieM) => Ok(Box::new(eddiem::open(dir)?)),
+        Some(Title::Checker2000) => Ok(Box::new(checker::open(dir)?)),
         None => {
             if !dir.is_dir() {
                 return Err(crate::Error::NoSuchDirectory {

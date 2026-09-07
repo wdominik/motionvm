@@ -73,8 +73,12 @@ pub struct Game<M: Machine> {
     ///
     /// Written down by the opener from the game's own module, so that
     /// [`Game::request_location`] and [`Game::start_location`] are one
-    /// reading over five sets of names rather than a match on the roster.
+    /// reading over six sets of names rather than a match on the roster.
     pub(crate) location: LocationScheme,
+    /// Where a 32-bit game keeps its shell variables, for
+    /// `Game::<m32::Vm>::task_phase`; `None` on the 16-bit machine, whose
+    /// games have no such pair.
+    pub(crate) shell: Option<crate::titles::motion32::Shell>,
     /// The screens' controllers still to run this frame, innermost last.
     ///
     /// A frame is every screen's controller in turn, not one — see
@@ -132,8 +136,10 @@ pub(crate) struct LocationScheme {
     /// The module the variables live in.
     pub(crate) module: u32,
     /// The variable a caller writes to ask for a location, and the first one
-    /// read back when asking where a run begins.
-    pub(crate) next: &'static str,
+    /// read back when asking where a run begins. `None` for a game whose
+    /// locations cannot be asked for — Checker 2000 enters them from a story
+    /// list — where only `fallback` answers.
+    pub(crate) next: Option<&'static str>,
     /// What to read when `next` holds no location: the variable that says
     /// whether a location has been entered at all, and the one holding the
     /// number to answer with. `None` where the game keeps only `next`.
@@ -411,7 +417,12 @@ where
     /// inside that location.
     pub fn request_location(&mut self, n: i32) -> Result<()> {
         let s = self.location;
-        self.set_var(s.module, s.next, n)
+        let Some(next) = s.next else {
+            return Err(Error::NoLocationRequest {
+                title: self.title.short(),
+            });
+        };
+        self.set_var(s.module, next, n)
     }
 
     /// The pending location if one is set, else the location `RUN` entered
@@ -432,7 +443,7 @@ where
     pub fn start_location(&self) -> Option<i32> {
         let s = self.location;
         let set = |n: i32| s.unset_below.is_none_or(|first| n >= first);
-        match self.get_var(s.module, s.next) {
+        match s.next.and_then(|next| self.get_var(s.module, next)) {
             Some(n) if set(n) => Some(n),
             _ => s.fallback.and_then(|(entered, answer)| {
                 self.get_var(s.module, entered)
@@ -456,6 +467,10 @@ where
     /// `_LOCTASKWAI --`, one subtraction per call, so a task that asks to wait
     /// fifty waits for fifty of these steps.
     pub fn step(&mut self) -> Result<()> {
+        // The step before this one has now lasted its ticks: the master
+        // counter the timer objects and the samples measure against moves
+        // on by what the window waited between the two.
+        self.engine.advance_clock();
         // A new frame, new input: the poll budget starts over, and a word
         // that had spent it and is now finished is no longer waiting.
         self.engine.input.polls = 0;
@@ -524,7 +539,7 @@ where
         }
         let addr = loop {
             let Some(id) = self.frame_controllers.pop() else {
-                // The engine-wide controller is the 32-bit game's, which sets
+                // The engine-wide controller is the 32-bit games', which set
                 // one without naming a screen. A frame with neither is a frame
                 // with nothing to run, and there is nothing else to try — see
                 // above for why no stand-in loop may run here.
@@ -589,7 +604,11 @@ where
         }
         // Nothing else puts a picture on a screen, so a frame that never gets
         // here leaves the buffers as they were — black before the first one,
-        // and untouched while a fade runs.
+        // and untouched while a fade runs. The texts are laid out first,
+        // against the machine's memory as it stands: the original's drawer
+        // lays each one out as it draws it (`0x6c9f8`), and a name the
+        // script has been typing into shows its letters at the frame.
+        self.engine.lay_out_texts(self.vm.space());
         self.engine.draw();
         // The drawer fills the screens; the presenter (0x1457D) is what makes
         // them visible. Separate for the same reason the original separates

@@ -20,7 +20,8 @@
 //! does on division by zero. Where a test touches those it says it is pinning
 //! *our* choice, not the original's.
 
-use motionvm_motion_formats::m32::le::{INLINE, KernelWord, TAG_KERNEL, inline};
+use motionvm_motion_formats::Binding;
+use motionvm_motion_formats::m32::le::{INLINE, TAG_KERNEL, inline};
 use motionvm_motion_formats::m32::scr::ScrModule;
 use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::{CELL, Vm, branch};
@@ -106,36 +107,32 @@ fn index_of(ordinal: u32) -> usize {
     cell::index((ordinal - 104) / 5)
 }
 
-/// The kernel table: the interpreter's own words at their real ordinals, and
-/// everything else at whatever index is still free.
-fn kernel() -> Vec<KernelWord> {
-    let word = |name: &str, index: usize| KernelWord {
-        name: name.to_string(),
-        handler: 0,
-        entry: 0,
-        table: 0,
-        index,
-    };
+/// The kernel, bound: the interpreter's own words at their real ordinals,
+/// everything else at whatever table-0 index is still free, and the inline
+/// set the real kernel measures as.
+fn kernel() -> Binding {
     let taken: Vec<usize> = FIXED.iter().map(|(_, o)| index_of(*o)).collect();
-    let mut out: Vec<KernelWord> = FIXED.iter().map(|(n, o)| word(n, index_of(*o))).collect();
+    let mut words: Vec<(u32, String)> = FIXED.iter().map(|(n, o)| (*o, (*n).to_string())).collect();
     let mut index = 0usize;
     for name in NAMES {
         while taken.contains(&index) {
             index += 1;
         }
-        out.push(word(name, index));
+        words.push((104 + 5 * cell::narrow(index), (*name).to_string()));
         index += 1;
     }
-    out
+    words.sort_by_key(|&(o, _)| o);
+    Binding {
+        words,
+        inline: INLINE,
+    }
 }
 
 /// The ordinal of a named word in the synthetic table.
 fn ordinal(name: &str) -> u32 {
-    let w = kernel()
-        .into_iter()
-        .find(|w| w.name == name)
-        .unwrap_or_else(|| panic!("{name} is in neither FIXED nor NAMES"));
-    104 + 5 * cell::narrow(w.index)
+    kernel()
+        .ordinal(name)
+        .unwrap_or_else(|| panic!("{name} is in neither FIXED nor NAMES"))
 }
 
 /// A cell that executes a kernel word.

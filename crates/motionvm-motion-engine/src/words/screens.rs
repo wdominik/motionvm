@@ -64,16 +64,28 @@ impl Engine {
                 stack.push(i32::from(active));
             }
 
-            // `SCRX` writes +0x24 of a record hanging off the active screen and
-            // `GSCRX` reads the same field straight back; `GSCRY` reads +0x26.
-            // A getter and a setter on one pair of coordinates, in other words,
-            // so it is kept rather than refused. What it shifts is a separate
-            // question — the game only ever passes zero — and the renderer
-            // therefore does not composite with it yet. A non-zero value is
-            // recorded so it cannot pass unnoticed if that ever changes.
+            // `( x -- )` and `( y -- )`: one half of the scroll register
+            // `SCRPOS` writes whole — `+0x24` and `+0x26` of the record
+            // hanging off the active screen, which `GSCRX`/`GSCRY` read back
+            // — and a whole redraw when the value changes (R78 `0x5ee40`;
+            // see [`Engine::set_screen_scroll`]). Dunkle Schatten 2 only
+            // ever writes zero; Checker 2000 sets `SCRY` once.
             Word::SCRX => {
                 let n = pop1(stack, "SCRX")?;
-                self.set_screen_origin_x(n);
+                self.set_screen_scroll(false, n);
+            }
+            Word::SCRY => {
+                let n = pop1(stack, "SCRY")?;
+                self.set_screen_scroll(true, n);
+            }
+            // `( x -- )` and `( y -- )`: the view slides to a new scroll
+            // position, four pixels a refresh, over a copy of the old and the
+            // new picture laid side by side — see [`crate::Slide`] for the
+            // reading of R78 `0x60690`. Run as a transition: the interpreter
+            // is held, as the handler holds it, until the last step.
+            Word::TO_SCRX | Word::TO_SCRY => {
+                let target = pop1(stack, word.name())?;
+                self.start_slide(word == Word::TO_SCRY, target);
             }
             // Height goes on first, so the width ends up on top — which is
             // how `DOORDER` reads it, adding the first value it pops to an x

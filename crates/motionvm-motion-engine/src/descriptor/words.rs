@@ -164,7 +164,15 @@ impl Engine {
         if !always && d.text == Some(v) {
             return Ok(());
         }
-        self.changing("SDTXT", |d| d.text = Some(v))
+        self.changing("SDTXT", |d| {
+            // The record is made here when the descriptor was not a text
+            // before; one that was keeps its slots and window.
+            if d.text.is_none() {
+                d.make_text_record(v);
+            } else {
+                d.text = Some(v);
+            }
+        })
     }
 
     /// `SDTB`: the text table to read from.
@@ -187,8 +195,8 @@ impl Engine {
             if allocates && d.text.is_none() {
                 // The 32-bit engine allocates the text record here (0x71d45),
                 // so a descriptor is a text from `SDTB` on even before
-                // `SDTXT` names an entry. Entry 0 is what that record holds.
-                d.text = Some(0);
+                // `SDTXT` names an entry; entry 0 is what that record holds.
+                d.make_text_record(0);
             }
         })
     }

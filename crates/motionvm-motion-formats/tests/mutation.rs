@@ -19,17 +19,17 @@
 //! reader can tell. That is the digests' business, over the undamaged files.
 //!
 //! Needs the games' files and skips, game by game, without them. The games
-//! this file drives are all six: Dunkle Schatten 2 (MOTION 32-bit) and Die
-//! Enviro-Kids greifen ein, Jeff Jet, Hilfe für Amajambere, Victor Loomes and
-//! Falsches Spiel mit Eddie M. (MOTION 16-bit).
+//! this file drives are all seven: Dunkle Schatten 2 and Checker 2000 (MOTION
+//! 32-bit) and Die Enviro-Kids greifen ein, Jeff Jet, Hilfe für Amajambere,
+//! Victor Loomes and Falsches Spiel mit Eddie M. (MOTION 16-bit).
 
 use motionvm_motion_formats::font::FontRefTable;
 use motionvm_motion_formats::m16::{self, Container, GfxInf, Segment, mz, psm::Plx};
-use motionvm_motion_formats::m32::{self, DriverArchive, InstrumentBank, Kind, Song, rsc};
+use motionvm_motion_formats::m32::{self, DriverArchive, InstrumentBank, Kind, Song, Wav, rsc};
 use motionvm_motion_formats::{find_ci, m32::rsc::Bank};
 use motionvm_motion_testutil::{
-    game_file, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
-    gamedata_vloomes,
+    game_file, gamedata_checker, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa,
+    gamedata_jeffjet, gamedata_vloomes,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
@@ -151,10 +151,27 @@ fn dunkle_schatten_2_damaged_is_refused_not_crashed_on() {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
+    walk_m32("Dunkle Schatten 2", &dir);
+}
+
+#[test]
+fn checker_2000_damaged_is_refused_not_crashed_on() {
+    let Some(dir) = gamedata_checker() else {
+        eprintln!("skipping: no Checker 2000 gamedata directory");
+        return;
+    };
+    walk_m32("Checker 2000", &dir);
+}
+
+/// The 32-bit walk, the same for both games: every container — `ENGINE.RSC`
+/// among them where the game has one — a sample of every kind of item, the
+/// engine binary the kernel and its binding are read out of, and the loose
+/// files the sound and the text need.
+fn walk_m32(game: &str, dir: &Path) {
     let mut report = Report::default();
 
     // The containers, header by header.
-    for entry in std::fs::read_dir(&dir)
+    for entry in std::fs::read_dir(dir)
         .expect("the directory lists")
         .flatten()
     {
@@ -170,7 +187,7 @@ fn dunkle_schatten_2_damaged_is_refused_not_crashed_on() {
     }
 
     // A sample of every kind of item, through the reader that decodes it.
-    let bank = Bank::open_dir(&dir).expect("the containers open");
+    let bank = Bank::open_dir(dir).expect("the containers open");
     let ids = |kind: Kind| sample(bank.present(kind).into_iter().map(|(_, id)| id).collect());
     let item = |kind: Kind, id: usize| {
         bank.item(kind, id)
@@ -187,9 +204,15 @@ fn dunkle_schatten_2_damaged_is_refused_not_crashed_on() {
             let _ = m32::text::parse(b);
         });
     }
+    // A block is a song or a sample, and the reader that decodes it is asked
+    // by what the bytes say they are — the damaged copy included.
     for id in ids(Kind::Block) {
         report.walk(&format!("block {id}"), item(Kind::Block, id), 0x80, |b| {
-            let _ = Song::parse(b);
+            if Wav::is_wav(b) {
+                let _ = Wav::parse(b);
+            } else {
+                let _ = Song::parse(b);
+            }
         });
     }
     for id in ids(Kind::Font) {
@@ -203,32 +226,41 @@ fn dunkle_schatten_2_damaged_is_refused_not_crashed_on() {
         });
     }
 
-    // The engine binary, whose kernel table is read out of the relocated
-    // image, and the loose files the sound and the text need.
-    let exe = std::fs::read(game_file(&dir, "ENGINE.EXE")).expect("ENGINE.EXE reads");
+    // The engine binary, whose kernel table, binding and the one probed
+    // capability are read out of the relocated image, and the loose files the
+    // sound and the text need.
+    let exe = std::fs::read(game_file(dir, "ENGINE.EXE")).expect("ENGINE.EXE reads");
     report.walk("ENGINE.EXE", &exe, 0x100, |b| {
         if let Ok(img) = m32::le::Image::parse(b) {
-            let _ = m32::le::kernel_words(&img);
+            let words = m32::le::kernel_words(&img);
+            let _ = m32::le::binding_of(&img, &words);
+            let _ = m32::le::sdinsert_takes_kind(&img, &words);
+            let _ = m32::le::fades_wait(&img, &words);
         }
     });
-    if let Some(bytes) = loose(&dir, "HMIMDRV.386") {
+    if let Some(bytes) = loose(dir, "SMPPATH") {
+        report.walk("SMPPATH", &bytes, 0x20, |b| {
+            let _ = m32::smppath::parse(b);
+        });
+    }
+    if let Some(bytes) = loose(dir, "HMIMDRV.386") {
         report.walk("HMIMDRV.386", &bytes, 0x40, |b| {
             let _ = DriverArchive::parse(b);
         });
     }
     for bank_name in ["MELODIC.BNK", "DRUM.BNK"] {
-        if let Some(bytes) = loose(&dir, bank_name) {
+        if let Some(bytes) = loose(dir, bank_name) {
             report.walk(bank_name, &bytes, 0x40, |b| {
                 let _ = InstrumentBank::parse(b);
             });
         }
     }
-    if let Some(bytes) = loose(&dir, "000.FRT") {
+    if let Some(bytes) = loose(dir, "000.FRT") {
         report.walk("000.FRT", &bytes, 0x20, |b| {
             let _ = FontRefTable::parse(b);
         });
     }
-    report.assert_clean("Dunkle Schatten 2");
+    report.assert_clean(game);
 }
 
 /// The 16-bit walk, the same for the five games: the volumes, a sample of

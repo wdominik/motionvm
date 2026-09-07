@@ -1,4 +1,5 @@
-//! Every game is told apart by the engine binary beside its container, and
+//! Every game is told apart — the 16-bit ones by the engine binary beside
+//! the container, the 32-bit ones by the words their scripts export — and
 //! opens as itself.
 //!
 //! One row per game, where four boot suites had a copy of the same test each.
@@ -9,18 +10,18 @@
 //! noticing: the enviro copy had no pixel-aspect check at all. A missing row
 //! here is visible as a missing row.
 //!
-//! Each row skips on its own, so a machine that has three of the six games
+//! Each row skips on its own, so a machine that has three of the seven games
 //! still checks those three, and every assertion names the game it is about.
 //!
-//! The games this file drives are all six: Im Netzwerk gefangen – Dunkle
-//! Schatten 2 (MOTION 32-bit), and Die Enviro-Kids greifen ein, Jeff Jet -
-//! Abenteuer InfoHighway, Hilfe für Amajambere, Victor Loomes – Das Spiel and
-//! Falsches Spiel mit Eddie M. (MOTION 16-bit).
+//! The games this file drives are all seven: Im Netzwerk gefangen – Dunkle
+//! Schatten 2 and Checker 2000 (MOTION 32-bit), and Die Enviro-Kids greifen
+//! ein, Jeff Jet - Abenteuer InfoHighway, Hilfe für Amajambere, Victor Loomes
+//! – Das Spiel and Falsches Spiel mit Eddie M. (MOTION 16-bit).
 
 use motionvm_motion_engine::{Title, titles};
 use motionvm_motion_testutil::{
-    gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa, gamedata_jeffjet,
-    gamedata_vloomes,
+    gamedata_checker, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa,
+    gamedata_jeffjet, gamedata_vloomes,
 };
 use motionvm_playable::{PixelAspect, Size};
 use std::path::PathBuf;
@@ -29,8 +30,9 @@ use std::path::PathBuf;
 struct Game {
     /// Where a copy of this game is, or `None` on a machine without one.
     data: fn() -> Option<PathBuf>,
-    /// The binary that tells this game from its siblings. All five 16-bit
-    /// games ship a `DATA.-1-`; only the binary beside it says which is which.
+    /// What tells this game from its siblings. All five 16-bit games ship a
+    /// `DATA.-1-` and only the binary beside it says which is which; both
+    /// 32-bit games ship an `ENGINE.EXE`, and their scripts say.
     binary: &'static str,
     title: Title,
     /// The full title the window shows, spelled out rather than taken from
@@ -51,6 +53,20 @@ const GAMES: &[Game] = &[
         name: "Im Netzwerk gefangen – Dunkle Schatten 2",
         // 640×480 on a 4:3 monitor: the grid already matches, so the pixels
         // are square.
+        size: Size {
+            width: 640,
+            height: 480,
+        },
+        aspect: PixelAspect {
+            width: 1,
+            height: 1,
+        },
+    },
+    Game {
+        data: gamedata_checker,
+        binary: "module 4's TASK_START and TASK_CTRL",
+        title: Title::Checker2000,
+        name: "Checker 2000",
         size: Size {
             width: 640,
             height: 480,

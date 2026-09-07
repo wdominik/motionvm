@@ -30,14 +30,17 @@ pub struct Screen {
     pub view: (u16, u16),
     /// `SCRVPOS`.
     pub view_pos: (i16, i16),
-    /// `SCRPOS`.
+    /// Where the view sits over the surface — the scroll register.
+    ///
+    /// One pair on each machine, written by every word that scrolls. On the
+    /// 32-bit one it is `+0x24`/`+0x26` of the record hanging off the screen:
+    /// `SCRPOS` writes both (R109 `0x7098b`/`0x70995`, R78 `0x5cb1e`/
+    /// `0x5cb28`), `SCRX` and `SCRY` one each, `->SCRX`/`->SCRY` slide it,
+    /// and `GSCRX`/`GSCRY` read it back. On the 16-bit one it is the pair at
+    /// `scr+0`/`+2`, which `SCRPOS`, `SCRX` and `SCRY` write. The composer
+    /// takes the view out of the surface from here ([`Display::window`]),
+    /// and the damage map is clipped against the same window.
     pub pos: (i16, i16),
-    /// `SCRX` writes the first of these and `GSCRX` reads it back; `GSCRY`
-    /// reads the second. They live at +0x24 and +0x26 of a record hanging off
-    /// the screen, not of the screen itself, which is why they are a pair of
-    /// their own and not `view_pos`. What they shift is not established — the
-    /// game only ever sets them to zero — so nothing composites with them yet.
-    pub origin: (i16, i16),
     /// `SCRCTRL`: the word id this screen runs every frame, as the handler
     /// stores it — a raw id, resolved only when a frame comes to run it, and
     /// negative for none. It belongs to the screen and not to the engine
@@ -58,6 +61,12 @@ pub struct Screen {
     /// what makes `SDINACTIVE` leave a picture standing, and the in-game
     /// mailbox is built on it — see [`Screen::mark`].
     pub buffer: Framebuffer,
+    /// What was painted straight onto the surface past the drawer, in the
+    /// order it was painted — `WHITEBOX`'s box, `FADEIN` mode 2's — and
+    /// after which pass. The surface holds the pixels; this is what lets a
+    /// rectangle rebuilt from the descriptor list hold them still, see
+    /// [`crate::paint`]. Wiped with the surface.
+    pub(crate) paints: Vec<crate::paint::Paint>,
     /// One entry per 8x8 tile of [`Screen::view`]: the lowest level that has to
     /// be redrawn there, or [`Screen::UNDAMAGED`] for nothing.
     ///
@@ -80,11 +89,11 @@ impl Screen {
             view: (0, 0),
             view_pos: (0, 0),
             pos: (0, 0),
-            origin: (0, 0),
             controller: -1,
             frozen: false,
             active: true,
             buffer: Framebuffer::new(0, 0),
+            paints: Vec::new(),
             damage: Vec::new(),
         }
     }
@@ -157,18 +166,12 @@ impl Screen {
 
     /// Every tile a surface rectangle touches, clipped to the view.
     ///
-    /// The view's base in surface coordinates is whichever scroll register
-    /// the machine moves: the 32-bit `SCRX` writes `origin`, the 16-bit
-    /// scroll (`SCRX`/`SCRPOS`) moves `pos`, the window the 16-bit engine's
-    /// own dirty-rect clip reads (`016a:19d8`, against screen `+0`/`+2`).
-    /// Each generation leaves the other's register at zero, so the sum is
-    /// the right base for both.
+    /// The view's base in surface coordinates is the scroll register,
+    /// [`Screen::pos`]: the 32-bit clip takes `+0x24`/`+0x26` off first
+    /// (`0x6e701`), the 16-bit one the pair at `scr+0`/`+2` (`016a:19d8`).
     fn span(&self, x: i32, y: i32, w: i32, h: i32) -> impl Iterator<Item = (usize, usize)> + use<> {
         let (tw, th) = self.tiles();
-        let (ox, oy) = (
-            i32::from(self.origin.0) + i32::from(self.pos.0),
-            i32::from(self.origin.1) + i32::from(self.pos.1),
-        );
+        let (ox, oy) = (i32::from(self.pos.0), i32::from(self.pos.1));
         let x0 = ((x - ox) >> 3).clamp(0, cell::count(tw));
         let y0 = ((y - oy) >> 3).clamp(0, cell::count(th));
         let x1 = ((x - ox + w + 7) >> 3).clamp(x0, cell::count(tw));

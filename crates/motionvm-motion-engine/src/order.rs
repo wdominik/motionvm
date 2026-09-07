@@ -555,10 +555,14 @@ impl Engine {
         vm.mem.store(at(FIELDS), cell::unsigned(with))?;
         // 0x7c7b1 and 0x7c7de, with the block's own +0x194 set from the record
         // in between (0x7c7bf, and again at 0x7c7d3 — the handler stores it
-        // twice, either side of `HIDEMOUSE`).
+        // twice, either side of `HIDEMOUSE`). The hide (0x7c7c5) is one off
+        // the pointer's count, which the answer menu's `SHOWMOUSE` (0x7ba40)
+        // gives back — the same bracket verbs 6 and 7 close (0x7ca68,
+        // 0x7cd2f), so a conversation leaves the count where it found it.
         self.dialogue_changes(vm, order, cell::unsigned(said), cell::unsigned(with))?;
         let entry = Self::cell(&vm.mem, cell::unsigned(said), 4)?;
         vm.mem.store(at(NODE), entry)?;
+        self.hide_pointer();
         self.calc_dialog(vm, order, 0)
     }
 

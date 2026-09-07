@@ -2,7 +2,8 @@
 //!
 //! A body cell is one of three things, and telling them apart is what this does:
 //!
-//! * a kernel word, tagged `0x4000` in the high half (see [`crate::m32::le`]);
+//! * a kernel word, tagged `0x4000` in the high half, named through the
+//!   [`Binding`] its game's binary yields (see [`crate::m32::le`]);
 //! * a reference to a word in a module, as `(module << 16) | offset`;
 //! * inline data, when the previous cell was one of the words that consume the
 //!   cell after them — `_PutLit`, `_PutAdr`, `_PutConst`.
@@ -11,7 +12,8 @@
 //! since a small integer looks exactly like an offset into module 0.
 
 use crate::cursor::Cursor;
-use crate::m32::le::{KernelWord, TAG_KERNEL, inline, ordinal_of};
+use crate::kernel::Binding;
+use crate::m32::le::TAG_KERNEL;
 use crate::m32::scr::{Entry, ScrModule};
 use crate::{cp437_to_string, nul_terminated};
 
@@ -25,8 +27,8 @@ pub enum Cell {
         /// Its name from the kernel table.
         name: String,
     },
-    /// A kernel ordinal with no matching word. Table 1's base is unknown, so
-    /// this is expected for the compiling words rather than a decode failure.
+    /// A kernel ordinal the binding has no word at — a cell that is not a
+    /// word at all, which is what a decoder that has lost its footing sees.
     UnknownKernel {
         /// The ordinal that is in no table.
         ordinal: u32,
@@ -83,11 +85,11 @@ impl Cell {
 
 /// Turns a word body's cells back into something readable.
 ///
-/// Holds the kernel table for the primitives and a symbol table for calls;
-/// [`Disassembler::learn`] fills the second from a parsed module.
+/// Holds the kernel's binding for the primitives and a symbol table for
+/// calls; [`Disassembler::learn`] fills the second from a parsed module.
 #[derive(Debug)]
 pub struct Disassembler<'a> {
-    words: &'a [KernelWord],
+    binding: &'a Binding,
     /// Word names by `(module, body offset)`, so calls can be shown by name.
     /// A call targets a word's body, not its header, which is why the key is
     /// the body offset.
@@ -96,9 +98,9 @@ pub struct Disassembler<'a> {
 
 impl<'a> Disassembler<'a> {
     /// A disassembler that knows the kernel's words but no module's.
-    pub fn new(words: &'a [KernelWord]) -> Self {
+    pub fn new(binding: &'a Binding) -> Self {
         Self {
-            words,
+            binding,
             symbols: Default::default(),
         }
     }
@@ -116,10 +118,7 @@ impl<'a> Disassembler<'a> {
     }
 
     fn kernel_name(&self, ordinal: u32) -> Option<&str> {
-        self.words
-            .iter()
-            .find(|w| ordinal_of(w) == Some(ordinal))
-            .map(|w| w.name.as_str())
+        self.binding.name(ordinal)
     }
 
     /// Decodes one word's body.
@@ -149,11 +148,11 @@ impl<'a> Disassembler<'a> {
                 ordinal,
                 name: name.to_string(),
             });
-            if inline::takes_cell(ordinal) {
+            if self.binding.inline.takes_cell(ordinal) {
                 if let Ok(operand) = c.u32() {
                     out.push(Cell::Data(operand));
                 }
-            } else if inline::takes_string(ordinal) {
+            } else if self.binding.inline.takes_string(ordinal) {
                 let text = nul_terminated(c.remaining());
                 out.push(Cell::Text(cp437_to_string(text)));
                 // The terminator, then padding out to the next cell.

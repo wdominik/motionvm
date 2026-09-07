@@ -148,9 +148,6 @@ impl Layout for Generation {
 
 /// The layout this build writes and reads — the only one.
 ///
-/// A bump means the *file* changed shape, not that the engine did: a field
-/// added to a chunk, a chunk whose meaning moved. A new chunk beside the
-/// known ones needs no bump, which is the whole reason the body is chunked.
 /// A file of any other version is refused by name and left on disk: nothing
 /// here deletes a savegame it cannot read, and nothing converts one — one
 /// reader, one layout, which is what keeps the reader a single path.
@@ -184,6 +181,7 @@ mod tests {
             active: true,
             auto_buffer: true,
             fields: vec![("SDBLK".into(), 23), ("SDTDT".into(), 24)],
+            inserts: [(31, 0), (32, 1), (33, 2), (0, 0), (35, 0)],
             buffer,
         }
     }
@@ -193,7 +191,7 @@ mod tests {
             next_descriptor: 42,
             current: Some(2),
             screen: Some(1),
-            pointer_visible: true,
+            pointer_shows: 1,
             dialog_offset: 3,
             dialog_return: 4,
             palette: [5; 768],
@@ -204,7 +202,6 @@ mod tests {
                 view: (320, 165),
                 view_pos: (6, 7),
                 pos: (8, 9),
-                origin: (10, 11),
             }],
             flips: vec![(30, 31)],
             descriptors: vec![
@@ -235,7 +232,7 @@ mod tests {
         assert_eq!(after.next_descriptor, before.next_descriptor);
         assert_eq!(after.current, before.current);
         assert_eq!(after.screen, before.screen);
-        assert_eq!(after.pointer_visible, before.pointer_visible);
+        assert_eq!(after.pointer_shows, before.pointer_shows);
         assert_eq!(
             (after.dialog_offset, after.dialog_return),
             (before.dialog_offset, before.dialog_return)
@@ -247,24 +244,8 @@ mod tests {
         assert_eq!(after.screens.len(), before.screens.len());
         for (a, b) in after.screens.iter().zip(&before.screens) {
             assert_eq!(
-                (
-                    a.handle,
-                    a.size,
-                    a.full_view,
-                    a.view,
-                    a.view_pos,
-                    a.pos,
-                    a.origin
-                ),
-                (
-                    b.handle,
-                    b.size,
-                    b.full_view,
-                    b.view,
-                    b.view_pos,
-                    b.pos,
-                    b.origin
-                )
+                (a.handle, a.size, a.full_view, a.view, a.view_pos, a.pos),
+                (b.handle, b.size, b.full_view, b.view, b.view_pos, b.pos)
             );
         }
 
@@ -280,6 +261,7 @@ mod tests {
             assert_eq!((a.x_mode, a.y_mode), (b.x_mode, b.y_mode));
             assert_eq!((a.active, a.auto_buffer), (b.active, b.auto_buffer));
             assert_eq!(a.fields, b.fields);
+            assert_eq!(a.inserts, b.inserts);
             assert_eq!(a.buffer, b.buffer, "buffer of {}", b.handle);
         }
     }

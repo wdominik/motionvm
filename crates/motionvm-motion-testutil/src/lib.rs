@@ -7,7 +7,7 @@
 //! drift, and a copy that reaches one directory too few answers "no data" on a
 //! machine that has it — which reads exactly like a clean skip.
 //!
-//! Eight environment variables are read:
+//! Nine environment variables are read:
 //!
 //! - `MOTIONVM_GAMEDATA_DS2` — the directory holding Dunkle Schatten 2:
 //!   `001.RSC` and friends. Falls back to `../games/DS2` beside the
@@ -28,6 +28,9 @@
 //! - `MOTIONVM_GAMEDATA_EDDIEM` — the directory holding Falsches Spiel mit
 //!   Eddie M.: `DATA.-1-`, `DATA.-2-`, `DATA.-3-` and `STERN.EXE`. Falls back
 //!   to `../games/EDDIEM` beside the workspace.
+//! - `MOTIONVM_GAMEDATA_CHECKER` — the directory holding Checker 2000:
+//!   `001.RSC` and friends, `ENGINE.EXE` and `ENGINE.RSC`. Falls back to
+//!   `../games/CHECKER` beside the workspace.
 //! - `MOTIONVM_NO_GAMEDATA` — set to anything non-empty, every lookup here
 //!   answers `None` before any of the others is consulted, so the suite runs
 //!   the way CI runs it. Without it that cannot be reproduced on a machine
@@ -42,14 +45,16 @@
 //!   *this* engine's: the layouts are not interchangeable with the original's,
 //!   which stores raw heap pointers where this stores handles.
 //!
-//! Six games, six variables, six functions — rather than one variable and
-//! a guess from the files it points at — because a test is written against one
-//! game's modules and ids, and says which by the function it calls.
+//! Seven games, seven variables, seven functions — rather than one variable
+//! and a guess from the files it points at — because a test is written against
+//! one game's modules and ids, and says which by the function it calls.
 //!
-//! Each game is probed for its **engine binary**, not for its container: the
-//! five 16-bit games all ship a `DATA.-1-`, so a container probe would let
-//! `MOTIONVM_GAMEDATA_ENVIRO` accept a Jeff Jet directory and then fail deep
-//! inside a suite instead of at the variable.
+//! Each game is probed for the file that is **its own**, not for its
+//! container: the five 16-bit games all ship a `DATA.-1-`, so a container
+//! probe would let `MOTIONVM_GAMEDATA_ENVIRO` accept a Jeff Jet directory and
+//! then fail deep inside a suite instead of at the variable — and the two
+//! 32-bit games both ship an `ENGINE.EXE`, so the 16-bit games are probed for
+//! their player and the 32-bit ones for a file the other lacks.
 //!
 //! Beside the lookup, [`digest`]: the reference digests the suites hold their
 //! scenes and their register streams against.
@@ -66,10 +71,12 @@ pub use digest::Digests;
 use std::path::PathBuf;
 
 /// Dunkle Schatten 2's game directory, or `None` when there is nothing to
-/// test against.
+/// test against. Probed for the loose `000.PAL`, the system palette this game
+/// ships as a file where Checker 2000 keeps it in `ENGINE.RSC` — a container
+/// or an `ENGINE.EXE` would let the variable accept the other 32-bit game.
 ///
 /// **Panics when `MOTIONVM_GAMEDATA_DS2` names a directory without
-/// `001.RSC`.** Answering `None` there would let a mistyped path read as "this
+/// `000.PAL`.** Answering `None` there would let a mistyped path read as "this
 /// machine has no game data", which is the failure this module exists to
 /// prevent: a run that skips everything is indistinguishable from a run that
 /// passes everything. No variable and no data beside the workspace is the one
@@ -82,7 +89,7 @@ use std::path::PathBuf;
 /// `MOTIONVM_NO_GAMEDATA` wins over all of it and answers `None`; see the
 /// module header.
 pub fn gamedata_ds2() -> Option<PathBuf> {
-    game("MOTIONVM_GAMEDATA_DS2", "../../../games/DS2", "001.RSC")
+    game("MOTIONVM_GAMEDATA_DS2", "../../../games/DS2", "000.PAL")
 }
 
 /// Die Enviro-Kids greifen ein's game directory, or `None` when there is
@@ -136,18 +143,31 @@ pub fn gamedata_eddiem() -> Option<PathBuf> {
     )
 }
 
+/// Checker 2000's game directory, or `None` when there is nothing to test
+/// against. The same rules as [`gamedata_ds2`], probing for `ENGINE.RSC` —
+/// the system font and palette container only this game ships, where Dunkle
+/// Schatten 2 has the loose `000.FNT` and `000.PAL` — and falling back to
+/// `../games/CHECKER`.
+pub fn gamedata_checker() -> Option<PathBuf> {
+    game(
+        "MOTIONVM_GAMEDATA_CHECKER",
+        "../../../games/CHECKER",
+        "ENGINE.RSC",
+    )
+}
+
 /// Whether the caller asked for CI's floor: no game data, whatever is on
 /// this machine.
 ///
 /// Read before anything else, and deliberately not overridable by the
 /// per-game variables — the point is a run with *no* data, and a single
-/// switch that six functions honour is one thing to get right rather than
-/// six. See the module header for why the fallback makes this necessary.
+/// switch that seven functions honour is one thing to get right rather than
+/// seven. See the module header for why the fallback makes this necessary.
 fn no_gamedata() -> bool {
     std::env::var("MOTIONVM_NO_GAMEDATA").is_ok_and(|v| !v.is_empty())
 }
 
-/// The lookup the six games share: nothing at all when
+/// The lookup the seven games share: nothing at all when
 /// [`no_gamedata`] says so, else the variable, else the fallback beside the
 /// workspace; a set-but-wrong path panics, a missing fallback skips.
 fn game(var: &str, fallback: &str, probe: &str) -> Option<PathBuf> {

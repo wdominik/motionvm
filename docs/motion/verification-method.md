@@ -41,6 +41,25 @@ Blaster 16" — which picks the OPL3 driver `fmmidi3.com` out of
 instead; its `MUSADL.DRV` is an OPL2 driver, and its recording is one of an
 OPL2.
 
+Checker 2000 runs on the same settings with two things of its own. Its
+bootstrap `SYSTEM.RSC` begins `" C:\checker\" 3 ->RSCPATH`, so the game
+has to sit in a `CHECKER` directory of the mounted drive for its third
+container to be found — a flat copy mounted as `C:` fails at the first
+photo. And a fresh copy's first frame is not the registration board but two
+of the engine's error boxes about the missing highscore block 98
+([departures](departures.md#the-virtual-machine)); `AUTOTYPE -w 8 -p 0.5
+enter enter` clicks them away, and `a b enter 1 2 3 enter` after that is a
+name and a postcode. The mouse driver parks the pointer at 0,0 and nothing
+in a scripted run moves it — but the engine can: `SETMOUSEX`, `SETMOUSEY`
+and `SETMOUSELB` write the mouse record the driver's interrupt writes (R78
+`0xb5894`–`0xb58a0`) and `MOUSEX` and `MOUSELK` read it back, so a
+bootstrap that spells `START` out (module 4, `0x02230`, its two literals
+`DOCHKM` and `ICTRL`) and hands `CTRL` a controller of its own — pin the
+pointer, press the button on a frame, then `ICTRL` — puts the original's
+pointer anywhere and clicks it through the menus, with nothing but the
+emulator's own recorder watching. That is how the arrow was held against
+the original away from the corner, and how its story pointer was reached.
+
 Two things about the run itself. `-time-limit N` is a *graceful* stop: the
 emulator leaves its main loop, tears the devices down, and the capture's
 writer finishes the file — the games never exit on their own, so this is what

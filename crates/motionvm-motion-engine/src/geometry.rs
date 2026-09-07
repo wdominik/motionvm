@@ -50,7 +50,7 @@ impl Engine {
     /// for the same reason.
     pub(crate) fn extent(&mut self, d: &Descriptor) -> (i32, i32) {
         if d.is_text() {
-            let Some(text) = self.descriptor_text(d) else {
+            let Some(text) = self.shown_text(d) else {
                 return (0, 0);
             };
             let font = match d

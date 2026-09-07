@@ -52,6 +52,9 @@ pub(crate) struct Scene {
     /// `000.FNT`, which a text descriptor uses when nothing chose a font.
     pub(crate) system_font: Option<Font>,
 
+    /// `000.PAL`, which the 32-bit `TOGFX` installs on entering graphics.
+    pub(crate) system_palette: Option<motionvm_render::Palette>,
+
     /// Text tables by resource id, as `SDTB` names them.
     pub(crate) texts: BTreeMap<i32, TextTable>,
 
@@ -79,6 +82,7 @@ impl Default for Scene {
             next_font: 1,
             font_refs: None,
             system_font: None,
+            system_palette: None,
             texts: BTreeMap::new(),
             sprites: BTreeMap::new(),
             palettes: BTreeMap::new(),

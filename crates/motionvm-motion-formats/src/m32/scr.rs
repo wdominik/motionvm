@@ -266,9 +266,13 @@ fn body_end(item: &[u8], start: usize, limit: usize) -> usize {
             continue;
         }
         let ordinal = cell & 0xffff;
-        if crate::m32::le::inline::takes_cell(ordinal) {
+        // The measured inline set, not a binding: a module is parsed before
+        // any kernel is bound to it, and the words with an operand sit in the
+        // first eighty-four entries of table 0, which both shipped builds of
+        // the engine share entry for entry.
+        if crate::m32::le::INLINE.takes_cell(ordinal) {
             p = p.saturating_add(4);
-        } else if crate::m32::le::inline::takes_string(ordinal) {
+        } else if crate::m32::le::INLINE.takes_string(ordinal) {
             let text = crate::nul_terminated(item.get(p..limit).unwrap_or_default());
             // The terminator is included, and strings are padded out to the
             // next cell boundary.

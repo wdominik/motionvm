@@ -195,7 +195,7 @@ impl<const LEN: usize> Record<'_, LEN> {
 
 /// The bytes before the first NUL, or all of them when there is none: a
 /// C string as the formats store one.
-pub(crate) fn nul_terminated(bytes: &[u8]) -> &[u8] {
+pub fn nul_terminated(bytes: &[u8]) -> &[u8] {
     bytes.split(|&b| b == 0).next().unwrap_or_default()
 }
 

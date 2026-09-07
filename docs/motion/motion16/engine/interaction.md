@@ -54,7 +54,7 @@ machine — with the differences listed:
 `DELAY`, `RANDOM` (188 sites) and `STEPMULTI` (the walk's step size,
 `DS:0x0ff6`) are the same words as well. The script side — `XYWALK`,
 `PSETWALK` in module 604; the verb table in 603 — calls them the same way
-the 32-bit game does.
+Dunkle Schatten 2 does.
 
 **The conversation machine**, read at `calc_dialog` (`0d34:0ed9`), the
 change drain (`0d34:0d42`), the finish (`0d34:0d04`), the `DOORDER` modes

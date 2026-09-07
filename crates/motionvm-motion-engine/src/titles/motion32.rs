@@ -3,11 +3,11 @@
 //! containers.
 //!
 //! None of it is one game's. `NNN.RSC` containers beside an `ENGINE.EXE` is
-//! the generation's shape, and MOTION made more games in it than the one this
-//! engine plays today — Checker 2000 ships exactly that, with its own
-//! `ENGINE.EXE` V0.04.15/R78. What a game's own module says is which files it
-//! must have, which words tell its container apart from another's, and what
-//! its bootstrap is called; [`super::ds2`] is that for Dunkle Schatten 2.
+//! the generation's shape, and two games ship it: Dunkle Schatten 2 on
+//! `ENGINE.EXE` V0.06.06/R109 and Checker 2000 on V0.04.15/R78. What a
+//! game's own module says is which files it must have, which words tell its
+//! container apart from the other's, and where its shell keeps its state;
+//! [`super::ds2`] and [`super::checker`] are that for the two.
 //!
 //! The 16-bit counterpart is [`super::motion16`], and this file is shaped like
 //! it on purpose: two generations that read the same way are the property
@@ -31,42 +31,60 @@ use crate::game::{Game, LocationScheme};
 use crate::titles::{Driven, Generation, Title};
 
 /// The games this engine knows on the 32-bit machine, each with the words
-/// that tell its container from another game's.
+/// that tell its container from the other's — `(module, word)` pairs a
+/// container has to export.
 ///
 /// The counterpart of the 16-bit table, and it cannot work the same way: there
 /// the engine binary beside the container names the game, here every game
-/// ships an `ENGINE.EXE`, so the answer has to come out of the data. That is
-/// what [`super::ds2::SIGNATURE`] is, and [`open`] is where it is asked —
-/// after the modules are loaded, because that is the earliest a word can be
-/// looked up.
-const GAMES: &[(Title, &[&str])] = &[(Title::DunkleSchatten2, super::ds2::SIGNATURE)];
+/// ships an `ENGINE.EXE`, so the answer has to come out of the data. Dunkle
+/// Schatten 2 goes first because its two words are the more specific claim:
+/// its module 2 is Checker 2000's grown, so a word that is only in the
+/// smaller one does not exist, and the older game is told by what its module
+/// 4 drives the story with instead.
+const GAMES: &[(Title, &[(u32, &str)])] = &[
+    (Title::DunkleSchatten2, super::ds2::SIGNATURE),
+    (Title::Checker2000, super::checker::SIGNATURE),
+];
 
-// A second entry silently turns `detect` below into `None` for everything —
-// which stops the first game opening at all — so the table refuses to grow
-// until the signature check moves into `detect`, as the procedure for a
-// second 32-bit game in `CONTRIBUTING.md` describes.
-const _: () = assert!(
-    GAMES.len() == 1,
-    "move the signature check into detect before adding a game"
-);
-
-/// Which 32-bit game `dir` holds, or `None` if it holds no container at all.
+/// Which 32-bit game `dir` holds, or `None` if it holds no container, or a
+/// container whose scripts export none of the roster's signatures.
 ///
-/// File names go no further than the generation here: MOTION made more games
-/// on this machine than the one in the table above, and Checker 2000 ships
-/// `NNN.RSC` beside an `ENGINE.EXE` exactly as Dunkle Schatten 2 does. While
-/// the table has one entry the shape is therefore the whole answer, and the
-/// signature [`open`] asks turns a directory holding some *other* 32-bit game
-/// into an error that says so. A second entry is what makes that signature a
-/// tie-breaker rather than a check, and this is the function it belongs in.
+/// File names go no further than the generation here — both games ship
+/// `NNN.RSC` beside an `ENGINE.EXE` — so the container is opened and its
+/// scripts asked, the way the 16-bit side asks the binary. That costs a read
+/// of the containers where the 16-bit probe costs a directory listing; the
+/// answer is a game rather than a shape, and a directory holding some other
+/// 32-bit game is refused by name instead of opened under the wrong one.
 pub(super) fn detect(dir: &Path) -> Option<Title> {
     if !motionvm_motion_formats::m32::has_container(dir) {
         return None;
     }
-    match GAMES {
-        [(title, _)] => Some(*title),
-        _ => None,
-    }
+    let bank = Bank::open_dir(dir).ok()?;
+    GAMES
+        .iter()
+        .find(|(_, signature)| missing_signature(&bank, signature).is_none())
+        .map(|&(title, _)| title)
+}
+
+/// The first `(module, word)` of `signature` the bank's scripts do not
+/// export, or `None` when the container is the game's.
+fn missing_signature(bank: &Bank, signature: &[(u32, &str)]) -> Option<(u32, String)> {
+    let exports = |module: u32, word: &str| -> bool {
+        bank.item(Kind::Script, cell_index(module))
+            .ok()
+            .flatten()
+            .and_then(|item| ScrModule::parse(item).ok())
+            .is_some_and(|m| m.entries.iter().any(|e| e.name == word))
+    };
+    signature
+        .iter()
+        .find(|(module, word)| !exports(*module, word))
+        .map(|&(module, word)| (module, word.to_string()))
+}
+
+/// A module number as a slot index.
+fn cell_index(module: u32) -> usize {
+    motionvm_motion_forth::cell::index(module)
 }
 
 /// Which of `required` the directory `dir` does not hold, as `(what, what
@@ -108,17 +126,14 @@ pub(super) fn missing_data(
 /// `signature` is how a container says which game it is. A `NNN.RSC` beside an
 /// `ENGINE.EXE` says MOTION 32-bit and nothing more, and the words a bootstrap
 /// names do not say it either: they come from the authoring template, so
-/// another MOTION game has them too. Checker 2000 exports `STARTUP`, `START`
-/// and `INCLLOC` from modules 3, 4 and 5 exactly as Dunkle Schatten 2 does.
-/// What is a game's own is its module 2 script variables — see
-/// [`super::ds2::SIGNATURE`] — and Checker 2000's module 2 has none of Dunkle
-/// Schatten 2's.
-///
-/// Without the check the template's words would bind, run against another
-/// game's data, and fail somewhere inside the VM — under the wrong game's
-/// name, which is the part that misleads. The 16-bit opener answers the same
-/// question by the engine binary beside the container; here the binary is
-/// `ENGINE.EXE` in every game, so the answer has to come from the data.
+/// both games have them. Checker 2000 exports `STARTUP`, `START` and
+/// `INCLLOC` from modules 3, 4 and 5 exactly as Dunkle Schatten 2 does. What
+/// is a game's own is what its scripts do with the template — see
+/// [`super::ds2::SIGNATURE`] and [`super::checker::SIGNATURE`]. [`detect`]
+/// asks the same question to name the game; asking it here again is what
+/// keeps a caller that names a game itself from running its words against
+/// the other game's data and failing somewhere inside the VM, under the
+/// wrong game's name — the part that misleads.
 ///
 /// The other directory this catches is a copy of the right game missing the
 /// container its script is in, which reaches exactly the same state — hence a
@@ -128,8 +143,9 @@ pub(super) fn open(
     dir: &Path,
     title: Title,
     required: &[(&'static str, &'static str)],
-    signature: &[&str],
+    signature: &[(u32, &str)],
     location: LocationScheme,
+    shell: Shell,
 ) -> Result<Game<m32::Vm>> {
     // A path that is not there at all gets its own answer. Listing three
     // missing files for a directory that does not exist describes the symptom
@@ -153,37 +169,54 @@ pub(super) fn open(
     let img = motionvm_motion_formats::m32::le::Image::open(&engine_exe)
         .map_err(|e| Error::data(&engine_exe, e))?;
     let kernel = motionvm_motion_formats::m32::le::kernel_words(&img);
-    let vm = m32::Vm::new(&kernel);
+    // Bound out of this build's own init: the domain table's ordinals begin
+    // where the count of everything registered before it puts them, and the
+    // two builds count differently.
+    let binding = motionvm_motion_formats::m32::le::binding_of(&img, &kernel)
+        .map_err(|e| Error::data(&engine_exe, e))?;
+    let vm = m32::Vm::new(&binding);
 
     // The one thing the opener reads out of the scripts is the signature, and
     // it reads it off the container: the machine holds what the game has
     // loaded and nothing else, and nothing is loaded before `START` runs.
-    let module_2 = bank
-        .item(Kind::Script, 2)
-        .map_err(|e| Error::data(dir, e))?
-        .and_then(|item| ScrModule::parse(item).ok());
-    if let Some(name) = signature.iter().find(|name| {
-        module_2
-            .as_ref()
-            .is_none_or(|m| !m.entries.iter().any(|e| e.name == **name))
-    }) {
+    if let Some((_, word)) = missing_signature(&bank, signature) {
         return Err(Error::NotThisGame {
             dir: dir.to_path_buf(),
             title: title.short(),
-            word: (*name).to_string(),
+            word,
         });
     }
 
-    let mut engine = Engine::new(crate::Profile::motion32()).with_bank(dir, bank);
+    // The two capabilities the two 32-bit builds disagree on, read off this
+    // build's handlers rather than off the game: what a text's insert slot
+    // is, and with it whether a text without one is formatted at all; and
+    // whether a curtain waits between its bands or runs at the presenter's
+    // pace.
+    let inserts = if motionvm_motion_formats::m32::le::sdinsert_takes_kind(&img, &kernel)
+        .map_err(|e| Error::data(&engine_exe, e))?
+    {
+        crate::profile::TextInserts::Kinded
+    } else {
+        crate::profile::TextInserts::Addresses
+    };
+    let curtains_wait = motionvm_motion_formats::m32::le::fades_wait(&img, &kernel)
+        .map_err(|e| Error::data(&engine_exe, e))?;
+    let profile = crate::Profile {
+        inserts,
+        curtains_wait,
+        ..crate::Profile::motion32()
+    };
+    let mut engine = Engine::new(profile).with_bank(dir, bank);
     // Which of the engine's words each of this kernel's ordinals is, decided
     // here and not again. The 32-bit reading, because ten names mean something
     // else on the other machine.
-    engine.bind_words(&motionvm_motion_formats::m32::le::binding_of(&kernel), true);
+    engine.bind_words(&binding, true);
     Ok(Game {
         vm,
         engine,
         title,
         location,
+        shell: Some(shell),
         buttons: (false, false),
         stretched: (false, false),
         running: false,
@@ -324,12 +357,10 @@ impl Driven for Game<m32::Vm> {
 ///
 /// The names are the game's — its manifest carries a constant of these, the
 /// way it carries a [`LocationScheme`] — and the mechanism is the
-/// generation's, in the functions below. With one game on this machine the
-/// functions reach the one manifest directly, the way [`GAMES`] reaches its
-/// `SIGNATURE`; a second game moves the constant into the opener's plumbing,
-/// and the roster's compile-time guard above is what makes that impossible
-/// to forget.
-pub(super) struct Shell {
+/// generation's, in the functions below, which read the pair the opener put
+/// on the game.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shell {
     /// The module the compiler placed the shell variables in.
     pub(super) module: u32,
     /// The task the location is in.
@@ -377,13 +408,16 @@ impl Game<m32::Vm> {
         Ok(())
     }
 
-    /// The task and phase the location is currently in — the intro's progress.
+    /// The task and phase the location is currently in — the intro's
+    /// progress in Dunkle Schatten 2, the story step and the location's task
+    /// in Checker 2000.
     pub fn task_phase(&self) -> (i32, i32) {
+        let Some(shell) = self.shell else {
+            return (0, 0);
+        };
         (
-            self.get_var(super::ds2::SHELL.module, super::ds2::SHELL.task)
-                .unwrap_or(0),
-            self.get_var(super::ds2::SHELL.module, super::ds2::SHELL.task_phase)
-                .unwrap_or(0),
+            self.get_var(shell.module, shell.task).unwrap_or(0),
+            self.get_var(shell.module, shell.task_phase).unwrap_or(0),
         )
     }
 }

@@ -31,6 +31,49 @@ register stream — is on [The verification method](verification-method.md).
 - **A song's first 8 000 OPL register writes**, and one mixer envelope
   ([FM driver](motion32/engine/fm-driver.md)).
 
+### Checker 2000, on the earlier 32-bit build
+
+- **Two rendered boards, pixel for pixel**, against lossless recordings of
+  the original under DOSBox-X: the registration board as it stands waiting
+  for a name, and the main menu after a name and a postcode were typed —
+  307 200 pixels each, 0 differ, the pointer included. The pointer is what
+  the comparison was made for: the engine's own arrow that `TOGFX` installs,
+  in the two indices it resolves against the system palette and keeps
+  through every `SETPAL` after, drawn at the corner where the emulator's
+  mouse driver parks it
+  ([interaction](motion32/engine/interaction.md#the-engines-own-arrow)).
+- **Two pages of the information book, pixel for pixel**, against the same
+  kind of recording: *Check it!* clicked on the main menu, then the down
+  arrow — the white page `FADEIN` mode 2 paints, its frame, the text on it,
+  the pointer on the text. 0 of 307 200 differ on each. The recording was
+  also the one that timed this build's curtains: 70 frames a second, the
+  fade-out gone within one frame, the fade-in open within three
+  ([transitions](motion32/engine/transitions.md#timing)).
+- **The speech, by the frame**, against the same recording's sound track,
+  the lines found in it by their loudness envelopes: the classroom's first
+  file begins six game frames after the scene's curtain opens, the scene
+  steps on seven frames after the file's last sample, and the schoolyard's
+  second file begins on the frame the first ran dry — three intervals the
+  scripts derive from `?STIME`, and all three the engine's. The recording's
+  seconds are not the game's: under DOSBox-X a frame of `8 DELAY` runs 134
+  ms, not 125 — the slide show's sixteen-frame slides come 2.15 s apart —
+  which is the emulator's timer batching and is why the intervals are
+  counted in frames ([audio](motion32/engine/audio.md#the-speech-system)).
+  The same sound track settles the DSP's rate: the speech in it holds the
+  6–10 kHz that a 22 050 Hz output passes and an 11 025 Hz one would not,
+  which is the rate the layer's init asks for
+  ([the digital mixer](motion32/engine/audio.md#the-digital-mixer)).
+- **One rendered frame of a story scene**, the beach of location 12, held
+  against a capture of the original from the game's own archive: 307 200
+  pixels, of which 3 % differ, every one of them inside the two captions and
+  the information button the scene shows at that moment and under the
+  pointer — the capture was taken between two lines of dialogue. The picture
+  underneath, background and both figures, is the same index for index
+  ([screens](motion32/engine/screens.md)). The office of location 4 is
+  captured scrolled, and the scroll has not been matched yet.
+- **The *Futurespiel* menu**, driven headless and digested; no capture
+  holds it yet.
+
 ### Die Enviro-Kids greifen ein, on the 16-bit engine
 
 Against lossless recordings of the original under DOSBox-X:
@@ -101,9 +144,11 @@ A third kind, weaker than either but the only one that runs on every machine
 and on every change. For every scene the test suites compose and every tune
 they play, the suite keeps a **digest** — an FNV-1a 64 of the composed indexed
 frame, or of the register stream in the order the chip would have seen it — and
-holds each run against the one before. Seventy-nine of them, across all six
-games: each game's intro, the room it starts in, four of Dunkle Schatten 2's
-densest scenes, and every tune the six ship.
+holds each run against the one before. Eighty-three of them, across all
+seven games: each game's intro, the room it starts in, four of Dunkle
+Schatten 2's densest scenes, Checker 2000's registration in two states, its
+main menu and a page of its information book, and every tune the six older
+games ship.
 
 A digest says nothing about whether a picture is *right*. What it says is that
 nothing moved, which is what the comparisons above cannot say twice: a capture
@@ -136,8 +181,9 @@ never touch those files; they are evidence about the formats all the same.
 Two more passes over the files hold the readers and the engine to them
 without comparing anything to the original. Every kernel word a game's
 modules reach for is checked to be one the interpreter or the engine
-implements — for the five 16-bit games that is every word, for Dunkle
-Schatten 2 every word but a named handful the suite carries with its reason.
+implements — for the five 16-bit games that is every word, for the two
+32-bit games every word but a named handful the suite carries with its
+reason.
 And the shipped files are handed to the readers damaged — cut short at every
 length through their headers, single bytes flipped where a seeded generator
 says — with the assertion that a reader answers rather than crashes; what a
@@ -147,7 +193,13 @@ business over the undamaged files.
 ## What has not been compared
 
 Interaction, dialogue, walking, savegames, the verb menu and most locations of
-all six games have never been differentially compared against a recording, and
+all seven games have never been differentially compared against a recording —
+Checker 2000's story scenes past the schoolyard and its twenty mini-games
+among them, its speech only as far as its three first files' frames, and its
+sound effects — the samples that sound beside the voice, and the two the
+beach and the schoolyard loop under a passage — read out of the sound
+layer's slot walk and the mixer's end check and not yet heard against a
+recording — and
 **nothing of Jeff Jet or Hilfe für Amajambere has been**. Victor Loomes is
 covered as far as its intro reaches and no further, and Falsches Spiel mit
 Eddie M. as far as its intro's tune: what a played room looks like there is as

@@ -354,11 +354,11 @@ with a word id. Conversely the 32-bit engine's dialogue machine
 (`CALCDIALOG`, `SDIAL`, …), `SCANCUT`, `LOADLBM`, `TURNTO`, `CALCROUTE`,
 `SETRES` and the hicolor path have no 16-bit counterpart.
 
-## Words that matter more here than in the 32-bit game
+## Words that matter more here than on the 32-bit engine
 
 `SETBUF` (129 sites), `SDBUF` (108) and `BUFON` (1) build the intro and
-every person sprite: the 16-bit game draws through off-screen buffers,
-where the 32-bit game leaves the same words unused or inert. See
+every person sprite: the 16-bit games draw through off-screen buffers,
+where the 32-bit games leave the same words unused or inert. See
 [Off-screen buffers](../engine/buffers.md).
 
 ## `RANDOM`

@@ -2,7 +2,7 @@
 
 # Descriptors
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 A descriptor is one visible element on a [screen](screens.md): a
 background, a character, an item, a text box. Descriptors are the
@@ -205,9 +205,12 @@ does nothing.
 
 ## Other descriptor words
 
-Setters whose fields are identified but whose runtime effect is not yet
-established: `SDBUF`, `SDSTARTLINE`, `SDALINES`, `SDINSERT`
-(3 arguments). `SDTRANS`/`SDSHADE` select palette-lookup effects whose
+`SDSTARTLINE`, `SDALINES` and `SDINSERT` write the text record's line
+window and its five insert slots, which the text layout reads — see
+[text rendering](text-rendering.md#the-layout-the-line-window-and-the-inserts);
+`SDINSERT` takes three arguments here and two in Checker 2000's build. The
+one setter whose field is identified and whose effect is not: `SDBUF`.
+`SDTRANS`/`SDSHADE` select palette-lookup effects whose
 tables are known (see [Blocks](../formats/blocks.md)) but whose
 per-descriptor semantics are not. `SDNORM`/`SDPOS` switch animation
 modes (unmapped). `GDCOL` returns the color **undivided** — a backed
@@ -228,8 +231,7 @@ text answers 421, not 165 (see [Text rendering](text-rendering.md)).
   until `SDSPR` (`0x71715`), `SDBL`, `SDTXT` (`0x71b4f`) and `SDTB`
   (`0x71d45`) are read for what they write there.
 - The animation state inside the sprite payload.
-- `SDBUF`, `SDSTARTLINE`, `SDALINES`, `SDTRANS`, `SDSHADE`, `SDINSERT`
-  semantics.
+- `SDBUF`, `SDTRANS`, `SDSHADE` semantics.
 - What flag `0x10` picks between — see [Screens](screens.md#open-questions).
 
 ## See also

@@ -609,6 +609,9 @@ fn ending_the_tune_holds_the_room_change_for_half_a_second() {
         fn start(&mut self, _handle: i32, _tune: i32, _looping: bool, _song: &[u8]) {}
         fn stop(&mut self, _handle: i32) {}
         fn cut(&mut self, _handle: i32) {}
+        fn start_sample(&mut self, _handle: i32, _wav: &[u8], _volume: u16, _loops: i32) {}
+        fn stop_sample(&mut self, _handle: i32) {}
+        fn music_volume(&mut self, _volume: u16) {}
         fn sample(&mut self, _block: i32, _sample: &[u8]) {}
     }
     let mut game = settled_in_the_game(&dir);

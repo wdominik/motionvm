@@ -2,7 +2,7 @@
 #
 # `just check` is the real gate and it runs the suite against a copy of the
 # game. The game's files are copyrighted and cannot be here, so CI runs the
-# same four commands without them: of the test suite's ~400 tests, the ~230
+# same four commands without them: of the test suite's ~590 tests, the ~300
 # that need the data skip themselves and say so. What this proves is that the
 # workspace builds, lints, documents and passes its data-free tests — on three
 # platforms rather than on the one it was written on.
@@ -74,9 +74,10 @@ jobs:
       - name: Lints
         run: cargo clippy --workspace --all-targets
 
-      # No MOTIONVM_GAMEDATA_DS2, no MOTIONVM_GAMEDATA_ENVIRO, no
-      # MOTIONVM_GAMEDATA_JEFFJET, no MOTIONVM_GAMEDATA_HFA, no
-      # MOTIONVM_GAMEDATA_VLOOMES and no MOTIONVM_SAVES: the data-dependent
+      # No MOTIONVM_GAMEDATA_DS2, no MOTIONVM_GAMEDATA_CHECKER, no
+      # MOTIONVM_GAMEDATA_ENVIRO, no MOTIONVM_GAMEDATA_JEFFJET, no
+      # MOTIONVM_GAMEDATA_HFA, no MOTIONVM_GAMEDATA_VLOOMES, no
+      # MOTIONVM_GAMEDATA_EDDIEM and no MOTIONVM_SAVES: the data-dependent
       # tests print why they skipped.
       # `--nocapture` so that those reasons are in the log — a run that skipped
       # everything must not read like a run that passed everything.

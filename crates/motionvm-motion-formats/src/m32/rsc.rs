@@ -1,4 +1,5 @@
-//! The RSC resource container (`001.RSC`, `002.RSC`, `003.RSC`).
+//! The RSC resource container: `001.RSC`, `002.RSC`, … and the engine's own
+//! `ENGINE.RSC`.
 //!
 //! ```text
 //! 0x00  u32[6]      slot counts: gfx, txt, blk, fnt, scr, pal
@@ -10,10 +11,29 @@
 //! parallel tables, one for 8-bit sprites and one for the (unused here) 16-bit
 //! hicolor variant. The table is sorted, and an item's length is the distance to
 //! the next entry; equal neighbors mean an empty slot. The final entry doubles
-//! as the end sentinel.
+//! as the end sentinel. The engine masks an entry with `0x0fffffff` before it
+//! seeks (`ENGINE.EXE` V0.04.15/R78 `0x4498e`); only bit 31 is set in any
+//! shipped table.
 //!
 //! Note the segment order does *not* match the "Scanning for …" order printed by
 //! `ENGINE.EXE`; it was determined from the data itself.
+//!
+//! ## The containers a game opens, and which one an id comes out of
+//!
+//! The engine keeps six container slots (`0x4d200`, records of `0x78` bytes
+//! from `0xc8c3c`): slot 0 is `engine.rsc`, slot `n` is `<path>NNN.rsc` with
+//! `n` for `NNN` — `001.rsc` in slot 1, up to `005.rsc` — and `->RSCPATH`
+//! gives one slot a directory of its own, which is how Checker 2000's boot
+//! script points slot 3 at the install directory. An id is looked up through
+//! the catalog `RSC.INF` carries: its record holds a byte with one bit per
+//! slot that has the item, and the lookup (`0x44710`, at `0x4485c`) walks the
+//! slots from 0 upward and takes the **first** whose bit is set. Both shipped
+//! games' catalogs were held against their containers, every kind and every
+//! id: wherever two containers hold one id — Dunkle Schatten 2's sprite 1324,
+//! Checker 2000's nineteen sprites 604–4138 and palette 147 — the catalog
+//! names the lowest slot, and it names no slot without the item. So the
+//! lowest slot wins, and that is the rule [`Bank`] applies without reading
+//! the catalog: `ENGINE.RSC` first, then the numbered containers in order.
 
 use crate::cursor::Cursor;
 use crate::error::{Error, Result};
@@ -240,11 +260,18 @@ impl Rsc {
 
 /// Several containers addressed as one id space.
 ///
-/// The engine loads `%03d.rsc` files from `RSCPATH` and merges them: each file
-/// fills a different part of the shared id range, so a lookup tries every bank.
+/// The engine opens `engine.rsc` and the `%03d.rsc` files as six slots and
+/// looks an id up through the first slot that holds it — see the module
+/// header for the reading and the measurement behind it. The banks are kept
+/// in slot order, so the same walk answers here.
 pub struct Bank {
     banks: Vec<Rsc>,
 }
+
+/// The engine's own container, which Checker 2000 ships and Dunkle Schatten
+/// 2 does not: the system font and palette as items 0, where the other game
+/// has the loose `000.FNT` and `000.PAL`. Slot 0 of the six the engine opens.
+pub const ENGINE_CONTAINER: &str = "ENGINE.RSC";
 
 impl std::fmt::Debug for Bank {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -252,12 +279,14 @@ impl std::fmt::Debug for Bank {
     }
 }
 
-/// Whether that path is named the way the engine names a container: three
-/// digits, then `.RSC`.
+/// Whether that path is named the way the engine names a numbered container:
+/// three digits, then `.RSC`.
 ///
-/// The engine loads `%03d.rsc` from `RSCPATH`, so the stem is three digits and
-/// nothing else — `OLD.RSC` and `001.RSC.bak` are not containers. Both halves
-/// are compared case-insensitively, because a copied install often arrives
+/// The engine opens `%03d.rsc` into slots 1 to 5, so the stem is three digits
+/// and nothing else — `OLD.RSC` and `001.RSC.bak` are not containers, and
+/// neither is `SYSTEM.RSC`, the boot script, nor [`ENGINE_CONTAINER`], which
+/// is a container but slot 0's and is opened by its own name. Both halves are
+/// compared case-insensitively, because a copied install often arrives
 /// lower-cased.
 pub fn is_container_name(path: &std::path::Path) -> bool {
     path.extension()
@@ -286,7 +315,8 @@ pub fn has_container(dir: &std::path::Path) -> bool {
 }
 
 impl Bank {
-    /// Opens every `NNN.RSC` in `dir`, in ascending numeric order.
+    /// Opens the containers in `dir` in the engine's slot order: `ENGINE.RSC`
+    /// where there is one, then every `NNN.RSC` ascending.
     pub fn open_dir(dir: impl AsRef<std::path::Path>) -> Result<Self> {
         let dir = dir.as_ref();
         let mut files: Vec<_> = std::fs::read_dir(dir)?
@@ -302,6 +332,11 @@ impl Bank {
         // property of the disk. Nothing else in this engine is allowed to
         // depend on that either.
         files.sort();
+        // Slot 0 goes first whatever its name sorts as: it is the one the
+        // engine opens by its own name, before the numbered ones.
+        if let Some(engine) = crate::find_ci(dir, ENGINE_CONTAINER) {
+            files.insert(0, engine);
+        }
         let banks = files
             .into_iter()
             .map(Rsc::open)
@@ -314,8 +349,11 @@ impl Bank {
         &self.banks
     }
 
-    /// Finds an item by id across all banks; later banks do not shadow earlier
-    /// ones because in practice no id is filled twice.
+    /// Finds an item by id: the first bank in slot order that holds it, which
+    /// is the container the engine's own lookup lands on — see the module
+    /// header. Checker 2000 fills nineteen sprite ids and one palette twice,
+    /// sixteen of the sprites with different pictures, and each comes out of
+    /// `001.RSC` here as it does there.
     pub fn item(&self, kind: Kind, id: usize) -> Result<Option<&[u8]>> {
         for b in &self.banks {
             if id < b.slot_count(kind)

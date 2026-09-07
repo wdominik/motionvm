@@ -17,18 +17,19 @@ the machine under it is new.
 
 ## The games it plays
 
-Six so far, across the two generations of the engine:
+Seven so far, across the two generations of the engine:
 
 | Game | Year | Commissioned by | Made by | Engine |
 |---|---|---|---|---|
-| *Im Netzwerk gefangen – Dunkle Schatten 2* | 1996 | Bundesministerium des Innern | DigiTales GmbH, Hamburg, produced by Art Department WA GmbH, Bochum | **32-bit** — `ENGINE.EXE` |
+| *Im Netzwerk gefangen – Dunkle Schatten 2* | 1996 | Bundesministerium des Innern | DigiTales GmbH, Hamburg, produced by Art Department WA GmbH, Bochum | **32-bit** — `ENGINE.EXE` V0.06.06/R109 |
+| *Checker 2000* | 1996 | The AOK — the regional health insurers of the new federal states | Promotion Software GmbH, Tübingen (attributed; the files name no studio) | **32-bit** — `ENGINE.EXE` V0.04.15/R78 |
 | *Die Enviro-Kids greifen ein* | 1996 | Ministerium für Umwelt, Raumordnung und Landwirtschaft NRW | Art Department Werbeagentur GmbH | **16-bit** — `ENVIRO.EXE` |
 | *Jeff Jet - Abenteuer InfoHighway* | 1995 | Hewlett Packard GmbH | Promotion Software GmbH, Tübingen | **16-bit** — `HPPLAY.EXE` |
 | *Hilfe für Amajambere* | 1995 | Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung | ART DEPARTMENT WA GmbH, Bochum | **16-bit** — `BMZ.EXE` |
 | *Victor Loomes – Das Spiel* | 1993 | LBS (Landesbausparkasse) | Promotion Software GmbH, Reutlingen | **16-bit** — `LL.EXE` |
 | *Falsches Spiel mit Eddie M.* | 1994 | Gruner + Jahr, for the magazine *Stern* | via productions ag, by the published record | **16-bit** — `STERN.EXE` |
 
-All six are commissioned work — advergames and edutainment, given away rather
+All seven are commissioned work — advergames and edutainment, given away rather
 than sold — which is why each has a client as well as a studio; each entry
 names them as the game's own files do, or, where the files name nobody, as
 the published record does and says so. They are German-language throughout, and
@@ -43,7 +44,7 @@ MOTION was written by DigiTales (Stefan Hoffmann) — Dunkle Schatten 2's own
 credits say so, naming the *"Motion"-Präsentations-System von S. Hoffmann* and
 *DigiTales GmbH, Hamburg* — and Victor Loomes, three years earlier, is the one
 that gives it a version: *Erstellt unter · Motion 1.0*.
-The engine made more games than these six, and
+The engine made more games than these seven, and
 the list is a record of what has been done, not a limit of what is underneath
 it.
 
@@ -98,7 +99,9 @@ motionvm [GAMEDIR] [options]
 the 16-bit games, whose boot word enters a first location itself. Two of them
 take it one click later: Hilfe für Amajambere opens on its menu and Victor
 Loomes on a full-screen competition slide, and both have to be clicked away
-first.
+first. Checker 2000 refuses it and says why: its story is a task list that
+enters each location when the step naming it comes round, so there is no
+location to ask for.
 
 ## What a game needs
 
@@ -111,6 +114,7 @@ Nothing else in an installation is ever opened, so a copy can be this small:
 | Game | Files it needs | For sound | Together |
 |---|---|---|---:|
 | Dunkle Schatten 2 | `001.RSC`, `002.RSC`, `003.RSC`, `ENGINE.EXE`, `000.FRT` | `HMIMDRV.386`, `MELODIC.BNK`, `DRUM.BNK` | 19 MB |
+| Checker 2000 | `001.RSC`–`004.RSC`, `ENGINE.RSC`, `ENGINE.EXE`, `000.FRT` | `HMIMDRV.386`, `MELODIC.BNK`, `DRUM.BNK`; `SMPPATH` and `WAVS/` for the speech | 33 MB |
 | Die Enviro-Kids greifen ein | `DATA.-1-`, `ENVIRO.EXE` | `MUSADL.DRV` | 7.8 MB |
 | Jeff Jet | `DATA.-1-`, `DATA.-2-`, `HPPLAY.EXE` | `MUSADL.DRV` | 2.7 MB |
 | Hilfe für Amajambere | `DATA.-1-`, `DATA.-2-`, `BMZ.EXE` | `MUSADL.DRV` | 5.5 MB |
@@ -120,7 +124,11 @@ Nothing else in an installation is ever opened, so a copy can be this small:
 Every line of that was established by taking the file away and seeing what
 happened, not by reading the loader. Leave out a file from the middle column
 and motionvm stops at start-up and says which one; leave out one from the third
-and it prints `sound is off: …` and plays on in silence.
+and it prints `sound is off: …` and plays on in silence. The one exception
+is Checker 2000's `ENGINE.RSC`: the game opens without it, because every
+text it draws names a font of its own, but the system palette the engine's
+arrow pointer takes its two colors from is in it, and without that both
+colors resolve to index 0 and the arrow is not seen.
 
 ```sh
 mkdir vloomes-min
@@ -162,7 +170,8 @@ its manual describes.
 |---|---|
 | Left click | Walk, use, or pick the thing under the pointer |
 | Right click | Open the verb menu on it |
-| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In the 16-bit games it skips the intro |
+| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In Checker 2000 it leaves a scene for the board. In the 16-bit games it skips the intro |
+| Letters, digits, Return, Backspace | Checker 2000's registration board: the name and the postcode |
 | Cursor keys | Move through Dunkle Schatten 2's in-game mailbox; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
 | F12 | Freeze the picture **and** write it out as an indexed PNG, to `shot.png` in the data directory beside `saves/`; the path is printed |
@@ -198,9 +207,9 @@ started from:
 | Windows | `%APPDATA%\motionvm` |
 | anything else | `$XDG_DATA_HOME/motionvm`, or `~/.local/share/motionvm` |
 
-Underneath it, one directory per game: `saves/ds2/`, `saves/enviro/`,
-`saves/jeffjet/`, `saves/hfa/`, `saves/vloomes/` and `saves/eddiem/`. All six
-games name their
+Underneath it, one directory per game: `saves/ds2/`, `saves/checker/`,
+`saves/enviro/`, `saves/jeffjet/`, `saves/hfa/`, `saves/vloomes/` and
+`saves/eddiem/`. All seven games name their
 slots alike and each looks for its own at start-up; the directory is created
 then if it is not there and its path is printed, so a fresh install needs no
 setup and a savegame is an ordinary file to copy or back up.
@@ -280,11 +289,14 @@ test on any machine that has the game.
 it does not; [`docs/motion/departures.md`](docs/motion/departures.md) lists every place
 motionvm knowingly does something else.
 
-One of those a player may notice: every game plays its Ad Lib rendition,
-whatever its sound setup said. The 16-bit games shipped a `SOUND.EXE` that
-could pick a sampled renderer instead, and Dunkle Schatten 2's digital layer
-is not ported — so a player who remembers the Sound Blaster mix hears the FM
-one.
+One of those a player may notice: every game plays its Ad Lib rendition of
+its music, whatever its sound setup said. The 16-bit games shipped a
+`SOUND.EXE` that could pick a sampled renderer instead, and that renderer is
+not ported — so a player who remembers the Sound Blaster mix of a 16-bit tune
+hears the FM one. The 32-bit engine's digital layer is another matter: it
+plays Checker 2000's speech and effects over the music as the original's
+mixer does, read out of it; Dunkle Schatten 2 ships no WAV file, so its
+scripts' speech path is never reached.
 
 ## How it works
 
@@ -300,8 +312,8 @@ virtual machines, the renderer, the audio and the runtime are split across
 eleven crates — two layers and a test rig over both — a neutral one holding the window and the contract
 it drives any game through, and the MOTION engine family behind that contract
 — which [`ARCHITECTURE.md`](ARCHITECTURE.md) lays out, along with how the
-family, its two engine generations, the five builds of the older one and the
-games on top of them are kept apart. The
+family, its two engine generations, the five builds of the older one, the
+two of the newer and the games on top of them are kept apart. The
 two engine generations share the Forth dialect, the compiler's output
 conventions and most of the kernel's vocabulary; they do not share the machine
 — cell width, kernel ordinals, address model, container, asset encodings and

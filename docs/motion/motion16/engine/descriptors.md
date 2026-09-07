@@ -8,7 +8,7 @@ The 16-bit kernel has the same descriptor vocabulary as the 32-bit one —
 descriptors that show a sprite, a block or a text; `SD*` setters and `GD*`
 getters — and the scripts use it the same way. What this page records is the
 **stack effects measured from the call sites in Die Enviro-Kids greifen ein**,
-the places where the 16-bit usage differs from the 32-bit game's, and what is
+the places where the 16-bit usage differs from Dunkle Schatten 2's, and what is
 still unread. The C structures behind the handles are unread; the 32-bit
 engine's layouts ([descriptors](../../motion32/engine/descriptors.md),
 [screens](../../motion32/engine/screens.md)) are the working hypothesis for

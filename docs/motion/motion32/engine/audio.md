@@ -2,7 +2,7 @@
 
 # Audio
 
-*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2; what is measured here is measured on that game's files. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
+*MOTION 32-bit — the engine as shipped in `ENGINE.EXE` V0.06.06/R109 with Dunkle Schatten 2 and V0.04.15/R78 with Checker 2000; what is measured here is measured on those games' files, and an address is R109's unless the page says otherwise. The 16-bit engine is documented under [MOTION 16-bit](../../README.md#motion-16-bit).*
 
 The engine links the **HMI "Sound Operating System" (SOS)** middleware
 statically — the same layer whose loadable drivers (`HMI*.386`) and
@@ -125,7 +125,9 @@ tune's notes hanging under the new one.
 
 ### STARTSAMPLE and ->STARTSAMPLE
 
-Both play 11025 Hz PCM WAV data and return a handle:
+Both play PCM WAV data at the rate the header names — 11 025 Hz 8-bit mono
+in Dunkle Schatten 2's speech, 22 050 Hz 16-bit mono in Checker 2000's — and
+return a handle:
 
 - `STARTSAMPLE` reads block resource `NNN.blk` whole and plays it at
   **¼ volume** (0x1FFF of 0x7FFF).
@@ -136,9 +138,19 @@ Both play 11025 Hz PCM WAV data and return a handle:
   RIFF/WAVE header (rate at `+24`, bits at `+34`, channels at `+22`) and
   streams the rest. Speech plays at **full volume** (0x7FFF). Only one
   stream can be active at a time.
-- Playback runs on channel 0; the second argument is passed to the SOS
-  start call (most plausibly a loop count — the game always passes 0 for
-  speech; open question).
+- The layer's start (R78 `0x6f18c` → `0x6ee60`) gives the sample the
+  first of **34 slots** (`0xbb1e4`) that is free or whose sample the driver
+  reports done, and refuses only when none is — so samples sound together,
+  and the mixer sums them ([the digital mixer](#the-digital-mixer)). The
+  second argument is the **loop count**: the start files it at `+0x30` of
+  the slot's record (`0x6eedb`), and the mixer reads it when the data runs
+  out (`0x82d28`–`0x82d3c`) — −1 rewinds for ever, 0 ends the sample and
+  runs its done callback, any other count rewinds and counts down. Checker
+  2000 passes 0 nearly everywhere and −1 twice, for the ambience under a
+  scene, which `STOPSAMPLE` ends ([Checker 2000's
+  speech](../../games/checker/game-structure.md#speech)); the stream path
+  builds its own record (`0x70990`) and takes no count, so a streamed file
+  plays once.
 - A missing file is a quirk case: `STARTSAMPLE` returns 0 **silently**,
   and `->STARTSAMPLE` **retries in an endless loop** (a "please insert
   the CD" spin). Both paths try to print a diagnostic, but they pass a
@@ -205,42 +217,113 @@ which is 115.45 Hz. Four per cent slow, and audible.
   60–63** — no such blocks exist, and the guarding location-range test
   can never be true; if it ever ran, `STARTTUNE` would fail silently.
 - `?SOUND` is called once, in `STARTUP`, storing the result in `_SPEECH`
-  — which is never read again.
-- `STARTSAMPLE`, `STOPSAMPLE`, and `MUSVOLUME` are never called by the
-  shipped scripts.
+  — which Dunkle Schatten 2 never reads again, and Checker 2000 reads at
+  every scene ([the speech system](#the-speech-system)).
+- `STARTSAMPLE`, `STOPSAMPLE`, and `MUSVOLUME` are never called by Dunkle
+  Schatten 2's scripts; Checker 2000 calls all three.
 
-## The speech system — fully built, never enabled
+## The speech system
 
-The scripts contain a complete lip-sync speech layer that the shipped
-game never activates:
+The scripts of both games contain a lip-sync speech layer. Dunkle
+Schatten 2 ships it dormant; Checker 2000 runs it, and every claim below
+was read on R78 and found again on R109.
 
 - A **speaker table** of 10 slots × 12 bytes — the audio one, `SPEAKER`,
   which is *not* `_SPEAKTABLE` (stride 40, the text-dialogue table filled by
-  `SETSPEAKER` from 197 live call sites in sixteen location modules). **The two
-  are separate tables with confusable names**: only `SPEAKER` has anything to
-  do with sound, and the only live code that touches it is `INCLLOC`, which
-  resets its ten idle markers. Layout:
+  `SETSPEAKER` from 197 live call sites in sixteen of Dunkle Schatten 2's
+  location modules). **The two are separate tables with confusable names**:
+  only `SPEAKER` has anything to do with sound. Layout:
   `{ +0 start-callback, +4 stop-callback, +8 scheduled stop time }`.
-  `SETSPEAKER` binds a figure to a slot; the callbacks toggle the talking
-  animation.
+  `->SPEAKER ( start stop slot -- )` binds a figure to a slot; the
+  callbacks toggle the talking animation.
 - `->SPEECHSEQ ( name$ table -- )` starts a WAV via `->STARTSAMPLE` and
   stores a **cue table**: records of
   `{ +0 start time, +4 stop time, +8 speaker index }` in 1/100 s,
-  terminated by speaker index 0.
-- A per-frame pump (`SAMPLE_TIMING`) polls `?STIME`, fires each speaker's
-  start callback at its cue time, schedules the stop, and advances
-  through the cue table.
+  terminated by speaker index 0. `SPEECHSEQ-> ( -- handle | 0 )` answers
+  the running file's handle while `?STIME` still answers a time, and 0 —
+  clearing `_ACTSPEECH` — once it answers −1.
+- A per-frame pump (`SAMPLE_TIMING`) polls `?STIME`, halves it to
+  hundredths, fires each speaker's start callback at its cue time,
+  schedules the stop, and advances through the cue table.
 
-Nothing calls `->SPEECHSEQ` or the pump, and the address `SAMPLE_TIMING` would
-have (`0x40060`) appears in no module — the only two literals in module 4's
-address window are `DO_INVSEL` and `ICTRL`. `->SPEAKER`, which would install
-the callbacks, is never called either, so even a running pump would execute
-nothing. No `smppath` file and no speech WAVs ship, and a byte scan of all
-three containers finds **no `RIFF`, `WAVE`, `MThd` or VOC data anywhere** —
-there is nothing for the sample path to play. Infrastructure for a voiced
-version that never shipped on this disc.
+**In Dunkle Schatten 2 nothing calls it.** Neither `->SPEECHSEQ` nor the pump
+is reached, and the address `SAMPLE_TIMING` would have (`0x40060`) appears in
+no module — the only two literals in module 4's address window are
+`DO_INVSEL` and `ICTRL`. `->SPEAKER`, which would install the callbacks, is
+never called either, so even a running pump would execute nothing. No
+`smppath` file and no speech WAVs ship, and a byte scan of all three
+containers finds **no `RIFF`, `WAVE`, `MThd` or VOC data anywhere** — there
+is nothing for the sample path to play. Infrastructure for a voiced version
+that never shipped on this disc.
 
-One latent bug in it, for the record: the "sample finished" arm reads
+**In Checker 2000 it is the game's voice.** `STARTUP` keeps `?SOUND`'s
+answer in `_SPEECH`, `ICTRL`'s controller runs `SAMPLE_TIMING` every frame
+it is set, and 71 sites in fourteen location modules call `->SPEECHSEQ`
+with one of the 73 files under `WAVS/` — the scene's whole passage in one
+file, `4_5.WAV` fifty-one seconds long. Each scene's macro reads `_SPEECH`
+as it enters and puts the task manager on a speech path (`_LOCTASK` 1001,
+1050, …) or a caption path (1, 50, …); the voiced game shows no subtitle
+and the silent one hears no line ([game
+structure](../../games/checker/game-structure.md#speech)). The files are
+22 050 Hz 16-bit mono, so every one but the shortest streams; the stream's
+ring is `0x22000` bytes, refilled `0x2000` at a time from the file by the
+frame pump (`0x6a0a0`), and the end callback (`0x6a020`) clears the node's
+playing flag when the DAC runs dry — which is what `?STIME`'s −1 and the
+scene's step follow. Held against a recording of the original: the first
+line begins six frames after the classroom's curtain, the scene steps seven
+frames after the file's end, and the schoolyard's second file begins on the
+frame its first ran dry ([verification](../../verification.md)).
+
+### The digital mixer
+
+The layer's mixer is SOS's, linked into `ENGINE.EXE` (R78 `0x82b70`–`0x82f01`;
+the sixty-four mix routines at `0x877d1`, the sixteen output routines at
+`0x89715`), and the SB16 driver out of `HMIDRV.386` (`sb1616s.com`, 1737
+bytes) is the hardware half only: DSP command `0xb4`, 16-bit auto-init
+output, mode `0x30`, signed stereo. Read from it:
+
+- **The rate is 22 050 Hz.** `HMISET.CFG`'s digital section is parsed to
+  11 025 (`0x6f7ed`), and the sample layer's init asks the driver for 100 %
+  more (`0x6a406` → `0x6fdc0`), which re-initializes it at 22 050
+  (`0x6feb3`) — confirmed in a recording of the original by the speech's
+  spectrum, which holds the 6–10 kHz a 22 050 Hz DSP passes and an 11 025 Hz
+  one would not. Every WAV the game ships is 22 050 Hz 16-bit mono, so the
+  mixer's resampler — a 16.16 step of `rate / 22 050`, each source frame held
+  (`0x82c74`–`0x82cc7`) — is reached by no shipped data.
+- **Volume and pan.** `sosDIGISetSampleVolume` (`0x76381`) files a dword at
+  `+0x2c` of the sample slot, left in the high word and right in the low, the
+  engine passing the same value twice; the pan at `+0x44` is the data
+  default `0x8000`, the center, at which the two volumes are used as given
+  (`0x82bc6`). Nothing the games reach sets a pan.
+- **The sum.** Each active sample is added into 32-bit accumulators, a mono
+  frame into both channels: **unchanged when both volumes are `0x7ff0` or
+  more** (`0x87c9c`), else as `2 × ⌊frame × volume / 65 536⌋` — `imulw` by
+  the volume and the product's high word doubled (`0x881c6`), so a scaled
+  frame is even and up to one below `frame × volume / 32 768`. An 8-bit
+  source is widened into the high byte, unsigned through `xor 0x8000`. The
+  accumulators go to the DMA buffer as 16-bit, clipped to the range only
+  when more than one sample was mixed (`0x89d73`): a lone sample cannot
+  overflow.
+- **What is not in the mixer** is the music. The OPL3 and the DSP are two
+  outputs of the card, summed in its analog mixer at the levels the mixer
+  registers hold, which none of the drivers touch. motionvm sums the two
+  digitally, the voice added to the OPL's frame with saturation
+  ([departures](../../departures.md#audio)).
+
+### ?SOUND
+
+`?SOUND` (R78 `0x6b340`, R109 alike) tests **bit 4** of the sound layer's
+status byte (`0xbb7d4`) and pushes 1 or 0. The layer's init (`0x6fb44`–
+`0x6fbd4`) sets the byte's bits as its parts come up: 1 for the timer, 2
+when the MIDI driver named in `HMISET.CFG` initialized, 4 when the
+**digital** driver did, 8 when that driver streams. So the word says
+nothing about music, only whether there is a card to play samples on. In
+motionvm the sound layer is the audio sink: with one attached the digital
+side is what plays the samples, and `?SOUND` answers 1; with none it
+answers 0 and the start words answer 0, as the original's do with no card
+configured.
+
+One latent bug in the pump, for the record: the "sample finished" arm reads
 `?STIME 2 / -1 =`, and `/` truncates, so `-1 2 /` is 0 and that arm can never
 fire. `SPEECHSEQ->` gets it right by testing before dividing.
 
@@ -259,8 +342,6 @@ The extracted songs end with their original DOS file names (e.g.
 
 - What bit `0x04`, set and cleared by controller 106, means in the channel
   record.
-- The second argument of the sample-start words (loop count is the best
-  reading).
 - The exact master timer frequency (≈1 kHz inferred).
 - The texts behind the sound module's diagnostic message ids.
 

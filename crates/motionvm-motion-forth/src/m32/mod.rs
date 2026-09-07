@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use motionvm_motion_formats::m32::le::{KernelWord, TAG_KERNEL};
+use motionvm_motion_formats::m32::le::TAG_KERNEL;
 use motionvm_motion_formats::m32::scr::ScrModule;
 
 use crate::cell;
@@ -430,14 +430,10 @@ pub struct Vm {
 impl Vm {
     /// A machine that knows the kernel's words but has no modules yet.
     ///
-    /// The kernel table comes out of `ENGINE.EXE`; without it an ordinal is
-    /// only a number and nothing can be named, traced or reported.
-    pub fn new(kernel: &[KernelWord]) -> Self {
-        Self::with_binding(&motionvm_motion_formats::m32::le::binding_of(kernel))
-    }
-
-    /// A machine over an already bound kernel.
-    pub fn with_binding(binding: &motionvm_motion_formats::Binding) -> Self {
+    /// The binding comes out of the game's own `ENGINE.EXE`
+    /// ([`motionvm_motion_formats::m32::le::binding_of`]); without it an
+    /// ordinal is only a number and nothing can be named, traced or reported.
+    pub fn new(binding: &motionvm_motion_formats::Binding) -> Self {
         let ordinals: BTreeMap<u32, String> = binding.words.iter().cloned().collect();
         let prims = prims::dispatch_table(binding);
         Self {

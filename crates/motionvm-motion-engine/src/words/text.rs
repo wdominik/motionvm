@@ -52,6 +52,19 @@ impl Engine {
                 }
             }
 
+            // `( n -- )`: the text `n` of the current descriptor's table, to
+            // the printer. R78 `0x612a0` takes the current descriptor's text
+            // record, puts `n` in place of its text number, renders the
+            // string (`0x5a100`), writes it to the printer port (`0x1f300`,
+            // its length from `0x11b80`), frees the rendering and puts the
+            // old number back — so nothing on the screen changes, and the
+            // one effect is on a device this port has none of. Checker
+            // 2000's information book prints an application letter with it
+            // (module 218, six sites). Inert here by that admission;
+            // `docs/motion/departures.md` carries it.
+            Word::TEXT_TO_PRINTER => {
+                self.inert(stack, 1, Word::TEXT_TO_PRINTER)?;
+            }
             _ => return Ok(None),
         }
         Ok(Some(()))
