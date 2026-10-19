@@ -51,7 +51,7 @@ Once, before the first picture:
    game is parked in its frame loop. Everything after this is `step`'s.
 
 Then the loop, until `finished` answers true or the window closes:
-`frame_duration`, `step`, `frame`, present, wait — with input arriving
+`step`, `frame_duration`, `frame`, present, wait — with input arriving
 between the calls, never during one. And once, on the way out,
 `diagnostics`.
 
@@ -83,8 +83,13 @@ address to go and read.
 
 ## What `frame_duration` answers, and why the window batches
 
-Asked *before* each step: how long the frame that step is about to run
-should stay on screen. Afterwards the clock already belongs to the next one.
+Asked *after* each step: how long the picture that step left should stay
+on screen — the wait the original performed after painting it. After, and
+not before, because a step may paint inside a word and then wait: the
+MOTION engine's 16-bit wipe lays its first ring down before its first wait,
+and the step that queues a wipe behind a half-second hold paints that ring
+the moment the hold is over. Asked before the step, the ring would stand
+for the wait that belonged to the picture before it.
 
 During a transition a step may be smaller than a frame. The MOTION engine
 runs a curtain a band at a time — one step per band, down to 5 ms on the

@@ -6,6 +6,50 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-19
+
+### Fixed
+
+- **A clamped hover label stands where the original's does.** The 16-bit
+  `SDX` and `SDY` on a text centered on that axis keep the centering and
+  rewrite the center anchor to the edge plus half the box grown by the
+  template's margins (`ENVIRO.EXE` `05f1:0ef1`, `05f1:0fe4`); the drawer
+  then centers each pass's glyphs on the anchor with their own width, so the
+  face lands a pixel in from the edge. The engine took such an `SDX` as a
+  plain edge and drew the face on it, one pixel left of the original's — on
+  every label the scripts clamp at the view's edge. `MOUSEINFO` lays a new
+  label out on the spot, as the handler's `SDTXT` measures, so the clamp in
+  the same frame sees the new text's size and not the old one's. `GDX` and
+  `GDY` answer the grown box's corner, as the record holds it.
+- **The 16-bit wipe's strips are the handlers' strips.** `FADEOUT`'s fill
+  takes both corners inclusive, so every ring blackens one more column and
+  row on each side than the engine took off; `FADEIN`'s top and bottom
+  strips span the box inclusive and its right strip starts `rw` short of
+  the box's edge, leaving the column at the edge for the next ring, a notch
+  the original shows on every ring from the second. Both paint their first
+  ring before their first wait — inside the word, or the moment the wipe or
+  hold queued ahead is over — where the engine showed the view without its
+  pointer for a frame first; every ring then stands for its own wait, the
+  last one included, and the handler's tail — `FADEIN`'s whole-view copy,
+  `FADEOUT`'s fill of what the rings left — goes down with no wait before
+  the pointer comes back, so the whole view and the pointer arrive in one
+  picture. Each ring is laid down once as it is walked, held ring for ring
+  against a capture of the original's supermarket exit.
+- **A tune started right after `ENDTUNE` waits for its half second.** On a
+  descriptor callback's room change, where the interpreter does not pause,
+  `STARTTUNE` ran while the stop routine's wait was still queued and began
+  the new tune at once; it now starts when the wait is over, as the
+  original's does once the spin has run.
+
+### Changed
+
+- **`Playable::frame_duration` is asked after the step.** It answers how
+  long the picture the step left should stand on screen — the wait the
+  original performed after painting it — where it used to be asked before
+  the step for the frame about to run. A step may paint inside a word and
+  then wait, and it is that wait the picture stands for; the window's loop
+  is now `step`, `frame_duration`, `frame`, present, wait.
+
 ## [0.11.0] - 2026-10-19
 
 **A 16-bit savegame from an earlier build loads, and a scaled descriptor in
@@ -1372,7 +1416,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/wdominik/motionvm/releases/tag/v0.11.1
 [0.11.0]: https://github.com/wdominik/motionvm/releases/tag/v0.11.0
 [0.10.0]: https://github.com/wdominik/motionvm/releases/tag/v0.10.0
 [0.9.0]: https://github.com/wdominik/motionvm/releases/tag/v0.9.0

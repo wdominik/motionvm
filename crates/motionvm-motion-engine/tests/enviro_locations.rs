@@ -600,6 +600,28 @@ fn a_door_changes_the_palette_only_behind_the_wipe() {
     assert!(switches >= 1, "the transition switched the palette");
 }
 
+/// The flag `ENDTUNE`'s stop routine tests is set by a song the driver
+/// started, so a game with no music has no half-second wait either; a sink
+/// that plays nothing stands in for the driver in the tests that need it.
+struct Silent;
+impl motionvm_motion_engine::MusicSink for Silent {
+    fn start(&mut self, _handle: i32, _tune: i32, _looping: bool, _song: &[u8]) {}
+    fn stop(&mut self, _handle: i32) {}
+    fn cut(&mut self, _handle: i32) {}
+    fn start_sample(&mut self, _handle: i32, _wav: &[u8], _volume: u16, _loops: i32) {}
+    fn stop_sample(&mut self, _handle: i32) {}
+    fn music_volume(&mut self, _volume: u16) {}
+    fn sample(&mut self, _block: i32, _sample: &[u8]) {}
+}
+
+/// The view's lit pixels — the rows above the inventory strip that are not
+/// index 0.
+fn lit_view(game: &mut Game<Vm>) -> usize {
+    let fb = game.render();
+    let w = usize::from(fb.width);
+    fb.pixels[..160 * w].iter().filter(|&&p| p != 0).count()
+}
+
 /// `ENDTUNE`'s stop routine (`1696:02fd`) starts the music's fade-out and
 /// then spins until the 200 Hz tick has counted 100 before it returns to
 /// the script — half a second in which the frame loop does not turn.
@@ -612,19 +634,6 @@ fn ending_the_tune_holds_the_room_change_for_half_a_second() {
         eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
         return;
     };
-    // The flag the stop routine tests is set by a song the driver started,
-    // so a game with no music has no wait either; a sink that plays nothing
-    // stands in for the driver here.
-    struct Silent;
-    impl motionvm_motion_engine::MusicSink for Silent {
-        fn start(&mut self, _handle: i32, _tune: i32, _looping: bool, _song: &[u8]) {}
-        fn stop(&mut self, _handle: i32) {}
-        fn cut(&mut self, _handle: i32) {}
-        fn start_sample(&mut self, _handle: i32, _wav: &[u8], _volume: u16, _loops: i32) {}
-        fn stop_sample(&mut self, _handle: i32) {}
-        fn music_volume(&mut self, _volume: u16) {}
-        fn sample(&mut self, _block: i32, _sample: &[u8]) {}
-    }
     let mut game = settled_in_the_game(&dir);
     game.set_music(Box::new(Silent));
     game.request_location(15).expect("NEXTLOC");
@@ -643,18 +652,29 @@ fn ending_the_tune_holds_the_room_change_for_half_a_second() {
         d.is_some_and(|d| d.abs_diff(half_second) < std::time::Duration::from_micros(100))
     };
     let mut holds = 0;
+    let mut after_hold = false;
     for frame in 0..=900 {
         let click = frame == 0;
         game.set_input(3, 42, click, false, 0).expect("input");
         game.step()
             .unwrap_or_else(|e| panic!("walk-out frame {frame} stopped: {e}"));
+        if after_hold {
+            // The wait over, `INCLLOC` goes straight on to `FADEIN`, whose
+            // first ring goes down before its first wait: the picture after
+            // the hold is that ring, not another frame of black.
+            after_hold = false;
+            let lit = lit_view(&mut game);
+            assert!(
+                lit > 0 && lit < 160 * 320 / 2,
+                "walk-out frame {frame}: {lit} lit pixels after the hold, not the first ring"
+            );
+        }
         if about_half_a_second(game.frame_duration()) {
             holds += 1;
-            let fb = game.render();
-            let w = usize::from(fb.width);
-            let lit = fb.pixels[..160 * w].iter().filter(|&&p| p != 0).count();
+            after_hold = true;
             assert_eq!(
-                lit, 0,
+                lit_view(&mut game),
+                0,
                 "walk-out frame {frame}: the hold stands on a lit view"
             );
         }
@@ -667,4 +687,93 @@ fn ending_the_tune_holds_the_room_change_for_half_a_second() {
     }
     assert_eq!(holds, 1, "one half-second step per room change with music");
     assert_eq!(game.get_var(601, "ACTLOC"), Some(7), "the door was walked");
+}
+
+/// A step's picture stands for the wait the original performed after
+/// painting it, and `Game::frame_duration` answers that wait once the step
+/// has run. On a room change the controller's `INCLLOC` runs `FADEOUT`,
+/// `ENDTUNE`, the loads and `FADEIN` with a wait inside each: a wipe's ring
+/// is painted and then spun for (`05f1:2916` then `05f1:2998`), so the
+/// step that paints a ring answers the ring's wait — the step that opens
+/// the wipe included — and never the frame's. The half second of `ENDTUNE`
+/// stands on the closed view, and the step that ends it paints the opening
+/// wipe's first ring.
+#[test]
+fn a_room_change_paces_each_picture_by_the_wait_after_it() {
+    let Some(dir) = gamedata_enviro() else {
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
+        return;
+    };
+    let mut game = settled_in_the_game(&dir);
+    // The sink goes on after the arrival, so the tune the stop routine's
+    // flag needs is the one the next room starts: one hop to arm it, the
+    // hop after it is the one measured.
+    game.set_music(Box::new(Silent));
+    game.request_location(15).expect("NEXTLOC");
+    for n in 1..=400 {
+        game.set_input(2, 2, false, false, 0).expect("input");
+        game.step()
+            .unwrap_or_else(|e| panic!("supermarket frame {n} stopped: {e}"));
+        if game.get_var(601, "ACTLOC") == Some(15)
+            && game.get_var(601, "NEXTLOC") == Some(-1)
+            && !game.engine.in_transition()
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        game.get_var(601, "ACTLOC"),
+        Some(15),
+        "the supermarket was entered"
+    );
+    game.request_location(7).expect("NEXTLOC");
+    let ring = std::time::Duration::from_millis(20);
+    let frame = std::time::Duration::from_millis(65);
+    let close = |d: Option<std::time::Duration>, to: std::time::Duration| {
+        d.is_some_and(|d| d.abs_diff(to) < std::time::Duration::from_micros(100))
+    };
+    let (mut rings, mut holds) = (0, 0);
+    let mut after_hold = false;
+    for n in 1..=400 {
+        game.set_input(2, 2, false, false, 0).expect("input");
+        game.step()
+            .unwrap_or_else(|e| panic!("room-change frame {n} stopped: {e}"));
+        let lasts = game.frame_duration();
+        let lit = lit_view(&mut game);
+        if after_hold {
+            after_hold = false;
+            assert!(
+                lit > 0 && lit < 160 * 320 / 2,
+                "frame {n}: {lit} lit pixels after the hold, not the opening wipe's first ring"
+            );
+        }
+        if game.engine.in_transition() {
+            assert!(
+                !close(lasts, frame),
+                "frame {n}: a picture of the wipe stands for a whole frame"
+            );
+        }
+        if close(lasts, ring) {
+            rings += 1;
+        } else if close(lasts, std::time::Duration::from_millis(500)) {
+            holds += 1;
+            after_hold = true;
+            assert_eq!(lit, 0, "frame {n}: the hold stands on a lit view");
+        }
+        if game.get_var(601, "ACTLOC") == Some(7)
+            && game.get_var(601, "NEXTLOC") == Some(-1)
+            && !game.engine.in_transition()
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        game.get_var(601, "ACTLOC"),
+        Some(7),
+        "the street was entered"
+    );
+    assert_eq!(holds, 1, "one half-second hold on the change");
+    // Seven rings closing and seven opening, each painted and then waited
+    // for — the first of each inside its word.
+    assert_eq!(rings, 14, "every ring's picture stands for its wait");
 }

@@ -86,6 +86,56 @@ impl Engine {
         self.changing("SDX", |d| (d.x, d.x_mode) = (v, mode))
     }
 
+    /// The 16-bit `SDX` and `SDY` on a text centered on that axis.
+    ///
+    /// The handlers (`05f1:0dd1`, `05f1:0f34`) store the edge at `+0`/`+2`,
+    /// and when the text is centered on the axis (`+0x12` bit `0x4000` or
+    /// `0x1000`, which they leave standing) they measure the text with its
+    /// template's margins and rewrite the center anchor at `+4`/`+6` to the
+    /// edge plus half the grown box (`05f1:0ef1`, `05f1:0fe4`). The drawer
+    /// then centers as it always does — the box on the anchor, each pass's
+    /// glyphs on the anchor with their own width — so the face lands at the
+    /// edge plus half the margins: one pixel right of `10 SDX` with a shipped
+    /// template, which is where the original's hover label stands after the
+    /// scripts' left-edge clamp. Answers the anchor to store, in Center mode;
+    /// `None` where the axis is not centered or the machine is the 32-bit
+    /// one, whose setters write a mode.
+    fn anchor_for_edge(&mut self, horizontal: bool, v: i32) -> Option<i32> {
+        if !self.profile.text_runs {
+            return None;
+        }
+        let i = self.scene.selected?;
+        let d = self.scene.descriptors[i].clone();
+        let mode = if horizontal { d.x_mode } else { d.y_mode };
+        if !d.is_text() || mode != Placement::Center {
+            return None;
+        }
+        let (w, h) = self.extent(&d);
+        let (mw, mh) = self.template_margins(&d);
+        Some(if horizontal {
+            v + ((w + mw) >> 1)
+        } else {
+            v + ((h + mh) >> 1)
+        })
+    }
+
+    /// `SDX` as the bytecode reaches it: the edge, or on a 16-bit centered
+    /// text the anchor it rewrites — see [`Engine::anchor_for_edge`].
+    pub(crate) fn set_x_edge(&mut self, v: i32) -> Result<()> {
+        match self.anchor_for_edge(true, v) {
+            Some(anchor) => self.place_x(anchor, Placement::Center),
+            None => self.place_x(v, Placement::Edge),
+        }
+    }
+
+    /// `SDY` as the bytecode reaches it; the twin of [`Engine::set_x_edge`].
+    pub(crate) fn set_y_edge(&mut self, v: i32) -> Result<()> {
+        match self.anchor_for_edge(false, v) {
+            Some(anchor) => self.place_y(anchor, Placement::Center),
+            None => self.place_y(v, Placement::Edge),
+        }
+    }
+
     /// `SDY`, `SDCY`/`SDVCEN`, `SDOY`: the vertical coordinate and what it means.
     ///
     /// `SDOX` is `SDOY` turned sideways: 0x71212 tests the *x* at +4 and 0x6bd97

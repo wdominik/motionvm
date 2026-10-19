@@ -122,14 +122,23 @@ impl Engine {
                     // All at once: `FADEOUT` fills the view with black
                     // (`05f1:286b`), `FADEIN` copies it whole out of the
                     // surface (`05f1:2a39`) — one finished wipe does both.
-                    let mut wipe = Wipe::new(opening, screen, area, duration, step);
-                    wipe.walked = wipe.rings;
-                    self.paint_wipe_now(&wipe);
+                    let wipe = Wipe::new(opening, screen, area, duration, step);
+                    self.paint_tail(&wipe);
                     return Ok(Some(()));
                 }
                 self.transitions
                     .wipes
                     .push_back(Wipe::new(opening, screen, area, duration, step));
+                // The first ring goes down inside the word, before the first
+                // wait (`05f1:2916`, `05f1:2b1f`: fill or blit, *then* the
+                // spin at `05f1:2998`/`05f1:2c28`) — so no frame ever shows
+                // the view with the pointer taken away and no ring yet, which
+                // is what a ring that waited for the next step showed. Only
+                // when this wipe is the one at the front: behind another it
+                // starts when its turn comes.
+                if self.transitions.curtains.is_empty() && self.transitions.wipes.len() == 1 {
+                    self.advance_curtain();
+                }
             }
             Word::RES_EXIST => {
                 let n = pop1(stack, "=>EXIST")?;
@@ -319,6 +328,19 @@ impl Engine {
                     if let Some(hold) = self.transitions.wipes.back_mut() {
                         hold.then_tune = Some((tune, looping));
                     }
+                } else if let Some(hold) = self
+                    .transitions
+                    .wipes
+                    .iter_mut()
+                    .rev()
+                    .find(|w| w.hold && w.then_tune.is_none())
+                {
+                    // `ENDTUNE` just before, on a path the interpreter does
+                    // not pause on — a descriptor callback's room change:
+                    // the stop routine's half second is still queued, and
+                    // the original's `STARTTUNE` runs only once it has been
+                    // spun. The tune starts when the wait is over, not now.
+                    hold.then_tune = Some((tune, looping));
                 } else {
                     self.start_tune(tune, looping);
                 }

@@ -100,6 +100,20 @@ The 32-bit drawer differs here: it adds no offsets — both of its passes
 compute the same point (`ENGINE.EXE` `0x6a136`, `0x6a228`) — and its
 per-pass centring alone makes the ring.
 
+On a centered axis the box and the glyphs are centered by two different
+widths. `SDCEN` (`05f1:14c3`) and the drawer (`016a:0c53`) put the
+record's `+0` at the anchor less half the box *grown by the template's
+margins* — the width margin, plus the offset where that is negative, two
+with every shipped template — while the run drawer centers each pass's
+line on the anchor with its own bare width. `SDX` on a text centered on
+x keeps the centering: it stores the edge at `+0` and rewrites the anchor
+at `+4` to the edge plus half the grown box (`05f1:0ef1`; `SDY` the same
+at `+6`, `05f1:0fe4`; the boxed bit `0x800` adds one), so the face then
+lands at the edge plus half the margins — one pixel right of `10 SDX`,
+which is where the original's hover label stands after the scripts' clamp
+at the view's edge, and where motionvm puts it. `GDX` answers `+0`, the
+grown box's edge, a pixel left of the face.
+
 ## Justification, and `#`
 
 With the 0x2000 bit set the run drawer works in block mode: every line

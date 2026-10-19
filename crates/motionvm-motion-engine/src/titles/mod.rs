@@ -106,7 +106,8 @@ pub trait Driven: Send {
     }
     /// The frame to show, pointer and all, with the palette its indices mean.
     fn frame(&mut self) -> motionvm_render::Frame<'_>;
-    /// How long the frame about to run should last, or `None` for no wait.
+    /// How long the picture the last step left should stand, or `None` for
+    /// no wait; see `Playable::frame_duration`.
     fn frame_duration(&self) -> Option<std::time::Duration>;
     /// Where the music goes — installed by the front door before
     /// [`Driven::start`], where the first song can already fire.

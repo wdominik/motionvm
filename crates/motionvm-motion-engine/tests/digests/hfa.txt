@@ -5,5 +5,5 @@
 # fixture derived from the game's data, which is why it may live here
 # where a rendered frame may not. See motionvm-motion-testutil's
 # `digest` module for what each one covers.
-intro  0xcc81582f7201787f
+intro  0x7412f8c806ddc1db
 location_20  0x136ba2a6b0cb372f

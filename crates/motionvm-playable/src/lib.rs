@@ -285,9 +285,12 @@ pub trait Playable: Send {
     /// `&mut self` because a game composes the frame when it is asked for one
     /// — the pointer goes on last, over whatever the drawer left.
     fn frame(&mut self) -> Frame<'_>;
-    /// How long the frame [`Playable::step`] is about to run should last on
-    /// screen, or `None` for a frame the game wants no wait after at all —
-    /// the window then paces the loop as it likes.
+    /// How long the picture the last [`Playable::step`] left should stand on
+    /// screen — the wait the original performed after painting it — or
+    /// `None` for a picture the game wants no wait after at all, where the
+    /// window paces the loop as it likes. Asked after the step, never
+    /// before it: a step may paint inside a word and then wait, and it is
+    /// that wait the picture stands for.
     fn frame_duration(&self) -> Option<std::time::Duration>;
     /// Opens the game's music at the platform's device rate, answering the
     /// source its audio thread renders — or `None` for a game with nothing

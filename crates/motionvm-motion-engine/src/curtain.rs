@@ -144,45 +144,81 @@ impl Engine {
 }
 
 impl Engine {
-    /// One ring of a running 16-bit box wipe, painted the way the handlers
-    /// paint theirs — see [`Wipe`].
+    /// One wait of the original's wipe loop is over. A front wipe with
+    /// rings left walks the next one and paints it; one whose last ring
+    /// has had its wait paints its tail — the whole-view copy at
+    /// `05f1:2c5f`, the remaining middle at `05f1:29b8`, neither followed
+    /// by a wait — and leaves the queue, with the palette, tune and sample
+    /// that waited behind it. A wipe queued behind the finished one then
+    /// lays down its first ring at once, as the handlers do (`05f1:2916`,
+    /// `05f1:2b1f`: strips first, the spin after), so the picture a step
+    /// leaves is always one the original painted right before a wait.
+    ///
+    /// One ring a call, with no banking: a step lasts exactly the wait at
+    /// the front of the queue ([`Engine::step_ticks`]), so there is never
+    /// more than one ring's worth to spend — and the finished wipe stays
+    /// at the front through its last ring's wait.
     fn advance_wipe(&mut self) {
-        let ticks = self.step_ticks().max(1);
         let Some(w) = self.transitions.wipes.front_mut() else {
             return;
         };
-        w.advance(ticks);
-        let w = w.clone();
-        self.paint_wipe(&w);
-        if w.done() {
-            self.transitions.wipes.pop_front();
-            if let Some(p) = w.palette_after {
-                self.display.palette = p;
-            }
-            if let Some((tune, looping)) = w.then_tune {
-                self.start_tune(tune, looping);
-            }
-            if let Some(block) = w.then_sample {
-                self.play_sample(block);
-            }
+        if !w.done() {
+            w.walked += 1;
+            let w = w.clone();
+            self.paint_ring(&w);
+            return;
+        }
+        let w = self.transitions.wipes.pop_front().expect("the front wipe");
+        self.paint_tail(&w);
+        if let Some(p) = w.palette_after {
+            self.display.palette = p;
+        }
+        if let Some((tune, looping)) = w.then_tune {
+            self.start_tune(tune, looping);
+        }
+        if let Some(block) = w.then_sample {
+            self.play_sample(block);
+        }
+        if let Some(next) = self.transitions.wipes.front_mut()
+            && !next.done()
+            && next.walked == 0
+        {
+            next.walked = 1;
+            let next = next.clone();
+            self.paint_ring(&next);
         }
     }
 
-    /// Paints a wipe's current state at once — mode 0's instant form.
-    pub(crate) fn paint_wipe_now(&mut self, wp: &Wipe) {
-        self.paint_wipe(wp);
-    }
-
-    fn paint_wipe(&mut self, wp: &Wipe) {
+    /// A wipe's end state at once — mode 0's instant form, and the tail
+    /// of a walked one: `FADEOUT` fills the view black (`05f1:286b`,
+    /// `05f1:29b8`), `FADEIN` copies it whole out of the surface
+    /// (`05f1:2a39`, `05f1:2c5f`). Nothing for a hold.
+    pub(crate) fn paint_tail(&mut self, wp: &Wipe) {
         if wp.hold {
             return;
         }
         let (x, y, w, h) = wp.area;
-        let (bx, by, bw, bh) = wp.inner();
+        if !wp.opening {
+            for row in y..(y + h) {
+                for col in x..(x + w) {
+                    self.video.set(col, row, 0);
+                }
+            }
+            return;
+        }
+        self.copy_strips(wp, &[(x, y, w, h)]);
+    }
+
+    /// The ring `walked` of a wipe, as the handlers paint it.
+    fn paint_ring(&mut self, wp: &Wipe) {
+        if wp.hold {
+            return;
+        }
+        let (x, y, w, h) = wp.area;
         if !wp.opening {
             // `FADEOUT` fills the frame between the view and the shrinking
-            // inner box with black, ring by ring; the tail fill at
-            // `05f1:29b8` takes the remaining middle when the rings are out.
+            // inner box with black, ring by ring.
+            let (bx, by, bw, bh) = wp.inner();
             for row in y..(y + h) {
                 for col in x..(x + w) {
                     let inside = col >= bx && col < bx + bw && row >= by && row < by + bh;
@@ -193,23 +229,57 @@ impl Engine {
             }
             return;
         }
-        // `FADEIN` copies the grown box out of the composed surface onto
-        // whatever the display holds — it blanks nothing, exactly like the
-        // 32-bit band (`05f1:2b1f`–`05f1:2c28`; full view at `05f1:2c5f`).
-        if bw <= 0 || bh <= 0 {
-            return;
-        }
+        // `FADEIN` copies strips of the composed surface onto whatever the
+        // display holds — it blanks nothing, exactly like the 32-bit band.
+        // A ring is four blits (`05f1:2b1f`–`05f1:2c28`): the top strip
+        // `x0..=x1` wide and `rh` tall, the left and right strips `rw` wide
+        // over the rows between, the bottom strip like the top — and the
+        // right strip starts at `x1 − rw`, so the column at `x1` stays
+        // whatever it was over those rows until the next ring's strip
+        // covers it; the capture of the original shows that notch ring for
+        // ring. The rings are cumulative, so each is laid down once, as it
+        // is walked.
+        let (k, rw, rh) = (wp.walked, wp.xstep, wp.ystep);
+        let (cx, cy) = (x + w / 2, y + h / 2);
+        let (x0, y0, x1, y1) = (cx - k * rw, cy - k * rh, cx + k * rw, cy + k * rh);
+        let mid = y1 - y0 - 2 * rh + 1;
+        self.copy_strips(
+            wp,
+            &[
+                (x0, y0, x1 - x0 + 1, rh),
+                (x0, y0 + rh, rw, mid),
+                (x1 - rw, y0 + rh, rw, mid),
+                (x0, y1 - rh, x1 - x0 + 1, rh),
+            ],
+        );
+    }
+
+    /// Blits `strips` of the wipe's screen surface onto the display, each
+    /// cut to the view first: the last ring's strips start left of and above
+    /// the view and run past its right and bottom edges, and the blitter
+    /// paints what falls inside (the capture shows the last ring reaching
+    /// the view's last column).
+    fn copy_strips(&mut self, wp: &Wipe, strips: &[(i32, i32, i32, i32)]) {
+        let (x, y, w, h) = wp.area;
         let Some(s) = self.display.screens.iter().find(|s| s.handle == wp.screen) else {
             return;
         };
         let window = self.display.window(s);
-        let rect = motionvm_render::Rect {
-            x: window.x + (bx - x),
-            y: window.y + (by - y),
-            w: cell::low16(bw).min(window.w),
-            h: cell::low16(bh).min(window.h),
-        };
-        self.video.copy_from(&s.buffer, rect, bx, by);
+        for &(sx, sy, sw, sh) in strips {
+            let (left, top) = (sx.max(x), sy.max(y));
+            let (right, bottom) = ((sx + sw).min(x + w), (sy + sh).min(y + h));
+            let (sx, sy, sw, sh) = (left, top, right - left, bottom - top);
+            if sw <= 0 || sh <= 0 {
+                continue;
+            }
+            let rect = motionvm_render::Rect {
+                x: window.x + (sx - x),
+                y: window.y + (sy - y),
+                w: cell::low16(sw).min(window.w),
+                h: cell::low16(sh).min(window.h),
+            };
+            self.video.copy_from(&s.buffer, rect, sx, sy);
+        }
     }
 }
 
@@ -244,10 +314,8 @@ pub struct Wipe {
     pub rings: i32,
     /// How many have been walked.
     pub walked: i32,
-    /// Ticks one ring waits, and how many are banked toward the next.
+    /// Ticks one ring waits — the spin after each ring is painted.
     pub ticks_per_ring: i32,
-    /// Banked ticks.
-    pub banked: i32,
     /// A palette a later `SETPAL` asked for while this wipe still waited —
     /// installed when the wipe finishes, so the script's order stays the
     /// screen's order. See the `SETPAL` handler for the path that needs it.
@@ -289,10 +357,11 @@ impl Wipe {
             area: (0, 0, 0, 0),
             xstep: 0,
             ystep: 0,
+            // Walked already: the one step it stands at the front is the
+            // wait, and the next advance takes it off.
             rings: 1,
-            walked: 0,
+            walked: 1,
             ticks_per_ring: ticks.max(1),
-            banked: 0,
             palette_after: None,
             hold: true,
             then_tune: None,
@@ -325,7 +394,6 @@ impl Wipe {
             // passes 50 everywhere, and a zero would spin the ring counter
             // forever where the original would simply not wait.
             ticks_per_ring: (200 / duration.max(1)).max(1),
-            banked: 0,
             palette_after: None,
             hold: false,
             then_tune: None,
@@ -333,36 +401,27 @@ impl Wipe {
         }
     }
 
-    /// The box the picture still fills (closing) or already fills
-    /// (opening), as the walked rings leave it.
+    /// The box the picture still fills after `walked` rings of `FADEOUT`.
+    ///
+    /// Read off the handler's strips, corner by corner, and held to a
+    /// capture of the original's supermarket exit ring for ring.
+    /// `FADEOUT` (`05f1:2916`–`05f1:2979`) fills with `17f2:0287`, which
+    /// takes both corners **inclusive**: its top strip is rows
+    /// `y0..=y0+rh`, its left strip columns `x0..=x0+rw`, and the right and
+    /// bottom strips end on the view's last column and row — so after `k`
+    /// rings the picture stands at `x + k·rw + 1 ..= x + w − 2 − k·rw`, one
+    /// pixel narrower on every side than the rings alone would say. (The
+    /// opening rings are strips, not a box — see `Engine::paint_ring`.)
     pub(crate) fn inner(&self) -> (i32, i32, i32, i32) {
         let (x, y, w, h) = self.area;
-        if self.opening {
-            let (cx, cy) = (x + w / 2, y + h / 2);
-            if self.walked >= self.rings {
-                return (x, y, w, h);
-            }
-            let (hw, hh) = (self.walked * self.xstep, self.walked * self.ystep);
-            (cx - hw, cy - hh, hw * 2, hh * 2)
-        } else {
-            if self.walked >= self.rings {
-                return (x, y, 0, 0);
-            }
-            let (dx, dy) = (self.walked * self.xstep, self.walked * self.ystep);
-            (x + dx, y + dy, w - 2 * dx, h - 2 * dy)
+        if self.walked == 0 {
+            return (x, y, w, h);
         }
+        let (dx, dy) = (self.walked * self.xstep, self.walked * self.ystep);
+        (x + dx + 1, y + dy + 1, w - 2 * dx - 2, h - 2 * dy - 2)
     }
 
-    /// Banks a frame's worth of ticks and walks as many rings as they buy.
-    pub(crate) fn advance(&mut self, ticks: i32) {
-        self.banked += ticks.max(0);
-        let per = self.ticks_per_ring.max(1);
-        while self.banked >= per && !self.done() {
-            self.banked -= per;
-            self.walked += 1;
-        }
-    }
-
+    /// Every ring walked and waited for; what is left is the tail.
     pub(crate) fn done(&self) -> bool {
         self.walked >= self.rings
     }

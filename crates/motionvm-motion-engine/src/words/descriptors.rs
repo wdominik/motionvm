@@ -236,7 +236,7 @@ impl Engine {
             // [`Engine::place_x`] and [`Engine::place_y`].
             Word::SDX => {
                 let v = pop1(stack, "placement")?;
-                self.place_x(v, Placement::Edge)?;
+                self.set_x_edge(v)?;
             }
             Word::SDCX | Word::SDCEN => {
                 let v = pop1(stack, "placement")?;
@@ -248,7 +248,7 @@ impl Engine {
             }
             Word::SDY => {
                 let v = pop1(stack, "placement")?;
-                self.place_y(v, Placement::Edge)?;
+                self.set_y_edge(v)?;
             }
             Word::SDCY | Word::SDVCEN => {
                 let v = pop1(stack, "placement")?;

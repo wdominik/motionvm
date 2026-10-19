@@ -560,9 +560,8 @@ impl ApplicationHandler for App {
 }
 
 impl App {
-    /// One picture: hand the game its input, let it step — sometimes more than
-    /// once — ask for a repaint, and say how long what was stepped should last
-    /// on screen.
+    /// One picture: let the game step — sometimes more than once — ask for a
+    /// repaint, and say how long the picture it left should stand on screen.
     ///
     /// More than once, because a step is not always a frame. During a curtain
     /// the game's clock runs a band at a time, down to 5 ms on the title
@@ -606,10 +605,6 @@ impl App {
         const STEPS: u32 = 64;
         const BUDGET: Duration = Duration::from_millis(20);
         for _ in 0..STEPS {
-            // Asked before the step, because this is the duration *of* the
-            // step about to run — afterwards the clock already belongs to the
-            // next one.
-            let lasts = self.game.frame_duration().unwrap_or(FRAME);
             self.frames += 1;
             if let Err(e) = self.game.step() {
                 // A missing word stops the game rather than limping on, on
@@ -626,6 +621,13 @@ impl App {
                 event_loop.exit();
                 return FRAME;
             }
+            // Asked after the step, because it is the picture the step left
+            // that stands for the answer: the wait the original spun after
+            // painting it. Asked before, a step that paints inside a word —
+            // a wipe's first ring, laid down before its first wait — would
+            // have its picture stand for the wait that belonged to the one
+            // before it, a whole frame or a half-second hold.
+            let lasts = self.game.frame_duration().unwrap_or(FRAME);
             spent += lasts;
             if spent >= MIN_PRESENT || began.elapsed() >= BUDGET {
                 break;

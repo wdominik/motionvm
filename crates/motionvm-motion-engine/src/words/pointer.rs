@@ -177,6 +177,9 @@ impl Engine {
                         if !(tb == one && txt == label && changed == 0) {
                             self.set_text_table(one)?;
                             self.set_text(label)?;
+                            // The handler measures the new text on the spot (`SDTXT`, as the
+                            // word does), so a `GDX` or `SDX` in the same frame sees its size.
+                            self.lay_out_current(mem);
                             self.place_x(mmx, Placement::Center)?;
                             self.place_y(mmy, Placement::Center)?;
                         }
@@ -202,6 +205,9 @@ impl Engine {
                         if !(txt == 1 && tb == one) {
                             self.set_text_table(one)?;
                             self.set_text(1)?;
+                            // The handler measures the new text on the spot (`SDTXT`, as the
+                            // word does), so a `GDX` or `SDX` in the same frame sees its size.
+                            self.lay_out_current(mem);
                         }
                         if flag != 0 && bmnr != t390 {
                             cursor = Some(t390);
@@ -225,6 +231,9 @@ impl Engine {
                         self.set_text_table(one)?;
                         let label = mem.fetch_cell(field(fitem, item * 5))?;
                         self.set_text(label)?;
+                        // The handler measures the new text on the spot (`SDTXT`, as the
+                        // word does), so a `GDX` or `SDX` in the same frame sees its size.
+                        self.lay_out_current(mem);
                         let x = self.screen_origin_x()
                             + (index - offset) * rules.slot_w
                             + rules.slot_w * 3 / 2;
@@ -240,6 +249,9 @@ impl Engine {
                         if !(tb == one && txt == 1) {
                             self.set_text_table(one)?;
                             self.set_text(1)?;
+                            // The handler measures the new text on the spot (`SDTXT`, as the
+                            // word does), so a `GDX` or `SDX` in the same frame sees its size.
+                            self.lay_out_current(mem);
                         }
                         if flag != 0 && bmnr != t390 {
                             cursor = Some(t390);
@@ -253,6 +265,9 @@ impl Engine {
                     if !(tb == one && txt == 1) {
                         self.set_text_table(one)?;
                         self.set_text(1)?;
+                        // The handler measures the new text on the spot (`SDTXT`, as the
+                        // word does), so a `GDX` or `SDX` in the same frame sees its size.
+                        self.lay_out_current(mem);
                     }
                     // Only worth resetting if the pointer is currently one of
                     // the two special shapes.

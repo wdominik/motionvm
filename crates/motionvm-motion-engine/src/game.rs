@@ -866,7 +866,9 @@ where
         self.engine.palette()
     }
 
-    /// How long to wait before the next frame, as `DELAY` asked.
+    /// How long the picture the last step left stands before the next one,
+    /// as `DELAY` asked — or, inside a transition, as the handler's spin
+    /// after each band or ring does. Asked after the step, never before.
     ///
     /// `None` only for a game that asked not to wait at all: every game asks
     /// for its real pace during its own startup — `25 DELAY` in the 32-bit

@@ -99,8 +99,11 @@ impl Engine {
     /// would replace this one constant.
     pub const RAW_TICKS_PER_SECOND: u32 = 1020;
 
-    /// How long the next step lasts, in ticks — and a step is not always a
-    /// frame.
+    /// How long the picture the last step left stands, in ticks — the wait
+    /// the original performs after painting it — and a step is not always a
+    /// frame. The same number is what the step about to run costs the master
+    /// counter (`Engine::advance_clock`): the window waits it between the
+    /// two.
     ///
     /// While a curtain runs the original's frame loop is not running at all:
     /// the fade handler spins inside itself, waiting `delay` ticks per band and
@@ -147,9 +150,9 @@ impl Engine {
         self.profile.clock.raw_for_wait(ticks)
     }
 
-    /// What the step about to run costs the master counter, in its own
-    /// ticks: the spin's quantization of the frame or band, or, for a frame
-    /// of a running slide, one refresh of the display.
+    /// What the wait after the last step costs the master counter, in its
+    /// own ticks: the spin's quantization of the frame, band or ring, or,
+    /// for a frame of a running slide, one refresh of the display.
     ///
     /// The 32-bit slide's frames are paced by the vertical retrace
     /// (`0x6cdf4` polls port `0x3da`), not by the tick clock, and the
@@ -163,7 +166,9 @@ impl Engine {
         self.quantized_raw(self.step_ticks())
     }
 
-    /// How long the next frame should last, in wall-clock time.
+    /// How long the picture the last step left should stand, in wall-clock
+    /// time — the wait the original performed after painting it, which is
+    /// also what the step about to run costs the master counter.
     ///
     /// A frame is the game's own unit of time — `!LTWAIT` is a single
     /// decrement of `_LOCTASKWAI` per call of the task manager, so a task

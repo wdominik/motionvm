@@ -171,6 +171,13 @@ impl Engine {
     /// screen origin, and a `GDX` that answers with the center never overhangs.
     pub(crate) fn corner(&mut self, d: &Descriptor) -> (i32, i32) {
         let (w, h) = self.stored_extent(d);
+        // The 16-bit record's `+0` is the anchor less half the box *grown by
+        // the template's margins* (`SDCEN` `05f1:14c3`, the drawer
+        // `016a:0c53`), where the run drawer then centers each pass's
+        // glyphs on the anchor with its own bare width — so `GDX` of a
+        // centered text with a template stands a pixel left of its face.
+        let (mw, mh) = self.template_margins(d);
+        let (w, h) = (w + mw, h + mh);
         let x = match d.x_mode {
             Placement::Edge => d.x,
             Placement::Center => d.x - w / 2,
@@ -182,6 +189,30 @@ impl Engine {
             Placement::FarEdge => d.y - h,
         };
         (x, y)
+    }
+
+    /// What the 16-bit text box grows by on each axis, out of the
+    /// descriptor's template: the width or height margin, plus the offset
+    /// where that is negative (`05f1:0ea0`–`0ec7` in `SDX`, the same sum in
+    /// `SDCEN` and in the drawer at `016a:0bc0`). The shipped templates give
+    /// `−1 −1` offsets and `1 1` margins, so a text with one grows by two
+    /// and two. Nothing on the 32-bit machine, whose record holds no such
+    /// box.
+    pub(crate) fn template_margins(&self, d: &Descriptor) -> (i32, i32) {
+        if !self.profile.text_runs || !d.is_text() {
+            return (0, 0);
+        }
+        let Some(t) = d
+            .template
+            .and_then(|t| self.scene.templates.iter().find(|x| x.id == t))
+        else {
+            return (0, 0);
+        };
+        // `DEFTDT`'s arguments, deepest first: color, height margin, width
+        // margin, y offset, x offset, line gap, glyph gap, font, id.
+        let arg = |i: usize| t.args.get(i).copied().unwrap_or(0);
+        let grow = |off: i32, margin: i32| if off < 0 { -off + margin } else { margin };
+        (grow(arg(4), arg(2)), grow(arg(3), arg(1)))
     }
 }
 

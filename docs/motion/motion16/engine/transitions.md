@@ -31,6 +31,37 @@ inactive where `FADEIN` set it active, the coupling `GSCRACT` reads.
 Unlike the 32-bit handler, `FADEOUT` leaves the screen's surface
 untouched: only the display goes black.
 
+The strips, corner by corner, held to a capture of the original's
+supermarket exit ring for ring. `FADEOUT`'s fill (`17f2:0287`) takes both
+corners inclusive: the top strip is rows `y0..=y0+rh`, the left strip
+columns `x0..=x0+rw`, and the right and bottom strips end on the view's
+last column and row (`05f1:2916`–`05f1:2979`) — so after `k` rings the
+picture stands at `x + k·rw + 1 ..= x + w − 2 − k·rw`, a pixel narrower
+on every side than the rings alone would say. `FADEIN`'s blit
+(`14ee:0eec`) takes a size: its top and bottom strips run from
+`cx − k·rw` to `cx + k·rw` inclusive, `x1 − x0 + 1` wide and `rh` tall,
+and its side strips `rw` wide over the rows between — the right one from
+`x1 − rw`, so the column at `x1` keeps whatever it held over those rows
+until the next ring's strip covers it, a one-column notch the capture
+shows on every ring from the second (`05f1:2b1f`–`05f1:2c28`); the
+centers are `x + w/2` and `y + h/2`, halves truncated. Both handlers
+paint their first ring **before** the first wait (`05f1:2998`,
+`05f1:2c28` come after the strips), so no frame ever shows the view with
+the pointer taken away and no ring yet. motionvm lays the strips down
+the same way, each ring once as it is walked, and paints the first ring
+inside the word — or, for a wipe queued behind another or behind the
+`ENDTUNE` wait below, the moment the one before it is over. Every ring
+then stands for its own wait, the last one included: a finished wipe
+leaves the queue only on the step after its last ring, and the step's
+duration a frontend reads is the wait after the picture the step left,
+never the one before it ([Writing a family](../../../writing-a-family.md)).
+After the last ring's wait comes a tail with no wait of its own —
+`FADEIN`'s whole-view copy (`05f1:2c5f`), `FADEOUT`'s fill of what the
+rings left (`05f1:29b8`) — and then `SHOWMOUSE` and the return, so the
+whole view and the pointer arrive in one picture, as the capture has
+them. The last ring's strips start left of and above the view and run
+past its far edges; what falls inside is painted, to the last column.
+
 What erases, instead, is the frame step. `SCRACT` (`05f1:094a`) clears
 the freeze bits (`0x4000`, `0x2000` of the screen word at `+0x1E`) and
 sets **bit 0 of the flags at `+0x18` — the same rebuild request `SCRPOS`
@@ -52,7 +83,10 @@ music's fade-out (`1696:02fd`, spinning on the 200 Hz tick until it
 reads 100), and `STARTTUNE` over a still-playing tune, whose Play routine
 runs that stop first (`1696:02ce`). The wait paints nothing; a `SETPAL`
 behind it lands when it is over, and a tune queued behind it starts then
-([PSM 2 music](../formats/psm-music.md)).
+([PSM 2 music](../formats/psm-music.md)) — a `STARTTUNE` that follows an
+`ENDTUNE` on a path the interpreter does not pause on, a descriptor
+callback's room change, is such a tune: the original's runs only once
+the wait has been spun.
 
 ## Open questions
 

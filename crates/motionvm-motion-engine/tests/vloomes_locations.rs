@@ -346,10 +346,29 @@ fn the_time_machine_turns_its_palette_a_step_further_every_frame() {
     }
     assert!(arrived, "location 13 was never entered");
 
-    // The room's own init arms the cycle and opens with a wipe, and no
-    // frame completes while the wipe runs — so the first frame on which the
-    // palette moves is the first turn, and the base the later turns are
-    // measured against.
+    // The room's own init arms the cycle and opens with a wipe. The original
+    // runs that wipe inside the frame, so the palette turns at the end of the
+    // frame either way; here the wipe takes steps of its own in which no
+    // frame completes and the cycle stands still. So the measurement starts
+    // once the room has been free of transitions for a while — on the turns
+    // that follow, the base is the first of them and every step after it is
+    // one entry further.
+    let mut quiet = 0;
+    for frame in 0..600 {
+        game.set_input(160, 100, false, false, 0).expect("input");
+        game.pump().expect("pump");
+        game.step()
+            .unwrap_or_else(|e| panic!("opening frame {frame} stopped: {e}"));
+        quiet = if game.engine.in_transition() {
+            0
+        } else {
+            quiet + 1
+        };
+        if quiet == 10 {
+            break;
+        }
+    }
+    assert_eq!(quiet, 10, "the room never settled after its opening wipe");
     let entry = |pal: &[u8], i: usize| [pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2]];
     let still = game.palette().raw.to_vec();
     let mut base = None;
