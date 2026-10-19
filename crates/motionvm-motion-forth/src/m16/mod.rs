@@ -634,14 +634,16 @@ impl Vm {
     /// look different behave the same in a way nothing would report.
     ///
     /// Not called at all by the test suites, which is the point of it being a
-    /// call: without one the generator stays on the constant it is built with
-    /// and a scene reached the same way twice composes the same bytes twice.
+    /// call: without one the counter starts at the original's 0 and a scene
+    /// reached the same way twice composes the same bytes twice.
     pub fn seed(&mut self, seed: u64) {
         self.core.seed(seed);
     }
 
-    fn next_rng(&mut self) -> u32 {
-        self.core.next_rng()
+    /// The next `RANDOM` hash over the host's clock reading; see
+    /// [`crate::core::Core::next_random`].
+    fn next_random(&mut self, t: u32) -> u32 {
+        self.core.next_random(t, false)
     }
 }
 

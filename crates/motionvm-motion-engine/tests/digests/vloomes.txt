@@ -6,4 +6,4 @@
 # where a rendered frame may not. See motionvm-motion-testutil's
 # `digest` module for what each one covers.
 intro_1200  0xf630eff2357f9936
-location_1  0x679d63019c09d432
+location_1  0x7ef7a65fdae7cc5d

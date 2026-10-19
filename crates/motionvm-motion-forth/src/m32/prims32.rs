@@ -413,17 +413,19 @@ impl Vm {
                 }
             }
 
-            // `RANDOM ( n -- r )`: `r` in `0..n`. The original divides
-            // unsigned — a zero would fault it and a negative count leaves
-            // its hash unreduced — and no shipped call pushes either, so
-            // zero is what those get here.
+            // `RANDOM ( n -- r )`: the hash over the host's clock, reduced
+            // modulo `n` unsigned (`0x65a4f` → `0x24219`). A negative count is
+            // the divisor above two billion it is there, which leaves the
+            // hash as it is; a zero would fault the original, and answers 0
+            // here. No shipped call pushes either.
             Prim::Random => {
                 let n = self.pop("RANDOM")?;
-                let r = self.next_rng();
-                self.push(if n > 0 {
-                    cell::signed(r % cell::unsigned(n))
-                } else {
+                let t = host.random_clock();
+                let r = self.next_random(t);
+                self.push(if n == 0 {
                     0
+                } else {
+                    cell::signed(r % cell::unsigned(n))
                 });
             }
             Prim::Execute => {

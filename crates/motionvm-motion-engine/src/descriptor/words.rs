@@ -259,6 +259,42 @@ impl Engine {
         Ok(())
     }
 
+    /// `SDH%SHR` and `SDV%SHR` on the 16-bit machine: the per-mille argument
+    /// resolved to pixels against the sprite the descriptor shows **now**,
+    /// and stored as the handlers store it (`05f1:23f2`, `05f1:246f`).
+    ///
+    /// `1000` and `−1` both become `−1`, the natural size; anything else is
+    /// `natural · v / 1000`, a signed division truncating toward zero
+    /// (`cwtd` into the long divide at `0:0789`), with the natural size read
+    /// off the width or height table at the id in `+0x10`. The intro's card
+    /// flip writes `SDH%SHR` *before* the `SDSPR` of the same frame, so the
+    /// size is resolved against the frame before's motif — the two are
+    /// mirror images of one width, and the original gets the same pixels.
+    /// A descriptor showing nothing has no table entry to read; the handler
+    /// would index entry 0, this answers a natural size of 0.
+    pub(crate) fn set_scale(&mut self, key: Field, v: i32) {
+        let Some(i) = self.scene.selected else {
+            return;
+        };
+        let natural = self.scene.descriptors[i]
+            .shows
+            .graphic()
+            .and_then(|id| self.load_sprite(id))
+            .map_or(0, |g| {
+                i32::from(if key == Field::SDH_PCT_SHR {
+                    g.width
+                } else {
+                    g.height
+                })
+            });
+        let pixels = if v == 1000 || v == -1 {
+            -1
+        } else {
+            natural * v / 1000
+        };
+        self.set_field(key, pixels);
+    }
+
     /// One of the setters kept by name rather than modeled.
     ///
     /// `key` comes from [`crate::words::Word::descriptor_field`], which is the

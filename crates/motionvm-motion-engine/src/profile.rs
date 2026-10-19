@@ -31,6 +31,7 @@
 //! reason a further MOTION build can be added by reading it rather than by
 //! extending a match.
 
+use crate::clock::MasterClock;
 use motionvm_motion_formats::Generation;
 use motionvm_playable::Size;
 
@@ -154,6 +155,19 @@ pub struct Profile {
     /// (`SDX` 0x7111a, `SDSPR` 0x71715, `SD%SHR` 0x721e5).
     pub(crate) sd_marks_always: bool,
 
+    /// Whether the scale words store **pixels**. The 16-bit `SDH%SHR` and
+    /// `SDV%SHR` (`ENVIRO.EXE` `05f1:23f2`, `05f1:246f`) resolve the per-mille
+    /// argument against the current sprite's width or height on the spot and
+    /// write the result into `+0xC`/`+0xE` of the record — `1000` and `−1`
+    /// both as `−1`, natural size — and the drawer (`016a:100d`) draws that
+    /// many pixels, the natural size where a field is `−1`, and nothing at
+    /// all for 0. `SDSPR` (`05f1:129a`) refreshes only the natural pair at
+    /// `+8`/`+0xA`, so a sprite swapped under a stored size keeps the size.
+    /// The 32-bit setter (`0x721b8`) stores the factors and its drawer
+    /// multiplies at paint time, which is what this engine does where this
+    /// is off.
+    pub(crate) scale_in_pixels: bool,
+
     /// Whether a descriptor's `SDWORD` callback fires only while the
     /// descriptor is **active**. The 16-bit frame loop's callback walk
     /// (`016a:05d6`–`06da`) gates on `cb != -1 && (flags & 0x80) &&
@@ -165,6 +179,23 @@ pub struct Profile {
     /// the motif phases, whose per-frame `SDH%SHR`/`SDSPR` writes come
     /// without a re-select.
     pub(crate) callbacks_need_active: bool,
+
+    /// Whether a frame is the 16-bit loop's, screen by screen. `ANIMPLAY`
+    /// (`ENVIRO.EXE` `016a:0516`–`06da`) snapshots every descriptor's
+    /// callback, flags and wait first, then for screen 0 and screen 1 in
+    /// turn runs the callbacks the snapshot found due in table order, that
+    /// screen's controller, and that screen's restore-and-draw; the blit of
+    /// both screens and the palette step close the frame. The 32-bit loop
+    /// runs one controller, then one walk over every descriptor sorted by
+    /// level deciding from the live fields, then one draw (`0x68c64`). See
+    /// `Game::step`.
+    pub(crate) frame_by_screen: bool,
+
+    /// Whether `FREEZESCR` freezes every screen at once. The 16-bit word
+    /// writes one engine-wide cell (`0d34:38eb`: `DS:0x05b0` = 2,
+    /// `UNFREEZESCR` 0) that the frame loop tests before any screen's
+    /// callbacks; the 32-bit word sets bit 2 of the current screen's flags.
+    pub(crate) freeze_is_global: bool,
 
     /// Whether descriptor handles are indices into the *active screen's*
     /// list, as the 16-bit kernel has them: `NEWDESC`/`NEWSETDESC` (`ENVIRO.EXE`
@@ -207,6 +238,11 @@ pub struct Profile {
 
     /// Which game's savegame files this engine writes and reads.
     pub(crate) save_layout: Generation,
+
+    /// The counter the build keeps time on, and what a wait of ticks costs
+    /// it — the 32-bit 1020 Hz master with `GIVETIMER`'s remainder, or the
+    /// 16-bit driver's milliseconds read as fifths. See [`MasterClock`].
+    pub(crate) clock: MasterClock,
 }
 
 /// What a build's text record does with `SDINSERT` — the one point where the
@@ -289,12 +325,16 @@ impl Profile {
             table_marks_sprites: false,
             level_chain: false,
             sd_marks_always: false,
+            scale_in_pixels: false,
             callbacks_need_active: false,
+            frame_by_screen: false,
+            freeze_is_global: false,
             per_screen_descriptors: false,
             get_skips_missing_block: true,
             inserts: TextInserts::Kinded,
             curtains_wait: true,
             save_layout: Generation::Motion32,
+            clock: MasterClock::Unit3,
         }
     }
 
@@ -323,11 +363,15 @@ impl Profile {
             table_marks_sprites: true,
             level_chain: true,
             sd_marks_always: true,
+            scale_in_pixels: true,
             callbacks_need_active: true,
+            frame_by_screen: true,
+            freeze_is_global: true,
             per_screen_descriptors: true,
             get_skips_missing_block: false,
             inserts: TextInserts::Absent,
             save_layout: Generation::Motion16,
+            clock: MasterClock::Milliseconds,
             ..Self::motion32()
         }
     }

@@ -625,15 +625,23 @@ impl Engine {
     /// its own, a media key — is never enqueued, because it never reached the
     /// BIOS buffer either.
     pub fn push_key(&mut self, press: &motionvm_playable::KeyPress) {
-        if self.input.buffer.len() < keys::SLOTS
-            && let Some(code) = keys::code(press)
-        {
+        if let Some(code) = keys::code(press) {
+            self.enqueue_key(code);
+        }
+    }
+
+    /// Takes one translated keystroke into the buffer — what a test hands
+    /// over as a raw `?KEY` code — dropping it when the fifteen slots are
+    /// full, as the BIOS drops a sixteenth.
+    pub(crate) fn enqueue_key(&mut self, code: i32) {
+        if self.input.buffer.len() < keys::SLOTS {
             self.input.buffer.push_back(code);
         }
     }
 
     /// Takes the oldest waiting keystroke out of the buffer, or 0 for none —
-    /// `?KEY`'s own answer when nothing waits.
+    /// `?KEY`'s own answer when nothing waits (INT 16h AH=01, then AH=00:
+    /// the keystroke leaves the buffer with the read).
     pub fn pop_key(&mut self) -> i32 {
         self.input.buffer.pop_front().unwrap_or(0)
     }

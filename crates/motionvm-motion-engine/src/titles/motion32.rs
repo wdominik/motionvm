@@ -221,6 +221,7 @@ pub(super) fn open(
         stretched: (false, false),
         running: false,
         frame_controllers: Vec::new(),
+        frame16: std::collections::VecDeque::new(),
         ending: false,
         over: false,
         parked: None,
@@ -254,14 +255,12 @@ impl Driven for Game<m32::Vm> {
         Game::<m32::Vm>::park(self)
     }
 
-    /// One keystroke per step, because a step is one round of `ICTRL` and
-    /// `ICTRL` opens with a single `?KEY` (module 4, `0x022a0`) — which takes
-    /// one keystroke out of the buffer and no more. The buttons cross
-    /// as the level the original's `MOUSELK` read — held is held, and the
+    /// The keystrokes stay in the buffer until `?KEY` takes them — one a
+    /// round of `ICTRL`, which opens with a single `?KEY` (module 4,
+    /// `0x022a0`), and no step drains one on its own. The buttons cross as
+    /// the level the original's `MOUSELK` read — held is held, and the
     /// scripts do their own debouncing, as they always did.
     fn step(&mut self) -> Result<()> {
-        let key = self.engine.pop_key();
-        self.deliver_key(key)?;
         let (left, right) = self.buttons_this_frame();
         Game::<m32::Vm>::pointer_buttons(self, left, right)?;
         Game::<m32::Vm>::step(self)

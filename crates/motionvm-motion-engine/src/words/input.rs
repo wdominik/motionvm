@@ -42,7 +42,8 @@ impl Engine {
             // looking as if it works.
             Word::Q_KEY => {
                 self.polled();
-                stack.push(self.input.key);
+                let key = self.pop_key();
+                stack.push(key);
             }
             // How far the walker moves in one step. Zero means one — the
             // handler substitutes it — and the walk is the only thing that

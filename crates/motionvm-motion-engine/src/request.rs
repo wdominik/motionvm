@@ -112,11 +112,13 @@ impl crate::Engine {
     /// to have come up first — a request opened by a click that is still held
     /// would otherwise answer itself with whatever is under the pointer.
     pub(crate) fn poll_request(&mut self) {
-        let (x, y, down, key) = (
+        // The keystroke is taken as the original's loop takes it (INT 16h
+        // AH=00), whether or not it is one the box answers to.
+        let key = self.pop_key();
+        let (x, y, down) = (
             self.input.mouse.x,
             self.input.mouse.y,
             self.input.mouse.left != 0,
-            self.input.key,
         );
         let Some(r) = self.request.as_mut() else {
             return;

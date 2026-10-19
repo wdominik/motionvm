@@ -77,18 +77,38 @@ impl Engine {
         if let Some(id) = d.shows.graphic()
             && let Some(g) = self.load_sprite(id)
         {
-            let all = d.fields.get(Field::SD_PCT_SHR).unwrap_or(0);
-            let h = cell::unsigned(d.fields.get(Field::SDH_PCT_SHR).unwrap_or(all).max(0));
-            let v = cell::unsigned(d.fields.get(Field::SDV_PCT_SHR).unwrap_or(all).max(0));
-            let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
-            return (
-                i32::from(g.width) * cell::signed(h) / 1000,
-                i32::from(g.height) * cell::signed(v) / 1000,
-            );
+            return self.scaling(d).size_of(&g);
         }
         (0, 0)
     }
 
+    /// How a descriptor's graphic is scaled, in the terms its machine stores.
+    ///
+    /// The 16-bit record holds a target size in pixels per axis, `−1` for the
+    /// natural one (`+0xC`/`+0xE`, written by `SDH%SHR`/`SDV%SHR`, read by
+    /// the drawer at `016a:100d`); the 32-bit record holds per-mille factors
+    /// the drawer multiplies by at paint time. The drawer and the measurer
+    /// both go through here, so a descriptor is never drawn at one size and
+    /// measured at another.
+    pub(crate) fn scaling(&self, d: &Descriptor) -> Scaling {
+        if self.profile.scale_in_pixels {
+            let axis = |key| d.fields.get(key).filter(|&v| v != -1);
+            return match (axis(Field::SDH_PCT_SHR), axis(Field::SDV_PCT_SHR)) {
+                (None, None) => Scaling::Natural,
+                (w, h) => Scaling::Pixels(w, h),
+            };
+        }
+        // `SD%SHR` scales in thousandths; unset means full size.
+        let all = d.fields.get(Field::SD_PCT_SHR).unwrap_or(0);
+        let h = cell::unsigned(d.fields.get(Field::SDH_PCT_SHR).unwrap_or(all).max(0));
+        let v = cell::unsigned(d.fields.get(Field::SDV_PCT_SHR).unwrap_or(all).max(0));
+        let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
+        if (h, v) == (1000, 1000) {
+            Scaling::Natural
+        } else {
+            Scaling::PerMille(h, v)
+        }
+    }
     /// The rectangle the text backing covers, which is not the text's own.
     ///
     /// Every number here is read off a handler, none measured from a picture:
@@ -173,4 +193,27 @@ impl Engine {
 /// describes the block the player sees.
 pub(crate) fn line_height(font: &Font, gap: i32) -> i32 {
     i32::from(font.height.max(1)) + gap
+}
+
+/// What a descriptor's graphic is drawn at; see [`Engine::scaling`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scaling {
+    /// The sprite's own size.
+    Natural,
+    /// The 32-bit factors, in thousandths per axis.
+    PerMille(u32, u32),
+    /// The 16-bit target, in pixels per axis; `None` is that axis natural.
+    Pixels(Option<i32>, Option<i32>),
+}
+
+impl Scaling {
+    /// The size `sprite` draws at under this scaling.
+    pub(crate) fn size_of(self, sprite: &motionvm_render::Picture) -> (i32, i32) {
+        let (w, h) = (i32::from(sprite.width), i32::from(sprite.height));
+        match self {
+            Scaling::Natural => (w, h),
+            Scaling::PerMille(hm, vm) => (w * cell::signed(hm) / 1000, h * cell::signed(vm) / 1000),
+            Scaling::Pixels(pw, ph) => (pw.unwrap_or(w), ph.unwrap_or(h)),
+        }
+    }
 }

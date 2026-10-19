@@ -375,9 +375,12 @@ combined as `((t + s) / s) xor ((t − s) mod s)`, unsigned, and reduced
 modulo the count. All five builds carry it: `HPPLAY.EXE` at file `0x143e7`,
 `BMZ.EXE` at `0x14581`, `LL.EXE` at `0xb72f`, their counters at `0x7b40`,
 `0x7c40` and `0x80a0`. Die Enviro-Kids greifen ein asks 188 times, every one
-with a literal count but four, which add eight to what `?GEW` answers. What
-the rebuild does instead, and why, is on the
-[departures](../../departures.md) page.
+with a literal count but four, which add eight to what `?GEW` answers. The
+counter `t` is read from is reset at the end of every frame's wait
+(`016a:06ea`), so inside a frame it holds the counts the frame's own work
+has taken so far; motionvm runs the arithmetic on 16-bit values with `t` at
+0, and what that is a departure from is on the
+[departures](../../departures.md#the-virtual-machine) page.
 
 ## What is read
 

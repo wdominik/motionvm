@@ -22,49 +22,62 @@ Victor Loomes – Das Spiel. An entry that names one of them is that game's.
 
 ## The virtual machine
 
-**A read through a stray pointer answers 0.** `@` validates nothing
-(`0x626fc`), and the game leans on it: location 5's macro reads an item number
-as if it were a flag, location 6 reads through a shadow record that does not
-exist yet, and both land in module 0 — which is created at run time and has no
-file. Refusing to answer stopped five of the game's sixteen locations. motionvm
-therefore answers **0** for a module that is not loaded, counts every such
-access, and names the total and the addresses when the run ends — the window
-prints them on the way out, and any caller can ask for them at any time
-through the contract's `diagnostics`. Zero is the only value that can be
-justified: module 0's data area is allocated at run time (`0x5f39f`) and
-filled by the kernel, so what it really holds is not knowable from outside. A
-read from a module `=>ERASE` has given back gets the same answer and the same
-count, where the original reads freed memory; no shipped script does it.
+**A stray pointer reaches twelve measured cells of module 0, and scratch
+beyond them.** `@` and `!` validate nothing (`0x626fc`), and the game leans
+on it: location 5's macro reads an item number as if it were a flag, and
+location 6 writes and reads Gaby's position, route and heading through a
+shadow record that does not exist yet — both land in module 0, the kernel's
+own, which is created at run time (`0x5f39f`) and has no file. Refusing to
+answer stopped five of the game's sixteen locations. What the first twelve
+cells hold was measured by running `n @` inside the original at kernel
+start-up: `0x40000199` at offset 0, `−1` at offset 4, and 0 from 8 to
+`0x2c` — so location 5's `KRSCHRZIEHE @ 0 =` (offset 24) takes the branch
+the original takes. motionvm answers those values for a module that is not
+loaded, keeps every cell written to one so a later read gets it back, as the
+original's memory does, and answers 0 for a cell nothing measured or wrote.
+Every such access is counted and named when the run ends — the window prints
+them on the way out, and any caller can ask through the contract's
+`diagnostics`. Whether the kernel changes those twelve cells between start-up
+and location 6 is not measured, and a read past them, or from a module
+`=>ERASE` has given back — where the original reads freed memory, and no
+shipped script does — stays a 0 the original need not share.
 
 The **instruction fetch** and the inline-operand read stay strict. Jumping into
 a module that is not loaded is a different matter from reading through a stray
 pointer — the game does the second, only a mistake produces the first.
 ([Execution model](motion32/vm/execution-model.md))
 
-**`RANDOM` draws from a linear congruential generator, not the original's.**
-The original's is read, on both engines, and it is not a generator with a
-seed but a hash of the clock: a counter stepped by 331 a call, combined with
-the engine's raw tick count as `((t + s) / s) xor ((t − s) mod s)` and
-reduced modulo the count on the stack
+**`RANDOM` hashes the engine's own clock, not the wall's.** The original's
+generator is read on both engines and rebuilt as read: a counter stepped by
+331 a call and set to 1 when it wraps to 0, combined with the clock as
+`((t + s) / s) xor ((t − s) mod s)`, unsigned, and reduced modulo the count
+on the stack — on 32-bit values over the master counter in `ENGINE.EXE`
+(`0x24219`), on 16-bit values over the millisecond counter read as fifths in
+`ENVIRO.EXE` (`110a:04a8`)
 ([word semantics](motion32/vm/word-semantics.md#random),
-[16-bit kernel words](motion16/vm/kernel-words.md#random)). Its input is
-wall-clock time — the interrupt count at the instant of each call — and the
-rebuild reads no wall clock anywhere: a given input state renders a given
-frame, every time, which is what its drawing is verified by. Feeding the
-formula the frame clock instead would give a sequence the original never
-produces either, so the rebuild keeps an LCG of its own — `x = 1664525x +
-1013904223`, the answer taken modulo the count, and zero for a count that is
-not positive, where the original would fault on zero and leave a negative
-count's answer unreduced. What the game leans on holds on both: the answer
-is in `0..n`, and no shipped call asks for anything else — 237 sites in
-Dunkle Schatten 2, all in the location task managers 201–222, and 188 in Die
-Enviro-Kids greifen ein, every one a choice among alternatives rather than a
-value that has to come out a certain way.
+[16-bit kernel words](motion16/vm/kernel-words.md#random)). What `t` is at
+the instant of a call is where this engine departs. The original reads the
+interrupt count of the moment; this engine reads no wall clock anywhere, so
+that a given input state renders a given frame every time, which is what its
+drawing is verified by. On the 32-bit machine `t` is the master counter as
+the frames have advanced it — the count the timers measure against — so
+every call in one frame sees the same `t` and differs by `s` alone, where the
+original's calls in a frame see a `t` a few counts apart. On the 16-bit
+machine the counter is reset at the end of every frame's wait
+(`016a:06ea`), so a frame's bytecode reads the counts its own work has taken,
+0 to 2 on the hardware of the day; this engine reads 0. Two things stay what
+the original makes of them, by the same arithmetic: a count of 0, which
+faults the original, answers 0 here, and a negative count is the unsigned
+divisor it is there, which leaves the hash unreduced. No shipped call pushes
+either — 237 sites in Dunkle Schatten 2, all in the location task managers
+201–222, and 188 in Die Enviro-Kids greifen ein, every one a positive
+literal, a choice among alternatives rather than a value that has to come out
+a certain way.
 
-The **seed** is the platform's, handed in before the game starts; the
-original has none. A run that is never seeded stays on the constant the
-machine is built with, which is what lets the test suite render a scene twice
-and compare the two — see [verification](verification.md).
+The **seed** is the platform's, handed in before the game starts, and it
+sets the counter the original starts at 0; a run that is never seeded starts
+there, which is what lets the test suite render a scene twice and compare
+the two — see [verification](verification.md).
 ([Word semantics](motion32/vm/word-semantics.md))
 
 **`_PutStringAdr` is followed twice, differently.** The handler advances by
@@ -137,13 +150,18 @@ repeat. The picture is the same; what differs is how many times a pixel is
 touched to arrive at it.
 ([Screens](motion32/engine/screens.md#the-drawn-buffer))
 
-**The timing follows the engine's arithmetic, not an emulator's.** `GIVETIMER`'s
-unit-3 conversion is exact only at a 1020 Hz master, where unit 3 comes out at
-the 200 Hz that `DELAY` assumes; that is the unit motionvm renders into
-wall-clock time. Under DOSBox-X the same fades run about 2.4× slower, because
-its ticks arrive in bursts aligned to the emulated 70 Hz refresh and a 1-tick
-band waits a whole burst. That is the emulator's interrupt batching, not the
-game's design, and it is not reproduced.
+**The timing follows the engine's arithmetic, not an emulator's.** On the
+32-bit engine `GIVETIMER`'s unit-3 conversion is exact only at a 1020 Hz
+master, where unit 3 comes out at the 200 Hz that `DELAY` assumes; that is
+the unit motionvm renders into wall-clock time there, remainder and all, and
+the 1020 is the model the arithmetic implies, not a measured provider. The
+16-bit engine keeps a different counter — the sound driver's milliseconds,
+read as fifths — and motionvm renders that one at its own rate
+([the 16-bit game loop](motion16/engine/game-loop.md#the-frame-loop)). Under
+DOSBox-X the 32-bit fades run about 2.4× slower, because its ticks arrive in
+bursts aligned to the emulated 70 Hz refresh and a 1-tick band waits a whole
+burst. That is the emulator's interrupt batching, not the game's design, and
+it is not reproduced.
 ([Game loop](motion32/engine/game-loop.md), [Transitions](motion32/engine/transitions.md#timing))
 
 **Presents are batched to something a display can show.** A step is not always
@@ -546,26 +564,24 @@ prompt; so the word answers at once, and whether the original stops there
 too is in the [open questions](open-questions.md#motion-16-bit).
 ([Interaction](motion16/engine/interaction.md))
 
-**The 16-bit scale fields hold pixels; this engine keeps per-mille.**
-`SDH%SHR` (`05f1:23f2`) and `SDV%SHR` (`05f1:246f`) store `1000` and
-`−1` as −1 (natural) and any other value as `v · natural / 1000` **in
-pixels**, resolved against the sprite current at the call — `SDSPR`
-(`05f1:129a`) refreshes only the natural pair `+8`/`+0xA`, and the
-drawer (`016a:100d`) takes `+0xC`/`+0xE` where they are not −1. This
-engine keeps the per-mille value and multiplies at paint time. The two
-models agree wherever a script writes scale and sprite in the same
-breath — the walk does, and the intro's card flip swaps between
-equal-width mirror images — and they part on `0 SDH%SHR`: the original
-draws zero width, this engine treats 0 as unset and draws full size.
-To be remodelled when a scene shows the difference.
-([Screens and the draw chain](motion16/engine/screens.md))
+**A scale set on a descriptor that shows nothing resolves to 0.** The
+16-bit `SDH%SHR` and `SDV%SHR` resolve their per-mille argument against
+the width or height table at the id in `+0x10` (`05f1:23f2`, `05f1:246f`;
+[the draw chain](motion16/engine/screens.md#the-draw-chain)); a descriptor
+that has never been given a sprite has 0 there, and the handler reads
+entry 0 of the table — the size of whatever sprite 0 is, once loaded, and
+0 before. This engine answers a natural size of 0 and stores 0 pixels. No
+shipped script sets a scale before a sprite: the walk writes `SDSPR` first
+and the intro's card flip writes against the motif of the frame before.
 
-**The callback walk runs after the controller.** The 16-bit frame loop
-(`016a:0516`–`06da`) runs descriptor callbacks first and the screen
-controller second; this engine keeps the 32-bit order (`0x68c64`,
-controller first). With the active gate modelled, nothing read so far
-tells the two apart — a callback that fires sees one frame's controller
-state either way. ([Screens and the draw chain](motion16/engine/screens.md))
+**The one-frame hold after a load is not kept.** The 16-bit loop's freeze
+cell (`DS:0x05b0`) has a third value: `GETANIM` and the rotation words
+write 1, which skips callbacks *and* controllers for exactly one frame
+and is cleared after that frame's blit (`016a:06da`, `016a:07f9`).
+`FREEZESCR`'s 2 is modelled, as is the frame itself
+([the frame loop](motion16/engine/game-loop.md#the-frame-loop)); the 1 is
+not — a game loaded from a slot runs its controller on the first frame
+after, where the original runs it on the second.
 
 **`LL.EXE`'s heading pass stops at the buffer's end.** The pass that build's
 `CROUTE` closes with (`0104:516d`) walks the step buffer as runs of equal

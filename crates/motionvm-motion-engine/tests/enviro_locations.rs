@@ -198,13 +198,15 @@ fn a_requested_location_is_entered_through_nextloc_on_the_next_frame() {
 /// The routes carry a per-mille scale ramp (`_XROUTE`, shrink₀/shrink₁),
 /// and `SD%SHR` writes the horizontal and the vertical factor both — the
 /// 32-bit handler stores the pair (`0x721b8`), the 16-bit one calls
-/// `SDH%SHR` and `SDV%SHR` with the one value (`0xb38b`). The walk asserts
-/// the interpolated scale every step the same way. Writing only the
-/// combined field left a per-axis value the room's script had set
-/// standing, and the figure walked the town at the wrong size — town
-/// routes shrink to 160–520 per mille where the living room stays near
-/// full. Location 8 places the walker at 480, the treehouse at 630; the
-/// three fields agreeing is the fix's pin.
+/// `SDH%SHR` and `SDV%SHR` with the one value (`0xb38b`), and those two
+/// store **pixels**: the factor resolved against the sprite's own width
+/// and height on the spot (`05f1:23f2`, `05f1:246f`). The walk asserts the
+/// interpolated scale every step the same way. Writing only a combined
+/// field left a per-axis value the room's script had set standing, and the
+/// figure walked the town at the wrong size — town routes shrink to
+/// 160–520 per mille where the living room stays near full. Location 8
+/// places the walker at 480, the treehouse at 630; both axes holding the
+/// route's share of the sprite, and no combined field at all, is the pin.
 #[test]
 fn the_walker_wears_the_routes_scale_on_both_axes() {
     let Some(dir) = gamedata_enviro() else {
@@ -230,18 +232,27 @@ fn the_walker_wears_the_routes_scale_on_both_axes() {
             .iter()
             .find(|d| d.screen == main && d.handle == lpd)
             .expect("the walker");
-        for key in [
-            motionvm_motion_engine::Field::SD_PCT_SHR,
-            motionvm_motion_engine::Field::SDH_PCT_SHR,
-            motionvm_motion_engine::Field::SDV_PCT_SHR,
+        let sprite = game
+            .engine
+            .cached_sprite(d.shows.graphic().expect("the walker shows a sprite"))
+            .expect("the walker's sprite has been drawn");
+        let natural = (i32::from(sprite.width), i32::from(sprite.height));
+        for (key, natural) in [
+            (motionvm_motion_engine::Field::SDH_PCT_SHR, natural.0),
+            (motionvm_motion_engine::Field::SDV_PCT_SHR, natural.1),
         ] {
             assert_eq!(
                 d.fields.get(key),
-                Some(scale),
-                "location {loc}: {} is not the route's {scale}",
+                Some(natural * scale / 1000),
+                "location {loc}: {} is not {natural} at the route's {scale} per mille",
                 key.name()
             );
         }
+        assert_eq!(
+            d.fields.get(motionvm_motion_engine::Field::SD_PCT_SHR),
+            None,
+            "location {loc}: the 16-bit SD%SHR writes no field of its own"
+        );
     }
 }
 
@@ -624,14 +635,20 @@ fn ending_the_tune_holds_the_room_change_for_half_a_second() {
     }
     assert_eq!(game.get_var(601, "ACTLOC"), Some(15));
 
+    // 100 ticks of the driver's millisecond counter at its 1 193 182 / 1193
+    // Hz: 499.92 ms, a hair under the half second, and no other step comes
+    // within a tenth of a millisecond of it.
     let half_second = std::time::Duration::from_millis(500);
+    let about_half_a_second = |d: Option<std::time::Duration>| {
+        d.is_some_and(|d| d.abs_diff(half_second) < std::time::Duration::from_micros(100))
+    };
     let mut holds = 0;
     for frame in 0..=900 {
         let click = frame == 0;
         game.set_input(3, 42, click, false, 0).expect("input");
         game.step()
             .unwrap_or_else(|e| panic!("walk-out frame {frame} stopped: {e}"));
-        if game.frame_duration() == Some(half_second) {
+        if about_half_a_second(game.frame_duration()) {
             holds += 1;
             let fb = game.render();
             let w = usize::from(fb.width);

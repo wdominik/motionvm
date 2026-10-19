@@ -103,12 +103,19 @@ impl Engine {
                 let y = self.screen_origin_y();
                 stack.push(y);
             }
-            // Bit 2 of the screen's flag byte at +0x13, set and cleared. What a
-            // frozen screen does differently is not established yet, so the
-            // flag is only carried.
+            // Bit 2 of the screen's flag byte at +0x13, set and cleared, on
+            // the 32-bit machine; the per-frame walk leaves a frozen screen's
+            // descriptors alone. The 16-bit word writes one engine-wide cell
+            // instead (`DS:0x05b0`), and its loop skips every screen's
+            // callbacks while it stands and keeps running the controllers —
+            // so there every screen freezes together.
             Word::FREEZESCR | Word::UNFREEZESCR => {
                 let freeze = word == Word::FREEZESCR;
-                if let Some(s) = self.display.current_mut() {
+                if self.profile.freeze_is_global {
+                    for s in &mut self.display.screens {
+                        s.frozen = freeze;
+                    }
+                } else if let Some(s) = self.display.current_mut() {
                     s.frozen = freeze;
                 }
             }

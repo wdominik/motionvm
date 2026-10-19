@@ -36,6 +36,7 @@
 //! them a row at a time.
 
 use crate::Field;
+use crate::geometry::Scaling;
 use crate::{Descriptor, Engine, Placement, Shows, line_height};
 use motionvm_motion_forth::cell;
 use motionvm_render::Framebuffer;
@@ -383,19 +384,12 @@ impl Engine {
         let Some(sprite) = self.sprite(id) else {
             return;
         };
-        // `SD%SHR` scales in thousandths; unset means full size.
-        let all = d.fields.get(Field::SD_PCT_SHR).unwrap_or(0);
-        let h = cell::unsigned(d.fields.get(Field::SDH_PCT_SHR).unwrap_or(all).max(0));
-        let v = cell::unsigned(d.fields.get(Field::SDV_PCT_SHR).unwrap_or(all).max(0));
-        let (h, v) = (if h == 0 { 1000 } else { h }, if v == 0 { 1000 } else { v });
         // The drawn corner depends on what the coordinate means. A centered
         // sprite sits half its *scaled* size to the left and above the
         // point — that is what makes the title logo, 320x200 at 2000 per
         // mille with its center at (320, 240), land on (0, 40).
-        let (sw, sh) = (
-            i32::from(sprite.width) * cell::signed(h) / 1000,
-            i32::from(sprite.height) * cell::signed(v) / 1000,
-        );
+        let scaling = self.scaling(d);
+        let (sw, sh) = scaling.size_of(&sprite);
         let x = match d.x_mode {
             Placement::Edge => d.x,
             Placement::Center => d.x - sw / 2,
@@ -410,10 +404,11 @@ impl Engine {
         // the keyed blit and a block to the opaque one, out of the same pool.
         let opaque = self.profile.opaque_blocks && matches!(d.shows, Shows::Picture(_));
         if let Some(screen) = self.display.screen_mut(d.screen) {
-            if opaque && h == 1000 && v == 1000 {
-                screen.buffer.blit_masked(&sprite, x, y, None);
-            } else {
-                screen.buffer.blit_scaled(&sprite, x, y, h, v);
+            match scaling {
+                Scaling::Natural if opaque => screen.buffer.blit_masked(&sprite, x, y, None),
+                Scaling::Natural => screen.buffer.blit(&sprite, x, y),
+                Scaling::PerMille(h, v) => screen.buffer.blit_scaled(&sprite, x, y, h, v),
+                Scaling::Pixels(..) => screen.buffer.blit_sized(&sprite, x, y, sw, sh),
             }
         }
     }

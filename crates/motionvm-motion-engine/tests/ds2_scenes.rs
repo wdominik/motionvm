@@ -24,11 +24,12 @@
 //! to PNG and diff them across a change, which is what to do once a digest
 //! goes off.
 //!
-//! **Determinism**, which the digests rest on: `RANDOM` is an LCG seeded to a
-//! constant in `Vm::new` and never reseeded, there is no `HashMap` on any
-//! drawing path, the engine reads no clock, and the resource directory is
-//! walked in sorted order — so a scene reached the same way twice composes the
-//! same bytes twice. The one thing that is *not* insensitive is the number of
+//! **Determinism**, which the digests rest on: `RANDOM` hashes a counter that
+//! starts at the original's 0 and is never reseeded here, over the master
+//! counter the frames advance, there is no `HashMap` on any drawing path, the
+//! engine reads no wall clock, and the resource directory is walked in sorted
+//! order — so a scene reached the same way twice composes the same bytes
+//! twice. The one thing that is *not* insensitive is the number of
 //! `RANDOM` calls made before the frame: the generator is shared and consumed in
 //! call order, so a change elsewhere that draws one more random number moves
 //! every later one.

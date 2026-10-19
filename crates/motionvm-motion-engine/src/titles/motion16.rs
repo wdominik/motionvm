@@ -166,6 +166,7 @@ pub(super) fn open(
         stretched: (false, false),
         running: false,
         frame_controllers: Vec::new(),
+        frame16: std::collections::VecDeque::new(),
         ending: false,
         over: false,
         parked: None,
@@ -224,14 +225,13 @@ impl Driven for Game<m16::Vm> {
         Game::<m16::Vm>::park(self)
     }
 
-    /// One keystroke per step: the 16-bit engine's `CTRL` likewise reads
-    /// `?KEY` once per round and stores it into `_AKTKEY` itself, so each
-    /// frame takes one keystroke out of the buffer and no more. The buttons cross
-    /// as the level the original's `MOUSELK` read — held is held, and the
-    /// scripts do their own debouncing, as they always did.
+    /// The keystrokes stay in the buffer until `?KEY` takes them: the
+    /// 16-bit `CTRL` reads it once a round and stores it into `_AKTKEY`
+    /// itself, and an intro's own `BEGIN … ?KEY … UNTIL` reads it on the
+    /// frame its poll comes round; no step drains one on its own. The
+    /// buttons cross as the level the original's `MOUSELK` read — held is
+    /// held, and the scripts do their own debouncing, as they always did.
     fn step(&mut self) -> Result<()> {
-        let key = self.engine.pop_key();
-        self.deliver_key(key)?;
         let (left, right) = self.buttons_this_frame();
         Game::<m16::Vm>::pointer_buttons(self, left, right)?;
         Game::<m16::Vm>::step(self)

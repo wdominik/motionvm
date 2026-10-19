@@ -28,7 +28,7 @@ What remains:
 | Area | Open |
 |---|---|
 | Interaction | What script code sets and clears the click gates `_ORDER+0x134`/`+0x1CC`. (**All eight `EXECORDER` verbs are read and built**, as are `TEXTTOPERSON` `0x7b053` and the keyword search of verbs 6 and 7. The verb menu too: the right click, modes 2–8, `GMSHOWMENU`/`GMREMOVEMENU`/`HIGHLIGHTORDERS`/`ANIMATEORDERS`/`CHOOSEORDERS`/`VERBOFSLOT`/`SPRRANGEOFVERB` and the epilogue `0x7eae2`) |
-| Dialogue | Nothing in the machine itself: modes 12 to 18 are read, and the one the shipped game cannot reach — 15, entered only by `0x7b120`, which nothing calls, jumps to or points at — is refused rather than built. (Branch actions 5/6 and the name lookup `0x61596` are read and built; one recorded [departure](departures.md): the rebuild walks modules by number, the original's table at `0xEE6D0` by entry order. How `=>GET`/`=>ERASE` assign entries is read — first free slot, freed in place — and modeled, see [Savegames](motion32/engine/savegames.md)) |
+| Dialogue | Nothing in the machine itself: modes 12 to 18 are read, and the one the shipped game cannot reach — 15, entered only by `0x7b120`, which nothing calls, jumps to or points at — is refused rather than built. (Branch actions 5/6 and the name lookup `0x61596` are read and built; the lookup walks the resident modules in slot order, as the original's table at `0xEE6D0` is walked, and how `=>GET`/`=>ERASE` assign slots is read — first free slot, freed in place — and modeled, see [Savegames](motion32/engine/savegames.md)) |
 | Walking | Command 1007's call path (no queue in the game writes one); whether the two line kinds mean more than which end anchors the scale ramp |
 | Animation | The native layer: `ANIMPLAY` (meaning of the ten values the game pushes — the handler pops none), `ANIMSIM`. (`PUTANIM` `0x6dd87` and `GETANIM` `0x6e355` are read: the file layout, the tags `0x3E9`/`0x3EA`/`0x3EB`/`0x3EC`/`0x3EF` and the five globals are in [Savegames](motion32/engine/savegames.md). What three of them — `0xDB4AC`, `0xDB4B4`, `0xDB4B8` — and the 180-byte table at `0xF2594` mean is still open) |
 | Text | The layout fields `+0x24`/`+0x2C` (glyph-origin shift); the third callback-address check `0x68367`. **Vertical centering**: `0x2588e` and the three instructions after it compute the height with no gap term, but a real run puts a caption at 166 where that arithmetic gives 167, so the code centers on the gap-inclusive height. What the instruction reading is missing — most likely that `schrift[+2]` already carries the leading — is unread. See [Text rendering](motion32/engine/text-rendering.md) |
@@ -61,9 +61,13 @@ to play.)
 ## Virtual machine
 
 - **Module 0** — the kernel's base module, created at runtime, not a file.
-  About 2600 call cells point into it and remain unresolved, and what its data
-  area holds is not knowable from the outside, so reads of it answer 0 and are
-  reported (see [Execution model](motion32/vm/execution-model.md)).
+  About 2600 call cells point into it and remain unresolved. Its first twelve
+  data cells are measured at kernel start-up — `0x40000199`, `−1`, then
+  zeros to offset `0x2c` — and that is what a stray read answers; what the
+  cells past them hold, and whether the kernel moves the first twelve
+  between start-up and the locations that read them, is not measured, and
+  every such read is reported (see
+  [Execution model](motion32/vm/execution-model.md)).
   ([Execution model](motion32/vm/execution-model.md))
 - **`_LoopStart`'s ordinal** — arithmetic suggests 389; unconfirmed.
   ([Threaded code](motion32/vm/threaded-code.md))
@@ -76,10 +80,13 @@ to play.)
 
 ## Timing
 
-- **The exact wall-clock frequency of the tick base** — 200 Hz fits
-  every observed formula (frame divider, sample durations, curtain
-  delays) but is an inference, not a measured clock.
-  ([Game loop](motion32/engine/game-loop.md))
+- **The master counter's provider and rate.** The engine's arithmetic —
+  `GIVETIMER`'s `×10/51`, `DELAY`'s `200/n` — is exact at a 1020 Hz master,
+  and that is the rate the rebuild renders into time. Which timer feeds the
+  counter sits behind a loader-patched thunk that is not read, and a running
+  original under DOSBox-X averages ~978 Hz against wall time; how that gap
+  divides between the provider's rate, interrupt delivery and the emulator
+  is not measured. ([Game loop](motion32/engine/game-loop.md))
 - **The master timer frequency** behind the audio timers (≈1 kHz
   inferred; consistent with a 200 Hz-derived chain).
   ([Audio](motion32/engine/audio.md))

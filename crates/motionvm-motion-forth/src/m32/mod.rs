@@ -197,6 +197,13 @@ pub struct Memory {
     /// fail and a handful of allocations saved on a cold path; what it would
     /// cost is the tail of the report. Not a trade worth making.
     loose: std::cell::RefCell<BTreeMap<Address, u32>>,
+    /// Cells written through a stray pointer into a module that is not
+    /// loaded, kept so the next read gets them back. The original's `!`
+    /// checks no more than its `@`, and location 6 relies on the pair:
+    /// it writes Gaby's position, route and heading through a shadow
+    /// record that does not exist yet and reads them back in the same
+    /// call. See [`Memory::fetch`].
+    scratch: BTreeMap<Address, u32>,
     /// Where the last successful lookup landed — the globals `0xee668` and
     /// `0xee66c`, kept because action 6 of a dialogue branch (0x7bece) builds
     /// its call address out of them without checking the search's answer.
@@ -263,10 +270,30 @@ impl Memory {
         hit
     }
 
+    /// What the kernel's own module holds at start-up, at the cells a stray
+    /// pointer reaches.
+    ///
+    /// Module 0 is created at run time (0x5f39f) and filled by the kernel,
+    /// so no file says what is in it. These are read out of the running
+    /// original: a probe module, compiled and run by the 1996 engine right
+    /// after its start-up, stored `n @` for `n` from 0 to 0x2c and was
+    /// written back out — `0x40000199` at 0, `−1` at 4, 0 at the ten cells
+    /// after. Past 0x2c nothing is measured and the answer is 0. Whether
+    /// the kernel moves these cells later in a run is not measured either;
+    /// the one shipped read that decides anything, location 5's at offset
+    /// 24, lands on a 0 and takes the branch the original takes.
+    fn kernel_cell_at_start(addr: Address) -> u32 {
+        match (addr.module(), addr.offset()) {
+            (0, 0) => 0x4000_0199,
+            (0, 4) => 0xffff_ffff,
+            _ => 0,
+        }
+    }
+
     /// Reads a cell of module memory.
     ///
-    /// A module that is not loaded answers **zero** instead of failing. That
-    /// is not leniency for its own sake: the original's `@` (0x626fc) checks
+    /// A module that is not loaded answers instead of failing. That is not
+    /// leniency for its own sake: the original's `@` (0x626fc) checks
     /// nothing at all — it works out
     /// `[[[0xEE6D0 + [0xEE6C0 + (v>>16)·4]·0x30] + 0x14] + (v & 0xffff)]` and
     /// reads whatever is there. The game relies on that. Location 5's macro
@@ -276,14 +303,19 @@ impl Memory {
     /// not have. The original shrugs and reads a kernel cell; refusing to
     /// answer stopped the game on five of its locations.
     ///
-    /// What such a read *would* have answered is not knowable — module 0's
-    /// data area is allocated at run time (0x5f39f) and filled by the kernel —
-    /// so zero is the only value that can be justified. Every one of them is
-    /// counted and reported rather than passing in silence.
+    /// What such a read answers is, in order: what a stray write put there
+    /// earlier in the run, what the kernel held there at start-up where that
+    /// was measured (the twelve cells of module 0 a probe read out of the
+    /// running original), and 0. Every one of them is counted and reported rather than passing
+    /// in silence.
     pub fn fetch(&self, addr: Address) -> Result<u32> {
         let Some(m) = self.modules.get(&addr.module()) else {
             self.note_loose(addr);
-            return Ok(0);
+            return Ok(self
+                .scratch
+                .get(&addr)
+                .copied()
+                .unwrap_or_else(|| Self::kernel_cell_at_start(addr)));
         };
         m.cells
             .get(cell::index(addr.offset() / CELL))
@@ -303,10 +335,12 @@ impl Memory {
             .ok_or(Error::OutOfRange { addr, at: None })
     }
 
-    /// Writes a cell. A module that is not loaded swallows it, as above.
+    /// Writes a cell. A module that is not loaded keeps it for the next
+    /// read, as the original's memory does, and counts it as above.
     pub fn store(&mut self, addr: Address, value: u32) -> Result<()> {
         if !self.modules.contains_key(&addr.module()) {
             self.note_loose(addr);
+            self.scratch.insert(addr, value);
             return Ok(());
         }
         let cell = self
@@ -755,14 +789,16 @@ impl Vm {
     /// look different behave the same in a way nothing would report.
     ///
     /// Not called at all by the test suites, which is the point of it being a
-    /// call: without one the generator stays on the constant it is built with
-    /// and a scene reached the same way twice composes the same bytes twice.
+    /// call: without one the counter starts at the original's 0 and a scene
+    /// reached the same way twice composes the same bytes twice.
     pub fn seed(&mut self, seed: u64) {
         self.core.seed(seed);
     }
 
-    fn next_rng(&mut self) -> u32 {
-        self.core.next_rng()
+    /// The next `RANDOM` hash over the host's clock reading; see
+    /// [`crate::core::Core::next_random`].
+    fn next_random(&mut self, t: u32) -> u32 {
+        self.core.next_random(t, true)
     }
 }
 

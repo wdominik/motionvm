@@ -134,18 +134,11 @@ impl Engine {
                     d.auto_buffer = true;
                 }
             }
-            // Both shrink factors at once. Read from both binaries: the 32-bit
-            // handler (`ENGINE.EXE` `0x721b8`) writes the descriptor's
-            // horizontal and vertical factor from the one argument, the
-            // 16-bit one (`ENVIRO.EXE` file `0xb38b`) calls `SDH%SHR` and
-            // `SDV%SHR` with it. Setting the two named fields as well keeps a
-            // later `SDH%SHR` from being undone by an earlier `SD%SHR`'s
-            // fallback, and an earlier one from surviving it.
+            // Both scales at once; the walk puts its figure's down through
+            // the same method, which is where the two machines part.
             Word::SD_PCT_SHR => {
                 let v = pop1(stack, "SD%SHR")?;
-                self.set_field(Field::SD_PCT_SHR, v);
-                self.set_field(Field::SDH_PCT_SHR, v);
-                self.set_field(Field::SDV_PCT_SHR, v);
+                self.set_shrink(v);
             }
             // How long the current text is, in characters, newlines counted.
             //
@@ -435,7 +428,16 @@ impl Engine {
                     return Ok(None);
                 };
                 let v = pop1(stack, "descriptor setter")?;
-                self.set_field(key, v);
+                // The 16-bit scale setters resolve to pixels on the spot
+                // (`Engine::set_scale`); every other field holds the value
+                // the word was given.
+                if self.profile.scale_in_pixels
+                    && matches!(key, Field::SDH_PCT_SHR | Field::SDV_PCT_SHR)
+                {
+                    self.set_scale(key, v);
+                } else {
+                    self.set_field(key, v);
+                }
                 // The line window is part of the layout (`0x610e0`, `0x61150`
                 // mark and measure like any change), so it is laid out again
                 // here as `SDTXT` is above.

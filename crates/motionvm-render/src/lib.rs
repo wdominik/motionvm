@@ -323,10 +323,40 @@ impl Framebuffer {
         }
     }
 
+    /// Draws a sprite at a size given in pixels, nearest neighbor.
+    ///
+    /// Destination pixel `(dx, dy)` takes source pixel `(dx · sw / w,
+    /// dy · sh / h)`, truncating — the 16-bit engine's scaler (`ENVIRO.EXE`
+    /// `18f3:0699`) builds its column table from `x · sw / w` and picks each
+    /// row by `y · sh / h`, so a target size is all it needs and all this
+    /// takes. A size of zero or less draws nothing, as the drawer that calls
+    /// it draws nothing (`016a:119b`). Transparent source pixels are skipped:
+    /// the original scales into a scratch image and blits that keyed.
+    pub fn blit_sized(&mut self, sprite: &Picture, x: i32, y: i32, w: i32, h: i32) {
+        let (Ok(w), Ok(h)) = (usize::try_from(w), usize::try_from(h)) else {
+            return;
+        };
+        if w == 0 || h == 0 {
+            return;
+        }
+        let (sw, sh) = (usize::from(sprite.width), usize::from(sprite.height));
+        for dy in 0..h {
+            let sy = dy * sh / h;
+            let row = sy * sw;
+            for dx in 0..w {
+                let sx = dx * sw / w;
+                let p = sprite.pixels[row + sx];
+                if p != TRANSPARENT {
+                    self.set(x + coord(dx), y + coord(dy), p);
+                }
+            }
+        }
+    }
+
     /// Draws a sprite scaled by per-mille factors, nearest neighbor.
     ///
     /// The factors are in thousandths of the source size, one per axis, which
-    /// is how the engines above this pass their scaling. Nearest-neighbor
+    /// is how the 32-bit engine passes its scaling. Nearest-neighbor
     /// because the scaling works on palette indices, where interpolating
     /// between two entries is meaningless.
     pub fn blit_scaled(&mut self, sprite: &Picture, x: i32, y: i32, h_mille: u32, v_mille: u32) {

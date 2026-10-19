@@ -358,7 +358,8 @@ impl Engine {
             // it raises.
             Word::KEY => {
                 self.polled();
-                stack.push(self.input.key);
+                let key = self.pop_key();
+                stack.push(key);
             }
             // `( handle -- )`: the handler (`ENVIRO.EXE` `05f1:08d4`; the same
             // shape at `05e1:0884` in `STERN.EXE`, `05f0:08d5` in `BMZ.EXE`

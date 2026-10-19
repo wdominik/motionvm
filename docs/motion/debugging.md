@@ -32,10 +32,11 @@ noticed and could not act on. Three things travel that channel today —
 - **words reached that do nothing** — the inert words the scripts called,
   with counts. A word is inert only when the engine's word table says so and
   says why; anything else that is missing stops the game instead.
-- **stray reads** — on the 32-bit machine, every read into a module that is
-  not loaded, with the total and the first addresses. The
-  [departures ledger](departures.md#the-virtual-machine) says why such a read
-  answers 0 rather than stopping.
+- **stray reads** — on the 32-bit machine, every read or write into a module
+  that is not loaded, with the total and the first addresses. The
+  [departures ledger](departures.md#the-virtual-machine) says what such a
+  read answers — the measured cells of module 0, a value written there
+  earlier, or 0 — rather than stopping.
 - **music** — a tune the sink could not decode, by number.
 
 The channel is the contract's `diagnostics`, pulled rather than pushed: the

@@ -53,6 +53,29 @@ front of scenery it shares a level with; the figure's level itself comes
 from the route it stands on ([blocks](../formats/blocks.md), the
 `_XROUTE` z field).
 
+**Scaling is stored in pixels, not per mille.** `SDH%SHR` (`05f1:23f2`)
+and `SDV%SHR` (`05f1:246f`) take the per-mille argument the scripts
+write, look up the current sprite's width or height in the size tables
+at `DS:0x764a`/`DS:0x7662` by the id in `+0x10`, and store
+`natural · v / 1000` — a signed long division, truncating — into
+`+0xC`/`+0xE` of the record; `1000` and `−1` are both stored as `−1`,
+natural size. `SD%SHR` (`05f1:227b`) is the two of them with one value
+and has no field of its own. `SDSPR` (`05f1:129a`) writes the sprite and
+refreshes the natural pair `+8`/`+0xA` from the same tables, and leaves
+`+0xC`/`+0xE` alone — so a sprite swapped under a stored size keeps the
+size in pixels, and the intro's card flip, which writes `SDH%SHR` before
+the frame's `SDSPR`, resolves each width against the motif of the frame
+before. The drawer (`016a:100d`) draws a descriptor with both fields `−1`
+at natural size; otherwise it takes each field where it is not `−1` and
+the natural size where it is, draws nothing at all when either comes to
+0 (`016a:119b`), and scales through a scratch image the size of the
+target: the scaler (`18f3:0699`) builds a column table from
+`x · natural / target` and picks each source row by `y · natural /
+target`, truncating, and the scratch is then blitted keyed. motionvm
+stores and draws exactly this, behind the engine profile's `scale_in_pixels`; the 32-bit
+engine keeps per-mille factors and multiplies at paint time, and stays
+modelled that way.
+
 ## Open questions
 
 - The rest of the screen block, past the fields the setters are known to

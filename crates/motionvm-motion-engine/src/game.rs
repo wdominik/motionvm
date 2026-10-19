@@ -15,12 +15,13 @@
 //! variables. That is what let the whole renderer be verified against the
 //! original engine without a window ever existing, and it stays true here.
 
+use std::collections::VecDeque;
 use std::path::Path;
 
 use motionvm_motion_forth::{Address, Host, Machine, Run};
 use motionvm_render::Framebuffer;
 
-use crate::{Engine, Error, Result};
+use crate::{Descriptor, Engine, Error, Result};
 
 /// The loaded game: the virtual machine and the runtime behind it.
 ///
@@ -79,13 +80,19 @@ pub struct Game<M: Machine> {
     /// `Game::<m32::Vm>::task_phase`; `None` on the 16-bit machine, whose
     /// games have no such pair.
     pub(crate) shell: Option<crate::titles::motion32::Shell>,
-    /// The screens' controllers still to run this frame, innermost last.
+    /// The screens' controllers still to run this frame, innermost last —
+    /// the 32-bit frame's.
     ///
     /// A frame is every screen's controller in turn, not one — see
     /// [`Game::step`]. The list is built when a frame starts and drained as
     /// the words run, so a controller that blocks keeps its place and the
     /// ones behind it wait for the frames it takes.
     pub(crate) frame_controllers: Vec<i32>,
+    /// The phases of the 16-bit frame still to run, in order — see
+    /// [`Game::step16`]. Built from a snapshot when a frame starts and
+    /// drained as the phases run, so a controller that blocks, or a fade a
+    /// callback queues, holds the phases behind it for the steps it takes.
+    pub(crate) frame16: VecDeque<Phase16>,
     /// Whether a word is part-way through and waiting to be resumed.
     pub(crate) running: bool,
     /// Whether the execution now on the machine is the one put back after
@@ -261,12 +268,17 @@ where
         self.pointer_buttons(left, right)
     }
 
-    /// Hands the game the key `?KEY` answers this frame, into the engine's
-    /// record and nowhere else. Both frame handlers store it for themselves:
-    /// `ICTRL` opens with `?KEY DUP _AKTKEY !` (module 4, `0x022a0`), and
-    /// `CTRL` puts `?KEY` into `_AKTKEY` the same way.
+    /// Hands the game a keystroke, into the keyboard buffer `?KEY` takes
+    /// from and nowhere else; 0 is no keystroke. It waits there until a
+    /// `?KEY` reads it, as a keystroke in the BIOS buffer does — both frame
+    /// handlers take one a frame and store it for themselves: `ICTRL` opens
+    /// with `?KEY DUP _AKTKEY !` (module 4, `0x022a0`), and `CTRL` puts
+    /// `?KEY` into `_AKTKEY` the same way — and a script polling in a loop
+    /// of its own finds it on whichever frame its `?KEY` comes round.
     pub fn deliver_key(&mut self, key: i32) -> Result<()> {
-        self.engine.input.key = key;
+        if key != 0 {
+            self.engine.enqueue_key(key);
+        }
         Ok(())
     }
 
@@ -501,11 +513,15 @@ where
         if !self.engine.main_loop
             && let Some(saved) = self.parked.take()
         {
+            self.frame16.clear();
             self.vm.unpark(saved);
             self.running = true;
             self.ending = true;
             self.pump()?;
             return Ok(());
+        }
+        if self.engine.profile.frame_by_screen {
+            return self.step16();
         }
         // Once `START` has handed a controller to `CTRL`, that word is the
         // frame. It calls the location handler, acts on `_NEXTLOC` and drives
@@ -620,16 +636,169 @@ where
         Ok(())
     }
 
-    /// The per-frame walk over the descriptors, as `ANIMPLAY` runs it.
+    /// The 16-bit frame, as `ANIMPLAY` runs it (`ENVIRO.EXE`
+    /// `016a:0516`–`07f9`; `LL.EXE` `0104:5528` on, with three screen
+    /// slots).
     ///
-    /// In the original this is 0x68c64, called from inside the frame loop right
-    /// after the controller, recursing down the descriptor tree. Here the order
-    /// comes from [`Engine::frame_order`] instead of from links — see there for
-    /// why the two are the same order and not merely a plausible one.
+    /// The loop first takes a snapshot of every screen's controller id and
+    /// of every descriptor's callback, flags and wait (`016a:0516`–`05ce`).
+    /// Then, for screen 0 and screen 1 in turn: the callbacks of the
+    /// descriptors the snapshot found due — callback set, active bit on,
+    /// wait 0 — in table order, each with its screen and number made
+    /// current, while a descriptor the snapshot found counting has its
+    /// live wait decremented; then the screen's controller, with the screen
+    /// made current; then the screen's restore-and-draw, which an inactive
+    /// screen skips. After both screens the loop waits out the `DELAY`
+    /// tick, blits both screens' dirty rectangles and steps a running
+    /// palette fade. A screen that is inactive gets no callbacks and still
+    /// gets its controller — Victor Loomes' hidden panel comes back that
+    /// way; while `FREEZESCR` stands no screen gets callbacks and every one
+    /// gets its controller. `QUITANIM` is tested after the blit, so the
+    /// frame it ran in is still drawn.
+    ///
+    /// The phases are built once, at the frame's start, and drained one by
+    /// one. A controller that blocks — a fade spun inside its word — keeps
+    /// the phases behind it waiting for the steps the fade takes, and a
+    /// fade a callback queues holds them the same way: the original runs the
+    /// fade inside the word and goes on with the frame after. A frame with
+    /// `ANIMPLAY` not entered runs nothing, for the reason given above the
+    /// 32-bit frame: no stand-in loop here.
+    fn step16(&mut self) -> Result<()> {
+        if !self.engine.main_loop {
+            return Ok(());
+        }
+        if self.frame16.is_empty() {
+            self.begin_frame16();
+        }
+        while let Some(&phase) = self.frame16.front() {
+            // A fade queued by the phase before — a callback's `call_nested`
+            // does not pause — plays out here, one band a step, before the
+            // frame goes on: inside the word, as the original has it.
+            if self.engine.in_transition() {
+                self.engine.advance_curtain();
+                if self.engine.in_transition() {
+                    return Ok(());
+                }
+            }
+            self.frame16.pop_front();
+            match phase {
+                Phase16::Descriptor {
+                    screen,
+                    handle,
+                    callback,
+                    wait,
+                } => {
+                    if wait != 0 {
+                        self.engine.count_down_on(screen, handle);
+                        continue;
+                    }
+                    let Some(addr) = self.vm.callback_target(callback) else {
+                        continue;
+                    };
+                    // `016a:05d6`: the screen into `DS:0x5de2`, the number
+                    // into `DS:0x3058` — on this machine a number names a
+                    // descriptor only together with its screen.
+                    self.engine.select_screen(screen);
+                    self.engine.select_descriptor(handle);
+                    self.vm.call_nested(addr, &mut self.engine)?;
+                }
+                Phase16::Controller { screen, id } => {
+                    let Some(addr) = self.vm.callback_target(id) else {
+                        continue;
+                    };
+                    self.engine.select_screen(screen);
+                    self.vm.start(addr)?;
+                    self.running = true;
+                    self.pump()?;
+                    if self.running {
+                        return Ok(());
+                    }
+                }
+                Phase16::Draw(screen) => {
+                    // `016a:0821`: nothing for a screen that is switched off.
+                    if self
+                        .engine
+                        .display
+                        .screens
+                        .iter()
+                        .any(|s| s.handle == screen && s.active)
+                    {
+                        self.engine.lay_out_texts(self.vm.space());
+                        self.engine.draw_screen(screen);
+                    }
+                }
+                Phase16::Present => {
+                    self.engine.present();
+                    // Last in the frame, after the blit (`LL.EXE`
+                    // `0104:5756`): the rotating palette's turn, if
+                    // `SETCYCLE` armed one.
+                    self.engine.tick_palette_cycle();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The snapshot the 16-bit frame runs from (`016a:0516`–`05ce`): every
+    /// screen's controller id, and for every descriptor of a screen that is
+    /// on and not frozen its callback, active bit and wait — a descriptor
+    /// with no callback (`+0x20` −1, which 0 and −1 both store), inactive,
+    /// or with its wait at −1 is left out of the walk entirely, and the rest
+    /// are run or counted by what the snapshot held, not by what an earlier
+    /// callback in the same frame has since written.
+    fn begin_frame16(&mut self) {
+        let screens: Vec<(u32, bool, bool, i32)> = self
+            .engine
+            .display
+            .screens
+            .iter()
+            .map(|s| (s.handle, s.active, s.frozen, s.controller))
+            .collect();
+        for (screen, active, frozen, controller) in screens {
+            if active && !frozen {
+                let mut on_screen: Vec<&Descriptor> = self
+                    .engine
+                    .descriptors()
+                    .iter()
+                    .filter(|d| d.screen == screen)
+                    .collect();
+                on_screen.sort_by_key(|d| d.handle);
+                for d in on_screen {
+                    if d.callback > 0 && d.active && d.wait != -1 {
+                        self.frame16.push_back(Phase16::Descriptor {
+                            screen,
+                            handle: d.handle,
+                            callback: d.callback,
+                            wait: d.wait,
+                        });
+                    }
+                }
+            }
+            if controller >= 0 {
+                self.frame16.push_back(Phase16::Controller {
+                    screen,
+                    id: controller,
+                });
+            }
+            self.frame16.push_back(Phase16::Draw(screen));
+        }
+        self.frame16.push_back(Phase16::Present);
+    }
+
+    /// The 32-bit per-frame walk over the descriptors, as `ANIMPLAY` runs it.
+    ///
+    /// In the original this is 0x68c64, called from inside the frame loop
+    /// right after the controller, recursing down the descriptor tree. Here
+    /// the order comes from [`Engine::frame_order`] instead of from links —
+    /// see there for why the two are the same order on that machine. The
+    /// 16-bit frame is [`Game::step16`]'s and never comes here.
     ///
     /// A callback is bytecode and runs re-entrantly, which is what
-    /// `call_nested` is for. It must not block: there is no parking place
-    /// inside a walk, and nothing reached this way does.
+    /// `call_nested` is for. There is no parking place inside a walk, so a
+    /// callback that fades — `DO_INVSEL`'s documents case, the whole game
+    /// menu — does not wait inside its word as the original's does: the
+    /// curtain is queued, the step above holds the drawer until it has run,
+    /// and a `SETPAL` behind it queues with it. Both are recorded departures.
     fn descriptor_frame(&mut self) -> Result<()> {
         for (screen, handle) in self.engine.frame_order() {
             if let Some(word) = self.engine.tick_descriptor_on(screen, handle) {
@@ -711,4 +880,24 @@ where
     pub fn set_music(&mut self, sink: Box<dyn crate::MusicSink>) {
         self.engine.set_music(sink);
     }
+}
+
+/// One phase of the 16-bit frame, as [`Game::step16`] runs them from the
+/// snapshot [`Game::begin_frame16`] took.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Phase16 {
+    /// A descriptor the snapshot found in the walk: its callback runs when
+    /// the snapshotted `wait` is 0, and the live wait counts down otherwise.
+    Descriptor {
+        screen: u32,
+        handle: u32,
+        callback: i32,
+        wait: i32,
+    },
+    /// A screen's controller, by the id the snapshot took.
+    Controller { screen: u32, id: i32 },
+    /// A screen's restore-and-draw.
+    Draw(u32),
+    /// The blit of both screens and the palette step that close the frame.
+    Present,
 }

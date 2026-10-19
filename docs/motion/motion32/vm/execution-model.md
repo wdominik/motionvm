@@ -113,10 +113,15 @@ and reads — no validation of any kind. Scripts rely on it: location 5's macro
 tests `KRSCHRZIEHE @ 0 =` — `KRSCHRZIEHER`, stored truncated to eleven bytes
 (see [Script modules](../formats/script-modules.md)). But that word is the
 *item number* 24 from module 11, not the flag `_?KRSCHRZIEHER` the author
-meant, so the read lands on address 24 — module 0. Location 6 reads through
-Gaby's not-yet-built shadow record the same way. Refusing to answer stopped
-five of the game's sixteen locations, which is how much of the game rests on
-the handler asking no questions. What motionvm answers instead is a
+meant, so the read lands on address 24 — module 0. Location 6 writes and
+reads Gaby's position, route and heading through her not-yet-built shadow
+record the same way, cells 0 to `0x2c` of module 0. Refusing to answer
+stopped five of the game's sixteen locations, which is how much of the game
+rests on the handler asking no questions. Those twelve cells were read out of
+the running original at kernel start-up — `0x40000199`, `−1`, then zeros, so
+address 24 answers 0 and location 5 takes the branch it takes there — and
+`!` is as unchecked as `@`: a value written through a stray pointer is read
+back by the next `@`. What motionvm answers is a
 [departure](../../departures.md).
 
 ## Byte-exact access to packed records

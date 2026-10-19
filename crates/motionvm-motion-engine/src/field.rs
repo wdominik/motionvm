@@ -31,11 +31,16 @@
 )]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Field {
-    /// `SD%SHR` — the scale both axes take when neither has its own.
+    /// `SD%SHR` — on the 32-bit machine, the per-mille scale both axes take
+    /// when neither has its own. The 16-bit word writes the two below and
+    /// no field of its own.
     SD_PCT_SHR,
-    /// `SDV%SHR` — the vertical scale.
+    /// `SDV%SHR` — the vertical scale: per mille on the 32-bit machine, on
+    /// the 16-bit one the target height in pixels or `−1` for natural, as
+    /// the record's `+0xE` holds it (`Profile::scale_in_pixels`).
     SDV_PCT_SHR,
-    /// `SDH%SHR` — the horizontal scale.
+    /// `SDH%SHR` — the horizontal scale, the same way: per mille, or the
+    /// 16-bit record's `+0xC` in pixels.
     SDH_PCT_SHR,
     /// `SDBUF` — the buffer a 16-bit descriptor draws through.
     SDBUF,

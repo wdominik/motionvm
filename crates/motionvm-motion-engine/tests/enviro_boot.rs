@@ -244,9 +244,11 @@ fn the_intro_grid_settles_all_four_motifs_at_full_size() {
         .find(|d| d.handle == mot2 && d.screen == 1)
         .expect("the bottom-left motif")
         .clone();
+    // `1000 SDH%SHR` is stored as the handler stores it: −1, the natural
+    // width (`05f1:23f2`).
     assert_eq!(
         d.fields.get(motionvm_motion_engine::Field::SDH_PCT_SHR),
-        Some(1000),
+        Some(-1),
         "the flip ends at full width"
     );
     assert_eq!((d.x, d.y), (2, 99), "settled at the grid cell");

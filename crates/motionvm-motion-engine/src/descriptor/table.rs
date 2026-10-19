@@ -92,7 +92,8 @@ impl Engine {
         handle
     }
 
-    /// The descriptors in the order the original's per-frame walk visits them.
+    /// The descriptors in the order the 32-bit engine's per-frame walk visits
+    /// them.
     ///
     /// That walk (0x68c64) follows the sibling chain at +0x1E, and the chain is
     /// built by the insertion at 0x6a648, which advances `while cur != sentinel
@@ -100,6 +101,13 @@ impl Engine {
     /// after every entry of the same level or lower: the chain is exactly a
     /// **stable sort by level**, and reproducing the order needs no links of
     /// their own — which is why none are stored here.
+    ///
+    /// The 16-bit loop (`016a:05d6`–`06da`) walks no chain: it takes each
+    /// screen's descriptor table in index order, screen 0 before screen 1,
+    /// with the screen's controller between its callbacks and its draw, and
+    /// decides from a snapshot of callback, flags and wait taken before the
+    /// frame. That machine's frame is its own — `Game::step` builds it from
+    /// the snapshot and never asks here.
     ///
     /// Descriptors belonging to a frozen screen are left out, as the walk
     /// returns on `screen.flags & 4` before touching them. `FREEZESCR` sets
@@ -140,6 +148,22 @@ impl Engine {
             .iter()
             .position(|d| d.screen == screen && d.handle == handle)?;
         self.tick_at(i)
+    }
+
+    /// The 16-bit walk's live countdown: the frame decided from its snapshot
+    /// that this descriptor's wait was counting, and the walk decrements the
+    /// record itself (`016a:05d6`–`06da`, the `else` of the wait test) —
+    /// without looking again, so a wait a callback earlier in the same walk
+    /// has set to 0 counts on to −1, off.
+    pub(crate) fn count_down_on(&mut self, screen: u32, handle: u32) {
+        if let Some(d) = self
+            .scene
+            .descriptors
+            .iter_mut()
+            .find(|d| d.screen == screen && d.handle == handle)
+        {
+            d.wait -= 1;
+        }
     }
 
     fn tick_at(&mut self, i: usize) -> Option<i32> {
@@ -256,16 +280,23 @@ impl Engine {
         }
     }
 
-    /// The walk's scale, put down the way the `SD%SHR` word puts it: the
-    /// one value into the horizontal and the vertical factor both — the
-    /// 32-bit handler writes the pair (`0x721b8`), the 16-bit one calls
-    /// `SDH%SHR` and `SDV%SHR` with it (`0xb38b`). All three fields,
+    /// `SD%SHR`, from the word and from the walk alike: the one value into
+    /// the horizontal and the vertical scale both. The 32-bit handler
+    /// writes the pair of factors (`0x721b8`); the 16-bit one calls
+    /// `SDH%SHR` and `SDV%SHR` with the value (`0xb38b`), and those two
+    /// resolve it to pixels against the sprite the descriptor shows now
+    /// ([`Engine::set_scale`]). On the 32-bit machine all three fields,
     /// because a per-axis value a script has set would otherwise stand,
     /// and the figure would walk the city at the living room's size.
     pub(crate) fn set_shrink(&mut self, v: i32) {
-        self.set_field(Field::SD_PCT_SHR, v);
-        self.set_field(Field::SDH_PCT_SHR, v);
-        self.set_field(Field::SDV_PCT_SHR, v);
+        if self.profile.scale_in_pixels {
+            self.set_scale(Field::SDH_PCT_SHR, v);
+            self.set_scale(Field::SDV_PCT_SHR, v);
+        } else {
+            self.set_field(Field::SD_PCT_SHR, v);
+            self.set_field(Field::SDH_PCT_SHR, v);
+            self.set_field(Field::SDV_PCT_SHR, v);
+        }
     }
 
     /// The next chain stamp — see [`Descriptor::stamp`].

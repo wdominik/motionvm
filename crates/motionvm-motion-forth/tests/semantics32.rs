@@ -418,23 +418,41 @@ fn i_reads_the_return_stack_and_not_only_a_loop() {
 
 // ------------------------------------------------------------------- memory
 
-/// A read from a module that is not loaded answers zero and is counted.
+/// A read from a module that is not loaded answers what is there and is
+/// counted.
 ///
 /// Not an error, on purpose. Location 5's `KRSCHRZIEHE` reads a word that was
 /// never compiled, and refusing to answer stopped the game on five of the
-/// game's locations. Zero is the only value that can be justified, and the read
-/// is recorded so the silence is measurable rather than invisible.
+/// game's locations. What is there is what the kernel held at start-up where
+/// that was measured, what a stray write put there since, and 0 otherwise;
+/// the access is recorded so the silence is measurable rather than invisible.
 #[test]
-fn a_read_from_an_unloaded_module_answers_zero_and_is_counted() {
+fn a_read_from_an_unloaded_module_answers_what_is_there_and_is_counted() {
     let mut vm = machine(&[0], &[]);
     let stray = Address::new(99, 0x10);
     assert_eq!(vm.fetch(stray).expect("a stray read is not an error"), 0);
     assert_eq!(vm.mem.loose().get(&stray), Some(&1));
 
-    // A write to the same place is swallowed the same way.
+    // A write to the same place is kept for the next read, as the original's
+    // `!` leaves it in memory for its `@`.
     vm.store(stray, 5)
         .expect("a stray write is not an error either");
-    assert!(vm.mem.loose().contains_key(&stray));
+    assert_eq!(vm.mem.loose().get(&stray), Some(&2));
+    assert_eq!(vm.fetch(stray).expect("read back"), 5);
+
+    // Module 0's first cells answer what the original's kernel holds at
+    // start-up; location 5's read at offset 24 lands on a 0.
+    assert_eq!(
+        vm.fetch(Address::new(0, 0)).expect("kernel cell"),
+        0x4000_0199
+    );
+    assert_eq!(
+        vm.fetch(Address::new(0, 4)).expect("kernel cell"),
+        0xffff_ffff
+    );
+    assert_eq!(vm.fetch(Address::new(0, 24)).expect("kernel cell"), 0);
+    vm.store(Address::new(0, 4), 7).expect("stray write");
+    assert_eq!(vm.fetch(Address::new(0, 4)).expect("overwritten"), 7);
 }
 
 /// `=>ERASE` gives a module's memory back: once it is unloaded, a call into
@@ -652,9 +670,13 @@ fn random_is_repeatable_from_a_fixed_seed() {
     assert_eq!(first, five(1000), "and the same five every time");
     assert!(first.iter().all(|&v| (0..1000).contains(&v)));
 
-    // `n` at or below zero answers zero rather than dividing by it.
+    // A count of zero faults the original and answers zero here; a negative
+    // count is the unsigned divisor it is there, which leaves the hash as it
+    // is. With no clock (`NullHost` answers 0) the first hash is
+    // `((0 + 331) / 331) xor ((0 − 331) mod 331)` = `1 xor 4` = 5.
     assert_eq!(run(&[prim("RANDOM"), 0], &[0]), [0]);
-    assert_eq!(run(&[prim("RANDOM"), 0], &[-5]), [0]);
+    assert_eq!(run(&[prim("RANDOM"), 0], &[-5]), [5]);
+    assert_eq!(first[0], 5, "the first draw of an unseeded machine");
 }
 
 /// A seed decides the sequence, so a player's run is not everyone's.

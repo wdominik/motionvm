@@ -6,12 +6,69 @@
 //! a frame most of the time and a band during a transition, and the two are far
 //! apart: one tick a band on the title screen against eight ticks a frame.
 //!
-//! The ticks are unit-3 ticks, and turning them into wall-clock time goes
-//! through the original's own two-stage arithmetic — a 1020 Hz master counter
-//! and a truncating ×10/51 conversion — because the truncation is visible:
-//! a 1-tick wait costs 6 master ticks, not 5.1. See [`Engine::frame_duration`].
+//! The ticks are 200 Hz ticks on both machines, and turning them into
+//! wall-clock time goes through each build's own counter and its own
+//! arithmetic ([`MasterClock`]), because the arithmetic is visible: on the
+//! 32-bit engine a 1-tick wait costs 6 master ticks, not 5.1, where the 16-bit
+//! engine's counter has no remainder to carry. See [`Engine::frame_duration`].
 
 use crate::Engine;
+use std::time::Duration;
+
+/// The master counter a build keeps time on: what a wait of ticks costs it,
+/// and what one of its counts is worth on the wall.
+///
+/// Both engines wait by spinning on a reading of a counter their interrupt
+/// advances, and leave the spin once the reading has reached the tick count
+/// asked for. What differs is the counter and the reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MasterClock {
+    /// The 32-bit engine's. A counter at the 1020 Hz the arithmetic implies
+    /// ([`Engine::RAW_TICKS_PER_SECOND`]), read as unit 3 by a truncating
+    /// ×10/51 (`GIVETIMER`, `0x23761`; the spin at `0x74db6`), so a wait of
+    /// `n` ticks first ends at `ceil(51n/10)` counts — the remainder that
+    /// makes a 1-tick band 6 counts and not 5.1.
+    Unit3,
+    /// The 16-bit engine's. The sound driver's counter at `ENVIRO.EXE`
+    /// `DS:0x7bb8`, advanced by its timer interrupt (`19c3:0a40`) once per
+    /// `0x4a9` = 1193 PIT cycles and read as fifths (`110a:042e`, the spin at
+    /// `016a:06dd`), so a wait of `n` ticks ends at exactly `5n` counts, and
+    /// a count is 1193 cycles of the PIT's 1 193 182 Hz — a millisecond to
+    /// within a sixth of a part per thousand, and rendered as such rather
+    /// than rounded. The speed class the reading can divide by further
+    /// (`DS:0x10ce`) is taken as the 0 the file holds.
+    Milliseconds,
+}
+
+impl MasterClock {
+    /// The PIT's input clock, in Hz.
+    const PIT_HZ: u64 = 1_193_182;
+
+    /// What a wait of `ticks` costs the counter: the first count at which
+    /// the reading has reached `ticks`. A count below zero is no wait at all.
+    pub(crate) fn raw_for_wait(self, ticks: i32) -> u64 {
+        let ticks = u64::try_from(ticks).unwrap_or(0);
+        match self {
+            MasterClock::Unit3 => (ticks * 51).div_ceil(10),
+            MasterClock::Milliseconds => ticks * 5,
+        }
+    }
+
+    /// The counter's rate, as counts per second over a denominator.
+    fn rate(self) -> (u64, u64) {
+        match self {
+            MasterClock::Unit3 => (u64::from(Engine::RAW_TICKS_PER_SECOND), 1),
+            MasterClock::Milliseconds => (Self::PIT_HZ, 1193),
+        }
+    }
+
+    /// How long `raw` counts last on the wall.
+    pub(crate) fn duration(self, raw: u64) -> Duration {
+        let (num, den) = self.rate();
+        let nanos = u128::from(raw) * 1_000_000_000 * u128::from(den) / u128::from(num);
+        Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
+    }
+}
 
 impl Engine {
     /// The unit-3 tick rate: what `DELAY` divides by.
@@ -23,16 +80,23 @@ impl Engine {
     /// digit. `25 DELAY` then means the 25 frames a second the game is built
     /// around. Measured against the original running under DOSBox-X — 930
     /// curtain bands, timed by the original's own unit-3 timer — the master
-    /// averages ~978 Hz with and without the HMI drivers loaded: the design
-    /// rate, minus emulator scheduling loss.
+    /// averages ~978 Hz with and without the HMI drivers loaded. Where the
+    /// four per cent go is not measured: the emulator's interrupt batching is
+    /// the likely place, the provider's own rate another.
     pub const TICKS_PER_SECOND: u32 = 200;
 
     /// The master counter's design rate, from which unit 3 is derived.
     ///
-    /// ×10/51 is `/5.1`, and `/5.1` lands on a whole number of Hz only at
-    /// 1020. A real PIT can merely approximate it (divisor 1170 →
-    /// 1019.81 Hz); the arithmetic the engine actually does is 1020/200
-    /// exactly, so that is what gets rendered into time here.
+    /// A model the engine's arithmetic implies, not a measured provider.
+    /// ×10/51 is `/5.1`, and `/5.1` yields the 200 Hz that `DELAY`'s `200/n`
+    /// assumes at exactly 1020 — not because 1020 is the one rate that
+    /// divides to a whole number (510 gives 100, 1530 gives 300) but because
+    /// 200 is the rate the rest of the engine is written against. A real PIT
+    /// can merely approximate it (divisor 1170 → 1019.81 Hz), and which timer
+    /// feeds the counter sits behind a loader-patched thunk that is not read.
+    /// The arithmetic the engine does is 1020/200 exactly, so that is what
+    /// gets rendered into time here; a provider rate read off the binary
+    /// would replace this one constant.
     pub const RAW_TICKS_PER_SECOND: u32 = 1020;
 
     /// How long the next step lasts, in ticks — and a step is not always a
@@ -66,35 +130,37 @@ impl Engine {
         }
     }
 
-    /// What a wait of `ticks` unit-3 ticks costs in master ticks: the
-    /// original's spin quantized.
+    /// What a wait of `ticks` costs in master ticks: the build's spin
+    /// quantized ([`MasterClock::raw_for_wait`]).
     ///
-    /// The spin at `0x74db6` (and `ANIMPLAY`'s limiter at `0x690e9`) polls
-    /// `GIVETIMER`, which truncates `raw × 10 / 51` (`0x23761`), and leaves
-    /// once the result reaches `ticks` — which first happens at
-    /// `ceil(ticks × 51/10)` master ticks. The remainder is the visible part:
-    /// a 1-tick band costs 6 master ticks (5.88 ms), not 5.1; a 10-tick band
-    /// costs 51, which is 50 ms exactly. The stretch lands only on the short
-    /// delays — the intro's full-screen fades — and skipping it is what made
-    /// them run 15 % fast.
-    fn quantized_raw(ticks: i32) -> u64 {
-        // A count below zero is no wait at all.
-        (u64::try_from(ticks).unwrap_or(0) * 51).div_ceil(10)
+    /// On the 32-bit engine the spin at `0x74db6` (and `ANIMPLAY`'s limiter
+    /// at `0x690e9`) polls `GIVETIMER`, which truncates `raw × 10 / 51`
+    /// (`0x23761`), and leaves once the result reaches `ticks` — which first
+    /// happens at `ceil(ticks × 51/10)` master ticks. The remainder is the
+    /// visible part: a 1-tick band costs 6 master ticks (5.88 ms), not 5.1;
+    /// a 10-tick band costs 51, which is 50 ms exactly. The stretch lands
+    /// only on the short delays — the intro's full-screen fades — and
+    /// skipping it is what made them run 15 % fast. The 16-bit spin reads
+    /// a millisecond counter as fifths, and `ticks` costs exactly five
+    /// times itself.
+    fn quantized_raw(&self, ticks: i32) -> u64 {
+        self.profile.clock.raw_for_wait(ticks)
     }
 
     /// What the step about to run costs the master counter, in its own
     /// ticks: the spin's quantization of the frame or band, or, for a frame
     /// of a running slide, one refresh of the display.
     ///
-    /// The slide's frames are paced by the vertical retrace (`0x6cdf4`
-    /// polls port `0x3da`), not by the tick clock, and the refresh of VESA
-    /// mode `0x101` is 60 Hz — which divides the 1020 Hz master exactly, so
-    /// nothing is rounded: seventeen master ticks a frame.
+    /// The 32-bit slide's frames are paced by the vertical retrace
+    /// (`0x6cdf4` polls port `0x3da`), not by the tick clock, and the
+    /// refresh of VESA mode `0x101` is 60 Hz — which divides the 1020 Hz
+    /// master exactly, so nothing is rounded: seventeen master ticks a
+    /// frame. Only that machine slides; the 16-bit scroll runs on frames.
     pub(crate) fn step_raw_ticks(&self) -> u64 {
         if self.transitions.slide.is_some() {
             return u64::from(Self::RAW_TICKS_PER_SECOND / crate::Slide::REFRESH_HZ);
         }
-        Self::quantized_raw(self.step_ticks())
+        self.quantized_raw(self.step_ticks())
     }
 
     /// How long the next frame should last, in wall-clock time.
@@ -107,19 +173,16 @@ impl Engine {
     /// ask before a window ever calls, so the answer is real from the first
     /// frame on for both machines.
     ///
-    /// `Engine::step_raw_ticks` rendered at the master rate. `None` when
-    /// the count is not positive — `DELAY -1` is the original's "do not wait
-    /// at all" — and a frontend then runs at whatever pace it likes. The
-    /// quantization also touches the frame: eight ticks cost 41 master
-    /// ticks, 40.2 ms, so the game runs at 24.88 fps as the original does,
-    /// not a rounder 25.
-    pub fn frame_duration(&self) -> Option<std::time::Duration> {
+    /// `Engine::step_raw_ticks` rendered at the build's master rate. `None`
+    /// when the count is not positive — `DELAY -1` is the original's "do not
+    /// wait at all" — and a frontend then runs at whatever pace it likes.
+    /// The 32-bit quantization also touches the frame: eight ticks cost 41
+    /// master ticks, 40.2 ms, so that game runs at 24.88 fps as the original
+    /// does, not a rounder 25; the 16-bit frame of 13 ticks is 65 counts of a
+    /// millisecond counter, 64.99 ms at the PIT's rate.
+    pub fn frame_duration(&self) -> Option<Duration> {
         let raw = self.step_raw_ticks();
-        (raw > 0).then(|| {
-            std::time::Duration::from_nanos(
-                1_000_000_000u64 * raw / u64::from(Self::RAW_TICKS_PER_SECOND),
-            )
-        })
+        (raw > 0).then(|| self.profile.clock.duration(raw))
     }
 
     /// The master counter as the frames so far have advanced it.
@@ -277,7 +340,6 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     /// The spin's quantization, pinned to the values the original's
     /// arithmetic produces: `ceil(ticks × 51/10)` master ticks (`0x236FE`,
@@ -285,22 +347,35 @@ mod tests {
     /// 1, 2 and 10 (480/400/80 rows), and the frame is 8 ticks.
     #[test]
     fn the_spin_quantizes_as_the_original_divides() {
-        assert_eq!(Engine::quantized_raw(1), 6, "480-row band");
-        assert_eq!(Engine::quantized_raw(2), 11, "400-row band");
-        assert_eq!(Engine::quantized_raw(10), 51, "80-row band");
-        assert_eq!(Engine::quantized_raw(8), 41, "the 25-fps frame");
+        let unit3 = MasterClock::Unit3;
+        assert_eq!(unit3.raw_for_wait(1), 6, "480-row band");
+        assert_eq!(unit3.raw_for_wait(2), 11, "400-row band");
+        assert_eq!(unit3.raw_for_wait(10), 51, "80-row band");
+        assert_eq!(unit3.raw_for_wait(8), 41, "the 25-fps frame");
+        assert_eq!(unit3.raw_for_wait(-1), 0, "no wait at all");
+    }
+
+    /// The 16-bit counter: a wait of `n` ticks is `5n` milliseconds of the
+    /// driver's interrupt, which runs at 1 193 182 / 1193 Hz — the `15
+    /// DELAY` frame of 13 ticks is 65 counts, 64.99 ms, and `ENDTUNE`'s
+    /// hold of 100 ticks is 499.92 ms, not the 500 the 32-bit arithmetic
+    /// would give it.
+    #[test]
+    fn the_millisecond_counter_carries_no_remainder() {
+        let ms = MasterClock::Milliseconds;
+        assert_eq!(ms.raw_for_wait(13), 65);
+        assert_eq!(ms.raw_for_wait(1), 5);
+        assert_eq!(ms.raw_for_wait(-1), 0);
+        assert_eq!(ms.duration(65).as_micros(), 64_990);
+        assert_eq!(ms.duration(500).as_micros(), 499_923);
+        assert_eq!(MasterClock::Unit3.duration(1020).as_millis(), 1000);
     }
 
     /// The whole-fade durations, through the public conversion: passes ×
     /// per-band duration.
     #[test]
     fn the_fades_last_what_the_arithmetic_says() {
-        let band = |ticks| {
-            Duration::from_nanos(
-                1_000_000_000 * Engine::quantized_raw(ticks)
-                    / u64::from(Engine::RAW_TICKS_PER_SECOND),
-            )
-        };
+        let band = |ticks| MasterClock::Unit3.duration(MasterClock::Unit3.raw_for_wait(ticks));
         // 31 passes at delay 1, 26 at delay 2, 6 at delay 10.
         assert_eq!((band(1) * 31).as_millis(), 182);
         assert_eq!((band(2) * 26).as_millis(), 280);
@@ -332,10 +407,14 @@ mod tests {
         assert_eq!(e.give_timer(unit3), None);
     }
 
-    /// The master counter moves by what a step is worth, and a slide's frame
-    /// by exactly one refresh.
+    /// The master counter moves by what a step is worth on its machine, and
+    /// a slide's frame by exactly one refresh.
     #[test]
     fn the_clock_advances_by_the_step() {
+        let mut e = Engine::new(crate::Profile::motion16());
+        e.frame_ticks = 13;
+        e.advance_clock();
+        assert_eq!(e.master_ticks(), 65, "a 15 DELAY frame is 65 milliseconds");
         let mut e = Engine::new(crate::Profile::motion32());
         e.advance_clock();
         assert_eq!(e.master_ticks(), 41, "a 25-fps frame is 41 master ticks");

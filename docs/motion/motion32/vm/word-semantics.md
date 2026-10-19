@@ -186,9 +186,10 @@ is a divisor above two billion, which leaves `r` as it is. No shipped
 module asks either — all 237 sites push a positive literal, 4 at 124 of
 them. The 16-bit engine carries the same generator to the word, on 16-bit
 values, over its millisecond counter divided by five
-([16-bit kernel words](../../motion16/vm/kernel-words.md#random)). What the
-rebuild does instead, and why, is on the [departures](../../departures.md)
-page.
+([16-bit kernel words](../../motion16/vm/kernel-words.md#random)). motionvm
+runs this arithmetic with the master counter as its frames have advanced it
+for `t`; what that is a departure from, and why, is on the
+[departures](../../departures.md#the-virtual-machine) page.
 
 ## Open questions
 

@@ -7,8 +7,9 @@
 A point-and-click adventure about a teenager who finds the town's memorial
 stone daubed with far-right graffiti and follows the trail — through a
 bulletin board where the people who did it talk to each other — back to the
-people he thought he had seen the last of. It is the only game in this corpus
-on the 32-bit engine, and the newest of the six.
+people he thought he had seen the last of. It is one of two games in this
+corpus on the 32-bit engine — Checker 2000 runs on an earlier build of it —
+and the newest of the seven.
 
 ## At a glance
 

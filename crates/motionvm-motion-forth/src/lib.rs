@@ -474,6 +474,15 @@ pub trait Host<M> {
     fn wants_pause(&mut self) -> bool {
         false
     }
+
+    /// The clock `RANDOM` hashes: the original's generator reads its
+    /// engine's tick counter at the instant of each call (`ENGINE.EXE`
+    /// `0x24219` through the pointer at `0xE7F38`; `ENVIRO.EXE` `110a:04a8`
+    /// through its millisecond counter read as fifths). A host with no clock
+    /// answers 0, and the hash then turns on the counter alone.
+    fn random_clock(&mut self) -> u32 {
+        0
+    }
 }
 
 /// A host that implements nothing, for running pure computation, on either

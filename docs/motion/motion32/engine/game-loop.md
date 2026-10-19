@@ -82,7 +82,9 @@ measurement is the engine's own timers read back out of a running game,
 not a reading of the code. Driving 930 curtain bands
 through `FADEOUT`/`FADEIN` while an `OPENTIMER` unit-3 timer watches:
 the engine's own count divided by the captured wall time gives a master
-of **~978 Hz** — the design rate, minus emulator scheduling loss — and
+of **~978 Hz** — four per cent under the design rate, a gap this
+measurement cannot divide between the provider's own rate and the
+emulator's interrupt delivery — and
 loading the HMI drivers (SB16 + MPU-401) changes neither count nor wall
 time (R 2920 vs 2922, 15.23 s vs 15.24 s), so the digital path's
 1500.86 Hz service master (see [Audio](audio.md)) is a *different* rate

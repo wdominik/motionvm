@@ -6,6 +6,101 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-19
+
+**A 16-bit savegame from an earlier build loads, and a scaled descriptor in
+it stands at the wrong size.** The two scale fields of the 16-bit descriptor
+record now hold pixels, as the original's do; a slot written by 0.10.0 holds
+the per-mille factors it stored, which this reader takes as pixels. The
+walker scales itself again on its first step, and every other scaled
+descriptor stands wrong until its script scales it again. The layout is the
+same version 1 as before and is not told apart.
+
+### Fixed
+
+- **The 16-bit scale words store pixels.** `SDH%SHR` and `SDV%SHR`
+  (`ENVIRO.EXE` `05f1:23f2`, `05f1:246f`) resolve the per-mille argument
+  against the current sprite's width or height on the spot and store the
+  result — `1000` and `−1` as natural size — and the drawer (`016a:100d`)
+  draws that many pixels, the natural size where a field is unset, and
+  nothing for 0, through a scaler (`18f3:0699`) that picks source pixels by
+  `x · natural / target`. The engine kept the per-mille factor and
+  multiplied by whatever sprite was current at paint time, which agreed
+  with the original only where a script wrote scale and sprite together
+  and drew `0 SDH%SHR` at full size. The 32-bit engine stores factors
+  (`0x721b8`) and is unchanged.
+- **The 16-bit games keep their own clock.** Their frame loop waits on a
+  counter the sound driver's timer interrupt advances once per 1193 PIT
+  cycles — a millisecond — read as fifths (`ENVIRO.EXE` `110a:042e`,
+  `19c3:0a40`), so a wait of `n` ticks is exactly `5n` of them, 65 ms for
+  the `15 DELAY` frame. The engine ran every build on the 32-bit master
+  instead, a 1020 Hz design rate with `GIVETIMER`'s ×10/51 remainder
+  carried into each wait, which made that frame 65.69 ms and the half-second
+  hold of a room change 500 ms where the original's is 499.9. One per cent,
+  but against a music player on its own clock, and now gone: the master
+  counter is the build's, and the 32-bit one is as it was.
+- **A stray pointer into module 0 reads what the kernel holds there.** The
+  first twelve cells of Dunkle Schatten 2's module 0 were read out of the
+  running original at kernel start-up — `0x40000199`, `−1`, then zeros to
+  offset `0x2c` — and a read through a stray pointer now answers those,
+  where every one answered 0 on an assumption. Location 5's misnamed flag
+  test lands on offset 24 and takes the branch the original takes. A `!`
+  through such a pointer, which location 6 does for Gaby's position, route
+  and heading before her shadow record exists, is kept and read back by the
+  next `@` as the original's memory keeps it; it was counted and dropped,
+  and the read after it answered 0 regardless.
+- **The 16-bit frame runs in the 16-bit loop's order.** `ANIMPLAY`
+  (`ENVIRO.EXE` `016a:0516`–`07f9`) snapshots every controller id and every
+  descriptor's callback, flags and wait, then for screen 0 and screen 1 in
+  turn runs the callbacks the snapshot found due in table order, that
+  screen's controller, and that screen's draw; the blit of both screens and
+  the palette step close the frame, and a fade a word starts holds the rest
+  of the frame inside the word. The engine ran the 16-bit games on the
+  32-bit schedule — every controller first, then one walk over both screens
+  sorted by level deciding from the live fields, then one draw — so a
+  controller's write to a callback, a callback's write to another's wait,
+  and a level set across screens each landed a frame early or in another
+  order. `FREEZESCR` freezes every screen at once there, as the one cell it
+  writes does. The 32-bit frame is as it was.
+- **A keystroke waits until `?KEY` takes it.** `?KEY` reads the BIOS
+  type-ahead buffer (INT 16h AH=01, then AH=00; `ENGINE.EXE` `0x6258c`,
+  `ENVIRO.EXE` `12c8:063c`), so a keystroke stays there, however many
+  frames pass, until a script's `?KEY` comes round. The engine took one
+  keystroke out of the buffer every step and held it for that step alone —
+  which lost two of every three keystrokes to a script waiting in a `BEGIN …
+  ?KEY … UNTIL` of its own, where the yield on every poll brings `?KEY`
+  round every third frame, and let two `?KEY`s in one frame read the same
+  key twice. Now the buffer is read by `?KEY` and `KEY` alone, one keystroke
+  a read, and the request box takes a keystroke the way the original's own
+  loop does.
+- **`RANDOM` is the original's generator.** Both engines hash a counter
+  stepped by 331 a call against their tick clock — `((t + s) / s) xor ((t −
+  s) mod s)`, unsigned, on 32-bit values in `ENGINE.EXE` (`0x24219`) and on
+  16-bit ones in `ENVIRO.EXE` (`110a:04a8`) — and reduce it modulo the count
+  on the stack, a negative count as the unsigned divisor it is. The engine
+  drew from a linear congruential generator of its own instead, which gave
+  every choice the scripts make a distribution and a run of answers the
+  original never produces. The clock the hash reads is the engine's: the
+  master counter as the frames advance it on the 32-bit machine, and 0 on the
+  16-bit one, whose counter the frame loop resets after every wait. A seed
+  still sets the counter, so a seeded run is a player's own and an unseeded
+  one the suite's.
+
+### Changed
+
+- **The documentation says what is read and what is modelled.** The 16-bit
+  frame loop's page names the handlers it is read from instead of calling
+  them unread; the departures page carries the three ways the 16-bit frame
+  differs from the 32-bit schedule it runs on — phase, order and snapshot —
+  rather than the one; the scheduler's comments say whose order the walk is
+  and that a callback's fade is queued rather than waited for; `KILLNBUF`'s
+  comment cites its handler. The 1020 Hz master is marked as the model the
+  engine's arithmetic implies, with the measured ~978 Hz and the unread
+  provider beside it, on the clock, the game-loop page and the open
+  questions alike. The dialogue name lookup's departure, which the lookup
+  taking slot order had resolved, leaves the open questions, and Dunkle
+  Schatten 2's page counts seven games and two 32-bit builds.
+
 ## [0.10.0] - 2026-09-07
 
 **Savegames written by earlier builds do not load.** The layout changed
@@ -1277,7 +1372,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/wdominik/motionvm/releases/tag/v0.11.0
 [0.10.0]: https://github.com/wdominik/motionvm/releases/tag/v0.10.0
 [0.9.0]: https://github.com/wdominik/motionvm/releases/tag/v0.9.0
 [0.8.0]: https://github.com/wdominik/motionvm/releases/tag/v0.8.0

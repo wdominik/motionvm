@@ -37,12 +37,14 @@ pub(crate) struct Core {
     /// Deterministic source for `RANDOM`: a seeded LCG, never the clock or
     /// the operating system's entropy.
     ///
-    /// The engine reads no wall clock anywhere, and this is the other half of
-    /// that: a given input state has to render a given frame, every time, or
-    /// comparing two renderings of a scene across a change proves nothing —
-    /// which is how the drawing code in this project is verified. A player's
-    /// run is seeded from the platform instead; see [`Core::seed`].
-    rng: u32,
+    /// `RANDOM`'s counter: the original's cell at `0xE7F4C` (`ENGINE.EXE`)
+    /// and `DS:0x7b9e` (`ENVIRO.EXE`), 0 at start, stepped by 331 a call.
+    /// The other input is the clock, which the host supplies at each call
+    /// ([`crate::Host::random_clock`]); the engine reads no wall clock
+    /// anywhere, so a given input state renders a given frame every time —
+    /// which is how the drawing code in this project is verified — and a
+    /// player's run is seeded from the platform instead; see [`Core::seed`].
+    random_step: u32,
     /// How deep inside a nested call the machine is. Non-zero means pausing is
     /// suppressed.
     nested: u32,
@@ -55,7 +57,7 @@ impl Default for Core {
             counters: Counters::default(),
             step_limit: 5_000_000,
             trace: None,
-            rng: 0x1234_5678,
+            random_step: 0,
             nested: 0,
         }
     }
@@ -154,25 +156,46 @@ impl Core {
         self.trace.as_ref()?.last().map(String::as_str)
     }
 
-    /// Reseeds `RANDOM`'s generator; see [`crate::Machine::seed`].
+    /// Reseeds `RANDOM`'s counter; see [`crate::Machine::seed`].
     ///
-    /// The state is 32 bits wide, so the low half of the seed is what reaches
-    /// it and the rest is dropped rather than folded in: a caller with real
-    /// entropy has it in the low bits, and a fold would make two seeds that
-    /// look different behave the same in a way nothing would report.
+    /// The counter is 32 bits wide, so the low half of the seed is what
+    /// reaches it and the rest is dropped rather than folded in: a caller
+    /// with real entropy has it in the low bits, and a fold would make two
+    /// seeds that look different behave the same in a way nothing would
+    /// report. The original has no seed — its counter starts at 0 and the
+    /// clock does the rest — so an unseeded machine starts where it does.
     pub(crate) fn seed(&mut self, seed: u64) {
         let [a, b, c, d, ..] = seed.to_le_bytes();
-        self.rng = u32::from_le_bytes([a, b, c, d]);
+        self.random_step = u32::from_le_bytes([a, b, c, d]);
     }
 
-    /// The next number `RANDOM` draws.
+    /// The next hash `RANDOM` reduces, over the clock reading `t`: the
+    /// original's generator (`ENGINE.EXE` `0x24219`), read and rebuilt.
     ///
-    /// Any decent generator will do; what matters is that it is repeatable.
-    /// The original's is not a generator at all but a hash of its interrupt
-    /// clock — read, and deliberately not reproduced, since this machine
-    /// reads no clock; this one is a recorded departure.
-    pub(crate) fn next_rng(&mut self) -> u32 {
-        self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        self.rng
+    /// The counter steps by 331 and is set to 1 when it lands on 0, and the
+    /// hash is `((t + s) / s) xor ((t − s) mod s)`, every operation unsigned
+    /// and wrapping in the width given — 32 bits on the 32-bit machine, 16
+    /// on the 16-bit one, whose copy (`ENVIRO.EXE` `110a:04a8`) does the same
+    /// on words, counter included.
+    pub(crate) fn next_random(&mut self, t: u32, wide: bool) -> u32 {
+        if wide {
+            let mut s = self.random_step.wrapping_add(331);
+            if s == 0 {
+                s = 1;
+            }
+            self.random_step = s;
+            (t.wrapping_add(s) / s) ^ (t.wrapping_sub(s) % s)
+        } else {
+            // The low word of each, as a 16-bit machine holds them; the
+            // mask makes the conversions total.
+            let word = |v: u32| u16::try_from(v & 0xffff).unwrap_or(0);
+            let mut s = word(self.random_step).wrapping_add(331);
+            if s == 0 {
+                s = 1;
+            }
+            self.random_step = u32::from(s);
+            let t = word(t);
+            u32::from((t.wrapping_add(s) / s) ^ (t.wrapping_sub(s) % s))
+        }
     }
 }

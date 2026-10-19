@@ -25,17 +25,16 @@ pub(crate) struct Input {
     /// handler reads — `ICTRL` calls `MOUSELK` itself and stores the result.
     pub(crate) mouse: Mouse,
 
-    /// The key waiting to be read, or 0 for none.
-    ///
-    /// The mouse reaches the game through module variables, because the native
-    /// loop wrote them and no bytecode does. The keyboard does not: `?KEY` and
-    /// its relatives are kernel words that asked the BIOS directly, so the
-    /// state has to live here instead.
-    pub(crate) key: i32,
-
     /// The keystrokes the game has not taken yet, oldest first — the BIOS
-    /// type-ahead buffer `?KEY` reads through INT 16h, [`crate::keys::SLOTS`] deep,
-    /// drained one keystroke per frame the way the original's loop drains it.
+    /// type-ahead buffer `?KEY` reads through INT 16h, [`crate::keys::SLOTS`]
+    /// deep. A keystroke waits here until a `?KEY` takes it, however many
+    /// frames that is: the original's loop drains nothing itself, and a
+    /// script polling once a frame — or once every third frame, as a `BEGIN
+    /// … ?KEY … UNTIL` that yields on every poll does — finds the key where
+    /// the BIOS kept it. The mouse reaches the game through module
+    /// variables instead, because the native loop wrote them and no bytecode
+    /// does; `?KEY` and its relatives asked the BIOS directly, so their
+    /// state lives here.
     pub(crate) buffer: std::collections::VecDeque<i32>,
 
     /// How often this frame's bytecode has asked for the pointer or a key.

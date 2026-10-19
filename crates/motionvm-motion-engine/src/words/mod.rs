@@ -70,6 +70,14 @@ impl Host<m32::Vm> for Engine {
         self.in_transition() || self.entering_loop || self.poll_yield()
     }
 
+    /// The master counter as the frames have advanced it — the count the
+    /// original's generator reads through `0xE7F38`, the same the timers
+    /// measure against. Every call in one frame sees the same count and
+    /// differs by the counter alone; the original's see counts a few apart.
+    fn random_clock(&mut self) -> u32 {
+        cell::narrow(usize::try_from(self.master_ticks).unwrap_or(usize::MAX))
+    }
+
     /// The ordinal is resolved through the table the opener built; an ordinal
     /// this engine has no word for is not ours, and the machine reports it by
     /// name.
@@ -208,6 +216,15 @@ impl Host<forth::m16::Vm> for Engine {
         // original's own handler holds it: inside the word, until a click.
         let asking = self.request.as_ref().is_some_and(|r| r.answer.is_none());
         asking || self.in_transition() || self.entering_loop || self.poll_yield()
+    }
+
+    /// What the 16-bit generator's clock reads inside a frame: the
+    /// millisecond counter as fifths since the end of the frame's wait,
+    /// where `ANIMPLAY` resets it (`016a:06ea`) — the counts the frame's
+    /// own blit and bytecode have taken so far, 0 to 2 on the hardware of
+    /// the day. This engine runs a frame's bytecode in no time, so 0.
+    fn random_clock(&mut self) -> u32 {
+        0
     }
 
     /// The 16-bit machine's words. Three need the machine itself — the two

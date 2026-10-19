@@ -71,8 +71,8 @@ impl Buffers {
     /// The one call site is `?LPB 1 + -1 KILLNBUF` in `INCLLOC`, beside
     /// `?LPD 1 + KILLNDESC` which drops the descriptors from a handle upward
     /// — so the buffers from the next person buffer upward are dropped with
-    /// them. The -1 is read as "to the end" by that analogy; the handler is
-    /// unread.
+    /// them. The handler (file `0xafab`) reads -1 as the last of the kernel's
+    /// 80 buffer records, 79, so the range runs to the end of the table.
     pub fn kill(&mut self, from: i32, to: i32) {
         self.by_id
             .retain(|&id, _| id < from || (to != -1 && id > to));

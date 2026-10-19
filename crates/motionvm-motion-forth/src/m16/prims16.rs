@@ -452,17 +452,21 @@ impl Vm {
                 }
             }
 
-            // `RANDOM ( n -- r )`: `r` in `0..n`. The original divides
-            // unsigned — a zero would fault it and a negative count leaves
-            // its hash unreduced — and no shipped call pushes either, so
-            // zero is what those get here.
+            // `RANDOM ( n -- r )`: the hash over the host's clock on 16-bit
+            // values, reduced modulo `n` as a word, unsigned (`12c8:10f6` →
+            // `110a:04a8`). A negative count is the divisor above thirty
+            // thousand it is there, which leaves the hash as it is; a zero
+            // would fault the original, and answers 0 here. No shipped call
+            // pushes either.
             Prim::Random => {
                 let n = self.pop("RANDOM")?;
-                let r = self.next_rng();
-                self.push(if n > 0 {
-                    cell::signed(r % cell::unsigned(n))
-                } else {
+                let t = host.random_clock();
+                let r = self.next_random(t);
+                let n = cell::low16(n);
+                self.push(if n == 0 {
                     0
+                } else {
+                    i32::from(cell::low16(cell::signed(r)) % n)
                 });
             }
             // `EXECUTE ( id -- )`: a global word id, through the table —

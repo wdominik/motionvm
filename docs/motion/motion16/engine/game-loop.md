@@ -9,8 +9,10 @@ The engine starts the VM at the module and word the container header names
 else is the
 game's Forth. What follows is read from the compiled words `RUN` and `CTRL`
 (module 100), `STARTINTRO` and `ICTRL` (module 610), `INCLLOC` and
-`NEWPERS` (module 605); the kernel handlers they call are unread, and their
-effects below are what the call sites establish.
+`NEWPERS` (module 605). The kernel handlers behind them are read where a
+section says so — the frame loop, `DELAY`, `SCRCTRL`, the controllers of
+switched-off screens — and elsewhere their effects are what the call sites
+establish.
 
 ## `RUN` (module 100, id 401)
 
@@ -97,6 +99,23 @@ still shown. `FREEZESCR` stops the callbacks and keeps the controllers.
 Nothing in the loop polls input: the controller reads the mouse words
 itself.
 
+The decisions are the snapshot's, not the frame's. Before anything runs
+the loop copies every screen's controller id and every descriptor's
+callback, flags and wait (`016a:0516`–`05ce`), and the walk reads the
+copy: a descriptor is in the walk when the copy holds a callback, the
+active bit and a wait other than −1; it runs when the copied wait is 0,
+and otherwise the walk decrements the **live** wait without looking at it
+again. A callback that writes another descriptor's word or wait, or a
+controller that writes a callback, is seen by the next frame. The walk
+takes the screen's table in index order, which is handle order, not the
+draw list's level order. motionvm runs this frame as read on this
+machine — snapshot, screen by screen, the draw of each screen between its
+controller and the next screen's callbacks — and holds the remaining
+phases while a fade a word started plays out, as the original holds them
+inside the word. `FREEZESCR` is one engine-wide cell (`DS:0x05b0`), so
+every screen freezes together; the one-frame hold `GETANIM` writes into
+the same cell is a [departure](../../departures.md#the-16-bit-machine).
+
 **Every screen's controller runs, including a screen that is switched off.**
 The same loop in `LL.EXE` walks three slots (`0104:5528`, `cmp $3,%si`) and
 for each one whose word id is not `0xFFFF` makes that screen current and runs
@@ -120,10 +139,20 @@ verb bar and walking. A debug key prints the mouse coordinates with `.` and
 **`DELAY n` sets the frame period to `200 / n` ticks of a 200 Hz clock**,
 the same rule as the 32-bit engine's — read here, not assumed: the handler
 (file `0xa901`) stores `200 / n` (`DS:0x05a8`, 20 in the file), and the
-loop's wait compares it with a counter the sound driver's timer interrupt
-advances once a millisecond, divided by five. `15 DELAY`, in `RUN` and
-again in `STARTINTRO`, is therefore 13 ticks — 65 ms, a little over 15
-frames a second.
+loop's wait (`016a:06dd`) spins until the clock's reading has reached it.
+The clock is not the 32-bit engine's. The reading (`110a:042e`) is a
+counter at `DS:0x7bb8` divided by five, and the counter is advanced by the
+sound driver's timer interrupt (`19c3:0a40`) once per `0x4a9` = 1193 PIT
+cycles — 1000.15 Hz, a millisecond to within a sixth of a part per
+thousand — so a tick is 5 ms and a wait of `n` ticks ends on the counter's
+reaching `5n`, with no remainder to carry. `15 DELAY`, in `RUN` and again
+in `STARTINTRO`, is therefore 13 ticks — 65 ms, a little over 15 frames a
+second. motionvm keeps a master counter per build: this one counts the
+driver's milliseconds and renders them at the PIT's own rate, where the
+32-bit engine's counts its 1020 Hz design rate and carries `GIVETIMER`'s
+×10/51 remainder ([the 32-bit game loop](../../motion32/engine/game-loop.md)).
+The speed class the reading can divide by further (`DS:0x10ce`, 0 in the
+file) is read as 0, and stays an open question below.
 
 ## Saves
 
