@@ -196,6 +196,13 @@ A fresh descriptor arrives ready: `NEWSETDESC` writes the flag word `0xD000` at
 - **Between draws, the buffer holds the last drawn frame.** `FADEOUT`
   never draws; it fades out whatever was last rendered, even if
   descriptors have changed since (see [Transitions](transitions.md)).
+- **A switched-off screen is not drawn.** The pass goes down into a screen
+  only while it is both dirty and active (`0x6942f`–`0x6943d`, `0x694ae`).
+  After `FADEOUT` nothing that changes on the screen reaches its surface,
+  which the fade left black, until `FADEIN` switches it on and draws it
+  whole. The status bar shows it: its overlay goes from sprite 29 to 57
+  while the bar is dark, and 29's corner, which 57 leaves transparent, is
+  never drawn.
 - **Before the first draw, the buffer is black.** State that exists but
   has never been drawn — the status bar during the very first frames,
   for instance — is simply not visible yet.

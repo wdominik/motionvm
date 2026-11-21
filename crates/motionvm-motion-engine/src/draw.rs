@@ -42,6 +42,36 @@ use motionvm_motion_forth::cell;
 use motionvm_render::Framebuffer;
 use motionvm_render::Palette;
 
+/// The two fills a screen is painted over, to find the pixels nothing paints.
+const UNTOUCHED: (u8, u8) = (0, 0xff);
+
+/// Publishes from `fresh` the part of `rect` the pass's descriptors touch.
+/// `probe` is those descriptors painted alone over each of the two
+/// [`UNTOUCHED`] fills: a pixel that shows both fills was touched by none of
+/// them, and the surface keeps it. Every other pixel — painted, or remapped
+/// by a text backing — takes the full painting's.
+fn paste_touched(
+    surface: &mut Framebuffer,
+    fresh: &Framebuffer,
+    (low, high): (&Framebuffer, &Framebuffer),
+    (x, y, w, h): (i32, i32, i32, i32),
+) {
+    let width = i32::from(surface.width);
+    let (x0, x1) = (x.max(0), (x + w).min(width));
+    let (y0, y1) = (y.max(0), (y + h).min(i32::from(surface.height)));
+    for row in y0..y1 {
+        let (Some(from), Some(to)) = (cell::at(row * width + x0), cell::at(row * width + x1))
+        else {
+            continue;
+        };
+        for i in from..to {
+            if (low.pixels[i], high.pixels[i]) != UNTOUCHED {
+                surface.pixels[i] = fresh.pixels[i];
+            }
+        }
+    }
+}
+
 /// The text backing's remap row, kept until the palette changes.
 ///
 /// [`crate::text::backing_map`] is a 256×256 nearest-color search — about
@@ -206,7 +236,22 @@ impl Engine {
     }
 
     pub(crate) fn draw_screens(&mut self, only: Option<u32>) {
-        let mine = |screen: u32| only.is_none_or(|o| screen == o);
+        // 0x6942f–0x6943d: the pass goes down into a screen only while it is
+        // active. A screen `FADEOUT` has switched off is not drawn at all —
+        // its marks, its dirty descriptors and what it is owed wait for the
+        // `FADEIN` that switches it on and draws it whole — so nothing that
+        // changes on it meanwhile reaches its surface, which the fade left
+        // black. The 16-bit kernel's drawer is not read on this point, so
+        // there every screen is drawn as before.
+        let gated = !self.profile.frame_by_screen;
+        let live: Vec<u32> = self
+            .display
+            .screens
+            .iter()
+            .filter(|s| s.active || !gated)
+            .map(|s| s.handle)
+            .collect();
+        let mine = |screen: u32| only.is_none_or(|o| screen == o) && live.contains(&screen);
         self.draw_pass += 1;
         let pass = self.draw_pass;
 
@@ -258,7 +303,7 @@ impl Engine {
             .partition::<Vec<_>, _>(|&(screen, _)| mine(screen));
         self.rebuild = kept;
 
-        let mut region: Vec<(u32, (i32, i32, i32, i32))> = owed;
+        let mut region: Vec<(u32, (i32, i32, i32, i32))> = Vec::new();
         for i in 0..self.scene.descriptors.len() {
             let d = &self.scene.descriptors[i];
             if !d.active || !d.dirty || !mine(d.screen) {
@@ -270,7 +315,7 @@ impl Engine {
             self.scene.descriptors[i].drawn_at = pass;
             region.push((d.screen, self.drawn_rect(&d)));
         }
-        if region.is_empty() {
+        if region.is_empty() && owed.is_empty() {
             return;
         }
 
@@ -285,8 +330,25 @@ impl Engine {
         // time a neighbour moved). Painting the whole screen and then taking
         // only the region out of the result gives every published pixel exactly
         // one pass over it.
-        let screens: std::collections::BTreeSet<u32> =
-            region.iter().map(|&(screen, _)| screen).collect();
+        //
+        // The two kinds of place are published differently. A place
+        // `SDAUTOBUF` is owed is built again whole, empty where no descriptor
+        // draws — the rebuild standing in for the remembered copy. A place a
+        // descriptor is drawn into takes only the pixels the descriptors
+        // drawn *in this pass* touch: the original draws those onto the
+        // surface as it stands (0x6915b has no fill) and nothing else — a
+        // mark on the damage map repaints its own level and the ones above,
+        // never the background below. So whatever the surface holds there
+        // and no descriptor of the pass covers stays: the mailbox's
+        // switched-off rows, under an empty caption the shell redraws over
+        // them. To find those pixels the pass's descriptors alone are painted
+        // twice, over two different fills: a pixel that shows its fill both
+        // times was not touched.
+        let screens: std::collections::BTreeSet<u32> = region
+            .iter()
+            .chain(&owed)
+            .map(|&(screen, _)| screen)
+            .collect();
         for screen in screens {
             let Some(before) = self
                 .display
@@ -297,11 +359,31 @@ impl Engine {
             else {
                 continue;
             };
-            self.paint_all(screen);
-            if let Some(s) = self.display.screen_mut(screen) {
-                let fresh = std::mem::replace(&mut s.buffer, before);
-                for &(_, (x, y, w, h)) in region.iter().filter(|&&(o, _)| o == screen) {
-                    s.buffer.paste_rect(&fresh, x, y, w, h);
+            let drawn: Vec<(i32, i32, i32, i32)> = region
+                .iter()
+                .filter(|&&(o, _)| o == screen)
+                .map(|&(_, rect)| rect)
+                .collect();
+            let touched = if drawn.is_empty() {
+                None
+            } else {
+                let take = |engine: &mut Self, fill| {
+                    engine.paint_all(screen, fill, true);
+                    engine.display.screen_mut(screen).map(|s| s.buffer.clone())
+                };
+                take(self, UNTOUCHED.0).zip(take(self, UNTOUCHED.1))
+            };
+            self.paint_all(screen, UNTOUCHED.0, false);
+            let Some(s) = self.display.screen_mut(screen) else {
+                continue;
+            };
+            let fresh = std::mem::replace(&mut s.buffer, before);
+            for &(_, (x, y, w, h)) in owed.iter().filter(|&&(o, _)| o == screen) {
+                s.buffer.paste_rect(&fresh, x, y, w, h);
+            }
+            if let Some((low, high)) = touched {
+                for rect in drawn {
+                    paste_touched(&mut s.buffer, &fresh, (&low, &high), rect);
                 }
             }
         }
@@ -319,13 +401,18 @@ impl Engine {
     /// The whole picture, the way the drawer would build it if nothing had ever
     /// been drawn. `draw_screens` paints into this and then publishes only the
     /// part of it that the pass is allowed to change.
-    fn paint_all(&mut self, screen: u32) {
+    ///
+    /// With `pass_only`, only the descriptors this pass draws, and none of
+    /// the paints: what the pass itself puts on the surface, for
+    /// [`paste_touched`] to find.
+    fn paint_all(&mut self, screen: u32, fill: u8, pass_only: bool) {
         if let Some(s) = self.display.screen_mut(screen) {
-            s.buffer.fill(0);
+            s.buffer.fill(fill);
         }
         let mut order: Vec<usize> = (0..self.scene.descriptors.len())
             .filter(|&i| {
-                self.scene.descriptors[i].active && self.scene.descriptors[i].screen == screen
+                let d = &self.scene.descriptors[i];
+                d.active && d.screen == screen && (!pass_only || d.dirty)
             })
             .collect();
         // `(level, stamp)`: the 16-bit level chain's order — among equals
@@ -348,6 +435,7 @@ impl Engine {
             .iter()
             .find(|s| s.handle == screen)
             .map(|s| s.paints.clone())
+            .filter(|_| !pass_only)
             .unwrap_or_default();
         let mut later = order;
         for paint in paints {

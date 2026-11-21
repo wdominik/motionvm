@@ -8,6 +8,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The 32-bit drawer leaves what it does not paint.** A descriptor drawn
+  again took its whole rectangle from a fresh painting of the screen, so the
+  mailbox's switched-off rows vanished under an empty caption the shell
+  redraws; now only the pixels the pass's descriptors touch change, as on
+  the original's surface (`0x6915b`). A screen `FADEOUT` switched off is no
+  longer drawn until `FADEIN` (`0x6942f`). A capture of the original's
+  mailbox changing screens now matches picture for picture.
 - **The 32-bit loop words do what the original's do.** `LEAVE` (`0x6426f`)
   sets the limit to the index and lets the body finish, where the machine
   dropped the loop's frame; `+LOOP` (`0x641bf`) leaves on `index >= limit`

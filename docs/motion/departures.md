@@ -156,18 +156,24 @@ instead of the program. If a MOTION game ever turns up with a view under 16
 rows, this is the line that makes it differ.
 ([Transitions](motion32/engine/transitions.md#timing))
 
-**The draw pass paints whole and publishes in part.** The original clips each
-blit to the region it has decided to repaint. motionvm makes the same
-selection — the descriptors the damage map names, together with the places
-`SDAUTOBUF` owes — takes the union of their rectangles, paints the **whole**
-screen afresh, and then publishes only that region onto the surface; everything
-outside it stays as it was. A clipped blit still has to know it was clipped —
-the text passes place themselves from their own measurements — and a text
-backing is a *darkening* of what is under it (`0x186d5`), which cannot be run
-twice over the same pixels without showing. Publishing a region that was
-painted exactly once gives every pixel one pass over it and no arithmetic to
-repeat. The picture is the same; what differs is how many times a pixel is
-touched to arrive at it.
+**The draw pass paints whole and publishes in part.** The original draws each
+descriptor of the pass onto the surface as it stands, clipped to the region it
+has decided to repaint. motionvm makes the same selection — the descriptors the
+damage map names, together with the places `SDAUTOBUF` owes — paints the
+**whole** screen afresh, and then publishes from that painting: a place
+`SDAUTOBUF` owes in full, a descriptor's rectangle only where the descriptors of
+the pass touch a pixel. A clipped blit still has to know it was clipped — the
+text passes place themselves from their own measurements — and a text backing
+is a *darkening* of what is under it (`0x186d5`), which cannot be run twice over
+the same pixels without showing. Publishing from one painting gives every pixel
+one pass over it and no arithmetic to repeat. Which pixels the pass touches is
+found by painting its descriptors alone a second and third time, over two
+different fills; a pixel that shows each fill was touched by none of them and
+keeps what the surface holds, as in the original. Measured against the
+original's mailbox, where an empty caption the shell redraws stands over rows
+the terminal has switched off: the rows stay, in both. One place still parts:
+under a text backing, the darkening is of the fresh painting rather than of
+the surface, so pixels no active descriptor owns are darkened from black.
 ([Screens](motion32/engine/screens.md#the-drawn-buffer))
 
 **The timing follows the engine's arithmetic, not an emulator's.** On the
@@ -229,11 +235,12 @@ the picture under the descriptor came from descriptors, which is everywhere the
 game sets the flag — `INITANI` sets it on every animation, and so do the
 captions and the menu sprites — and a rebuild cannot go out of date the way a
 copy can: a copy holds the surface as it was when it was taken, and every
-repaint underneath it since is news the copy does not have. Where they part is
+repaint underneath it since is news the copy does not have. Where they could part is
 pixels no *active* descriptor owns. The mailbox has them on purpose: a terminal
-row it has switched off keeps standing until a bar covers it, and when that bar
-goes the original's copy would put the old row back where a rebuild leaves the
-place empty.
+row it has switched off keeps standing until a bar covers it. Measured in the
+original's change of terminal screens (`HIDSCR`, `CLSCR`, `DOFADE`), the place
+a bar leaves is empty there too: the bars are drawn again while they stand, and
+each draw takes the copy afresh, of the bar itself.
 ([Descriptors](motion32/engine/descriptors.md#sdautobuf--the-only-thing-that-erases),
 [Screens](motion32/engine/screens.md#the-drawn-buffer))
 
