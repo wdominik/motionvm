@@ -657,6 +657,10 @@ impl Word {
     /// engine does not implement.
     ///
     /// Called once per kernel word when a game opens, never on a frame.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line per kernel word the 32-bit machine knows: a table, not a procedure"
+    )]
     pub(crate) fn of_m32(name: &str) -> Option<Word> {
         Some(match name {
             "+FONT" => Word::PLUS_FONT,
@@ -870,6 +874,10 @@ impl Word {
     /// What a name means to the **16-bit** kernel. The thirteen words whose
     /// handler differs answer their `_16` variant here; everything else
     /// answers the same value [`Word::of_m32`] does.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line per kernel word the 16-bit machine knows: a table, not a procedure"
+    )]
     pub(crate) fn of_m16(name: &str) -> Option<Word> {
         Some(match name {
             "+FONT" => Word::PLUS_FONT,
@@ -1090,6 +1098,10 @@ impl Word {
     ///
     /// Both variants of a split word answer the same name, because it *is* the
     /// same name — what differs is what the machine does with it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line per word: a table, not a procedure"
+    )]
     pub(crate) fn name(self) -> &'static str {
         match self {
             Word::PLUS_FONT => "+FONT",

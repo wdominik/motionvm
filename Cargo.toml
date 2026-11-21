@@ -18,7 +18,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.1"
+version = "0.12.0"
 edition = "2024"
 rust-version = "1.88.0"
 license = "MIT"
@@ -188,6 +188,12 @@ redundant_clone = "deny"
 manual_let_else = "deny"
 semicolon_if_nothing_returned = "deny"
 string_slice = "deny"
+# A function past a hundred lines, split where it had seams: a word group's
+# long arms are methods of their own, a reader's phases are functions. What
+# stays long says why on an `#[expect]` — the three name tables in
+# `words/word.rs`, the two machines' primitive dispatch, and two tests that
+# read as one scenario.
+too_many_lines = "deny"
 
 # What is *not* switched on, and what each would cost. Counted on this tree
 # with
@@ -203,7 +209,6 @@ string_slice = "deny"
 #     251  must_use_candidate
 #     117  missing_errors_doc
 #      26  match_same_arms
-#      18  too_many_lines
 #      22  casts, every one inside a function named for it
 #
 # The first is a mechanical `#[must_use]` pass. `missing_errors_doc` is

@@ -215,13 +215,39 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
         crate::over_claimed(over)
     );
 
-    // Blocks, written out unchanged, with an index that says which are songs.
+    extract_blocks(&c, out)?;
+    // Fonts: raw file, a contact sheet, the metrics; the one FRT maps them.
+    let font_dir = out.join("fonts");
+    std::fs::create_dir_all(&font_dir)?;
+    let refs = c
+        .item(Segment::Frt, 0)?
+        .and_then(|d| FontRefTable::parse(d).ok());
+    let mut n_glyphs = 0;
+    let (n_font, over) = each_item(&c, Segment::Fnt, |id, item| {
+        std::fs::write(font_dir.join(format!("{id:03}.fnt")), item)?;
+        let f = font::parse(item)?;
+        n_glyphs += f.glyphs.len();
+        crate::write_font_sheet(&font_dir.join(format!("{id:03}.png")), &f)?;
+        crate::write_font_json(&font_dir.join(format!("{id:03}.json")), &f, refs.as_ref())
+    })?;
+    println!(
+        "{n_font:>6} fonts ({n_glyphs} glyphs) -> {}{}",
+        font_dir.display(),
+        crate::over_claimed(over)
+    );
+
+    extract_scripts(&c, dir, out)?;
+    Ok(())
+}
+
+/// Blocks, written out unchanged, with an index that says which are songs.
+fn extract_blocks(c: &Container, out: &Path) -> Res {
     let blk_dir = out.join("blocks");
     std::fs::create_dir_all(&blk_dir)?;
     let mut index = std::io::BufWriter::new(std::fs::File::create(blk_dir.join("index.txt"))?);
     writeln!(index, "{:<6} {:>8}  CONTENT", "BLOCK", "BYTES")?;
     let mut n_songs = 0;
-    let (n_blk, over) = each_item(&c, Segment::Blk, |id, item| {
+    let (n_blk, over) = each_item(c, Segment::Blk, |id, item| {
         std::fs::write(blk_dir.join(format!("{id:04}.blk")), item)?;
         let what = match psm::tags(item) {
             Some(tags) => {
@@ -248,34 +274,18 @@ pub(crate) fn extract(dir: &Path, out: &Path, pal: usize) -> Res {
         crate::over_claimed(over)
     );
 
-    // Fonts: raw file, a contact sheet, the metrics; the one FRT maps them.
-    let font_dir = out.join("fonts");
-    std::fs::create_dir_all(&font_dir)?;
-    let refs = c
-        .item(Segment::Frt, 0)?
-        .and_then(|d| FontRefTable::parse(d).ok());
-    let mut n_glyphs = 0;
-    let (n_font, over) = each_item(&c, Segment::Fnt, |id, item| {
-        std::fs::write(font_dir.join(format!("{id:03}.fnt")), item)?;
-        let f = font::parse(item)?;
-        n_glyphs += f.glyphs.len();
-        crate::write_font_sheet(&font_dir.join(format!("{id:03}.png")), &f)?;
-        crate::write_font_json(&font_dir.join(format!("{id:03}.json")), &f, refs.as_ref())
-    })?;
-    println!(
-        "{n_font:>6} fonts ({n_glyphs} glyphs) -> {}{}",
-        font_dir.display(),
-        crate::over_claimed(over)
-    );
+    Ok(())
+}
 
-    // Scripts: the raw module, a symbol table, and a listing of every word
-    // read through the kernel table.
+/// Scripts: the raw module, a symbol table, and a listing of every word read
+/// through the kernel table; then which kernel words the game reaches for.
+fn extract_scripts(c: &Container, dir: &Path, out: &Path) -> Res {
     let binding = binding(dir)?;
     let scr_dir = out.join("scripts");
     std::fs::create_dir_all(&scr_dir)?;
     let mut symbols = std::io::BufWriter::new(std::fs::File::create(scr_dir.join("modules.txt"))?);
     let mut modules = Vec::new();
-    let (_, over) = each_item(&c, Segment::Scr, |number, item| {
+    let (_, over) = each_item(c, Segment::Scr, |number, item| {
         std::fs::write(scr_dir.join(format!("{number:03}.scr")), item)?;
         let m = scr::ScrModule::parse(item)?;
         write_symbols(&mut symbols, &m, item.len())?;

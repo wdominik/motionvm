@@ -143,7 +143,13 @@ pub(crate) fn extract(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::
         crate::over_claimed(over)
     );
 
-    // Fonts: raw file, a contact sheet of every glyph, and the metrics.
+    extract_fonts(&bank, dir, out)?;
+    extract_scripts(&bank, dir, out)?;
+    Ok(())
+}
+
+/// Fonts: the raw file, a contact sheet of every glyph, and the metrics.
+fn extract_fonts(bank: &Bank, dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let font_dir = out.join("fonts");
     std::fs::create_dir_all(&font_dir)?;
     // 000.FRT is shared by all fonts and maps characters to glyph indices.
@@ -151,7 +157,7 @@ pub(crate) fn extract(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::
         .and_then(|p| std::fs::read(p).ok())
         .and_then(|d| font::FontRefTable::parse(&d).ok());
     let mut n_glyphs = 0;
-    let (n_font, over) = each_item(&bank, Kind::Font, |id, item| {
+    let (n_font, over) = each_item(bank, Kind::Font, |id, item| {
         std::fs::write(font_dir.join(format!("{id:03}.fnt")), item)?;
         let f = motionvm_motion_formats::m32::font::parse(item)?;
         n_glyphs += f.glyphs.len();
@@ -164,7 +170,12 @@ pub(crate) fn extract(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::
         crate::over_claimed(over)
     );
 
-    // Scripts: raw module plus a disassembly of its threaded code.
+    Ok(())
+}
+
+/// Scripts: each raw module and a disassembly of its threaded code, then
+/// which kernel words the game reaches for.
+fn extract_scripts(bank: &Bank, dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let img = motionvm_motion_formats::m32::le::Image::open(engine_exe(dir)?)?;
     let kernel = motionvm_motion_formats::m32::le::kernel_words(&img);
     let binding = motionvm_motion_formats::m32::le::binding_of(&img, &kernel)?;
@@ -172,7 +183,7 @@ pub(crate) fn extract(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::
     let scr_dir = out.join("scripts");
     std::fs::create_dir_all(&scr_dir)?;
     let mut modules = Vec::new();
-    let (n_scr, over) = each_item(&bank, Kind::Script, |id, item| {
+    let (n_scr, over) = each_item(bank, Kind::Script, |id, item| {
         std::fs::write(scr_dir.join(format!("{id:03}.scr")), item)?;
         let m = ScrModule::parse(item)?;
         dis.learn(&m);

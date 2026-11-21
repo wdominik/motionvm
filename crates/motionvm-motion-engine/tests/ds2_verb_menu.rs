@@ -315,6 +315,10 @@ fn asking_about_something_enters_the_conversation_at_its_info_answer() {
 /// Nothing is carried when the scene ends, so the player is handed an item
 /// through the game's own `ADDITEM` first.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario played through in order; split, its steps would lose their sequence"
+)]
 fn a_right_click_on_the_bar_during_a_conversation_offers_info_and_give() {
     let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");

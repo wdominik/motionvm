@@ -116,48 +116,7 @@ impl Image {
             });
         }
 
-        // Twenty-four bytes per object table entry.
-        let objects: Vec<Object> = records::<24>(file, object_table, object_count)?
-            .iter()
-            .map(|entry| {
-                let entry = Record(entry);
-                Object {
-                    virtual_size: entry.u32::<0>(),
-                    base: entry.u32::<4>(),
-                    flags: entry.u32::<8>(),
-                    first_page: entry.u32::<12>(),
-                    page_count: entry.u32::<16>(),
-                }
-            })
-            .collect();
-
-        // An image with no objects has no bytes to lay out; the header may say
-        // so, and a file that does is refused rather than unwrapped. So is one
-        // whose objects reach past the end of the address space, or span more
-        // of it than any DOS extender's image does.
-        let ends = objects
-            .iter()
-            .map(|o| o.base.checked_add(o.virtual_size))
-            .collect::<Option<Vec<u32>>>()
-            .ok_or_else(|| Error::Corrupt {
-                what: "LE image",
-                detail: "an object reaches past the end of the address space".into(),
-            })?;
-        let (Some(low), Some(high)) =
-            (objects.iter().map(|o| o.base).min(), ends.into_iter().max())
-        else {
-            return Err(Error::Corrupt {
-                what: "LE image",
-                detail: "the object table is empty".into(),
-            });
-        };
-        let span = wide(high.saturating_sub(low));
-        if span > Self::SPAN_CAP {
-            return Err(Error::Corrupt {
-                what: "LE image",
-                detail: format!("the objects span {span} bytes of address space"),
-            });
-        }
+        let (objects, low, span) = objects_of(file, object_table, object_count)?;
         let mut bytes = vec![0u8; span];
 
         // Page N of the file belongs to whichever object claims it, and lands
@@ -204,59 +163,14 @@ impl Image {
             };
             let mut c = Cursor::new(file, fixup_record_table.saturating_add(start));
             let stop = fixup_record_table.saturating_add(end);
-            while c.position() < stop {
-                let src_type = c.u8()?;
-                let flags = c.u8()?;
-
-                // A source list packs several patch sites under one target.
-                let sources: Vec<i16> = if src_type & 0x20 != 0 {
-                    let n = usize::from(c.u8()?);
-                    c.records::<2>(n)?
-                        .iter()
-                        .map(|s| i16::from_le_bytes(*s))
-                        .collect()
-                } else {
-                    vec![c.i16()?]
-                };
-
-                // Only internal references occur in this file; the parse would
-                // desynchronize on anything else, and the page-boundary check
-                // below would catch it.
-                let object = if flags & 0x40 != 0 {
-                    usize::from(c.u16()?)
-                } else {
-                    usize::from(c.u8()?)
-                };
-                let target_off = match src_type & 0x0f {
-                    2 => 0,
-                    _ if flags & 0x10 != 0 => c.u32()?,
-                    _ => u32::from(c.u16()?),
-                };
-
-                // 32-bit offsets are the only kind that matter for pointers.
-                if src_type & 0x0f != 7 {
-                    continue;
-                }
-                let Some(obj) = objects.get(object.wrapping_sub(1)) else {
-                    continue;
-                };
-                let target = obj.base.wrapping_add(target_off);
-                for s in sources {
-                    // Negative offsets reach back into the previous page; a
-                    // site outside the image, or one whose four bytes are not
-                    // all inside it, is skipped.
-                    let site = page_base_addr
-                        .checked_add_signed(i32::from(s))
-                        .and_then(|addr| addr.checked_sub(low))
-                        .and_then(|at| bytes.get_mut(wide(at)..))
-                        .and_then(|rest| rest.first_chunk_mut::<4>());
-                    let Some(site) = site else {
-                        continue;
-                    };
-                    *site = target.to_le_bytes();
-                    fixups_applied = fixups_applied.saturating_add(1);
-                }
-            }
+            fixups_applied = fixups_applied.saturating_add(apply_page_fixups(
+                &mut c,
+                stop,
+                &objects,
+                page_base_addr,
+                low,
+                &mut bytes,
+            )?);
             if c.position() != stop {
                 return Err(Error::Corrupt {
                     what: "LE image",
@@ -342,6 +256,128 @@ impl Image {
 }
 
 pub use crate::kernel::KernelWord;
+
+/// The object table, and the span of address space the objects cover: its
+/// lowest address and its length. Refused when the table is empty, when an
+/// object reaches past the end of the address space, or when the span is
+/// more than any DOS extender's image is.
+fn objects_of(
+    file: &[u8],
+    object_table: usize,
+    object_count: usize,
+) -> Result<(Vec<Object>, u32, usize)> {
+    // Twenty-four bytes per object table entry.
+    let objects: Vec<Object> = records::<24>(file, object_table, object_count)?
+        .iter()
+        .map(|entry| {
+            let entry = Record(entry);
+            Object {
+                virtual_size: entry.u32::<0>(),
+                base: entry.u32::<4>(),
+                flags: entry.u32::<8>(),
+                first_page: entry.u32::<12>(),
+                page_count: entry.u32::<16>(),
+            }
+        })
+        .collect();
+
+    // An image with no objects has no bytes to lay out; the header may say
+    // so, and a file that does is refused rather than unwrapped. So is one
+    // whose objects reach past the end of the address space, or span more
+    // of it than any DOS extender's image does.
+    let ends = objects
+        .iter()
+        .map(|o| o.base.checked_add(o.virtual_size))
+        .collect::<Option<Vec<u32>>>()
+        .ok_or_else(|| Error::Corrupt {
+            what: "LE image",
+            detail: "an object reaches past the end of the address space".into(),
+        })?;
+    let (Some(low), Some(high)) = (objects.iter().map(|o| o.base).min(), ends.into_iter().max())
+    else {
+        return Err(Error::Corrupt {
+            what: "LE image",
+            detail: "the object table is empty".into(),
+        });
+    };
+    let span = wide(high.saturating_sub(low));
+    if span > Image::SPAN_CAP {
+        return Err(Error::Corrupt {
+            what: "LE image",
+            detail: format!("the objects span {span} bytes of address space"),
+        });
+    }
+    Ok((objects, low, span))
+}
+
+/// The fixup records of one page, read from `c` up to `stop` and applied to
+/// `bytes`, the image laid out from `low`; `page_base` is where the page
+/// lands. Answers how many patch sites were written.
+fn apply_page_fixups(
+    c: &mut Cursor<'_>,
+    stop: usize,
+    objects: &[Object],
+    page_base: u32,
+    low: u32,
+    bytes: &mut [u8],
+) -> Result<usize> {
+    let mut applied = 0usize;
+    while c.position() < stop {
+        let src_type = c.u8()?;
+        let flags = c.u8()?;
+
+        // A source list packs several patch sites under one target.
+        let sources: Vec<i16> = if src_type & 0x20 != 0 {
+            let n = usize::from(c.u8()?);
+            c.records::<2>(n)?
+                .iter()
+                .map(|s| i16::from_le_bytes(*s))
+                .collect()
+        } else {
+            vec![c.i16()?]
+        };
+
+        // Only internal references occur in this file; the parse would
+        // desynchronize on anything else, and the page-boundary check
+        // below would catch it.
+        let object = if flags & 0x40 != 0 {
+            usize::from(c.u16()?)
+        } else {
+            usize::from(c.u8()?)
+        };
+        let target_off = match src_type & 0x0f {
+            2 => 0,
+            _ if flags & 0x10 != 0 => c.u32()?,
+            _ => u32::from(c.u16()?),
+        };
+
+        // 32-bit offsets are the only kind that matter for pointers.
+        if src_type & 0x0f != 7 {
+            continue;
+        }
+        let Some(obj) = objects.get(object.wrapping_sub(1)) else {
+            continue;
+        };
+        let target = obj.base.wrapping_add(target_off);
+        for s in sources {
+            // Negative offsets reach back into the previous page; a
+            // site outside the image, or one whose four bytes are not
+            // all inside it, is skipped.
+            let site = page_base
+                .checked_add_signed(i32::from(s))
+                .and_then(|addr| addr.checked_sub(low))
+                .and_then(|at| bytes.get_mut(wide(at)..))
+                .and_then(|rest| rest.first_chunk_mut::<4>());
+            let Some(site) = site else {
+                continue;
+            };
+            *site = target.to_le_bytes();
+            applied = applied.saturating_add(1);
+        }
+    }
+    Ok(applied)
+}
+
 use crate::kernel::{Binding, Inline};
 
 /// The group number [`kernel_words`] gives the shell's words — the ones the

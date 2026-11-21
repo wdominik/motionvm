@@ -28,106 +28,8 @@ impl Engine {
     ) -> Result<Option<()>> {
         match word {
             // --- resources and modules --------------------------------------
-            // One handler per word, and in particular the `…STAT-` range
-            // markers are handled by the `Word::status_hint` arm in
-            // `words/resources.rs` and nowhere else. A second arm here would
-            // come first and win, and it would hand them to `note_no_effect`
-            // — which `Word::inert` does not admit them to, so each would
-            // fault a debug build the moment it ran.
-            // `4:START` runs `XGFXSTAT-` six times and each of its four
-            // siblings at least once, all before any test that enters through
-            // `INCLLOC` gets far enough to notice.
-            // The bulk of a savegame: every resident module's memory, written
-            // in one go and put back in one go. Between them they carry the
-            // whole of the player's progress, because script variables *are*
-            // module memory — the inventory in module 2, the story flags in 11,
-            // the person records in the location's own modules.
-            //
-            // `=>PUTAS` (0x6559e) walks descriptor slots 1 to 31 and writes
-            // each occupied one; `=>GETAS` (0x657a4) walks the same slots and
-            // copies back. Which modules those are, and in which order, is
-            // [`Engine::slots`]. The layout is ours and the reasons are in
-            // `save/`, but the set and the moment are the original's.
-            Word::RES_PUTAS => {
-                let id = pop1(stack, "=>PUTAS")?;
-                let Some(path) = self.save_path(id, "FRZ") else {
-                    return Err(Error::NoSaveDir {
-                        word: "=>PUTAS",
-                        id,
-                    });
-                };
-                let resident = self.resident();
-                // The original complains "Kein einziges Modul geladen!" and
-                // gives up (error 0x19 at 0x655e8). Reaching this with an empty
-                // table here means something else: the run never went through
-                // `4:START`, so the bookkeeping was never filled in and the
-                // savegame would be missing everything.
-                if resident.is_empty() {
-                    return Err(Error::Savegame {
-                        what: format!(
-                            "=>PUTAS {id}: no module is marked resident — this run did not \
-                             start through 4:START, so there is nothing to write"
-                        ),
-                    });
-                }
-                let mut images = Vec::with_capacity(resident.len());
-                for module in resident {
-                    let Some(bytes) = mem.module_image(module) else {
-                        return Err(Error::Savegame {
-                            what: format!(
-                                "=>PUTAS {id}: module {module} is marked resident but not loaded"
-                            ),
-                        });
-                    };
-                    images.push(save::ModuleImage { module, bytes });
-                }
-                let layout = self.profile.save_layout;
-                save::write_atomically(&path, &save::write_frz(&images, layout, self.save_slug()))
-                    .map_err(|e| Error::Io {
-                        word: "=>PUTAS",
-                        path: path.clone(),
-                        source: e,
-                    })?;
-            }
-            Word::RES_GETAS => {
-                let id = pop1(stack, "=>GETAS")?;
-                let bytes = self.read_slot("=>GETAS", id, "FRZ")?;
-                let what = format!("=>GETAS {id}");
-                let images =
-                    save::read_frz(&bytes, &what, self.profile.save_layout, self.save_slug())
-                        .map_err(|e| Error::Savegame {
-                            what: e.to_string(),
-                        })?;
-                // Everything is checked before anything is applied. Half a
-                // savegame in memory is the one outcome with no way back and no
-                // trail leading to it.
-                for image in &images {
-                    match mem.module_image(image.module) {
-                        Some(here) if here.len() == image.bytes.len() => {}
-                        Some(here) => {
-                            return Err(Error::Savegame {
-                                what: format!(
-                                    "{what}: module {} is {} bytes here and {} in the savegame",
-                                    image.module,
-                                    here.len(),
-                                    image.bytes.len()
-                                ),
-                            });
-                        }
-                        None => {
-                            return Err(Error::Savegame {
-                                what: format!(
-                                    "{what}: module {} is in the savegame but not loaded",
-                                    image.module
-                                ),
-                            });
-                        }
-                    }
-                }
-                for image in &images {
-                    mem.restore_module(image.module, &image.bytes)?;
-                }
-            }
+            Word::RES_PUTAS => self.word_putas(stack, mem)?,
+            Word::RES_GETAS => self.word_getas(stack, mem)?,
             // The other half of a savegame, and the reason the module image on
             // its own would not be enough: the handles the scripts keep in that
             // memory point at descriptors and screens, which live out here.
@@ -178,5 +80,111 @@ impl Engine {
             _ => return Ok(None),
         }
         Ok(Some(()))
+    }
+}
+
+// Word bodies moved out of the dispatcher above.
+impl Engine {
+    /// One handler per word, and in particular the `…STAT-` range
+    /// markers are handled by the `Word::status_hint` arm in
+    /// `words/resources.rs` and nowhere else. A second arm here would
+    /// come first and win, and it would hand them to `note_no_effect`
+    /// — which `Word::inert` does not admit them to, so each would
+    /// fault a debug build the moment it ran.
+    /// `4:START` runs `XGFXSTAT-` six times and each of its four
+    /// siblings at least once, all before any test that enters through
+    /// `INCLLOC` gets far enough to notice.
+    /// The bulk of a savegame: every resident module's memory, written
+    /// in one go and put back in one go. Between them they carry the
+    /// whole of the player's progress, because script variables *are*
+    /// module memory — the inventory in module 2, the story flags in 11,
+    /// the person records in the location's own modules.
+    ///
+    /// `=>PUTAS` (0x6559e) walks descriptor slots 1 to 31 and writes
+    /// each occupied one; `=>GETAS` (0x657a4) walks the same slots and
+    /// copies back. Which modules those are, and in which order, is
+    /// [`crate::persistence::Persistence::slots`]. The layout is ours and the reasons are in
+    /// `save/`, but the set and the moment are the original's.
+    fn word_putas(&self, stack: &mut Vec<i32>, mem: &dyn AddressSpace) -> Result<()> {
+        let id = pop1(stack, "=>PUTAS")?;
+        let Some(path) = self.save_path(id, "FRZ") else {
+            return Err(Error::NoSaveDir {
+                word: "=>PUTAS",
+                id,
+            });
+        };
+        let resident = self.resident();
+        // The original complains "Kein einziges Modul geladen!" and
+        // gives up (error 0x19 at 0x655e8). Reaching this with an empty
+        // table here means something else: the run never went through
+        // `4:START`, so the bookkeeping was never filled in and the
+        // savegame would be missing everything.
+        if resident.is_empty() {
+            return Err(Error::Savegame {
+                what: format!(
+                    "=>PUTAS {id}: no module is marked resident — this run did not \
+                     start through 4:START, so there is nothing to write"
+                ),
+            });
+        }
+        let mut images = Vec::with_capacity(resident.len());
+        for module in resident {
+            let Some(bytes) = mem.module_image(module) else {
+                return Err(Error::Savegame {
+                    what: format!(
+                        "=>PUTAS {id}: module {module} is marked resident but not loaded"
+                    ),
+                });
+            };
+            images.push(save::ModuleImage { module, bytes });
+        }
+        let layout = self.profile.save_layout;
+        save::write_atomically(&path, &save::write_frz(&images, layout, self.save_slug()))
+            .map_err(|e| Error::Io {
+                word: "=>PUTAS",
+                path: path.clone(),
+                source: e,
+            })?;
+        Ok(())
+    }
+
+    fn word_getas(&self, stack: &mut Vec<i32>, mem: &mut dyn AddressSpace) -> Result<()> {
+        let id = pop1(stack, "=>GETAS")?;
+        let bytes = self.read_slot("=>GETAS", id, "FRZ")?;
+        let what = format!("=>GETAS {id}");
+        let images = save::read_frz(&bytes, &what, self.profile.save_layout, self.save_slug())
+            .map_err(|e| Error::Savegame {
+                what: e.to_string(),
+            })?;
+        // Everything is checked before anything is applied. Half a
+        // savegame in memory is the one outcome with no way back and no
+        // trail leading to it.
+        for image in &images {
+            match mem.module_image(image.module) {
+                Some(here) if here.len() == image.bytes.len() => {}
+                Some(here) => {
+                    return Err(Error::Savegame {
+                        what: format!(
+                            "{what}: module {} is {} bytes here and {} in the savegame",
+                            image.module,
+                            here.len(),
+                            image.bytes.len()
+                        ),
+                    });
+                }
+                None => {
+                    return Err(Error::Savegame {
+                        what: format!(
+                            "{what}: module {} is in the savegame but not loaded",
+                            image.module
+                        ),
+                    });
+                }
+            }
+        }
+        for image in &images {
+            mem.restore_module(image.module, &image.bytes)?;
+        }
+        Ok(())
     }
 }

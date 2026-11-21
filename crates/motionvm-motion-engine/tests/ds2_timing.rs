@@ -32,6 +32,10 @@ fn play(game: &mut Game<Vm>, frames: usize) {
 
 #[test]
 #[ignore]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a measurement rig: one frame, timed stage by stage, reads best as one list"
+)]
 fn where_the_frame_time_goes() {
     let Some(dir) = gamedata_ds2() else { return };
     let mut game = Game::open(&dir).unwrap();

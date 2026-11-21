@@ -6,90 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
+## [0.12.0] - 2026-11-21
 
-- **A `MUSADL.DRV` with an operator offset past 0x15 is refused** as
-  damaged, where a register sum formed from it could overflow a debug build.
-- **`MUSVOLUME` leaves the drum channel alone, as the original's pass
-  does.** On both builds the master change reaches each track group's
-  channel in group order and skips the drum record, whose device channel
-  is -1 (R109 `0x90536`, R78 `0x7b056`); the drums take the new level
-  through the fold of their next notes.
-- **A negative dialogue node stops the run by address** (`0x7b53f`) where
-  a debug build overflowed: the original's signed compare sends it down
-  the line path, which reads below the line array.
-- **Recorded digest lines are written whole.** Parallel suites appending to
-  one record file could interleave a line's pieces and garble the table
-  `just digests` wrote.
-- **The layer test cannot pass on an unreadable directory** and knows the
-  rest of the family's names: Checker 2000, Eddie M., `STERN.EXE`,
-  `HPPLAY`, `BMZ`, `LL.EXE`, and both builds.
-- **The 32-bit drawer leaves what it does not paint.** A descriptor drawn
-  again took its whole rectangle from a fresh painting of the screen, so the
-  mailbox's switched-off rows vanished under an empty caption the shell
-  redraws; now only the pixels the pass's descriptors touch change, as on
-  the original's surface (`0x6915b`). A screen `FADEOUT` switched off is no
-  longer drawn until `FADEIN` (`0x6942f`). A capture of the original's
-  mailbox changing screens now matches picture for picture.
-- **The 32-bit loop words do what the original's do.** `LEAVE` (`0x6426f`)
-  sets the limit to the index and lets the body finish, where the machine
-  dropped the loop's frame; `+LOOP` (`0x641bf`) leaves on `index >= limit`
-  whatever the step's sign; `/LOOP` (`0x6405e`) is `LOOP` and takes no step
-  from the stack. Each is measured in the original as well. No shipped
-  32-bit script uses any of the three.
-- **The descriptor and palette words follow their handlers.** The 32-bit
-  `SDPOS` takes three values and is `SDZ`, `SDY` and `SDX` in a row (R109
-  `0x7115c`, R78 `0x5d2c0`); the 16-bit one, a different handler, stops by
-  address. The 32-bit `SDNORM` keeps the justification bit and does nothing
-  when both placements are already the edge (`0x7339d`), and the dialogue
-  machines apply it rather than skip it. `RGB->COL` takes each component's
-  low byte (`0x75e4a`, `0x6127c`) instead of clamping to 0..63. The shipped
-  scripts give the same picture under both readings.
-- **A 32-bit `ELSEDUP` stops by address** (`0x638e0`) where the machine
-  panicked.
-- **The 32-bit FM driver handles volume, resets and silent notes as its
-  code does.** Controller 7 brings every sounding voice of the channel to
-  the new volume at once, on the bank the pan leaves alone, and runs the
-  pan after (`0x24CB`); controller 121 resets the channel and, by the
-  driver's own indexing, the velocity of the voice numbered like it
-  (`0x1869`); 123 only stops the channel's voices (`0x1803`); a note at
-  velocity 0 is a note-off (`0x85d`).
-- **The 32-bit sequencer hands out channels as the engine does.** A track's
-  controller 105 asks for one and gets the first free record of the device
-  for its whole group (`0x994EA`). The record's restore sends controller 121
-  and replays what the group remembers (`0x9981E`), and a 105 of 0 gives the
-  channel back (`0x997F0`). A track without one plays nothing, and a loop
-  brings an ended track back with a fresh request (`0x90714`). The records'
-  volumes carry from one song to the next and start as the device's install
-  leaves them, kept 127 and scaled 0 (`0x8F575`), so a drum note ahead of a
-  song's first controller 7 is silent. Recorded one by one from the original, all twenty-one
-  distinct songs now agree with it write for write, one of them also past
-  its loop.
-- **A conversation's line is measured before it is clamped.** The 32-bit
-  dialogue machine sets a line through `SDTB` … `SDTXT` (`0x7b81e`–
-  `0x7b868`), which measure it on the spot, and only then keeps it twenty
-  pixels inside the view; here the clamp ran on the last line's size, and
-  a long line overhung the left edge — the classroom's second line by
-  fifteen pixels. A capture of the original's entry into the classroom now
-  matches picture for picture.
-- **A far edge is counted as the build counts it.** `SDOX` and `SDOY`
-  place a box's far edge at `x − w + 1` on R109 and `x − w − 1` on R78,
-  for the getters and the drawer alike, and R109's `GDOX`/`GDOY` answer
-  one less than corner plus size (`0x6bed3`, `0x6c563`, `0x71508`; R78
-  `0x5a010`); the opener reads which off the binary. The help viewer's
-  heading stood a pixel left of the original's.
-- **The text backing darkens through the engine's own nearest match.**
-  Its table (`0x14740`) finds each darkened color through `0x1ee26` and
-  that routine's metric, where a plain squared distance picked another
-  entry for some colors under the classroom's lines.
-- **A division by zero in a 32-bit game puts up the original's error box**
-  and abandons the running word instead of stopping the run. The box —
-  *Fehler*, *Division durch Null!*, *OK*, at 40,40 — is built from the two
-  routines that draw it (R109 `0x26e8d`, `0x271a0`; R78 `0x21c30`,
-  `0x21f80`) and matches a capture of the original's pixel for pixel; a key
-  or the left button closes it. `/` and `MOD` leave 0 where the result
-  goes. In the frame loop the frame goes on after the box, as measured in
-  the original; outside it the run ends.
+**Dunkle Schatten 2 is held against the original further than before.**
+Every song, recorded one by one from the original, now agrees with it write
+for write; the title, the first intro page, the help viewer, the entry into
+the classroom, the error box and the mailbox changing screens agree picture
+for picture. Savegames from 0.11 load: the layout is unchanged.
 
 ### Added
 
@@ -115,14 +38,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Every engine file that serves one generation carries its number**, as
-  the naming rule says: `slide32`, `sample32`, `paint32`, `error_box32`,
-  `words/timers32` for the 32-bit machine, `cycle16`, `buffer16`,
-  `request16`, `words/buffers16` for the 16-bit one. The fade and curtain
-  tests moved out of the engine's root module into `curtain/tests.rs`.
-- **The vertical centering of a text is read, not measured**: the output
-  routine adds `(lines − 1) × gap` before it halves (`0x258a6`–`0x258c0`),
-  so its departures entry is gone.
 - **What several words and fields do is read, and the docs say so.**
   `ERRORLEVEL` sets the machine's check level (`0xdb053`), not the DOS exit
   code; `SPEEDMODE` picks clipped or unclipped copies in fifteen native
@@ -130,7 +45,106 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a savegame keeps are the shared handle counter and `SDAUTOBUF`'s. The
   departures ledger gains an entry: the checks Dunkle Schatten 2 turns off
   stay on here.
+- **The vertical centering of a text is read, not measured**: the output
+  routine adds `(lines − 1) × gap` before it halves (`0x258a6`–`0x258c0`),
+  so its departures entry is gone.
+- **Every engine file that serves one generation carries its number**, as
+  the naming rule says: `slide32`, `sample32`, `paint32`, `error_box32`,
+  `words/timers32` for the 32-bit machine, `cycle16`, `buffer16`,
+  `request16`, `words/buffers16` for the 16-bit one. The fade and curtain
+  tests moved out of the engine's root module into `curtain/tests.rs`.
+- **No function runs past a hundred lines without saying why.** The word
+  groups' long arms are methods of their own, `MOUSEINFO` is its three
+  cases, the route planner its first step and two axes, the DATA and LE
+  readers their phases, and the tools' `extract` its sections. The name
+  tables, the two primitive dispatchers and two tests keep their length
+  under an `#[expect]` with the reason, and `too_many_lines` is denied.
 - **Dependencies are updated** within their semver ranges.
+
+### Fixed
+
+- **The 32-bit drawer leaves what it does not paint.** A descriptor drawn
+  again took its whole rectangle from a fresh painting of the screen, so the
+  mailbox's switched-off rows vanished under an empty caption the shell
+  redraws; now only the pixels the pass's descriptors touch change, as on
+  the original's surface (`0x6915b`). A screen `FADEOUT` switched off is no
+  longer drawn until `FADEIN` (`0x6942f`). A capture of the original's
+  mailbox changing screens now matches picture for picture.
+- **The 32-bit sequencer hands out channels as the engine does.** A track's
+  controller 105 asks for one and gets the first free record of the device
+  for its whole group (`0x994EA`). The record's restore sends controller 121
+  and replays what the group remembers (`0x9981E`), and a 105 of 0 gives the
+  channel back (`0x997F0`). A track without one plays nothing, and a loop
+  brings an ended track back with a fresh request (`0x90714`). The records'
+  volumes carry from one song to the next and start as the device's install
+  leaves them, kept 127 and scaled 0 (`0x8F575`), so a drum note ahead of a
+  song's first controller 7 is silent. Recorded one by one from the
+  original, all twenty-one distinct songs now agree with it write for write,
+  one of them also past its loop.
+- **The 32-bit FM driver handles volume, resets and silent notes as its
+  code does.** Controller 7 brings every sounding voice of the channel to
+  the new volume at once, on the bank the pan leaves alone, and runs the
+  pan after (`0x24CB`); controller 121 resets the channel and, by the
+  driver's own indexing, the velocity of the voice numbered like it
+  (`0x1869`); 123 only stops the channel's voices (`0x1803`); a note at
+  velocity 0 is a note-off (`0x85d`).
+- **`MUSVOLUME` leaves the drum channel alone, as the original's pass
+  does.** On both builds the master change reaches each track group's
+  channel in group order and skips the drum record, whose device channel
+  is -1 (R109 `0x90536`, R78 `0x7b056`); the drums take the new level
+  through the fold of their next notes.
+- **A division by zero in a 32-bit game puts up the original's error box**
+  and abandons the running word instead of stopping the run. The box —
+  *Fehler*, *Division durch Null!*, *OK*, at 40,40 — is built from the two
+  routines that draw it (R109 `0x26e8d`, `0x271a0`; R78 `0x21c30`,
+  `0x21f80`) and matches a capture of the original's pixel for pixel; a key
+  or the left button closes it. `/` and `MOD` leave 0 where the result
+  goes. In the frame loop the frame goes on after the box, as measured in
+  the original; outside it the run ends.
+- **A conversation's line is measured before it is clamped.** The 32-bit
+  dialogue machine sets a line through `SDTB` … `SDTXT` (`0x7b81e`–
+  `0x7b868`), which measure it on the spot, and only then keeps it twenty
+  pixels inside the view; here the clamp ran on the last line's size, and
+  a long line overhung the left edge — the classroom's second line by
+  fifteen pixels. A capture of the original's entry into the classroom now
+  matches picture for picture.
+- **A far edge is counted as the build counts it.** `SDOX` and `SDOY`
+  place a box's far edge at `x − w + 1` on R109 and `x − w − 1` on R78,
+  for the getters and the drawer alike, and R109's `GDOX`/`GDOY` answer
+  one less than corner plus size (`0x6bed3`, `0x6c563`, `0x71508`; R78
+  `0x5a010`); the opener reads which off the binary. The help viewer's
+  heading stood a pixel left of the original's.
+- **The text backing darkens through the engine's own nearest match.**
+  Its table (`0x14740`) finds each darkened color through `0x1ee26` and
+  that routine's metric, where a plain squared distance picked another
+  entry for some colors under the classroom's lines.
+- **The 32-bit loop words do what the original's do.** `LEAVE` (`0x6426f`)
+  sets the limit to the index and lets the body finish, where the machine
+  dropped the loop's frame; `+LOOP` (`0x641bf`) leaves on `index >= limit`
+  whatever the step's sign; `/LOOP` (`0x6405e`) is `LOOP` and takes no step
+  from the stack. Each is measured in the original as well. No shipped
+  32-bit script uses any of the three.
+- **The descriptor and palette words follow their handlers.** The 32-bit
+  `SDPOS` takes three values and is `SDZ`, `SDY` and `SDX` in a row (R109
+  `0x7115c`, R78 `0x5d2c0`); the 16-bit one, a different handler, stops by
+  address. The 32-bit `SDNORM` keeps the justification bit and does nothing
+  when both placements are already the edge (`0x7339d`), and the dialogue
+  machines apply it rather than skip it. `RGB->COL` takes each component's
+  low byte (`0x75e4a`, `0x6127c`) instead of clamping to 0..63. The shipped
+  scripts give the same picture under both readings.
+- **A 32-bit `ELSEDUP` stops by address** (`0x638e0`) where the machine
+  panicked.
+- **A negative dialogue node stops the run by address** (`0x7b53f`) where
+  a debug build overflowed: the original's signed compare sends it down
+  the line path, which reads below the line array.
+- **A `MUSADL.DRV` with an operator offset past 0x15 is refused** as
+  damaged, where a register sum formed from it could overflow a debug build.
+- **Recorded digest lines are written whole.** Parallel suites appending to
+  one record file could interleave a line's pieces and garble the table
+  `just digests` wrote.
+- **The layer test cannot pass on an unreadable directory** and knows the
+  rest of the family's names: Checker 2000, Eddie M., `STERN.EXE`,
+  `HPPLAY`, `BMZ`, `LL.EXE`, and both builds.
 
 ## [0.11.1] - 2026-10-19
 
@@ -1542,7 +1556,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/wdominik/motionvm/releases/tag/v0.12.0
 [0.11.1]: https://github.com/wdominik/motionvm/releases/tag/v0.11.1
 [0.11.0]: https://github.com/wdominik/motionvm/releases/tag/v0.11.0
 [0.10.0]: https://github.com/wdominik/motionvm/releases/tag/v0.10.0

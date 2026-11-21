@@ -254,6 +254,10 @@ impl Vm {
     /// `ordinal` is carried alongside `prim` for the two cold paths that still
     /// want a name: handing the word to the engine, and saying which word was
     /// not implemented. Nothing on the way to an arm below looks it up.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one short arm per primitive: the interpreter's dispatch table, on its hot path"
+    )]
     fn step_simple(
         &mut self,
         prim: Prim,

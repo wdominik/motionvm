@@ -263,6 +263,10 @@ impl Vm {
     }
 
     /// Everything that is neither a branch nor an inline runtime.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one short arm per primitive: the interpreter's dispatch table, on its hot path"
+    )]
     fn step_simple(
         &mut self,
         prim: Prim,

@@ -56,16 +56,16 @@ pub(crate) fn croute(eng: &Engine, mem: &mut dyn AddressSpace, person: u32) -> R
     croute_with(eng, mem, shadow, steps, routes, extra, room)
 }
 
-/// The same, with the five pointers the person record would have held.
-pub(crate) fn croute_with(
+/// The first step of a plan: where the walker stands, at the depth and the
+/// shrink of the route it is on, with no heading yet. Answers the route, as
+/// an index, and the position.
+fn first_step(
     eng: &Engine,
     mem: &mut dyn AddressSpace,
     shadow: u32,
     steps: u32,
-    routes: u32,
     extra: u32,
-    room: i32,
-) -> Result<()> {
+) -> Result<(i32, i32, i32)> {
     let at = get(mem, shadow, S_ROUTE)? - 1;
     let (x, y) = (get(mem, shadow, S_X)?, get(mem, shadow, S_Y)?);
     set_step(mem, steps, 0, T_X, x)?;
@@ -82,6 +82,86 @@ pub(crate) fn croute_with(
     set_step(mem, steps, 0, T_SHRINK, shrink)?;
     set_step(mem, steps, 0, T_HEADING, -1)?;
     set_step(mem, steps, 0, T_ROUTE, at + 1)?;
+    Ok((at, x, y))
+}
+
+/// Step `i` across: toward the waypoint, retired on arrival. When both step
+/// sizes come out zero the axis with the longer way left is nudged by one —
+/// across on a tie it is not, which is why the two axes are two functions.
+fn advance_x(
+    eng: &Engine,
+    mem: &mut dyn AddressSpace,
+    p: &mut Plan,
+    legs: Legs,
+    steps: u32,
+    i: i32,
+    was_x: i32,
+) -> Result<()> {
+    if p.to_x != -1 {
+        let mut d = step_x(eng, mem, p, legs)?;
+        if d == 0 && step_y(eng, mem, p, legs)? == 0 && (p.x - p.to_x).abs() > (p.y - p.to_y).abs()
+        {
+            d = 1;
+        }
+        let now = if was_x < p.to_x { was_x + d } else { was_x - d };
+        let done = if was_x < p.to_x {
+            now >= p.to_x
+        } else {
+            now <= p.to_x
+        };
+        set_step(mem, steps, i, T_X, if done { p.to_x } else { now })?;
+        if done {
+            p.to_x = -1;
+        }
+    } else {
+        set_step(mem, steps, i, T_X, was_x)?;
+    }
+    Ok(())
+}
+
+/// Step `i` down, the same way; on a tie it is this axis that is nudged.
+fn advance_y(
+    eng: &Engine,
+    mem: &mut dyn AddressSpace,
+    p: &mut Plan,
+    legs: Legs,
+    steps: u32,
+    i: i32,
+    was_y: i32,
+) -> Result<()> {
+    if p.to_y != -1 {
+        let mut d = step_y(eng, mem, p, legs)?;
+        if d == 0 && step_x(eng, mem, p, legs)? == 0 && (p.x - p.to_x).abs() <= (p.y - p.to_y).abs()
+        {
+            d = 1;
+        }
+        let now = if was_y < p.to_y { was_y + d } else { was_y - d };
+        let done = if was_y < p.to_y {
+            now >= p.to_y
+        } else {
+            now <= p.to_y
+        };
+        set_step(mem, steps, i, T_Y, if done { p.to_y } else { now })?;
+        if done {
+            p.to_y = -1;
+        }
+    } else {
+        set_step(mem, steps, i, T_Y, was_y)?;
+    }
+    Ok(())
+}
+
+/// The same, with the five pointers the person record would have held.
+pub(crate) fn croute_with(
+    eng: &Engine,
+    mem: &mut dyn AddressSpace,
+    shadow: u32,
+    steps: u32,
+    routes: u32,
+    extra: u32,
+    room: i32,
+) -> Result<()> {
+    let (at, x, y) = first_step(eng, mem, shadow, steps, extra)?;
 
     let goal = get(mem, shadow, S_DEST_ROUTE)? - 1;
     let (hop, after) = if goal == at {
@@ -145,48 +225,8 @@ pub(crate) fn croute_with(
         // Each axis walks toward the waypoint and is retired on arrival. When
         // both step sizes come out zero the axis with the longer way left is
         // nudged by one, so a leg can never stall.
-        if p.to_x != -1 {
-            let mut d = step_x(eng, mem, &p, legs)?;
-            if d == 0
-                && step_y(eng, mem, &p, legs)? == 0
-                && (p.x - p.to_x).abs() > (p.y - p.to_y).abs()
-            {
-                d = 1;
-            }
-            let now = if was_x < p.to_x { was_x + d } else { was_x - d };
-            let done = if was_x < p.to_x {
-                now >= p.to_x
-            } else {
-                now <= p.to_x
-            };
-            set_step(mem, steps, i, T_X, if done { p.to_x } else { now })?;
-            if done {
-                p.to_x = -1;
-            }
-        } else {
-            set_step(mem, steps, i, T_X, was_x)?;
-        }
-        if p.to_y != -1 {
-            let mut d = step_y(eng, mem, &p, legs)?;
-            if d == 0
-                && step_x(eng, mem, &p, legs)? == 0
-                && (p.x - p.to_x).abs() <= (p.y - p.to_y).abs()
-            {
-                d = 1;
-            }
-            let now = if was_y < p.to_y { was_y + d } else { was_y - d };
-            let done = if was_y < p.to_y {
-                now >= p.to_y
-            } else {
-                now <= p.to_y
-            };
-            set_step(mem, steps, i, T_Y, if done { p.to_y } else { now })?;
-            if done {
-                p.to_y = -1;
-            }
-        } else {
-            set_step(mem, steps, i, T_Y, was_y)?;
-        }
+        advance_x(eng, mem, &mut p, legs, steps, i, was_x)?;
+        advance_y(eng, mem, &mut p, legs, steps, i, was_y)?;
 
         p.x = step_at(mem, steps, i, T_X)?;
         p.y = step_at(mem, steps, i, T_Y)?;
@@ -325,6 +365,112 @@ fn search(
     Ok(())
 }
 
+/// Where two routes meet, for a leg from route kind `kind` into route kind
+/// `next`, the second half of 0x76dcc: `c` the current route's line and `o` the next
+/// one's, each as start x, start y, end x, end y, and `(x, y)` the walker.
+/// `None` is a pair of kinds whose test found nothing, where the original
+/// leaves the target as it stood.
+fn meeting(
+    kind: i32,
+    next: i32,
+    (x, y): (i32, i32),
+    c: [i32; 4],
+    o: [i32; 4],
+) -> Option<(i32, i32)> {
+    let [c0, c1, c2, c3] = c;
+    let [o0, o1, o2, o3] = o;
+    let start = (c0, c1);
+    let end = (c2, c3);
+    let meets = |pt: (i32, i32)| pt == (o0, o1) || pt == (o2, o3);
+    match (kind, next) {
+        (0, 0) => Some((
+            if x > o2 {
+                if o2 > c0 { o2 } else { c0 }
+            } else if x < o0 {
+                if o0 < c2 { o0 } else { c2 }
+            } else {
+                x
+            },
+            if y > o3 {
+                if o3 > c1 { o3 } else { c1 }
+            } else if y < o1 {
+                if o1 < c3 { o1 } else { c3 }
+            } else {
+                y
+            },
+        )),
+        (0, 1) => {
+            if c0 == o2 || c1 == o3 {
+                Some((o2, o3))
+            } else if c2 == o0 || c3 == o1 {
+                Some((o0, o1))
+            } else {
+                None
+            }
+        }
+        (0, 2) => {
+            if c0 == o2 || c3 == o3 {
+                Some((o2, o3))
+            } else if c2 == o0 || c1 == o1 {
+                Some((o0, o1))
+            } else {
+                None
+            }
+        }
+        (1, 0) => {
+            if c0 == o0 || c0 == o2 || c1 == o1 || c1 == o3 {
+                Some((c0, c1))
+            } else if c2 == o0 || c2 == o2 || c3 == o1 || c3 == o3 {
+                Some((c2, c3))
+            } else {
+                None
+            }
+        }
+        (1, 1) => {
+            if meets(start) {
+                Some((c0, c1))
+            } else if meets(end) {
+                Some((c2, c3))
+            } else {
+                Some((-1, -1))
+            }
+        }
+        (1, 2) => {
+            if meets(start) {
+                Some((c0, c1))
+            } else {
+                Some((c2, c3))
+            }
+        }
+        (2, 0) => {
+            if c2 == o0 || c2 == o2 || c3 == o1 || c3 == o3 {
+                Some((c2, c3))
+            } else if c0 == o0 || c0 == o2 || c1 == o1 || c1 == o3 {
+                Some((c0, c1))
+            } else {
+                Some((-1, -1))
+            }
+        }
+        (2, 1) => {
+            if meets(start) {
+                Some((c0, c1))
+            } else {
+                Some((c2, c3))
+            }
+        }
+        (2, 2) => {
+            if meets(end) {
+                Some((c2, c3))
+            } else if meets(start) {
+                Some((c0, c1))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Where the current leg is headed, 0x76dcc.
 ///
 /// Inside the destination route that is the walk target itself, with a missing
@@ -352,105 +498,11 @@ fn waypoint(
         let o = |f: u32| route(mem, routes, n, f);
         let (c0, c1, c2, c3) = (c(0)?, c(4)?, c(8)?, c(0x0c)?);
         let (o0, o1, o2, o3) = (o(0)?, o(4)?, o(8)?, o(0x0c)?);
-        let start = (c0, c1);
-        let end = (c2, c3);
-        let meets = |pt: (i32, i32)| pt == (o0, o1) || pt == (o2, o3);
-        match (kind, next) {
-            (0, 0) => {
-                p.to_x = if p.x > o2 {
-                    if o2 > c0 { o2 } else { c0 }
-                } else if p.x < o0 {
-                    if o0 < c2 { o0 } else { c2 }
-                } else {
-                    p.x
-                };
-                p.to_y = if p.y > o3 {
-                    if o3 > c1 { o3 } else { c1 }
-                } else if p.y < o1 {
-                    if o1 < c3 { o1 } else { c3 }
-                } else {
-                    p.y
-                };
-            }
-            (0, 1) => {
-                if c0 == o2 || c1 == o3 {
-                    p.to_x = o2;
-                    p.to_y = o3;
-                } else if c2 == o0 || c3 == o1 {
-                    p.to_x = o0;
-                    p.to_y = o1;
-                }
-            }
-            (0, 2) => {
-                if c0 == o2 || c3 == o3 {
-                    p.to_x = o2;
-                    p.to_y = o3;
-                } else if c2 == o0 || c1 == o1 {
-                    p.to_x = o0;
-                    p.to_y = o1;
-                }
-            }
-            (1, 0) => {
-                if c0 == o0 || c0 == o2 || c1 == o1 || c1 == o3 {
-                    p.to_x = c0;
-                    p.to_y = c1;
-                } else if c2 == o0 || c2 == o2 || c3 == o1 || c3 == o3 {
-                    p.to_x = c2;
-                    p.to_y = c3;
-                }
-            }
-            (1, 1) => {
-                if meets(start) {
-                    p.to_x = c0;
-                    p.to_y = c1;
-                } else if meets(end) {
-                    p.to_x = c2;
-                    p.to_y = c3;
-                } else {
-                    p.to_x = -1;
-                    p.to_y = -1;
-                }
-            }
-            (1, 2) => {
-                if meets(start) {
-                    p.to_x = c0;
-                    p.to_y = c1;
-                } else {
-                    p.to_x = c2;
-                    p.to_y = c3;
-                }
-            }
-            (2, 0) => {
-                if c2 == o0 || c2 == o2 || c3 == o1 || c3 == o3 {
-                    p.to_x = c2;
-                    p.to_y = c3;
-                } else if c0 == o0 || c0 == o2 || c1 == o1 || c1 == o3 {
-                    p.to_x = c0;
-                    p.to_y = c1;
-                } else {
-                    p.to_x = -1;
-                    p.to_y = -1;
-                }
-            }
-            (2, 1) => {
-                if meets(start) {
-                    p.to_x = c0;
-                    p.to_y = c1;
-                } else {
-                    p.to_x = c2;
-                    p.to_y = c3;
-                }
-            }
-            (2, 2) => {
-                if meets(end) {
-                    p.to_x = c2;
-                    p.to_y = c3;
-                } else if meets(start) {
-                    p.to_x = c0;
-                    p.to_y = c1;
-                }
-            }
-            _ => {}
+        if let Some((to_x, to_y)) =
+            meeting(kind, next, (p.x, p.y), [c0, c1, c2, c3], [o0, o1, o2, o3])
+        {
+            p.to_x = to_x;
+            p.to_y = to_y;
         }
     }
     p.keep_x = p.to_x;

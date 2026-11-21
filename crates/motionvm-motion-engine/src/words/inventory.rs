@@ -70,127 +70,7 @@ impl Engine {
         rules: Rules,
     ) -> Result<Option<()>> {
         match word {
-            // Lays the inventory bar out. `CALCINV` calls it the same way in
-            // both games — module 5 of Dunkle Schatten 2 and module 602
-            // of Die Enviro-Kids greifen ein:
-            //
-            //   _ACTINV @  _FITEM  _INVDOWN @  _INVUP @  _ITEM @  _IS @
-            //   _ORDER <75 cells> + @  _ORDER <74 cells> + @  CCALCINV
-            //
-            // so: the list `ADDTOINV` fills, the table of items, the two scroll
-            // arrows, the first of eight slot descriptors, the inventory
-            // screen, and — for the selected item — the callback word that
-            // `SDWORD` hangs on its descriptor — not a caption, which the
-            // argument's name might suggest.
-            //
-            // The bar shows eight at a time, and the list's own head cell is
-            // how far it has scrolled.
-            Word::CCALCINV => {
-                let a = pop_n(stack, 8, "CCALCINV")?;
-                let (list, items) = (a[0], a[1]);
-                let (arrow_down, arrow_up) = (a[2], a[3]);
-                let (first_slot, screen) = (a[4], a[5]);
-                let (caption, selected) = (a[6], a[7]);
-                let cell = mem.cell_size();
-
-                // Both of these index with values that come out of module
-                // memory, so both wrap rather than multiply into an overflow:
-                // a garbage item number follows from a list the scripts wrote
-                // wrong, and the original indexes both unchecked.
-                let entry = |mem: &dyn AddressSpace, i: i32| slot_address(mem, list, i);
-                let record = |mem: &dyn AddressSpace, item: i32, field: i32| {
-                    mem.offset(
-                        items,
-                        item.wrapping_mul(5).wrapping_add(field).wrapping_mul(cell),
-                    )
-                };
-                self.select_screen(cell::unsigned(screen));
-                for arrow in [arrow_up, arrow_down] {
-                    self.select_descriptor(cell::unsigned(arrow));
-                    self.set_active(false);
-                }
-
-                // Empty all eight slots first, so a shorter list cannot leave
-                // the tail of a longer one standing.
-                for d in first_slot..first_slot + 8 {
-                    self.select_descriptor(cell::unsigned(d));
-                    if rules.clear_by_hiding {
-                        self.set_active(false);
-                    } else {
-                        self.set_sprite(0)?;
-                    }
-                    self.set_wait(-1)?;
-                    self.set_callback(mem.callable(-1))?;
-                }
-
-                // A scrolled list whose window is no longer full scrolls back
-                // until it is — otherwise removing an item would leave gaps —
-                // and a negative offset ends at 0. Both handlers walk from
-                // the offset to the first empty entry inside the window, take
-                // eight off where it stops short, and then set a negative
-                // offset to 0 (`0x7ee7e`–`0x7ee89`; `ENVIRO.EXE`
-                // `0d34:3649`–`0d34:364f`). The scripts reach a negative one:
-                // in Dunkle Schatten 2 the back arrow is a hit box, not the
-                // drawn arrow, and its branch is `_ACTINV @ @ 8 - _ACTINV @ !`
-                // (module 4, `0x02b28`) with no floor. From a negative start
-                // the walk can only leave it negative, whatever the cells
-                // before the list hold, so the offset is 0 without reading
-                // them — as measured in the original, from -8 and from -1.
-                let mut offset = mem.fetch_cell(list)?;
-                if offset < 0 {
-                    offset = 0;
-                    mem.store_cell(list, 0)?;
-                }
-                if offset != 0 {
-                    let mut j = offset;
-                    while offset + 8 > j && mem.fetch_cell(entry(mem, j))? != 0 {
-                        j += 1;
-                    }
-                    if offset + 8 > j {
-                        offset = (j - 8).max(0);
-                        mem.store_cell(list, offset)?;
-                    }
-                }
-
-                // An arrow each way, shown only when there is something that
-                // way: above the window, or one item past its end.
-                if offset > 0 {
-                    self.select_descriptor(cell::unsigned(arrow_up));
-                    self.set_active(true);
-                }
-                if mem.fetch_cell(entry(mem, offset + 8))? != 0 {
-                    self.select_descriptor(cell::unsigned(arrow_down));
-                    self.set_active(true);
-                }
-
-                for i in offset..offset + 8 {
-                    let item = mem.fetch_cell(entry(mem, i))?;
-                    if item == 0 {
-                        break;
-                    }
-                    self.select_descriptor(cell::unsigned(first_slot + i - offset));
-                    self.set_active(true);
-                    self.set_sprite(mem.fetch_cell(record(mem, item, 2))?)?;
-                    // Only the selected item carries the caption.
-                    if item == selected {
-                        self.set_callback(mem.callable(caption))?;
-                        self.set_wait(0)?;
-                    }
-                    // `and $0xfe` then `or $8`, verbatim in both binaries: bit
-                    // 0 goes, bit 3 arrives, and everything above the low byte
-                    // is dropped.
-                    let flags = mem.fetch_cell(record(mem, item, 1))?;
-                    mem.store_cell(record(mem, item, 1), (flags & 0xfe) | 8)?;
-                }
-                if rules.scrx_moves_window {
-                    if let Some(s) = self.display.current_mut() {
-                        s.pos.0 = 0;
-                    }
-                    self.rebuild_current_screen();
-                } else {
-                    self.set_screen_scroll(false, 0);
-                }
-            }
+            Word::CCALCINV => self.word_ccalcinv(stack, mem, rules)?,
             // `?INVINCL ( item list -- f )`: is it in there?
             //
             // Walks the zero-terminated slots and stops on a match or on the
@@ -280,4 +160,135 @@ pub(crate) fn remove_from_inventory(
         }
     }
     Ok(())
+}
+
+// Word bodies moved out of the dispatcher above.
+impl Engine {
+    /// Lays the inventory bar out. `CALCINV` calls it the same way in
+    /// both games — module 5 of Dunkle Schatten 2 and module 602
+    /// of Die Enviro-Kids greifen ein:
+    ///
+    ///   _ACTINV @  _FITEM  _INVDOWN @  _INVUP @  _ITEM @  _IS @
+    ///   _ORDER <75 cells> + @  _ORDER <74 cells> + @  CCALCINV
+    ///
+    /// so: the list `ADDTOINV` fills, the table of items, the two scroll
+    /// arrows, the first of eight slot descriptors, the inventory
+    /// screen, and — for the selected item — the callback word that
+    /// `SDWORD` hangs on its descriptor — not a caption, which the
+    /// argument's name might suggest.
+    ///
+    /// The bar shows eight at a time, and the list's own head cell is
+    /// how far it has scrolled.
+    fn word_ccalcinv(
+        &mut self,
+        stack: &mut Vec<i32>,
+        mem: &mut dyn AddressSpace,
+        rules: Rules,
+    ) -> Result<()> {
+        let a = pop_n(stack, 8, "CCALCINV")?;
+        let (list, items) = (a[0], a[1]);
+        let (arrow_down, arrow_up) = (a[2], a[3]);
+        let (first_slot, screen) = (a[4], a[5]);
+        let (caption, selected) = (a[6], a[7]);
+        let cell = mem.cell_size();
+
+        // Both of these index with values that come out of module
+        // memory, so both wrap rather than multiply into an overflow:
+        // a garbage item number follows from a list the scripts wrote
+        // wrong, and the original indexes both unchecked.
+        let entry = |mem: &dyn AddressSpace, i: i32| slot_address(mem, list, i);
+        let record = |mem: &dyn AddressSpace, item: i32, field: i32| {
+            mem.offset(
+                items,
+                item.wrapping_mul(5).wrapping_add(field).wrapping_mul(cell),
+            )
+        };
+        self.select_screen(cell::unsigned(screen));
+        for arrow in [arrow_up, arrow_down] {
+            self.select_descriptor(cell::unsigned(arrow));
+            self.set_active(false);
+        }
+
+        // Empty all eight slots first, so a shorter list cannot leave
+        // the tail of a longer one standing.
+        for d in first_slot..first_slot + 8 {
+            self.select_descriptor(cell::unsigned(d));
+            if rules.clear_by_hiding {
+                self.set_active(false);
+            } else {
+                self.set_sprite(0)?;
+            }
+            self.set_wait(-1)?;
+            self.set_callback(mem.callable(-1))?;
+        }
+
+        // A scrolled list whose window is no longer full scrolls back
+        // until it is — otherwise removing an item would leave gaps —
+        // and a negative offset ends at 0. Both handlers walk from
+        // the offset to the first empty entry inside the window, take
+        // eight off where it stops short, and then set a negative
+        // offset to 0 (`0x7ee7e`–`0x7ee89`; `ENVIRO.EXE`
+        // `0d34:3649`–`0d34:364f`). The scripts reach a negative one:
+        // in Dunkle Schatten 2 the back arrow is a hit box, not the
+        // drawn arrow, and its branch is `_ACTINV @ @ 8 - _ACTINV @ !`
+        // (module 4, `0x02b28`) with no floor. From a negative start
+        // the walk can only leave it negative, whatever the cells
+        // before the list hold, so the offset is 0 without reading
+        // them — as measured in the original, from -8 and from -1.
+        let mut offset = mem.fetch_cell(list)?;
+        if offset < 0 {
+            offset = 0;
+            mem.store_cell(list, 0)?;
+        }
+        if offset != 0 {
+            let mut j = offset;
+            while offset + 8 > j && mem.fetch_cell(entry(mem, j))? != 0 {
+                j += 1;
+            }
+            if offset + 8 > j {
+                offset = (j - 8).max(0);
+                mem.store_cell(list, offset)?;
+            }
+        }
+
+        // An arrow each way, shown only when there is something that
+        // way: above the window, or one item past its end.
+        if offset > 0 {
+            self.select_descriptor(cell::unsigned(arrow_up));
+            self.set_active(true);
+        }
+        if mem.fetch_cell(entry(mem, offset + 8))? != 0 {
+            self.select_descriptor(cell::unsigned(arrow_down));
+            self.set_active(true);
+        }
+
+        for i in offset..offset + 8 {
+            let item = mem.fetch_cell(entry(mem, i))?;
+            if item == 0 {
+                break;
+            }
+            self.select_descriptor(cell::unsigned(first_slot + i - offset));
+            self.set_active(true);
+            self.set_sprite(mem.fetch_cell(record(mem, item, 2))?)?;
+            // Only the selected item carries the caption.
+            if item == selected {
+                self.set_callback(mem.callable(caption))?;
+                self.set_wait(0)?;
+            }
+            // `and $0xfe` then `or $8`, verbatim in both binaries: bit
+            // 0 goes, bit 3 arrives, and everything above the low byte
+            // is dropped.
+            let flags = mem.fetch_cell(record(mem, item, 1))?;
+            mem.store_cell(record(mem, item, 1), (flags & 0xfe) | 8)?;
+        }
+        if rules.scrx_moves_window {
+            if let Some(s) = self.display.current_mut() {
+                s.pos.0 = 0;
+            }
+            self.rebuild_current_screen();
+        } else {
+            self.set_screen_scroll(false, 0);
+        }
+        Ok(())
+    }
 }

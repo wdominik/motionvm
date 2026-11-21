@@ -106,181 +106,7 @@ impl Engine {
                 let inside = first >= c[0] && first <= c[2] && second >= c[1] && second <= c[3];
                 stack.push(i32::from(inside));
             }
-            // The status line under the pointer, and the pointer's own shape.
-            //
-            // `SCANITEM` in module 5 calls it with twenty-four values; the
-            // handler pops exactly that many, so unlike `ANIMPLAY` the count is
-            // real. Three cases: over the scene, over the inventory bar, or
-            // over neither. Each ends by setting the cursor through
-            // `FXATMOUSE`, a module-5 word — the handler runs the interpreter
-            // again for it, and since every one of those eight calls is the
-            // last thing its branch does, it is requested as a tail call here.
-            //
-            // Returns the hot area the pointer is in, or -1.
-            Word::MOUSEINFO => {
-                let a = pop_n(stack, 24, "MOUSEINFO")?;
-                let (imx, mmx, mmy) = (a[0], a[2], a[3]);
-                let (lditem, a_lditem, s_lditem, one) = (a[4], a[5], a[6], a[7]);
-                let (fitem, actinv) = (a[8], a[9]);
-                let (is, screen, minfo, fitem2) = (a[11], a[13], a[14], a[15]);
-                let (flag, bmnr, fxatmouse) = (a[16], a[17], a[18]);
-                let (t390, t391, t392) = (a[19], a[20], a[21]);
-                let mode = a[23];
-                let _ = is;
-                let cell = mem.cell_size();
-
-                // The handler keeps the last mode in a global and forces the
-                // "something changed" flag when it differs, so a mode switch
-                // always redraws even if the pointer has not moved.
-                let mut changed = a[22];
-                if self.last_info_mode != Some(mode) {
-                    self.last_info_mode = Some(mode);
-                    changed = 1;
-                }
-
-                // Records are addressed by cell: the area's caption is its
-                // fifth cell, its exit the tenth and its item the eleventh;
-                // an item record is five cells with the flags second.
-                let field = |base: i32, cells: i32| mem.offset(base, cells * cell);
-                let mut result = -1;
-                // Modes 2, 4 and 5 are the menus: the info line belongs to them
-                // and this word keeps its hands off.
-                if mode == 2 || mode == 4 || mode == 5 {
-                    self.select_screen(cell::unsigned(screen));
-                    self.select_descriptor(cell::unsigned(minfo));
-                    stack.push(result);
-                    return Ok(Some(()));
-                }
-
-                let over_scene = mmx != -1 && matches!(mode, 0 | 3 | 8 | 9);
-                let over_bar = imx != -1 && matches!(mode, 0 | 3 | 8 | 9 | 0xE);
-                let mut cursor = None;
-
-                if over_scene {
-                    self.select_screen(cell::unsigned(screen));
-                    self.select_descriptor(cell::unsigned(minfo));
-                    result = area_containing(
-                        mem,
-                        mmx,
-                        mmy,
-                        lditem,
-                        s_lditem,
-                        a_lditem,
-                        self.profile.skips_holes,
-                    );
-                    let tb = self.descriptor_table();
-                    let txt = self.descriptor_text_entry();
-
-                    if result != -1 {
-                        let label =
-                            mem.fetch_cell(mem.offset(lditem, s_lditem * result + 4 * cell))?;
-                        if !(tb == one && txt == label && changed == 0) {
-                            self.set_text_table(one)?;
-                            self.set_text(label)?;
-                            // The handler measures the new text on the spot (`SDTXT`, as the
-                            // word does), so a `GDX` or `SDX` in the same frame sees its size.
-                            self.lay_out_current(mem);
-                            self.place_x(mmx, Placement::Center)?;
-                            self.place_y(mmy, Placement::Center)?;
-                        }
-                        if flag != 0 {
-                            let area = |cells: i32| field(lditem, result * 16 + cells);
-                            let exit = mem.fetch_cell(area(9))?;
-                            let item = mem.fetch_cell(area(10))?;
-                            let usable =
-                                item != 0 && mem.fetch_cell(field(fitem2, item * 5 + 1))? & 1 != 0;
-                            // Nothing to do when the pointer is already plain
-                            // and nothing has changed.
-                            cursor = if exit != 0 {
-                                Some(t392)
-                            } else if usable {
-                                Some(t391)
-                            } else if bmnr != t390 || changed != 0 {
-                                Some(t390)
-                            } else {
-                                None
-                            };
-                        }
-                    } else {
-                        if !(txt == 1 && tb == one) {
-                            self.set_text_table(one)?;
-                            self.set_text(1)?;
-                            // The handler measures the new text on the spot (`SDTXT`, as the
-                            // word does), so a `GDX` or `SDX` in the same frame sees its size.
-                            self.lay_out_current(mem);
-                        }
-                        if flag != 0 && bmnr != t390 {
-                            cursor = Some(t390);
-                        }
-                    }
-                } else if over_bar {
-                    self.select_screen(cell::unsigned(screen));
-                    self.select_descriptor(cell::unsigned(minfo));
-                    // The bar's slots are where `CCALCINV` puts them; where
-                    // the bar starts and how wide a slot is differs between
-                    // the two engines, see [`Rules`].
-                    let slot = (imx - rules.bar_x0) / rules.slot_w;
-                    let offset = mem.fetch_cell(actinv)?;
-                    let index = slot + offset;
-                    let item = if (0..=7).contains(&slot) && imx >= rules.bar_x0 {
-                        mem.fetch_cell(mem.offset(actinv, 4 + index * cell))?
-                    } else {
-                        0
-                    };
-                    if item != 0 {
-                        self.set_text_table(one)?;
-                        let label = mem.fetch_cell(field(fitem, item * 5))?;
-                        self.set_text(label)?;
-                        // The handler measures the new text on the spot (`SDTXT`, as the
-                        // word does), so a `GDX` or `SDX` in the same frame sees its size.
-                        self.lay_out_current(mem);
-                        let x = self.screen_origin_x()
-                            + (index - offset) * rules.slot_w
-                            + rules.slot_w * 3 / 2;
-                        self.place_x(x, Placement::Center)?;
-                        let y = self.screen_origin_y() + rules.label_y;
-                        self.place_y(y, rules.label_placement)?;
-                        if flag != 0 && bmnr != t391 {
-                            cursor = Some(t391);
-                        }
-                    } else {
-                        let tb = self.descriptor_table();
-                        let txt = self.descriptor_text_entry();
-                        if !(tb == one && txt == 1) {
-                            self.set_text_table(one)?;
-                            self.set_text(1)?;
-                            // The handler measures the new text on the spot (`SDTXT`, as the
-                            // word does), so a `GDX` or `SDX` in the same frame sees its size.
-                            self.lay_out_current(mem);
-                        }
-                        if flag != 0 && bmnr != t390 {
-                            cursor = Some(t390);
-                        }
-                    }
-                } else {
-                    self.select_screen(cell::unsigned(screen));
-                    self.select_descriptor(cell::unsigned(minfo));
-                    let tb = self.descriptor_table();
-                    let txt = self.descriptor_text_entry();
-                    if !(tb == one && txt == 1) {
-                        self.set_text_table(one)?;
-                        self.set_text(1)?;
-                        // The handler measures the new text on the spot (`SDTXT`, as the
-                        // word does), so a `GDX` or `SDX` in the same frame sees its size.
-                        self.lay_out_current(mem);
-                    }
-                    // Only worth resetting if the pointer is currently one of
-                    // the two special shapes.
-                    if (bmnr == t391 || bmnr == t392) && flag != 0 {
-                        cursor = Some(t390);
-                    }
-                }
-
-                if let Some(nr) = cursor {
-                    self.pending_call = Some((fxatmouse, vec![nr, 0, 0]));
-                }
-                stack.push(result);
-            }
+            Word::MOUSEINFO => self.word_mouseinfo(stack, mem, rules)?,
             Word::MOUSEX => {
                 self.polled();
                 stack.push(self.input.mouse.x);
@@ -363,4 +189,236 @@ pub(crate) fn area_containing(
         }
     }
     -1
+}
+
+/// The values `MOUSEINFO` pops that it reads, by what they are: the
+/// pointer over the bar and over the scene, the area table and its stride,
+/// the item tables, the inventory list, the info line's screen and
+/// descriptor, and the pointer shapes with the word that sets them.
+struct InfoArgs {
+    imx: i32,
+    mmx: i32,
+    mmy: i32,
+    lditem: i32,
+    a_lditem: i32,
+    s_lditem: i32,
+    one: i32,
+    fitem: i32,
+    actinv: i32,
+    screen: i32,
+    minfo: i32,
+    fitem2: i32,
+    flag: i32,
+    bmnr: i32,
+    fxatmouse: i32,
+    t390: i32,
+    t391: i32,
+    t392: i32,
+}
+
+impl InfoArgs {
+    /// Out of the twenty-four, deepest first.
+    fn of(a: &[i32]) -> Self {
+        Self {
+            imx: a[0],
+            mmx: a[2],
+            mmy: a[3],
+            lditem: a[4],
+            a_lditem: a[5],
+            s_lditem: a[6],
+            one: a[7],
+            fitem: a[8],
+            actinv: a[9],
+            screen: a[13],
+            minfo: a[14],
+            fitem2: a[15],
+            flag: a[16],
+            bmnr: a[17],
+            fxatmouse: a[18],
+            t390: a[19],
+            t391: a[20],
+            t392: a[21],
+        }
+    }
+}
+
+// Word bodies moved out of the dispatcher above.
+impl Engine {
+    /// The status line under the pointer, and the pointer's own shape.
+    ///
+    /// `SCANITEM` in module 5 calls it with twenty-four values; the
+    /// handler pops exactly that many, so unlike `ANIMPLAY` the count is
+    /// real. Three cases: over the scene, over the inventory bar, or
+    /// over neither. Each ends by setting the cursor through
+    /// `FXATMOUSE`, a module-5 word — the handler runs the interpreter
+    /// again for it, and since every one of those eight calls is the
+    /// last thing its branch does, it is requested as a tail call here.
+    ///
+    /// Returns the hot area the pointer is in, or -1.
+    fn word_mouseinfo(
+        &mut self,
+        stack: &mut Vec<i32>,
+        mem: &dyn AddressSpace,
+        rules: Rules,
+    ) -> Result<()> {
+        let a = pop_n(stack, 24, "MOUSEINFO")?;
+        let p = InfoArgs::of(&a);
+        let mode = a[23];
+
+        // The handler keeps the last mode in a global and forces the
+        // "something changed" flag when it differs, so a mode switch
+        // always redraws even if the pointer has not moved.
+        let mut changed = a[22];
+        if self.last_info_mode != Some(mode) {
+            self.last_info_mode = Some(mode);
+            changed = 1;
+        }
+
+        // Every case starts on the info line's screen and descriptor.
+        self.select_screen(cell::unsigned(p.screen));
+        self.select_descriptor(cell::unsigned(p.minfo));
+        // Modes 2, 4 and 5 are the menus: the info line belongs to them
+        // and this word keeps its hands off.
+        if mode == 2 || mode == 4 || mode == 5 {
+            stack.push(-1);
+            return Ok(());
+        }
+
+        let over_scene = p.mmx != -1 && matches!(mode, 0 | 3 | 8 | 9);
+        let over_bar = p.imx != -1 && matches!(mode, 0 | 3 | 8 | 9 | 0xE);
+        let (result, cursor) = if over_scene {
+            self.info_over_scene(&p, mem, changed)?
+        } else if over_bar {
+            (-1, self.info_over_bar(&p, mem, rules)?)
+        } else {
+            (-1, self.info_elsewhere(&p, mem)?)
+        };
+
+        if let Some(nr) = cursor {
+            self.pending_call = Some((p.fxatmouse, vec![nr, 0, 0]));
+        }
+        stack.push(result);
+        Ok(())
+    }
+
+    /// The pointer over the scene: the caption of the area under it, and
+    /// the shape that says what a click there would do — an exit, a usable
+    /// item, or plain. Answers the area, or -1, and the shape to set.
+    fn info_over_scene(
+        &mut self,
+        p: &InfoArgs,
+        mem: &dyn AddressSpace,
+        changed: i32,
+    ) -> Result<(i32, Option<i32>)> {
+        let cell = mem.cell_size();
+        // Records are addressed by cell: the area's caption is its fifth
+        // cell, its exit the tenth and its item the eleventh; an item record
+        // is five cells with the flags second.
+        let field = |base: i32, cells: i32| mem.offset(base, cells * cell);
+        let result = area_containing(
+            mem,
+            p.mmx,
+            p.mmy,
+            p.lditem,
+            p.s_lditem,
+            p.a_lditem,
+            self.profile.skips_holes,
+        );
+        if result == -1 {
+            self.blank_info(p.one, mem)?;
+            let cursor = (p.flag != 0 && p.bmnr != p.t390).then_some(p.t390);
+            return Ok((result, cursor));
+        }
+        let tb = self.descriptor_table();
+        let txt = self.descriptor_text_entry();
+        let label = mem.fetch_cell(mem.offset(p.lditem, p.s_lditem * result + 4 * cell))?;
+        if !(tb == p.one && txt == label && changed == 0) {
+            self.set_text_table(p.one)?;
+            self.set_text(label)?;
+            // The handler measures the new text on the spot (`SDTXT`, as the
+            // word does), so a `GDX` or `SDX` in the same frame sees its size.
+            self.lay_out_current(mem);
+            self.place_x(p.mmx, Placement::Center)?;
+            self.place_y(p.mmy, Placement::Center)?;
+        }
+        if p.flag == 0 {
+            return Ok((result, None));
+        }
+        let area = |cells: i32| field(p.lditem, result * 16 + cells);
+        let exit = mem.fetch_cell(area(9))?;
+        let item = mem.fetch_cell(area(10))?;
+        let usable = item != 0 && mem.fetch_cell(field(p.fitem2, item * 5 + 1))? & 1 != 0;
+        // Nothing to do when the pointer is already plain and nothing has
+        // changed.
+        let cursor = if exit != 0 {
+            Some(p.t392)
+        } else if usable {
+            Some(p.t391)
+        } else if p.bmnr != p.t390 || changed != 0 {
+            Some(p.t390)
+        } else {
+            None
+        };
+        Ok((result, cursor))
+    }
+
+    /// The pointer over the inventory bar: the name of the item in the slot
+    /// under it, placed over the slot, and the shape to set.
+    fn info_over_bar(
+        &mut self,
+        p: &InfoArgs,
+        mem: &dyn AddressSpace,
+        rules: Rules,
+    ) -> Result<Option<i32>> {
+        let cell = mem.cell_size();
+        // The bar's slots are where `CCALCINV` puts them; where the bar
+        // starts and how wide a slot is differs between the two engines, see
+        // [`Rules`].
+        let slot = (p.imx - rules.bar_x0) / rules.slot_w;
+        let offset = mem.fetch_cell(p.actinv)?;
+        let index = slot + offset;
+        let item = if (0..=7).contains(&slot) && p.imx >= rules.bar_x0 {
+            mem.fetch_cell(mem.offset(p.actinv, 4 + index * cell))?
+        } else {
+            0
+        };
+        if item == 0 {
+            self.blank_info(p.one, mem)?;
+            return Ok((p.flag != 0 && p.bmnr != p.t390).then_some(p.t390));
+        }
+        self.set_text_table(p.one)?;
+        let label = mem.fetch_cell(mem.offset(p.fitem, item * 5 * cell))?;
+        self.set_text(label)?;
+        // The handler measures the new text on the spot (`SDTXT`, as the
+        // word does), so a `GDX` or `SDX` in the same frame sees its size.
+        self.lay_out_current(mem);
+        let x = self.screen_origin_x() + (index - offset) * rules.slot_w + rules.slot_w * 3 / 2;
+        self.place_x(x, Placement::Center)?;
+        let y = self.screen_origin_y() + rules.label_y;
+        self.place_y(y, rules.label_placement)?;
+        Ok((p.flag != 0 && p.bmnr != p.t391).then_some(p.t391))
+    }
+
+    /// The pointer over neither: the info line goes blank, and the pointer
+    /// is put back to plain — only worth doing if it is one of the two
+    /// special shapes now.
+    fn info_elsewhere(&mut self, p: &InfoArgs, mem: &dyn AddressSpace) -> Result<Option<i32>> {
+        self.blank_info(p.one, mem)?;
+        Ok(((p.bmnr == p.t391 || p.bmnr == p.t392) && p.flag != 0).then_some(p.t390))
+    }
+
+    /// Entry 1 of table `one` on the info line, unless it stands there
+    /// already: the blank caption.
+    fn blank_info(&mut self, one: i32, mem: &dyn AddressSpace) -> Result<()> {
+        let tb = self.descriptor_table();
+        let txt = self.descriptor_text_entry();
+        if !(tb == one && txt == 1) {
+            self.set_text_table(one)?;
+            self.set_text(1)?;
+            // The handler measures the new text on the spot (`SDTXT`, as the
+            // word does), so a `GDX` or `SDX` in the same frame sees its size.
+            self.lay_out_current(mem);
+        }
+        Ok(())
+    }
 }

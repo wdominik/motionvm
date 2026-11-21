@@ -177,41 +177,47 @@ impl ScrModule {
                     detail: format!("word {i} is {len} bytes, not whole cells"),
                 });
             }
-            let head = Record(bytes::<WORD_HEADER_LEN>(item, header)?);
-            let declared_len = usize::from(head.u8::<0>());
-            let name_field = head.bytes::<1, NAME_CAP>();
-            let kept = name_field
-                .iter()
-                .position(|&b| b == 0)
-                .unwrap_or(NAME_CAP)
-                .min(declared_len.max(1));
-            let name = name_field
-                .iter()
-                .take(kept)
-                .map(|&b| cp437_char(b))
-                .collect();
-            let id = head.u16::<12>();
-            let link = head.u16::<14>();
-            let body = slice(item, body_start, len)?
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|c| u16::from_le_bytes(*c))
-                .collect();
-            entries.push(Entry {
-                name,
-                declared_len,
-                id,
-                link,
-                offset: header,
-                body,
-            });
+            entries.push(Self::entry_at(item, header, body_start, len)?);
         }
         Ok(Self {
             module,
             first_id,
             last_id,
             entries,
+        })
+    }
+
+    /// One word: its sixteen-byte header at `header` — name, id, link — and
+    /// its body of `len` bytes at `body_start`, as cells.
+    fn entry_at(item: &[u8], header: usize, body_start: usize, len: usize) -> Result<Entry> {
+        let head = Record(bytes::<WORD_HEADER_LEN>(item, header)?);
+        let declared_len = usize::from(head.u8::<0>());
+        let name_field = head.bytes::<1, NAME_CAP>();
+        let kept = name_field
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(NAME_CAP)
+            .min(declared_len.max(1));
+        let name = name_field
+            .iter()
+            .take(kept)
+            .map(|&b| cp437_char(b))
+            .collect();
+        let id = head.u16::<12>();
+        let link = head.u16::<14>();
+        let body = slice(item, body_start, len)?
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
+            .collect();
+        Ok(Entry {
+            name,
+            declared_len,
+            id,
+            link,
+            offset: header,
+            body,
         })
     }
 

@@ -22,124 +22,10 @@ impl Engine {
         &mut self,
         word: Word,
         stack: &mut Vec<i32>,
-        _mem: &mut dyn AddressSpace,
+        mem: &mut dyn AddressSpace,
     ) -> Result<Option<()>> {
         match word {
-            // `( n -- flag )`: whether save slot `n` exists — `706 701 DO I
-            // =>EXIST LOOP` in `RUN`. The 32-bit kernel asks the same of a
-            // file with `EXIST`; here it is the `=>` family's word, so the
-            // answer is the same test on the same file.
-            // `( mode duration step -- )`, same shape as the 32-bit pair —
-            // but the 16-bit handlers (`FADEOUT` `05f1:2827`, `FADEIN`
-            // `05f1:29e4`, both read) draw a box, not a band: the black
-            // frame closes on the view's center, the picture opens back out
-            // of it, ring by ring — see [`Wipe`]. Their bookkeeping around
-            // it: `FADEIN` sets the screen active and composes it whole
-            // (`016a:0821`) before the first ring, whatever the mode;
-            // `FADEOUT` sets it inactive after the last, and unlike the
-            // 32-bit handler it leaves the screen's surface untouched —
-            // only the display goes black. Mode 0 is the same effect all at
-            // once; the game passes `1 50 8` at every one of its sites.
-            Word::FADEOUT_16 | Word::FADEIN_16 => {
-                let a = pop_n(stack, 3, "FADEIN/FADEOUT")?;
-                let (mode, duration, step) = (a[0], a[1], a[2]);
-                let opening = word == Word::FADEIN_16;
-                let screen = self.display.current.unwrap_or(0);
-                let was = self
-                    .display
-                    .screens
-                    .iter()
-                    .find(|s| s.handle == screen)
-                    .map(|s| s.active);
-                let showing = self
-                    .scene
-                    .descriptors
-                    .iter()
-                    .filter(|d| d.active && d.screen == screen)
-                    .count();
-                let background = self
-                    .scene
-                    .descriptors
-                    .iter()
-                    .find(|d| d.active && d.screen == screen && d.shows.table().is_some())
-                    .and_then(|d| d.shows.graphic());
-                self.transitions.fades.push(Fade {
-                    name: word.name().to_string(),
-                    screen,
-                    was_active: was.unwrap_or(false),
-                    showing,
-                    background,
-                });
-                if let Some(s) = self.display.current_mut() {
-                    s.active = opening;
-                }
-                if opening {
-                    // `SCRACT` (`05f1:094a`) sets bit 0 of the screen's
-                    // flags — the same rebuild request `SCRPOS` makes — so
-                    // the compose `FADEIN` then runs (`016a:0821`) takes
-                    // its **full** branch: surface cleared, save-unders
-                    // forgotten, every active descriptor drawn
-                    // (`016a:092c`–`016a:09ef`). That clear is what takes
-                    // the previous picture off a surface its descriptors no
-                    // longer cover — the intro swaps its motifs under a
-                    // FADEOUT/FADEIN pair and erases nothing itself, and
-                    // the start-up page's teardown (`KILL_MENU`) leans on
-                    // it the same way. (`SCRINACT`, `05f1:09b9`, freezes
-                    // the screen and requests the same rebuild; its
-                    // frozen-path clear, `016a:0880`, is subsumed here.)
-                    self.rebuild_current_screen();
-                    self.repaint_screen(screen);
-                    self.draw_screen(screen);
-                }
-                if mode != 0 && mode != 1 {
-                    // `05f1:284e`, `05f1:2a1c`: any other mode skips the
-                    // effect; the flag work above has already happened.
-                    self.note_unhandled(word, Some(format!("mode {mode}")));
-                    return Ok(Some(()));
-                }
-                let area = self
-                    .display
-                    .screens
-                    .iter()
-                    .find(|s| s.handle == screen)
-                    .map(|s| {
-                        (
-                            i32::from(s.view_pos.0),
-                            i32::from(s.view_pos.1),
-                            i32::from(s.view.0),
-                            i32::from(s.view.1),
-                        )
-                    })
-                    .unwrap_or_else(|| {
-                        (
-                            0,
-                            0,
-                            i32::from(self.display.size.width),
-                            i32::from(self.display.size.height),
-                        )
-                    });
-                if mode == 0 {
-                    // All at once: `FADEOUT` fills the view with black
-                    // (`05f1:286b`), `FADEIN` copies it whole out of the
-                    // surface (`05f1:2a39`) — one finished wipe does both.
-                    let wipe = Wipe::new(opening, screen, area, duration, step);
-                    self.paint_tail(&wipe);
-                    return Ok(Some(()));
-                }
-                self.transitions
-                    .wipes
-                    .push_back(Wipe::new(opening, screen, area, duration, step));
-                // The first ring goes down inside the word, before the first
-                // wait (`05f1:2916`, `05f1:2b1f`: fill or blit, *then* the
-                // spin at `05f1:2998`/`05f1:2c28`) — so no frame ever shows
-                // the view with the pointer taken away and no ring yet, which
-                // is what a ring that waited for the next step showed. Only
-                // when this wipe is the one at the front: behind another it
-                // starts when its turn comes.
-                if self.transitions.curtains.is_empty() && self.transitions.wipes.len() == 1 {
-                    self.advance_curtain();
-                }
-            }
+            Word::FADEOUT_16 | Word::FADEIN_16 => self.word_fade16(word, stack)?,
             Word::RES_EXIST => {
                 let n = pop1(stack, "=>EXIST")?;
                 let found = self.save_path(n, "blk").is_some_and(|p| p.exists());
@@ -151,71 +37,12 @@ impl Engine {
                 let handle = pop1(stack, "-FONT")?;
                 self.scene.fonts.remove(&handle);
             }
-            // `( n -- )`: selects font reference table `n`. The handler
-            // (`05f1:1813`) spells the number into the engine's file template
-            // (`#F0R3i.frt` at `ds:0xf81`), fetches that item through the
-            // container hook (`0362:0bf9`), and installs it as the table the
-            // text drawer maps characters through (`14ee:10ae`, the pointer at
-            // `ds:0x18d8`), freeing the one before. `0 SFT` before the first
-            // `+FONT`, in `RUN` and in the intro, is the one call the games
-            // make, and table 0 is the one the opener installed.
-            Word::SFT => {
-                let n = pop1(stack, "SFT")?;
-                let table = self
-                    .resources
-                    .as_ref()
-                    .and_then(|r| r.font_ref_table(cell::unsigned(n.max(0))))
-                    .ok_or(Error::MissingResource {
-                        kind: "font reference table",
-                        id: n,
-                        word: "SFT",
-                        at: None,
-                    })?;
-                self.scene.font_refs = Some(table);
-            }
+            Word::SFT => self.word_sft(stack)?,
             // Called once, before `BUFON`, with nothing on the stack to take:
             // a reset of the animation system, which starts out reset.
             Word::NEWANIM => {}
-            // `( screen x step -- )` and `( screen y step -- )`: scroll a
-            // screen's window over its surface to a new origin, `step`
-            // pixels a tick. Read from `ENVIRO.EXE` (`->SCRX` at file
-            // `0xc149`): the handler pops the step, the target and the
-            // screen number, writes the screen's origin — the field `SCRPOS`
-            // writes — and then blits its own frames, one per `DELAY` tick,
-            // until the origin has arrived; the word does not return until
-            // it has. Every call in the game is `_MS @ x 8 ->SCRX` inside
-            // `SETBUSY`/`SETNOBUSY`. Run here as a transition: the slide is
-            // queued, the interpreter is held the way a fade holds it, and
-            // each frame moves one step and presents.
-            Word::TO_SCRX_16 | Word::TO_SCRY_16 => {
-                let a = pop_n(stack, 3, "->SCRX")?;
-                let (screen, to, step) = (a[0], a[1], a[2]);
-                self.transitions.scroll = Some(crate::Scroll {
-                    screen: cell::unsigned(screen),
-                    vertical: word == Word::TO_SCRY_16,
-                    target: to,
-                    step,
-                });
-                self.dirty = true;
-            }
-            // `( x -- )` / `( y -- )`: the 16-bit `SCRX` (file `0x9809`) is
-            // `SCRPOS` with the other coordinate kept — it writes the screen's
-            // window origin, not the separate pair the 32-bit handler keeps —
-            // and `GSCRX` (file `0x97da`) reads the same cell back. The
-            // scripts scroll a wide location with it (`34 SCRX`, `152 SCRX`
-            // in the location macros) and add it to the mouse for world
-            // coordinates.
-            Word::SCRX_16 | Word::SCRY_16 => {
-                let v = pop1(stack, "SCRX")?;
-                if let Some(s) = self.display.current_mut() {
-                    if word == Word::SCRX_16 {
-                        s.pos.0 = cell::short(v);
-                    } else {
-                        s.pos.1 = cell::short(v);
-                    }
-                }
-                self.rebuild_current_screen();
-            }
+            Word::TO_SCRX_16 | Word::TO_SCRY_16 => self.word_to_scroll16(word, stack)?,
+            Word::SCRX_16 | Word::SCRY_16 => self.word_scroll16(word, stack)?,
             // `( x y -- )`: the window's origin, and — read at file `0x979b` —
             // bit 0 of the screen's flags, which the frame loop answers by
             // clearing the surface and drawing every active descriptor
@@ -279,72 +106,12 @@ impl Engine {
             Word::SETSHADE => {
                 pop_n(stack, 2, "SETSHADE")?;
             }
-            // `( room steps shadow routes aux -- )`: the step buffer between
-            // where the walker is and where it is going. The later games
-            // reach the same routine through `DOWALK`, which reads the five
-            // pointers out of a person record; this game has no `DOWALK` and
-            // pops them itself (`0104:4a45` in `LL.EXE`, in this order).
-            // What this build's routine does differently — no default for a
-            // zero shrink, a closing pass over the headings — is read off
-            // the binary when the game opens, see
-            // [`crate::Profile::walk_defaults_shrink`] and
-            // [`crate::Profile::walk_smooths_headings`].
-            Word::CROUTE => {
-                let a = pop_n(stack, 5, "CROUTE")?;
-                // `pop_n` hands them back deepest first, and the handler pops
-                // the aux table first, so the aux table is the top of the
-                // stack and the room is the deepest.
-                let (room, steps, shadow, routes, aux) = (
-                    a[0],
-                    cell::unsigned(a[1]),
-                    cell::unsigned(a[2]),
-                    cell::unsigned(a[3]),
-                    cell::unsigned(a[4]),
-                );
-                crate::walk::croute_with(self, _mem, shadow, steps, routes, aux, room)?;
-            }
+            Word::CROUTE => self.word_croute16(stack, mem)?,
             // `( -- 0 )`: the last word of the domain table, four
             // instructions long, pushing a constant zero (`0104:0002`). A
             // placeholder in every build; no module calls it.
             Word::POOR => stack.push(0),
-            // The music, with this kernel's own stack effects — they differ
-            // from the 32-bit engine's. `STARTTUNE ( loop n -- )` (file
-            // `0xbf89`) pops the block number and the loop flag and answers
-            // nothing; `ENDTUNE ( -- )` (file `0xbfed`) takes nothing — where
-            // the 32-bit pair answers a handle and takes it back. The shared
-            // arms leaked one cell per location change here.
-            //
-            // Both go through the sound module's Play routine (`1696:02ce`;
-            // `LL.EXE` `0e87:01f2`), which runs the stop routine first when
-            // a tune is still playing — the fade, the half-second wait, the
-            // stop — and only then hands the driver the new song. Victor
-            // Loomes changes its music that way at every location, with no
-            // `ENDTUNE` between: the new tune is queued behind the wait.
-            Word::STARTTUNE_16 => {
-                let a = pop_n(stack, 2, "STARTTUNE")?;
-                let (looping, tune) = (a[0], a[1]);
-                if self.sound.playing {
-                    self.end_tune16();
-                    if let Some(hold) = self.transitions.wipes.back_mut() {
-                        hold.then_tune = Some((tune, looping));
-                    }
-                } else if let Some(hold) = self
-                    .transitions
-                    .wipes
-                    .iter_mut()
-                    .rev()
-                    .find(|w| w.hold && w.then_tune.is_none())
-                {
-                    // `ENDTUNE` just before, on a path the interpreter does
-                    // not pause on — a descriptor callback's room change:
-                    // the stop routine's half second is still queued, and
-                    // the original's `STARTTUNE` runs only once it has been
-                    // spun. The tune starts when the wait is over, not now.
-                    hold.then_tune = Some((tune, looping));
-                } else {
-                    self.start_tune(tune, looping);
-                }
-            }
+            Word::STARTTUNE_16 => self.word_starttune16(stack)?,
             // The stop routine (`1696:02fd`; the other three builds' are the
             // same shape) does nothing while no tune is playing. Otherwise it
             // starts the driver's 2000 ms fade-out and spins until the 200 Hz
@@ -400,41 +167,7 @@ impl Engine {
                 let handle = pop1(stack, "REMSCR")?;
                 self.remove_screen(cell::unsigned(handle.max(0)));
             }
-            // `( block mode -- )`: a digital sound effect. Read in
-            // `STERN.EXE` (`15e5:0349`, file `0x19399`), the one build whose
-            // game calls it; `ENVIRO.EXE`'s (`1696:0357`) is the same
-            // handler's first half alone, and no game of that build reaches
-            // it. Both cells are popped and the mode is never read again.
-            // What follows is two halves. **A tune that is playing is
-            // stopped first**: the handler tests the driver's flag
-            // (`ds:1af8`, the one `ENDTUNE` tests), resets the tick counter,
-            // spins until it reads 100 (`cmp $0x64` — half a second), clears
-            // the flag, calls the music driver's Stop entry and the digital
-            // driver's StopAll (`1933:0276`, entry 18). That is `ENDTUNE`'s
-            // stop routine (`1614:0003`) **without** the 2000 ms fade-out the
-            // routine starts first: the tune plays on at full volume through
-            // the half second and is cut. **Then the sample**: with a digital
-            // driver installed (`ds:108c`) and the configuration's digital
-            // flag read as 1 (`ds:7770` set to `0x71` at `1058:00ca`), the
-            // block is loaded through the `#F0R3i.blk` template, copied whole
-            // into the driver's buffer and handed to the driver's play entry
-            // (`1933:0271`, entry 17) with a mode of 0 — always 0, whatever
-            // the script passed. motionvm is a machine with an Ad Lib card
-            // and a Sound Blaster, the configuration `SOUND.EXE` writes when
-            // both are on, so both halves run: the cut, and after the half
-            // second the sample, over the sink the way a tune goes.
-            Word::PLAYSAMPLE => {
-                let a = pop_n(stack, 2, "PLAYSAMPLE")?;
-                let block = a[0];
-                if self.sound.playing {
-                    self.cut_tune16();
-                    if let Some(hold) = self.transitions.wipes.back_mut() {
-                        hold.then_sample = Some(block);
-                    }
-                } else {
-                    self.play_sample(block);
-                }
-            }
+            Word::PLAYSAMPLE => self.word_playsample(stack)?,
             _ => return Ok(None),
         }
         Ok(Some(()))
@@ -484,5 +217,296 @@ impl Engine {
         self.transitions
             .wipes
             .push_back(Wipe::hold(Self::ENDTUNE_HOLD_TICKS));
+    }
+}
+
+// Word bodies moved out of the dispatcher above.
+impl Engine {
+    /// `( n -- flag )`: whether save slot `n` exists — `706 701 DO I
+    /// =>EXIST LOOP` in `RUN`. The 32-bit kernel asks the same of a
+    /// file with `EXIST`; here it is the `=>` family's word, so the
+    /// answer is the same test on the same file.
+    /// `( mode duration step -- )`, same shape as the 32-bit pair —
+    /// but the 16-bit handlers (`FADEOUT` `05f1:2827`, `FADEIN`
+    /// `05f1:29e4`, both read) draw a box, not a band: the black
+    /// frame closes on the view's center, the picture opens back out
+    /// of it, ring by ring — see [`Wipe`]. Their bookkeeping around
+    /// it: `FADEIN` sets the screen active and composes it whole
+    /// (`016a:0821`) before the first ring, whatever the mode;
+    /// `FADEOUT` sets it inactive after the last, and unlike the
+    /// 32-bit handler it leaves the screen's surface untouched —
+    /// only the display goes black. Mode 0 is the same effect all at
+    /// once; the game passes `1 50 8` at every one of its sites.
+    fn word_fade16(&mut self, word: Word, stack: &mut Vec<i32>) -> Result<()> {
+        let a = pop_n(stack, 3, "FADEIN/FADEOUT")?;
+        let (mode, duration, step) = (a[0], a[1], a[2]);
+        let opening = word == Word::FADEIN_16;
+        let screen = self.display.current.unwrap_or(0);
+        let was = self
+            .display
+            .screens
+            .iter()
+            .find(|s| s.handle == screen)
+            .map(|s| s.active);
+        let showing = self
+            .scene
+            .descriptors
+            .iter()
+            .filter(|d| d.active && d.screen == screen)
+            .count();
+        let background = self
+            .scene
+            .descriptors
+            .iter()
+            .find(|d| d.active && d.screen == screen && d.shows.table().is_some())
+            .and_then(|d| d.shows.graphic());
+        self.transitions.fades.push(Fade {
+            name: word.name().to_string(),
+            screen,
+            was_active: was.unwrap_or(false),
+            showing,
+            background,
+        });
+        if let Some(s) = self.display.current_mut() {
+            s.active = opening;
+        }
+        if opening {
+            // `SCRACT` (`05f1:094a`) sets bit 0 of the screen's
+            // flags — the same rebuild request `SCRPOS` makes — so
+            // the compose `FADEIN` then runs (`016a:0821`) takes
+            // its **full** branch: surface cleared, save-unders
+            // forgotten, every active descriptor drawn
+            // (`016a:092c`–`016a:09ef`). That clear is what takes
+            // the previous picture off a surface its descriptors no
+            // longer cover — the intro swaps its motifs under a
+            // FADEOUT/FADEIN pair and erases nothing itself, and
+            // the start-up page's teardown (`KILL_MENU`) leans on
+            // it the same way. (`SCRINACT`, `05f1:09b9`, freezes
+            // the screen and requests the same rebuild; its
+            // frozen-path clear, `016a:0880`, is subsumed here.)
+            self.rebuild_current_screen();
+            self.repaint_screen(screen);
+            self.draw_screen(screen);
+        }
+        if mode != 0 && mode != 1 {
+            // `05f1:284e`, `05f1:2a1c`: any other mode skips the
+            // effect; the flag work above has already happened.
+            self.note_unhandled(word, Some(format!("mode {mode}")));
+            return Ok(());
+        }
+        let area = self
+            .display
+            .screens
+            .iter()
+            .find(|s| s.handle == screen)
+            .map(|s| {
+                (
+                    i32::from(s.view_pos.0),
+                    i32::from(s.view_pos.1),
+                    i32::from(s.view.0),
+                    i32::from(s.view.1),
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    0,
+                    0,
+                    i32::from(self.display.size.width),
+                    i32::from(self.display.size.height),
+                )
+            });
+        if mode == 0 {
+            // All at once: `FADEOUT` fills the view with black
+            // (`05f1:286b`), `FADEIN` copies it whole out of the
+            // surface (`05f1:2a39`) — one finished wipe does both.
+            let wipe = Wipe::new(opening, screen, area, duration, step);
+            self.paint_tail(&wipe);
+            return Ok(());
+        }
+        self.transitions
+            .wipes
+            .push_back(Wipe::new(opening, screen, area, duration, step));
+        // The first ring goes down inside the word, before the first
+        // wait (`05f1:2916`, `05f1:2b1f`: fill or blit, *then* the
+        // spin at `05f1:2998`/`05f1:2c28`) — so no frame ever shows
+        // the view with the pointer taken away and no ring yet, which
+        // is what a ring that waited for the next step showed. Only
+        // when this wipe is the one at the front: behind another it
+        // starts when its turn comes.
+        if self.transitions.curtains.is_empty() && self.transitions.wipes.len() == 1 {
+            self.advance_curtain();
+        }
+        Ok(())
+    }
+
+    /// The music, with this kernel's own stack effects — they differ
+    /// from the 32-bit engine's. `STARTTUNE ( loop n -- )` (file
+    /// `0xbf89`) pops the block number and the loop flag and answers
+    /// nothing; `ENDTUNE ( -- )` (file `0xbfed`) takes nothing — where
+    /// the 32-bit pair answers a handle and takes it back. The shared
+    /// arms leaked one cell per location change here.
+    ///
+    /// Both go through the sound module's Play routine (`1696:02ce`;
+    /// `LL.EXE` `0e87:01f2`), which runs the stop routine first when
+    /// a tune is still playing — the fade, the half-second wait, the
+    /// stop — and only then hands the driver the new song. Victor
+    /// Loomes changes its music that way at every location, with no
+    /// `ENDTUNE` between: the new tune is queued behind the wait.
+    fn word_starttune16(&mut self, stack: &mut Vec<i32>) -> Result<()> {
+        let a = pop_n(stack, 2, "STARTTUNE")?;
+        let (looping, tune) = (a[0], a[1]);
+        if self.sound.playing {
+            self.end_tune16();
+            if let Some(hold) = self.transitions.wipes.back_mut() {
+                hold.then_tune = Some((tune, looping));
+            }
+        } else if let Some(hold) = self
+            .transitions
+            .wipes
+            .iter_mut()
+            .rev()
+            .find(|w| w.hold && w.then_tune.is_none())
+        {
+            // `ENDTUNE` just before, on a path the interpreter does
+            // not pause on — a descriptor callback's room change:
+            // the stop routine's half second is still queued, and
+            // the original's `STARTTUNE` runs only once it has been
+            // spun. The tune starts when the wait is over, not now.
+            hold.then_tune = Some((tune, looping));
+        } else {
+            self.start_tune(tune, looping);
+        }
+        Ok(())
+    }
+
+    /// `( n -- )`: selects font reference table `n`. The handler
+    /// (`05f1:1813`) spells the number into the engine's file template
+    /// (`#F0R3i.frt` at `ds:0xf81`), fetches that item through the
+    /// container hook (`0362:0bf9`), and installs it as the table the
+    /// text drawer maps characters through (`14ee:10ae`, the pointer at
+    /// `ds:0x18d8`), freeing the one before. `0 SFT` before the first
+    /// `+FONT`, in `RUN` and in the intro, is the one call the games
+    /// make, and table 0 is the one the opener installed.
+    fn word_sft(&mut self, stack: &mut Vec<i32>) -> Result<()> {
+        let n = pop1(stack, "SFT")?;
+        let table = self
+            .resources
+            .as_ref()
+            .and_then(|r| r.font_ref_table(cell::unsigned(n.max(0))))
+            .ok_or(Error::MissingResource {
+                kind: "font reference table",
+                id: n,
+                word: "SFT",
+                at: None,
+            })?;
+        self.scene.font_refs = Some(table);
+        Ok(())
+    }
+
+    /// `( block mode -- )`: a digital sound effect. Read in
+    /// `STERN.EXE` (`15e5:0349`, file `0x19399`), the one build whose
+    /// game calls it; `ENVIRO.EXE`'s (`1696:0357`) is the same
+    /// handler's first half alone, and no game of that build reaches
+    /// it. Both cells are popped and the mode is never read again.
+    /// What follows is two halves. **A tune that is playing is
+    /// stopped first**: the handler tests the driver's flag
+    /// (`ds:1af8`, the one `ENDTUNE` tests), resets the tick counter,
+    /// spins until it reads 100 (`cmp $0x64` — half a second), clears
+    /// the flag, calls the music driver's Stop entry and the digital
+    /// driver's `StopAll` (`1933:0276`, entry 18). That is `ENDTUNE`'s
+    /// stop routine (`1614:0003`) **without** the 2000 ms fade-out the
+    /// routine starts first: the tune plays on at full volume through
+    /// the half second and is cut. **Then the sample**: with a digital
+    /// driver installed (`ds:108c`) and the configuration's digital
+    /// flag read as 1 (`ds:7770` set to `0x71` at `1058:00ca`), the
+    /// block is loaded through the `#F0R3i.blk` template, copied whole
+    /// into the driver's buffer and handed to the driver's play entry
+    /// (`1933:0271`, entry 17) with a mode of 0 — always 0, whatever
+    /// the script passed. motionvm is a machine with an Ad Lib card
+    /// and a Sound Blaster, the configuration `SOUND.EXE` writes when
+    /// both are on, so both halves run: the cut, and after the half
+    /// second the sample, over the sink the way a tune goes.
+    fn word_playsample(&mut self, stack: &mut Vec<i32>) -> Result<()> {
+        let a = pop_n(stack, 2, "PLAYSAMPLE")?;
+        let block = a[0];
+        if self.sound.playing {
+            self.cut_tune16();
+            if let Some(hold) = self.transitions.wipes.back_mut() {
+                hold.then_sample = Some(block);
+            }
+        } else {
+            self.play_sample(block);
+        }
+        Ok(())
+    }
+
+    /// `( room steps shadow routes aux -- )`: the step buffer between
+    /// where the walker is and where it is going. The later games
+    /// reach the same routine through `DOWALK`, which reads the five
+    /// pointers out of a person record; this game has no `DOWALK` and
+    /// pops them itself (`0104:4a45` in `LL.EXE`, in this order).
+    /// What this build's routine does differently — no default for a
+    /// zero shrink, a closing pass over the headings — is read off
+    /// the binary when the game opens, see
+    /// [`crate::Profile::walk_defaults_shrink`] and
+    /// [`crate::Profile::walk_smooths_headings`].
+    fn word_croute16(&self, stack: &mut Vec<i32>, mem: &mut dyn AddressSpace) -> Result<()> {
+        let a = pop_n(stack, 5, "CROUTE")?;
+        // `pop_n` hands them back deepest first, and the handler pops
+        // the aux table first, so the aux table is the top of the
+        // stack and the room is the deepest.
+        let (room, steps, shadow, routes, aux) = (
+            a[0],
+            cell::unsigned(a[1]),
+            cell::unsigned(a[2]),
+            cell::unsigned(a[3]),
+            cell::unsigned(a[4]),
+        );
+        crate::walk::croute_with(self, mem, shadow, steps, routes, aux, room)?;
+        Ok(())
+    }
+
+    /// `( screen x step -- )` and `( screen y step -- )`: scroll a
+    /// screen's window over its surface to a new origin, `step`
+    /// pixels a tick. Read from `ENVIRO.EXE` (`->SCRX` at file
+    /// `0xc149`): the handler pops the step, the target and the
+    /// screen number, writes the screen's origin — the field `SCRPOS`
+    /// writes — and then blits its own frames, one per `DELAY` tick,
+    /// until the origin has arrived; the word does not return until
+    /// it has. Every call in the game is `_MS @ x 8 ->SCRX` inside
+    /// `SETBUSY`/`SETNOBUSY`. Run here as a transition: the slide is
+    /// queued, the interpreter is held the way a fade holds it, and
+    /// each frame moves one step and presents.
+    fn word_to_scroll16(&mut self, word: Word, stack: &mut Vec<i32>) -> Result<()> {
+        let a = pop_n(stack, 3, "->SCRX")?;
+        let (screen, to, step) = (a[0], a[1], a[2]);
+        self.transitions.scroll = Some(crate::Scroll {
+            screen: cell::unsigned(screen),
+            vertical: word == Word::TO_SCRY_16,
+            target: to,
+            step,
+        });
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// `( x -- )` / `( y -- )`: the 16-bit `SCRX` (file `0x9809`) is
+    /// `SCRPOS` with the other coordinate kept — it writes the screen's
+    /// window origin, not the separate pair the 32-bit handler keeps —
+    /// and `GSCRX` (file `0x97da`) reads the same cell back. The
+    /// scripts scroll a wide location with it (`34 SCRX`, `152 SCRX`
+    /// in the location macros) and add it to the mouse for world
+    /// coordinates.
+    fn word_scroll16(&mut self, word: Word, stack: &mut Vec<i32>) -> Result<()> {
+        let v = pop1(stack, "SCRX")?;
+        if let Some(s) = self.display.current_mut() {
+            if word == Word::SCRX_16 {
+                s.pos.0 = cell::short(v);
+            } else {
+                s.pos.1 = cell::short(v);
+            }
+        }
+        self.rebuild_current_screen();
+        Ok(())
     }
 }

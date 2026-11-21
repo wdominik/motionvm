@@ -122,6 +122,131 @@ where
     Ok(get(vm, order, button)? != 0 && get(vm, order, PRESSED)? == 0)
 }
 
+/// The menu stands open over the bar or over the scene. Same shape
+/// either way, on its own screen and its own descriptors.
+fn menu_open<M>(eng: &mut Engine, vm: &mut M, order: u32, mode: i32, rules: Rules) -> Result<bool>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
+    let bar = mode == 2;
+    let screen = get(vm, order, if bar { BAR_SCREEN } else { SCREEN })?;
+    let base = get(vm, order, if bar { BAR_MENU } else { SCENE_MENU })?;
+    highlight(eng, vm, order, screen, base)?;
+
+    if fresh(vm, order, MLK)? && get(vm, order, GATE2)? == 0 {
+        let flags = if bar {
+            let list = get(vm, order, INVENTORY)?;
+            let index = get(vm, order, SLOT)?;
+            let held = list_slot(vm, list, index)?;
+            item(vm, order, held, I_FLAGS)? | 2
+        } else {
+            // The scene reads the target afresh: an area may stand for
+            // an item, and then it is the item's flags that count.
+            let target = get(vm, order, TARGET)?;
+            if target >= BIAS {
+                match area(vm, order, target, A_ITEM)? {
+                    0 => area(vm, order, target, A_FLAGS)?,
+                    held => item(vm, order, held, I_FLAGS)?,
+                }
+            } else {
+                item(vm, order, target, I_FLAGS)?
+            }
+        };
+        choose(eng, vm, order, screen, base, flags, rules)?;
+    }
+
+    let cancel =
+        (fresh(vm, order, MRK)? && get(vm, order, GATE1)? == 0) || get(vm, order, GATE2)? != 0;
+    if cancel {
+        remove_menu(eng, vm, order)?;
+        if !bar {
+            let (held, list) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
+            crate::words::remove_from_inventory(vm.space_mut(), held, list)?;
+            eng.order_callback(vm, order, CALCINV, &[])?;
+        }
+    }
+    Ok(true)
+}
+
+/// Something rides on the cursor and the next click says what to use it
+/// on. The bar's interval is closed here, where every other test has it
+/// half-open — the handler's own inconsistency.
+fn carrying<M>(eng: &mut Engine, vm: &mut M, order: u32, rules: Rules) -> Result<bool>
+where
+    M: Machine,
+    Engine: Host<M> + Conversation<M>,
+{
+    if fresh(vm, order, MLK)? && get(vm, order, GATE2)? == 0 {
+        let imx = get(vm, order, IMX)?;
+        if (rules.bar_x0..=rules.bar_x0 + 8 * rules.slot_w).contains(&imx) {
+            let list = get(vm, order, INVENTORY)?;
+            let index = get(vm, cell::unsigned(list), 0)? + (imx - rules.bar_x0) / rules.slot_w;
+            let second = list_slot(vm, list, index)?;
+            if second != 0 {
+                put(vm, order, OBJECT, second)?;
+                let arrow = get(vm, order, ARROW)?;
+                eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
+                eng.order_callback(vm, order, PICKED, &[])?;
+                put(vm, order, MODE, 6)?;
+                put(vm, order, 0x104, -1)?;
+                let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
+                crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
+                eng.order_callback(vm, order, CALCINV, &[])?;
+                if get(vm, order, TAKEN)? == 1 {
+                    put(vm, order, TAKEN, 2)?;
+                }
+            } else if get(vm, order, GATE1)? != 0 {
+                put(vm, order, MODE, 0)?;
+                let arrow = get(vm, order, ARROW)?;
+                eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
+                eng.order_callback(vm, order, CANCELED, &[])?;
+                let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
+                crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
+                eng.order_callback(vm, order, CALCINV, &[])?;
+            }
+        } else {
+            eng.area_under_pointer(vm, order)?;
+            let hit = get(vm, order, AREA_HIT)?;
+            if hit != 0 {
+                let second = match area(vm, order, hit, A_ITEM)? {
+                    0 => hit,
+                    held => held,
+                };
+                put(vm, order, OBJECT, second)?;
+                eng.order_callback(vm, order, PICKED, &[])?;
+                put(vm, order, MODE, 6)?;
+                for (slot, f) in [
+                    (0x104u32, A_P1),
+                    (0x108, A_P2),
+                    (0x10c, A_P3),
+                    (0x118, A_P4),
+                ] {
+                    let v = area(vm, order, hit, f)?;
+                    put(vm, order, slot, v)?;
+                }
+                if get(vm, order, TAKEN)? == 1 {
+                    put(vm, order, TAKEN, 2)?;
+                }
+            } else if get(vm, order, GATE1)? != 0 {
+                put(vm, order, MODE, 0)?;
+                let arrow = get(vm, order, ARROW)?;
+                eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
+                eng.order_callback(vm, order, CANCELED, &[])?;
+            }
+        }
+    }
+    if (fresh(vm, order, MRK)?) || get(vm, order, GATE2)? != 0 {
+        put(vm, order, MODE, 0)?;
+        let arrow = get(vm, order, ARROW)?;
+        eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
+        eng.order_callback(vm, order, CANCELED, &[])?;
+        let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
+        crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
+        eng.order_callback(vm, order, CALCINV, &[])?;
+    }
+    Ok(true)
+}
 /// The mode chain at 0x7d4a8: modes 2 to 8, one arm each.
 pub(crate) fn mode_chain<M>(
     eng: &mut Engine,
@@ -135,123 +260,8 @@ where
     Engine: Host<M> + Conversation<M>,
 {
     match mode {
-        // The menu stands open over the bar or over the scene. Same shape
-        // either way, on its own screen and its own descriptors.
-        2 | 4 => {
-            let bar = mode == 2;
-            let screen = get(vm, order, if bar { BAR_SCREEN } else { SCREEN })?;
-            let base = get(vm, order, if bar { BAR_MENU } else { SCENE_MENU })?;
-            highlight(eng, vm, order, screen, base)?;
-
-            if fresh(vm, order, MLK)? && get(vm, order, GATE2)? == 0 {
-                let flags = if bar {
-                    let list = get(vm, order, INVENTORY)?;
-                    let index = get(vm, order, SLOT)?;
-                    let held = list_slot(vm, list, index)?;
-                    item(vm, order, held, I_FLAGS)? | 2
-                } else {
-                    // The scene reads the target afresh: an area may stand for
-                    // an item, and then it is the item's flags that count.
-                    let target = get(vm, order, TARGET)?;
-                    if target >= BIAS {
-                        match area(vm, order, target, A_ITEM)? {
-                            0 => area(vm, order, target, A_FLAGS)?,
-                            held => item(vm, order, held, I_FLAGS)?,
-                        }
-                    } else {
-                        item(vm, order, target, I_FLAGS)?
-                    }
-                };
-                choose(eng, vm, order, screen, base, flags, rules)?;
-            }
-
-            let cancel = (fresh(vm, order, MRK)? && get(vm, order, GATE1)? == 0)
-                || get(vm, order, GATE2)? != 0;
-            if cancel {
-                remove_menu(eng, vm, order)?;
-                if !bar {
-                    let (held, list) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                    crate::words::remove_from_inventory(vm.space_mut(), held, list)?;
-                    eng.order_callback(vm, order, CALCINV, &[])?;
-                }
-            }
-            Ok(true)
-        }
-        // Something rides on the cursor and the next click says what to use it
-        // on. The bar's interval is closed here, where every other test has it
-        // half-open — the handler's own inconsistency.
-        3 => {
-            if fresh(vm, order, MLK)? && get(vm, order, GATE2)? == 0 {
-                let imx = get(vm, order, IMX)?;
-                if (rules.bar_x0..=rules.bar_x0 + 8 * rules.slot_w).contains(&imx) {
-                    let list = get(vm, order, INVENTORY)?;
-                    let index =
-                        get(vm, cell::unsigned(list), 0)? + (imx - rules.bar_x0) / rules.slot_w;
-                    let second = list_slot(vm, list, index)?;
-                    if second != 0 {
-                        put(vm, order, OBJECT, second)?;
-                        let arrow = get(vm, order, ARROW)?;
-                        eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
-                        eng.order_callback(vm, order, PICKED, &[])?;
-                        put(vm, order, MODE, 6)?;
-                        put(vm, order, 0x104, -1)?;
-                        let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                        crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
-                        eng.order_callback(vm, order, CALCINV, &[])?;
-                        if get(vm, order, TAKEN)? == 1 {
-                            put(vm, order, TAKEN, 2)?;
-                        }
-                    } else if get(vm, order, GATE1)? != 0 {
-                        put(vm, order, MODE, 0)?;
-                        let arrow = get(vm, order, ARROW)?;
-                        eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
-                        eng.order_callback(vm, order, CANCELED, &[])?;
-                        let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                        crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
-                        eng.order_callback(vm, order, CALCINV, &[])?;
-                    }
-                } else {
-                    eng.area_under_pointer(vm, order)?;
-                    let hit = get(vm, order, AREA_HIT)?;
-                    if hit != 0 {
-                        let second = match area(vm, order, hit, A_ITEM)? {
-                            0 => hit,
-                            held => held,
-                        };
-                        put(vm, order, OBJECT, second)?;
-                        eng.order_callback(vm, order, PICKED, &[])?;
-                        put(vm, order, MODE, 6)?;
-                        for (slot, f) in [
-                            (0x104u32, A_P1),
-                            (0x108, A_P2),
-                            (0x10c, A_P3),
-                            (0x118, A_P4),
-                        ] {
-                            let v = area(vm, order, hit, f)?;
-                            put(vm, order, slot, v)?;
-                        }
-                        if get(vm, order, TAKEN)? == 1 {
-                            put(vm, order, TAKEN, 2)?;
-                        }
-                    } else if get(vm, order, GATE1)? != 0 {
-                        put(vm, order, MODE, 0)?;
-                        let arrow = get(vm, order, ARROW)?;
-                        eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
-                        eng.order_callback(vm, order, CANCELED, &[])?;
-                    }
-                }
-            }
-            if (fresh(vm, order, MRK)?) || get(vm, order, GATE2)? != 0 {
-                put(vm, order, MODE, 0)?;
-                let arrow = get(vm, order, ARROW)?;
-                eng.order_callback(vm, order, SET_CURSOR, &[arrow, 0, 0])?;
-                eng.order_callback(vm, order, CANCELED, &[])?;
-                let (held, inv) = (get(vm, order, HELD)?, get(vm, order, INVENTORY)?);
-                crate::words::remove_from_inventory(vm.space_mut(), held, inv)?;
-                eng.order_callback(vm, order, CALCINV, &[])?;
-            }
-            Ok(true)
-        }
+        2 | 4 => menu_open(eng, vm, order, mode, rules),
+        3 => carrying(eng, vm, order, rules),
         // Run it now, if no script of the location is in the way.
         5 => {
             if figure_free(vm, order, rules)? {
