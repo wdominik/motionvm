@@ -78,6 +78,12 @@ impl Host<m32::Vm> for Engine {
         cell::narrow(usize::try_from(self.master_ticks).unwrap_or(usize::MAX))
     }
 
+    /// A word called from inside a handler is never the boot script's last:
+    /// its caller carries on, so the run does not end with the box.
+    fn report(&mut self, error: &motionvm_motion_forth::Error) -> bool {
+        self.report_error(error, false)
+    }
+
     /// The ordinal is resolved through the table the opener built; an ordinal
     /// this engine has no word for is not ours, and the machine reports it by
     /// name.

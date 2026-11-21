@@ -63,7 +63,11 @@ original, with the click made by script:
   the lines after the failing one.
 - **Without the click**, the original waits at the box.
 
-motionvm stops the run instead; see the departures ledger.
+motionvm does the same: the box is rebuilt from the two routines and
+matches a capture of the original's pixel for pixel, the wait takes a key
+or the left button, and the word on the machine is abandoned with the 0
+left on the stack. In the frame loop the frame goes on after the box; in
+the boot script the run ends.
 
 ## Logic and bit operations
 

@@ -483,6 +483,21 @@ pub trait Host<M> {
     fn random_clock(&mut self) -> u32 {
         0
     }
+
+    /// Whether the host reports this error the way the original engine does
+    /// and lets the run go on.
+    ///
+    /// The 32-bit engines report a run-time error in a box of their own and
+    /// then abandon the word that is running, and only that word: the
+    /// threaded-code loop leaves it once the error flag is set (R109
+    /// `0x61173`), and the executor that ran it (`0x60c65`) hands back to
+    /// its caller — `ANIMPLAY`, for the frame's `CTRL` word (`0x68f02`). A host that says yes has taken the report;
+    /// [`m32::Vm::call_nested`] then returns as the original's re-entrant
+    /// call does, and the caller of [`m32::Vm::resume`] abandons the
+    /// execution. A host that says no leaves the error to stop the run.
+    fn report(&mut self, _error: &Error) -> bool {
+        false
+    }
 }
 
 /// A host that implements nothing, for running pure computation, on either

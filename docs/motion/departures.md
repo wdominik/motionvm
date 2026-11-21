@@ -100,7 +100,8 @@ The texts are messages 24 and 37 of the engine's message table (R78
 `0xb5ffc`): *RSC-Item mit Namen 098.BLK nicht verfügbar!* and *Freies
 Blk-Item auf 'frei' gesetzt: BlkNr 98*. After the second *OK* the
 registration board comes up as it does here. motionvm shows neither box —
-the engine's native error box is not rebuilt — and counts the miss instead.
+the resource layer's reports are not raised here, though the box they would
+use is built for a division by zero — and counts the miss instead.
 Read on a DOSBox-X recording of the original.
 ([Game structure](games/checker/game-structure.md#saving))
 
@@ -115,22 +116,12 @@ and stops on what would fail. For a script that passes every check the
 runs are the same; Checker 2000 sets `3 ERRORLEVEL` and keeps the checks.
 ([Kernel words](motion32/vm/kernel-words.md))
 
-**A division by zero stops the run.** The 32-bit `/` and `MOD` (`0x61cff`,
-`0x61da9`) put up the engine's error box, *Division durch Null!*, wait for
-its *OK*, and then abandon the word that is running: in the frame loop's
-word the rest of it is skipped for that frame and play goes on; in the boot
-script the engine ends. Read, and measured in the original with the click
-made by script. motionvm stops with `DivideByZero` instead: the native
-error box is not rebuilt, and going on without it would skip words the
-player never saw a reason for.
-([Word semantics](motion32/vm/word-semantics.md))
-
 **A full message queue stops the run.** `ADDMESSPIPE` appends a record to
 the deferred-change queue the branch nodes write (`_ORDER+0x1C0`); when the
 queue's room (`+0x1C4`) is used up, the 32-bit handler (`0x7f26d`) puts up
 the engine's complaint and waits for a key; what it does after the key is
-not followed. motionvm stops with the address instead: the native complaint
-box is not rebuilt, and writing on past the queue would be a guess. No shipped script fills the queue; the 16-bit engine never reads
+not followed. motionvm stops with the address instead: the complaint is not
+raised here, and writing on past the queue would be a guess. No shipped script fills the queue; the 16-bit engine never reads
 the room cell. ([Dialogue machine](motion32/engine/dialogue-machine.md))
 
 ## Display and timing

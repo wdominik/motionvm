@@ -304,14 +304,16 @@ impl Vm {
                 // word that was never on the stack.
                 let word = if prim == Prim::Div { "/" } else { "MOD" };
                 let (b, a) = (self.pop(word)?, self.pop(word)?);
-                // Both handlers (`/` `0x61cff`, `MOD` `0x61da9`) test the
-                // divisor first. On a zero the original puts up its error
-                // box, waits for the OK and abandons the running word; the
-                // box is not rebuilt, so this stops — a departure on the
-                // ledger. Otherwise `idiv` on the sign-extended
+                // Both handlers (`/` `0x61cff`, `MOD` `0x61da9`; R78 `/`
+                // `0x50ff0`) test the divisor first. On a zero they report
+                // and set the error flag, and leave 0 where the result goes
+                // (`0x61d2b`–`0x61d40`, `0x61de1`); the host puts up
+                // the error box and the running word is abandoned — see
+                // `Host::report`. Otherwise `idiv` on the sign-extended
                 // dividend: truncation toward zero, the remainder with the
                 // dividend's sign — measured, `-7 2 /` is −3.
                 if b == 0 {
+                    self.push(0);
                     return Err(Error::DivideByZero { at: here });
                 }
                 self.push(if prim == Prim::Div {

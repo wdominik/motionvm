@@ -617,6 +617,12 @@ impl Vm {
         let outcome = match self.resume(host) {
             Ok(Run::Done) => Ok(()),
             Ok(Run::Yielded) => Err(Error::Suspended { at: self.ip }),
+            // A reported error abandons the called word and nothing more:
+            // the original's executor (R109 `0x60c65`) puts back the
+            // interpreter state it saved and returns (`0x61180`–`0x611b3`),
+            // so the handler that called it carries on; the flag is cleared
+            // on the executor's next entry (`0x60cb8`).
+            Err(e) if host.report(&e) => Ok(()),
             Err(e) => Err(e),
         };
         self.core.leave_nested();

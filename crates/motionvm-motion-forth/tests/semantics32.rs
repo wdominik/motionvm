@@ -14,10 +14,10 @@
 //! bytecode go through the engine's `ds2_*` suites, which drive the same
 //! modules with the kernel words answered rather than stubbed.
 //!
-//! One thing is deliberately *not* asserted as original behavior: what
-//! follows a division by zero. The original puts up its error box there,
-//! which is not rebuilt, and the test that touches it says it is pinning
-//! *our* choice, not the original's.
+//! A division by zero stops the bare machine; what follows it in the
+//! original — the error box, and the abandoned word — is the host's, and
+//! `a_reported_division_by_zero_abandons_only_the_called_word` holds the
+//! machine's half of it.
 
 use motionvm_motion_formats::Binding;
 use motionvm_motion_formats::m32::le::{INLINE, TAG_KERNEL, inline};
@@ -337,12 +337,11 @@ fn division_truncates_toward_zero() {
     assert_eq!(run(&[prim("MOD"), 0], &[7, -2]), [1]);
 }
 
-/// Division by zero stops rather than answering something.
+/// Division by zero is an error on the machine.
 ///
-/// **This is our choice, not the original's.** `/` (`0x61cff`) tests the
-/// divisor before it divides and, on a zero, puts up the engine's error box,
-/// waits for its OK and abandons the running word; it never reaches `idiv`.
-/// The box is not rebuilt, so this stops — a departure on the ledger.
+/// `/` (`0x61cff`) tests the divisor before it divides and, on a zero,
+/// reports and sets the error flag; it never reaches `idiv`. With no host to
+/// report it, the run stops here.
 #[test]
 fn division_by_zero_is_refused() {
     assert!(matches!(
@@ -353,6 +352,26 @@ fn division_by_zero_is_refused() {
         fails(&[prim("MOD"), 0], &[1, 0]),
         Error::DivideByZero { .. }
     ));
+}
+
+/// The handler leaves 0 where the quotient goes, and a host that reports the
+/// error abandons only the called word: `call_nested` returns as the
+/// original's executor does, with the 0 on the shared stack.
+#[test]
+fn a_reported_division_by_zero_abandons_only_the_called_word() {
+    struct Reporting;
+    impl motionvm_motion_forth::Host<Vm> for Reporting {
+        fn word(&mut self, _ordinal: u32, _vm: &mut Vm) -> motionvm_motion_forth::Result<bool> {
+            Ok(false)
+        }
+        fn report(&mut self, error: &Error) -> bool {
+            matches!(error, Error::DivideByZero { .. })
+        }
+    }
+    let mut vm = machine(&[prim("/"), op(ordinal("_PutLit")), 9, 0], &[5, 7, 0]);
+    vm.call_nested(Address::new(1, 0), &mut Reporting)
+        .expect("reported, not raised");
+    assert_eq!(vm.data, [5, 0], "the 9 after the division never ran");
 }
 
 /// Both halves of the shared arm report the word that was running.

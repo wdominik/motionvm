@@ -144,6 +144,9 @@ impl Engine {
         // The request box, over the frame and under the pointer: the drawer
         // blits it and calls `SHOWMOUSE` after (`0104:7332`).
         self.draw_request(&mut out);
+        // The error report, the same way: its box saves what is under it and
+        // puts it back when it closes (R109 `0x26e8d`, `0x270e3`).
+        self.draw_error_box(&mut out);
         // The pointer, last of all. The mouse layer paints it straight onto
         // the video surface (0x2543e: save-under, then the masked blit
         // 0x26594), so it sits above everything. The 8-pixel alignment in

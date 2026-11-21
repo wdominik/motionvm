@@ -168,6 +168,7 @@ pub(super) fn open(
         frame_controllers: Vec::new(),
         frame16: std::collections::VecDeque::new(),
         ending: false,
+        frame_after_box: false,
         over: false,
         parked: None,
     })

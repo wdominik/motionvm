@@ -19,6 +19,7 @@ mod dialogue32;
 mod display;
 mod draw;
 mod error;
+mod error_box;
 mod game;
 mod geometry;
 mod keys;
@@ -179,6 +180,8 @@ pub struct Engine {
     pub(crate) palette_cycle: Option<cycle::PaletteCycle>,
     /// The message box the game is waiting on, if it is waiting on one.
     pub(crate) request: Option<request::Request>,
+    /// The error report on screen, if a run-time error has put one up.
+    pub(crate) error_box: Option<error_box::ErrorBox>,
     /// Set when the game asks for a redraw. A still frame is composed on
     /// demand, so this only records that it was asked for.
     pub(crate) dirty: bool,
@@ -717,6 +720,7 @@ impl Engine {
             stubbed: BTreeMap::new(),
             palette_cycle: None,
             request: None,
+            error_box: None,
             dirty: false,
             rebuild: Vec::new(),
             draw_pass: 0,

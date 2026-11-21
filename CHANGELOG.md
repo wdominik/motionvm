@@ -24,6 +24,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scripts give the same picture under both readings.
 - **A 32-bit `ELSEDUP` stops by address** (`0x638e0`) where the machine
   panicked.
+- **A division by zero in a 32-bit game puts up the original's error box**
+  and abandons the running word instead of stopping the run. The box —
+  *Fehler*, *Division durch Null!*, *OK*, at 40,40 — is built from the two
+  routines that draw it (R109 `0x26e8d`, `0x271a0`; R78 `0x21c30`,
+  `0x21f80`) and matches a capture of the original's pixel for pixel; a key
+  or the left button closes it. `/` and `MOD` leave 0 where the result
+  goes. In the frame loop the frame goes on after the box, as measured in
+  the original; outside it the run ends.
 
 ### Added
 
@@ -47,9 +55,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   code; `SPEEDMODE` picks clipped or unclipped copies in fifteen native
   routines; a 32-bit descriptor stores its kind at `+0x02`; and the counters
   a savegame keeps are the shared handle counter and `SDAUTOBUF`'s. The
-  departures ledger gains two entries: the checks Dunkle Schatten 2 turns
-  off stay on here, and a division by zero stops where the original puts up
-  its error box and abandons the running word.
+  departures ledger gains an entry: the checks Dunkle Schatten 2 turns off
+  stay on here.
 - **Dependencies are updated** within their semver ranges.
 
 ## [0.11.1] - 2026-10-19

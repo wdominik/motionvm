@@ -100,6 +100,9 @@ pub struct Game<M: Machine> {
     pub(crate) ending: bool,
     /// Whether that has finished. See [`Game::finished`].
     pub(crate) over: bool,
+    /// Whether an error box interrupted the frame loop's word, so that the
+    /// frame goes on once the box is closed.
+    pub(crate) frame_after_box: bool,
     /// `START`, set aside inside `ANIMPLAY` while the controller has the frame.
     ///
     /// Put back by [`Game::step`] once `QUITANIM` has cleared
@@ -327,7 +330,22 @@ where
                 return Ok(true);
             }
         }
-        match self.vm.resume(&mut self.engine)? {
+        let run = match self.vm.resume(&mut self.engine) {
+            Ok(run) => run,
+            // A run-time error the original reports in its box abandons the
+            // word on the machine, and the machine is free again. Outside
+            // the frame loop's word — the boot script, or `START` running on
+            // into `ENDGAME` — that is the engine's last word: nothing is
+            // parked then, and the run ends once the box is closed.
+            Err(e) if self.engine.report_error(&e, self.parked.is_none()) => {
+                self.running = false;
+                self.ending = false;
+                self.frame_after_box = self.parked.is_some();
+                return Ok(false);
+            }
+            Err(e) => return Err(e.into()),
+        };
+        match run {
             Run::Done => {
                 self.running = false;
                 // If what just finished was the parked `START`, the game is
@@ -489,6 +507,29 @@ where
         if !self.running {
             self.engine.input.polling = false;
         }
+        // An error box holds the frame where the error stopped it: the
+        // report does not return until the box is closed. Then the frame the
+        // abandoned word belonged to goes on, as `ANIMPLAY` goes on after the
+        // executor returns — or, after an error outside the frame loop, the
+        // run is over.
+        if self.engine.error_box_open() {
+            match self.engine.poll_error_box() {
+                None => return Ok(()),
+                Some(true) => {
+                    self.over = true;
+                    return Ok(());
+                }
+                Some(false) => {
+                    if std::mem::take(&mut self.frame_after_box) {
+                        return self.rest_of_frame();
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        if self.over {
+            return Ok(());
+        }
         // Something already part-way through gets this frame instead. That is
         // the whole of the blocking behavior: the task manager is not called
         // again until the word it is stuck in has finished.
@@ -575,6 +616,13 @@ where
         self.vm.start(addr)?;
         self.running = true;
         self.pump()?;
+        self.rest_of_frame()
+    }
+
+    /// The 32-bit frame after its first controller: the others, then the
+    /// walk, the drawer and the presenter — or nothing yet, while a word
+    /// blocks, a curtain runs or an error box waits.
+    fn rest_of_frame(&mut self) -> Result<()> {
         // The rest of the frame's controllers, in the same step. `ANIMPLAY`
         // runs them one after another inside one frame, and the input a frame
         // was given has to reach all of them: a click is worth exactly one
@@ -584,6 +632,7 @@ where
         // drew and answered nothing until this loop was here.
         while !self.running
             && !self.engine.in_transition()
+            && !self.engine.error_box_open()
             && let Some(id) = self.frame_controllers.pop()
         {
             let Some(next) = self.vm.callback_target(id) else {
@@ -600,7 +649,7 @@ where
         // nor the drawer happens at all. Doing them anyway redrew the screen
         // right after `FADEOUT` had hidden it — with the descriptors the same
         // bytecode had just switched.
-        if self.running || self.engine.in_transition() {
+        if self.running || self.engine.in_transition() || self.engine.error_box_open() {
             return Ok(());
         }
         // The walk and the drawer close the frame, so they wait until every
