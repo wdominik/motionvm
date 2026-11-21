@@ -209,7 +209,11 @@ one call. The original simply blocks three times in a row inside the word; the
 rebuild runs the nested call to completion without suspending the interpreter.
 The observable order is the same, because what makes it come out right is
 keeping the finished picture on screen rather than recomposing it from the
-buffers. ([Transitions](motion32/engine/transitions.md))
+buffers. Measured: opening the help viewer from the opening's menu runs that
+case — the bar's `FADEIN`, the picture's `FADEOUT` and `FADEIN`, all in the
+one frame the callback runs in — and a capture of the original agrees with
+the rebuild picture for picture from the click to the first page.
+([Transitions](motion32/engine/transitions.md))
 
 **A `SETPAL` behind a queued fade queues with it.** The completion of the
 departure above. In the original, `SETPAL` programs the DAC on the spot

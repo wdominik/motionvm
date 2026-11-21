@@ -24,7 +24,6 @@ rust-version = "1.88.0"
 license = "MIT"
 authors = ["wdominik"]
 repository = "https://github.com/wdominik/motionvm"
-description = "Rebuilt game engines, and a player for the games built with them"
 # Nothing here is published, and that is a decision rather than a default.
 #
 # What this workspace ships is a program: a window, a family of engines behind
@@ -40,7 +39,6 @@ publish = false
 # The neutral layer.
 motionvm-render = { path = "crates/motionvm-render" }
 motionvm-playable = { path = "crates/motionvm-playable" }
-motionvm-app = { path = "crates/motionvm-app" }
 # The MOTION family.
 motionvm-motion = { path = "crates/motionvm-motion" }
 motionvm-motion-formats = { path = "crates/motionvm-motion-formats" }
