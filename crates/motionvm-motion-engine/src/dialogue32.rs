@@ -674,9 +674,9 @@ impl Engine {
         let o = |off: u32| Self::field(order, off);
         let node = cell::signed(vm.mem.fetch(o(NODE))?);
         // Byte-exact throughout: an answer sits 0x12 apart and a branch 0x22,
-        // so +0x1e never lands on a cell. Reading the branch successor with
-        // `fetch` handed back `[.. .. ff ff]` = -65536 for a stored -1 — the
-        // negative node that then walked the spoken-line path.
+        // so +0x1e never lands on a cell. A cell-wide `fetch` there would
+        // answer `[.. .. ff ff]` = -65536 for a stored -1 — a negative node
+        // that the line path below refuses.
         // The comparisons are signed (`jge` at 0x7b534), so a negative node
         // takes the line path and 0x7b53f reads its successor from below the
         // line array, unchecked. What lies there is not the conversation's.

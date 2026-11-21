@@ -59,7 +59,7 @@ impl Engine {
             }
             Word::RESETBUF => self.note_no_effect(word),
             // `( x y w h -- )`: a white box with a black inner edge, drawn
-            // straight into the software surface — see [`crate::paint`] for
+            // straight into the software surface — see [`crate::paint32`] for
             // the reading of R78 `0x61030`. Four pops, `h` on top.
             Word::WHITEBOX => {
                 let a = pop_n(stack, 4, "WHITEBOX")?;

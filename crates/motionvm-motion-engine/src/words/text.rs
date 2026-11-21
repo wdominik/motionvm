@@ -40,9 +40,10 @@ impl Engine {
             // 2 over it (module 610), frees that font on its way out
             // (`_SHFONT @ -FONT`), and `RUN` then defines all nine
             // templates afresh over a new handle (module 100, after
-            // `=>ERASE`). Appending instead left the intro's entry first
-            // in line with a font that no longer existed, and every text
-            // on templates 2 and 6 lost its outline for the whole game.
+            // `=>ERASE`). Appending instead would leave the intro's entry
+            // first in line with a font that no longer exists, and every
+            // text on templates 2 and 6 would lose its outline for the
+            // whole game.
             Word::DEFTDT => {
                 let args = pop_n(stack, 9, "DEFTDT")?;
                 let id = *args.last().unwrap_or(&0);

@@ -80,8 +80,8 @@ impl Engine {
             // so: the list `ADDTOINV` fills, the table of items, the two scroll
             // arrows, the first of eight slot descriptors, the inventory
             // screen, and — for the selected item — the callback word that
-            // `SDWORD` hangs on its descriptor, not a caption as the argument
-            // was read at first.
+            // `SDWORD` hangs on its descriptor — not a caption, which the
+            // argument's name might suggest.
             //
             // The bar shows eight at a time, and the list's own head cell is
             // how far it has scrolled.

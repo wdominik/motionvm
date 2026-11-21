@@ -1,9 +1,9 @@
 //! Checks the text renderer's measurements against the original engine's.
 //!
-//! The one pixel of spacing between glyphs was first fitted to a screenshot,
-//! which is a weak way to establish something the whole game depends on. It is
-//! now read out of the engine's own code, and the numbers below come from
-//! asking the 1996 engine to measure text for itself.
+//! The one pixel of spacing between glyphs is read out of the engine's own
+//! code, and the numbers below come from asking the 1996 engine to measure
+//! text for itself — something the whole game depends on wants more than a
+//! fit to a screenshot.
 //!
 //! ## What the engine does
 //!

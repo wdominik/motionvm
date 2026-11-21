@@ -15,7 +15,7 @@
 //!
 //! The box is drawn by the panel routine (R109 `0x26e8d`, R78 `0x21c30`)
 //! and the box routine around it, in display coordinates, every color the
-//! palette's nearest match ([`crate::paint`]) to a six-bit one:
+//! palette's nearest match ([`crate::paint32`]) to a six-bit one:
 //!
 //! - the panel: the whole box in gray (47,47,47), a one-pixel black frame
 //!   four in (`0x1888b`), and the title in black on a gray gap in the

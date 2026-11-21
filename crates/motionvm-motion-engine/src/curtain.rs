@@ -552,3 +552,6 @@ impl Curtain {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

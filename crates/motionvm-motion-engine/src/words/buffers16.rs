@@ -4,7 +4,7 @@
 //! Asked before every shared group on the 16-bit machine, because the 32-bit
 //! path answers `SETBUF` and `RESETBUF` as inert — which they are for that
 //! game — and `SDBUF` as a by-name descriptor field. Here they keep the
-//! buffers of [`crate::buffer::Buffers`]; what the kernel does with a buffer
+//! buffers of [`crate::buffer16::Buffers`]; what the kernel does with a buffer
 //! is unread, see there.
 
 use crate::Engine;

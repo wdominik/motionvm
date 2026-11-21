@@ -75,6 +75,13 @@ impl Driver {
         mod_ops.copy_from_slice(&file[base + 0x100..base + 0x109]);
         let mut car_ops = [0u8; 9];
         car_ops.copy_from_slice(&file[base + 0x109..base + 0x112]);
+        // An operator offset names one of the chip's operator slots, the
+        // last of which is 0x15. Every register the sequencer forms from one
+        // is a base of at most 0xE0 plus the offset, so past 0x15 the file is
+        // damaged, and a sum would leave the byte.
+        if mod_ops.iter().chain(&car_ops).any(|&op| op > 0x15) {
+            return Err(Error::Psm("an operator offset past the chip's last, 0x15"));
+        }
         let mut notes = [0u16; 96];
         for (i, n) in notes.iter_mut().enumerate() {
             *n = u16::from_le_bytes([file[base + 0x112 + 2 * i], file[base + 0x113 + 2 * i]]);

@@ -38,7 +38,7 @@ pub trait MusicSink: Send {
     /// quarter `STARTSAMPLE` sets or the whole `->STARTSAMPLE` does — and
     /// `loops` the start word's second argument, the layer's loop count: 0
     /// plays the sample once, a positive count that many times more, a
-    /// negative one until it is stopped (see `crate::sample`). Samples sound
+    /// negative one until it is stopped (see `crate::sample32`). Samples sound
     /// together: the layer keeps 34 slots and mixes every one that is taken,
     /// and the engine refuses a start only when all of them are.
     fn start_sample(&mut self, handle: i32, wav: &[u8], volume: u16, loops: i32);

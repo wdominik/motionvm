@@ -51,7 +51,7 @@ The neutral layer:
 
 | Crate | Role | Depends on |
 |---|---|---|
-| `motionvm-render` | Indexed framebuffer, palettes and blits | — |
+| `motionvm-render` | Indexed framebuffer, palettes and blits; a PNG reader that only the tools' `compare` uses | — |
 | `motionvm-playable` | The contract between the window and whatever engine it drives | `render` |
 | `motionvm-app` | The window: winit, softbuffer, cpal, and the roster of families | `playable`, `render`, `motion` |
 
@@ -262,8 +262,8 @@ right follows from what differs:
   over different offsets and coordinates, so there is one implementation and
   two tables of measurements, each field citing where it was read.
 - **When the *reading* differs, write twin files.** `dialogue32.rs` and
-  `dialogue16.rs` are the same conversation machine read twice, some 830 and
-  680 lines, and they stay twins: the 16-bit engine has two speaker words instead of
+  `dialogue16.rs` are the same conversation machine read twice, each several
+  hundred lines, and they stay twins: the 16-bit engine has two speaker words instead of
   a speaker table, two talking-head descriptors, the answers stacked downward,
   colors and templates out of the block. A `Rules`-parameterized version would
   have to pretend those are the same shape with different numbers, and they are

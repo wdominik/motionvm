@@ -24,7 +24,7 @@
 pub(crate) mod word;
 pub(crate) use word::Word;
 
-mod buffers;
+mod buffers16;
 mod descriptors;
 mod dialogue;
 mod dowalk;
@@ -46,7 +46,7 @@ mod screens;
 mod sound;
 mod state;
 mod text;
-mod timers;
+mod timers32;
 mod transitions;
 
 // The dispatchers: the two `Host` impls, which answer the words that need the
@@ -292,7 +292,7 @@ impl Host<forth::m16::Vm> for Engine {
             // until it has an answer: the first ask puts the box up, and
             // [`Engine::wants_pause`] holds the machine on the word while the
             // frames that draw it and read the pointer go by. See
-            // [`crate::request`] for the geometry, all of it read from the
+            // [`crate::request16`] for the geometry, all of it read from the
             // drawer.
             Word::REQUEST => {
                 if let Some(answer) = self.request.as_ref().and_then(|r| r.answer) {
@@ -324,7 +324,7 @@ impl Host<forth::m16::Vm> for Engine {
                 };
                 let message = text(self, string);
                 let captions = captions.into_iter().map(|n| text(self, n)).collect();
-                self.request = Some(crate::request::Request {
+                self.request = Some(crate::request16::Request {
                     x,
                     y,
                     w,

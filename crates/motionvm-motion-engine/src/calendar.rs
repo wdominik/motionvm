@@ -1,6 +1,6 @@
-//! The civil date, for the one kernel word that asks: the 16-bit `GIVEDATE`
-//! pushes the day, the month and the year that DOS answers INT 21h function
-//! 2Ah with.
+//! The civil date, for the one kernel word that asks: `GIVEDATE`, on both
+//! machines, pushes the day, the month and the year that DOS answers INT 21h
+//! function 2Ah with.
 //!
 //! The clock is read here and nowhere else in the engine, and it is read as
 //! **UTC**: `std` knows the seconds since the epoch and no time zone, and a

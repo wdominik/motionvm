@@ -261,14 +261,14 @@ impl Engine {
             }
             // `( delay last first -- )`: the rotating palette, armed here and
             // turned once a frame by [`Engine::tick_palette_cycle`] — see
-            // [`crate::cycle`] for the handler (`0104:5319`) and its tick.
+            // [`crate::cycle16`] for the handler (`0104:5319`) and its tick.
             // With `first >= last` the handler only disarms the rotation,
             // leaving the DAC as the last turn left it.
             Word::SETCYCLE => {
                 let a = pop_n(stack, 3, "SETCYCLE")?;
                 let (delay, last, first) = (a[0], a[1], a[2]);
                 self.palette_cycle =
-                    (first < last).then(|| crate::cycle::PaletteCycle::new(first, last, delay));
+                    (first < last).then(|| crate::cycle16::PaletteCycle::new(first, last, delay));
             }
             // `( a b -- )`: two cells into two globals that nothing in either
             // build ever reads back — `0104:2824` stores them at `ds:0x150`

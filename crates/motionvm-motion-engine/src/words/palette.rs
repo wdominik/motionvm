@@ -67,7 +67,7 @@ impl Engine {
             // cell and nothing else (R109 `0x75e4a`–`0x75e54`, R78 `0x6127c`–
             // `0x61286`: a `mov` of `%bl`, `%dl`, `%al`); the lookup compares
             // bytes unsigned. Its metric
-            // is in [`crate::paint`].
+            // is in [`crate::paint32`].
             Word::RGB_TO_COL => {
                 let c = pop_n(stack, 3, "RGB->COL")?;
                 let [r, g, b] = [cell::low8(c[0]), cell::low8(c[1]), cell::low8(c[2])];

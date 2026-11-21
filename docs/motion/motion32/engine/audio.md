@@ -187,6 +187,18 @@ timer).
 about music. `MUSVOLUME` is a boolean duck applied to all sequences:
 argument 0 sets volume 0x3800 (≈ 44 %), anything else restores 0x7FFF.
 
+The path is the same on both builds. The handler (R109 `0x80793`, R78
+`0x6b380`) hands the volume to the sound layer for every song (R109
+`0x85a70`, R78 `0x70590`). The layer keeps the high byte as the master,
+`0x38` or `0x7f`, and runs the sequencer's pass over each playing song
+(R109 `0x90699` → `0x9048d`, R78 `0x7b1b9` → `0x7afad`). The pass takes, of
+each track group in order, the first track that holds a channel. It works the
+record's scaled volume `+0x1C` out again from the kept `+0x14` and sends a
+controller 7 at that level. The exception is a record whose device channel
+reads `-1` (R109 `0x90536`, R78 `0x7b056`), on the OPL3 the drum record:
+nothing is sent for it, and the new level reaches the drums through the fold
+their next notes take.
+
 ## The path a note takes
 
 [Sequencer](../formats/hmi.md) → [FM driver](fm-driver.md) → OPL3 → samples.

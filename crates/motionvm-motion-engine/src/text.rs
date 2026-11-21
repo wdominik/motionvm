@@ -178,7 +178,7 @@ pub fn backing_map(palette: &Palette) -> [u8; 256] {
         let [r, g, b]: [u8; 3] = std::array::from_fn(|k| {
             u8::try_from((i16::from(palette.raw[i * 3 + k]) - BACKING_DARKEN).max(0)).unwrap_or(0)
         });
-        *slot = crate::paint::nearest(palette, r, g, b);
+        *slot = crate::paint32::nearest(palette, r, g, b);
     }
     map
 }

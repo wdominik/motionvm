@@ -124,9 +124,9 @@ pub(crate) fn run() -> Result<(), motionvm_playable::Error> {
         // on one stops by name rather than writing somewhere it should not.
         note(&format!("savegames are off: {e}"));
     } else if let Some(saves) = game.saves() {
-        // Printed because the default is no longer somewhere the player is
-        // standing. A directory they cannot find is a directory they will
-        // think is empty.
+        // Printed because the default is not where the player is standing.
+        // A directory they cannot find is a directory they will think is
+        // empty.
         note(&format!("savegames in {}", saves.display()));
     }
     // `start()` returns with the game parked in its native frame loop; from

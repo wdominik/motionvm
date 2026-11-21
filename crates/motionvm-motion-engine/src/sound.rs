@@ -8,10 +8,10 @@
 //! 16-bit sample goes the same way, whole, and nothing of it is kept: no
 //! word of those games asks after one. The 32-bit samples are asked after —
 //! `?STIME` and `STOPSAMPLE` take the handle back — so their nodes are kept,
-//! in [`crate::sample`]'s reading.
+//! in [`crate::sample32`]'s reading.
 
 use crate::MusicSink;
-use crate::sample::SampleNode;
+use crate::sample32::SampleNode;
 
 /// The music, from the script's side of the seam.
 pub(crate) struct Sound {

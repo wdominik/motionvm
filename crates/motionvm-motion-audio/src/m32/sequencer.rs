@@ -323,23 +323,39 @@ impl Sequencer {
         scaled
     }
 
-    /// `MUSVOLUME`'s path (`0x70590` → `0x7b1b9` → `0x7afad`): the master
-    /// changes, and every channel the song holds is sent a controller 7 at
-    /// its new effective level — channel 9 included (`0x7b053` tests only
-    /// that the channel is mapped).
+    /// `MUSVOLUME`'s path: the handler (R109 `0x80793`, R78 `0x6b380`)
+    /// hands `0x3800` or `0x7FFF` to the sound layer for every song (R109
+    /// `0x85a70`, R78 `0x70590`), which keeps the high byte as the master
+    /// and runs the sequencer's pass over each playing song (R109 `0x90699`
+    /// → `0x9048d`, R78 `0x7b1b9` → `0x7afad`). The pass goes through the
+    /// song's groups in order and takes, of each, the first track holding a
+    /// channel: its record's `+0x1C` is worked out again from the kept
+    /// `+0x14`, and a controller 7 at that level goes out — unless the
+    /// record's device channel reads `-1` (R109 `0x90536`, R78 `0x7b056`),
+    /// which on the OPL3 is the drum record. The drums are sent nothing; the
+    /// new level reaches them through the fold their next notes take.
     pub fn set_master_volume(&mut self, master: u8, out: &mut Vec<Message>) {
         self.master = master;
-        let mut channels: Vec<u8> = self.tracks.iter().filter_map(|t| t.channel).collect();
-        channels.sort_unstable();
-        channels.dedup();
-        for channel in channels {
-            out.push(Message {
-                channel,
-                kind: Kind::Control {
-                    controller: 7,
-                    value: self.rescale(channel),
-                },
-            });
+        let groups = self.remembered.len();
+        for group in 0..groups {
+            let Some(channel) = self
+                .tracks
+                .iter()
+                .filter(|t| t.group == group)
+                .find_map(|t| t.channel)
+            else {
+                continue;
+            };
+            let value = self.rescale(channel);
+            if usize::from(channel) != DRUMS {
+                out.push(Message {
+                    channel,
+                    kind: Kind::Control {
+                        controller: 7,
+                        value,
+                    },
+                });
+            }
         }
     }
 

@@ -456,3 +456,43 @@ fn the_opening_tune_gives_two_tracks_to_other_devices() {
         "every track names the Ad Lib family"
     );
 }
+
+/// `MUSVOLUME`'s pass sends a controller 7 to each track group's channel,
+/// once, and none to the drums (R109 `0x90536`): the drum record's device
+/// channel reads -1. The drums still take the new level, through the fold of
+/// their next notes.
+#[test]
+fn a_master_change_skips_the_drum_channel() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let data = std::fs::read(game_file(&dir, "TEST.HMI")).expect("TEST.HMI");
+    let song = Song::parse(&data).expect("parses");
+    let map = handed_out(&song);
+    let mut seq = Sequencer::new(song, Fm::DEVICE, Sequencer::FULL_VOLUME);
+    let mut out = Vec::new();
+    // Far enough in that every track has asked for its channel.
+    for _ in 0..8 {
+        seq.tick(&mut out);
+    }
+    out.clear();
+    seq.set_master_volume(0x38, &mut out);
+    let mut sent: Vec<u8> = out
+        .iter()
+        .filter(|m| matches!(m.kind, Kind::Control { controller: 7, .. }))
+        .map(|m| m.channel)
+        .collect();
+    assert_eq!(sent.len(), out.len(), "the pass sends nothing but volume");
+    sent.sort_unstable();
+    let mut want: Vec<u8> = map.iter().map(|&(_, c)| c).filter(|&c| c != 9).collect();
+    want.sort_unstable();
+    assert!(
+        map.iter().any(|&(_, c)| c == 9),
+        "TEST.HMI has drums, or this proves nothing"
+    );
+    assert_eq!(
+        sent, want,
+        "one controller 7 a melodic channel, none for the drums"
+    );
+}

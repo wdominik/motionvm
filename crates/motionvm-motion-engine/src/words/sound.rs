@@ -46,7 +46,7 @@ impl Engine {
                     music.stop(handle);
                 }
             }
-            // The samples — see [`crate::sample`] for the reading of the
+            // The samples — see [`crate::sample32`] for the reading of the
             // five handlers. `( block loops -- handle )`: the count on top
             // (`0x6ad23` pops it first) goes to the layer's record, where the
             // mixer reads it as the data runs out.

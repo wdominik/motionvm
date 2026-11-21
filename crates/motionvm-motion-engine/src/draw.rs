@@ -427,9 +427,9 @@ impl Engine {
         });
         // A paint went over everything a pass up to its own had drawn and
         // under everything a later pass draws — the order the original's
-        // surface holds, see [`crate::paint`]. A descriptor never drawn is
+        // surface holds, see [`crate::paint32`]. A descriptor never drawn is
         // being drawn now, which is after every paint.
-        let paints: Vec<crate::paint::Paint> = self
+        let paints: Vec<crate::paint32::Paint> = self
             .display
             .screens
             .iter()

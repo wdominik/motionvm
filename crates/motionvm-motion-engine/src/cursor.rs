@@ -101,7 +101,7 @@ impl PointerShape {
 /// six-bit red, green and blue: white for the body and a dark teal for the
 /// outline (R78 `0x5ed5e`–`0x5ed82`, R109 `0x735ba`–`0x735de`). Each is
 /// resolved to the nearest entry of the palette in force when the word
-/// runs, by the engine's own lookup ([`crate::paint`]), and the indices
+/// runs, by the engine's own lookup ([`crate::paint32`]), and the indices
 /// stay — a later `SETPAL` recolors the arrow with everything else.
 pub(crate) const NORMAL_COLORS: ([u8; 3], [u8; 3]) = ([63, 63, 63], [0, 47, 47]);
 

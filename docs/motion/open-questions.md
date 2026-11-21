@@ -193,14 +193,6 @@ is which side** (only the wiring can settle it, not a recording), and
 `0x0793` is unreachable. Both are set out in
 [The FM driver](motion32/engine/fm-driver.md#open-questions).
 
-One from the sequencer's master volume. The rebuild sends every held
-channel a controller 7 when the master changes, the drum channel included,
-as the R78 path reads (`0x7b053`). R109's sequencer has a pass of its own
-(`0x90699` → `0x9048D`). It works `+0x1C` out again from `+0x14` for each
-group's record, and sends nothing for a record whose device channel is `-1`,
-which on the OPL3 is the drum record. Which of the two `MUSVOLUME` reaches in
-Dunkle Schatten 2 is not read.
-
 ## The music's clock
 
 The sequencer's timer rides the sound layer's 1500 Hz master rather than getting

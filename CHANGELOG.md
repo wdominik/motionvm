@@ -8,6 +8,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A `MUSADL.DRV` with an operator offset past 0x15 is refused** as
+  damaged, where a register sum formed from it could overflow a debug build.
+- **`MUSVOLUME` leaves the drum channel alone, as the original's pass
+  does.** On both builds the master change reaches each track group's
+  channel in group order and skips the drum record, whose device channel
+  is -1 (R109 `0x90536`, R78 `0x7b056`); the drums take the new level
+  through the fold of their next notes.
 - **A negative dialogue node stops the run by address** (`0x7b53f`) where
   a debug build overflowed: the original's signed compare sends it down
   the line path, which reads below the line array.
@@ -108,6 +115,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Every engine file that serves one generation carries its number**, as
+  the naming rule says: `slide32`, `sample32`, `paint32`, `error_box32`,
+  `words/timers32` for the 32-bit machine, `cycle16`, `buffer16`,
+  `request16`, `words/buffers16` for the 16-bit one. The fade and curtain
+  tests moved out of the engine's root module into `curtain/tests.rs`.
 - **The vertical centering of a text is read, not measured**: the output
   routine adds `(lines − 1) × gap` before it halves (`0x258a6`–`0x258c0`),
   so its departures entry is gone.

@@ -419,7 +419,7 @@ files to an `m32` and an `m16` command set; `motionvm-motion-engine` hosts both
 machines behind one `Game<M>` driver, keeps each game's bootstrap under
 `titles/`, and keeps the one word group that exists for one machine only —
 the 16-bit words in `words/m16.rs`, with their buffer words beside it in
-`words/buffers.rs` — in files of their own; the walk, the inventory, the savegame words and the dialogue queue
+`words/buffers16.rs` — in files of their own; the walk, the inventory, the savegame words and the dialogue queue
 each serve both machines over `AddressSpace` and a `Rules` table. `motionvm-motion-audio` carries
 the two music stacks the same way, `m32` for the HMI sequencer and the FM
 driver and `m16` for PSM 2, with the OPL3 they both end at at its root.

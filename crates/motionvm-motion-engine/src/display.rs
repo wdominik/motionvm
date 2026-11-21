@@ -65,8 +65,8 @@ pub struct Screen {
     /// order it was painted — `WHITEBOX`'s box, `FADEIN` mode 2's — and
     /// after which pass. The surface holds the pixels; this is what lets a
     /// rectangle rebuilt from the descriptor list hold them still, see
-    /// [`crate::paint`]. Wiped with the surface.
-    pub(crate) paints: Vec<crate::paint::Paint>,
+    /// [`crate::paint32`]. Wiped with the surface.
+    pub(crate) paints: Vec<crate::paint32::Paint>,
     /// One entry per 8x8 tile of [`Screen::view`]: the lowest level that has to
     /// be redrawn there, or [`Screen::UNDAMAGED`] for nothing.
     ///
