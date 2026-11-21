@@ -24,6 +24,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scripts give the same picture under both readings.
 - **A 32-bit `ELSEDUP` stops by address** (`0x638e0`) where the machine
   panicked.
+- **A conversation's line is measured before it is clamped.** The 32-bit
+  dialogue machine sets a line through `SDTB` … `SDTXT` (`0x7b81e`–
+  `0x7b868`), which measure it on the spot, and only then keeps it twenty
+  pixels inside the view; here the clamp ran on the last line's size, and
+  a long line overhung the left edge — the classroom's second line by
+  fifteen pixels. A capture of the original's entry into the classroom now
+  matches picture for picture.
 - **A far edge is counted as the build counts it.** `SDOX` and `SDOY`
   place a box's far edge at `x − w + 1` on R109 and `x − w − 1` on R78,
   for the getters and the drawer alike, and R109's `GDOX`/`GDOY` answer

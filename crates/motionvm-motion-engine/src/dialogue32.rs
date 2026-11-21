@@ -520,6 +520,9 @@ impl Engine {
             self.set_text_table(cell::signed(Self::cell(&vm.mem, line, 4)?))?;
             self.set_wait(-1)?;
             self.set_text(cell::signed(Self::cell(&vm.mem, line, 0)?))?;
+            // Measured as `SDTXT` measures, before the bottom edge below is
+            // turned into a center with this text's height.
+            self.lay_out_current(&vm.mem);
             self.place_x(sx + 0x140, Placement::Center)?;
             // Placed by its bottom edge, then re-centered on where that put it —
             // the original reads the center straight back out and stores it, so
@@ -746,6 +749,10 @@ impl Engine {
         self.set_color(cell::signed(Self::cell(&vm.mem, voice, 4)?))?;
         self.set_template(cell::signed(Self::cell(&vm.mem, voice, 8)?))?;
         self.set_text(cell::signed(Self::cell(&vm.mem, line, 0)?))?;
+        // The handler calls the words themselves (`SDTB` `0x7b81e` to `SDTXT`
+        // `0x7b868`), and they measure the new text on the spot — so the
+        // clamp below works with this line's size, not the last one's.
+        self.lay_out_current(&vm.mem);
         self.place_x(
             cell::signed(Self::cell(&vm.mem, voice, 0x0c)?),
             Placement::Center,

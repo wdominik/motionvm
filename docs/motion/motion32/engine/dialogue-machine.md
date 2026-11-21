@@ -80,10 +80,14 @@ small integer telling it why:
 ## Showing a line (modes 12/13)
 
 `CALCDIALOG` mode 0 fills the line descriptor (+0x174) from the line and
-its speaker entry, then clamps it into the picture natively — 20 pixels
-of margin on the 640×400 view, re-centering through the computed
-`GDCX`/`GDCY` after every move (the same algorithm the script word `TSC`
-applies). The mode becomes 13 when the line names a speaker, 12
+its speaker entry through the words themselves — `SDTB`, `SDCOL`,
+`SDTDT`, `SDTXT`, then `SDCEN`, `SDVCEN`, `SDZ` (`0x7b81e`–`0x7b8a7`) —
+so the new text is measured before anything reads its size. Then it
+clamps the line into the picture natively — 20 pixels of margin on the
+640×400 view, re-centering through the computed `GDCX`/`GDCY` after
+every move (the same algorithm the script word `TSC` applies). Measured
+in the original, the classroom's long second line stands 22 pixels in
+from the left edge. The mode becomes 13 when the line names a speaker, 12
 otherwise.
 
 `DOORDER` then waits in mode 12/13 until the text descriptor has expired
