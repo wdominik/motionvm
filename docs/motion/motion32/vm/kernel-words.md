@@ -69,7 +69,7 @@ and stores results through a second one. The word's own name is kept in
 | `0x66c95` | Pop a value from the data stack |
 | `0x66cfa` | Push a value onto the data stack |
 | `0x65aaa` | Stack check |
-| `0xdb053` | Stack depth |
+| `0xdb053` | Check level, set by `ERRORLEVEL`; handlers skip their stack check below 2 |
 | `0xee6c4` | Stack pointer |
 | `0xdb4bc` | Current screen |
 | `0xf2af0` | Current descriptor |
@@ -168,7 +168,8 @@ Small words whose handlers have been read completely:
 
 | `GET` size 0 | **"Whole resource"**, not "nothing": a zero size is replaced by the resource's own length before copying |
 | `EXIST ( n -- f )` | Tests for the file `NNN.blk` — how save slots 701–705 are probed. Answers **−1** or 0 (`0x66b18`/`0x66b77`), unlike `=>EXIST`, which asks the resource catalog |
-| `SPEEDMODE ( n -- )` | Writes a global no word reads back |
+| `SPEEDMODE ( n -- )` | Sets `0xd6608` to 0 or 1, which fifteen native copy routines read: 1 copies through the clipping blitter, 0 through an inline loop without clipping (`0x18993`) |
+| `ERRORLEVEL ( n -- )` | Sets the check level `0xdb053` (initially 3; `0x65a41` is its only writer). 121 places compare it with 2; those read (`!` `0x62826`, `/` `0x61d44`) skip their checks below it — the stack check before the pops, and `!`'s test that it stores into a variable (`0x65c87`). **Not** the DOS exit code. The divisor test of `/` and `MOD` runs at every level |
 | `MOUSEINFO` | Takes **24** arguments (the handler pops exactly that many) |
 | `ANIMPLAY` | Pops **none** of the ten values the game pushes for it |
 | `640x480x256` etc. | The mode words push small ordinals — 2, 1, 4 — not packed dimensions; `SETRES` consumes them, and `0x13fc0` maps them to VESA mode numbers ([screens](../engine/screens.md#the-video-mode)) |

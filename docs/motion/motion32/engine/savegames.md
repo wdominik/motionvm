@@ -85,8 +85,19 @@ end with `-1`; screens carry a list of 0x1C-byte records tagged `0x3EB`
 and terminated by `0x3EC`, then `0x3E9` if children follow or `0x3EA` if
 not. After the tree come a global 0x1C-byte record list tagged `0x3EF`,
 five globals — `0xDB4BC` the active screen, `0xDB4C0` the active
-descriptor, then `0xDB4AC`, `0xDB4B4`, `0xDB4B8` — and a 180-byte table
-at `0xF2594`.
+descriptor, `0xDB4AC` the handle counter, `0xDB4B4` the `SDAUTOBUF`
+counter and `0xDB4B8` the frame length — and the 180-byte table at
+`0xF2594`, the ten 18-byte text templates `DEFTDT` fills
+([Text rendering](text-rendering.md)).
+
+The handle counter is shared by screens and descriptors: `NEWSCREEN`,
+`NEWSETDESC` and `NEWDESC` each add one and give the new object the count
+as its handle (`NEWSETDESC` at `0x70d4a`), and the new object becomes the
+active one. `SDAUTOBUF` adds one to its own counter and writes the count
+into the descriptor's `+0x1C`, beside setting bit 3 of `+0x13` (`0x7211a`).
+`DELAY` sets the frame length (`0x7069a`). `PUTANIM` writes the two
+counters (`0x6deb8`, `0x6deca`) and `GETANIM` reads them back (`0x6e545`,
+`0x6e557`), so a loaded game goes on counting where the saved one stopped.
 
 `GETANIM` (`0x6e355`) tears the tree down with `NEWANIM` and rebuilds it,
 allocating fresh nodes and **recomputing everything pointer-shaped**; the
@@ -118,9 +129,6 @@ snapshot deliberately leaves out — is recorded in
 
 ## Open questions
 
-- What three of the five globals `PUTANIM` writes — `0xDB4AC`, `0xDB4B4`,
-  `0xDB4B8` — and the 180-byte table at `0xF2594` hold. The layout is read; the
-  meaning is not.
 - Whether the original ever writes a slot other than 701–705. Nothing in the
   shell's bytecode does, and no other number appears in any handler.
 

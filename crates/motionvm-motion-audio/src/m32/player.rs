@@ -118,12 +118,12 @@ impl Player {
     /// not a whole number — and the original takes **13**, so the music really
     /// runs at `1500.86 / 13 = 115.45 Hz`, four per cent slow.
     ///
-    /// That the two constants are 1500 and 1 193 180 is read from the code. That
-    /// the remainder is dropped rather than carried is **measured**: against the
-    /// recording, 13 master ticks leaves a residual of −41…+11 ms over eight
-    /// seconds where the header's 120 Hz runs 334 ms ahead and 12 ticks 711 ms
-    /// behind. The fixed-point arithmetic inside the timer service that makes it
-    /// 13 has not been read.
+    /// That the two constants are 1500 and 1 193 180 is read from the code.
+    /// That it is 13 is **measured**: against the recording, 13 master ticks
+    /// leaves a residual of −41…+11 ms over eight seconds where the header's
+    /// 120 Hz runs 334 ms ahead and 12 ticks 711 ms behind. How the timer service arrives at 13 is read only in part: it
+    /// keeps the fraction of its 16.16 accumulator (`0x8D41B`–`0x8D43C`),
+    /// and which values it runs on is open.
     pub fn master_ticks(tick_hz: u32) -> u32 {
         let master_num = Self::PIT_HZ;
         let master_den = Self::MASTER_DIVISOR;

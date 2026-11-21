@@ -51,9 +51,9 @@ pub struct Profile {
     pub(crate) display: Size,
 
     /// Whether a screen refuses its hundred-and-first descriptor: the three
-    /// later 16-bit builds test the count against a hundred at the top of
-    /// `NEWSETDESC` and jump past every pop and the push, `LL.EXE` takes the
-    /// count and raises it without looking. Read off the binary the game was
+    /// later 16-bit builds and `STERN.EXE` test the count against a hundred
+    /// at the top of `NEWSETDESC` and jump past every pop and the push,
+    /// `LL.EXE` takes the count and raises it without looking. Read off the binary the game was
     /// opened with ([`motionvm_motion_formats::m16::mz::newsetdesc_capped`]);
     /// the 32-bit engine numbers its descriptors across screens and has no
     /// such table.
@@ -71,8 +71,8 @@ pub struct Profile {
 
     /// Whether `?XINSIDE` passes over a hot area whose four corners are all
     /// zero. This is the build's and not the format's: `ENVIRO.EXE`
-    /// (`0a40:1b37`) and `BMZ.EXE` test for it, `HPPLAY.EXE` and `LL.EXE` do
-    /// not — 101 instructions against 71, and the older two have no `cmpw $0`
+    /// (`0a40:1b37`) and `BMZ.EXE` test for it, `HPPLAY.EXE`, `STERN.EXE` and
+    /// `LL.EXE` do not — 101 instructions against 71, and the older two have no `cmpw $0`
     /// in the handler at all. Set from the binary the game was opened with;
     /// the default is the 32-bit reading, where the area search treats a
     /// record of four zeros as a hole and `?XINSIDE` applies the same rule
@@ -81,8 +81,8 @@ pub struct Profile {
 
     /// Whether `CROUTE` takes a shadow record's zero shrink as 1000 for the
     /// walk's first step. The 32-bit routine does (`0x778ca`) and so does
-    /// `ENVIRO.EXE` (`0a40:1176`); `HPPLAY.EXE`, `BMZ.EXE` and `LL.EXE` copy
-    /// the field as it stands. Read off the binary the game was opened with
+    /// `ENVIRO.EXE` (`0a40:1176`); `HPPLAY.EXE`, `BMZ.EXE`, `STERN.EXE` and
+    /// `LL.EXE` copy the field as it stands. Read off the binary the game was opened with
     /// ([`motionvm_motion_formats::m16::mz::croute_defaults_shrink`]); the
     /// default is the 32-bit reading.
     pub(crate) walk_defaults_shrink: bool,

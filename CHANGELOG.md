@@ -28,8 +28,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Tests hold the measured VM semantics**: the loop words, and `/` and
-  `MOD` with negative operands, which truncate toward zero. Division by zero
-  still stops; what the original's error report does to the run is unread.
+  `MOD` with negative operands, which truncate toward zero. A test holds
+  the four build capabilities of Falsches Spiel mit Eddie M.'s `STERN.EXE`
+  as well, read off its handlers.
 - **Every `Error::Unread` address is on a ledger**, held by a workspace
   test. The open questions list the stops by address, and the departures
   the code made without an entry are written down.
@@ -41,6 +42,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The vertical centering of a text is read, not measured**: the output
   routine adds `(lines − 1) × gap` before it halves (`0x258a6`–`0x258c0`),
   so its departures entry is gone.
+- **What several words and fields do is read, and the docs say so.**
+  `ERRORLEVEL` sets the machine's check level (`0xdb053`), not the DOS exit
+  code; `SPEEDMODE` picks clipped or unclipped copies in fifteen native
+  routines; a 32-bit descriptor stores its kind at `+0x02`; and the counters
+  a savegame keeps are the shared handle counter and `SDAUTOBUF`'s. The
+  departures ledger gains two entries: the checks Dunkle Schatten 2 turns
+  off stay on here, and a division by zero stops where the original puts up
+  its error box and abandons the running word.
 - **Dependencies are updated** within their semver ranges.
 
 ## [0.11.1] - 2026-10-19

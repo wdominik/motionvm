@@ -30,7 +30,7 @@ What remains:
 | Interaction | What script code sets and clears the click gates `_ORDER+0x134`/`+0x1CC`. (**All eight `EXECORDER` verbs are read and built**, as are `TEXTTOPERSON` `0x7b053` and the keyword search of verbs 6 and 7. The verb menu too: the right click, modes 2–8, `GMSHOWMENU`/`GMREMOVEMENU`/`HIGHLIGHTORDERS`/`ANIMATEORDERS`/`CHOOSEORDERS`/`VERBOFSLOT`/`SPRRANGEOFVERB` and the epilogue `0x7eae2`) |
 | Dialogue | Nothing in the machine itself: modes 12 to 18 are read, and the one the shipped game cannot reach — 15, entered only by `0x7b120`, which nothing calls, jumps to or points at — is refused rather than built. (Branch actions 5/6 and the name lookup `0x61596` are read and built; the lookup walks the resident modules in slot order, as the original's table at `0xEE6D0` is walked, and how `=>GET`/`=>ERASE` assign slots is read — first free slot, freed in place — and modeled, see [Savegames](motion32/engine/savegames.md)) |
 | Walking | Command 1007's call path (no queue in the game writes one); whether the two line kinds mean more than which end anchors the scale ramp |
-| Animation | The native layer: `ANIMPLAY` (meaning of the ten values the game pushes — the handler pops none), `ANIMSIM`. (`PUTANIM` `0x6dd87` and `GETANIM` `0x6e355` are read: the file layout, the tags `0x3E9`/`0x3EA`/`0x3EB`/`0x3EC`/`0x3EF` and the five globals are in [Savegames](motion32/engine/savegames.md). What three of them — `0xDB4AC`, `0xDB4B4`, `0xDB4B8` — and the 180-byte table at `0xF2594` mean is still open) |
+| Animation | The native layer: `ANIMPLAY` (meaning of the ten values the game pushes — the handler pops none), `ANIMSIM`. (`PUTANIM` `0x6dd87` and `GETANIM` `0x6e355` are read: the file layout, the tags `0x3E9`/`0x3EA`/`0x3EB`/`0x3EC`/`0x3EF` and the five globals are in [Savegames](motion32/engine/savegames.md). The globals are the handle counter, the `SDAUTOBUF` counter and the frame length, and the table holds the text templates) |
 | Text | The layout fields `+0x24`/`+0x2C` (glyph-origin shift); the third callback-address check `0x68367`. See [Text rendering](motion32/engine/text-rendering.md) |
 | Module state | `INTERPRET$` — the developer console, its only caller. (`=>PUTAS`/`=>GETAS`/`PUT`/`GET`/`EXIST` are read and built; so is the descriptor-slot order `=>GET`/`=>ERASE` produce. See [Savegames](motion32/engine/savegames.md)) |
 | Presenting | **The presenter is `0x1457D`**: it walks the 8×8 update map at `0xE7D84`, copies the marked tiles from the software surface (`0xE7D7C`, allocated at 0x14285) into video memory and clears the map. `0x18436` marks, `0x146D3` clears; twenty-odd callers include the fades, the mouse layer (0x25432/0x25622) and 0x270d6. See [Transitions](motion32/engine/transitions.md). Still open: why the inventory bar's real sprites stay invisible before the intro's first fade, and the drawer tail 0x69DB6–0x6A30A |
@@ -89,19 +89,23 @@ starts when one is.
   every such read is reported (see
   [Execution model](motion32/vm/execution-model.md)).
   ([Execution model](motion32/vm/execution-model.md))
+- **What is copied before `1 SPEEDMODE`** — the flag starts at 0, so
+  until `START` sets it, the fifteen copy routines that read it take their
+  inline path without clipping (`0x18993`); whether `STARTUP` or `DS_INIT`
+  copy anything through them is not traced.
+  ([Kernel words](motion32/vm/kernel-words.md))
 - **`_ChElseDup`** (handler `0x638e0`) — unread and unmeasured; it does
   not occur in the games' modules, and the machine stops on it by address.
-- **Division by zero** — `/` and `MOD` test the divisor and, on a zero,
-  report through `0x5294d` and set `0xdb043` (`0x61cff`, `0x61da9`); what
-  the report and the flag do to the run is unread, and motionvm stops.
-  ([Word semantics](motion32/vm/word-semantics.md))
 
 ## Timing
 
 - **The master counter's provider and rate.** The engine's arithmetic —
   `GIVETIMER`'s `×10/51`, `DELAY`'s `200/n` — is exact at a 1020 Hz master,
   and that is the rate the rebuild renders into time. Which timer feeds the
-  counter sits behind a loader-patched thunk that is not read, and a running
+  counter sits behind the thunk at `0xA28F8`. In the file it is a
+  placeholder, `jmp 0xA299C` (`xor eax,eax; ret`), one of a row of
+  eight-byte entries, each a jump and a tag (`00 01 08` for this one); what
+  puts the real target there at load is not read, and a running
   original under DOSBox-X averages ~978 Hz against wall time; how that gap
   divides between the provider's rate, interrupt delivery and the emulator
   is not measured. ([Game loop](motion32/engine/game-loop.md))
@@ -118,14 +122,6 @@ starts when one is.
   ([Transitions](motion32/engine/transitions.md))
 - **`NEWSETDESC`'s fifth argument** — popped and discarded everywhere
   observed. ([Descriptors](motion32/engine/descriptors.md))
-- **Whether a 32-bit descriptor stores its type.** `+0x02` is read as a type
-  field — 1 group, 2 sprite, 3 image, 4 text — and no handler is cited for
-  writing or reading it. The equivalent reading of the 16-bit engine turned
-  out to be backwards: there the pair `+0x10`/`+0x12` says what a descriptor
-  is, worked out on every ask rather than stored. Settling it means reading
-  `SDSPR` (`0x71715`), `SDBL`, `SDTXT` (`0x71b4f`) and `SDTB` (`0x71d45`) for
-  what they write at `+0x02`.
-  ([Descriptors](motion32/engine/descriptors.md))
 - **Descriptor fields still known by name only** — `SDBUF`, `SDTRANS`,
   `SDSHADE`; modes `SDNORM`/`SDPOS`. ([Descriptors](motion32/engine/descriptors.md))
 - **The retrace the scroll slide waits on.** `->SCRX` and `->SCRY` move the
@@ -203,9 +199,15 @@ The sequencer's timer rides the sound layer's 1500 Hz master rather than getting
 one of its own, and a song asking for 120 Hz gets **thirteen** master ticks per
 tick — 115.45 Hz. That thirteen is measured against the recording, not read:
 `0x8CF23` computes a 16.16 ratio between the two divisors, and the timer service
-that consumes it has not been followed. Twelve and a half is what the division
-gives; what rounds it up, and whether the remainder is dropped once or per tick,
-is unread. The measurement is unambiguous — over 150 notes, thirteen holds every
+that consumes it is read in part. Per call it adds each timer's step
+(`0xDCEF4`) to the timer's accumulator (`0xDCF34`) and fires the timer when
+bit 16 is set, clearing the whole part and keeping the fraction
+(`0x8D41B`–`0x8D43C`); the step is the timer's rate shifted by 16 over the
+master's divisor (`0x8CFD2`–`0x8CFFE`). A kept fraction gives a steady
+thirteen only for a step at or just above `65536/13`, which the documented
+120 Hz over the 1500 Hz master's divisor does not make. So either the
+values in those tables at run time are not the ones assumed, or the service
+is not called once per master tick; neither is read. The measurement is unambiguous — over 150 notes, thirteen holds every
 one within 41 ms where 120 Hz runs 313 ms ahead — so this is a question about
 *why*, not about *what*.
 

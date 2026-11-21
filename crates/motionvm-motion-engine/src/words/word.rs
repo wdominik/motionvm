@@ -1360,15 +1360,25 @@ impl Word {
     ///   one width rather than each line on its own (0x25833). Nothing on the paths
     ///   walked so far calls it, so the behavior is unobserved; when something
     ///   does, this entry has to go and the two centering modes have to be built.
-    /// * `ERRORLEVEL` — sets the exit code DOS would report. There is no DOS here,
-    ///   and nothing in the game reads it back.
+    /// * `ERRORLEVEL` — sets the machine's check level, `0xdb053` (R109; R78
+    ///   `0xba0f4`), its only writer (`0x65a41`). It starts at 3. 121 places
+    ///   compare it with 2, and those read — `!`, `/` — skip their checks
+    ///   below it: the stack check before the pops, and `!`'s test that it
+    ///   stores into a variable. Dunkle Schatten 2 turns
+    ///   them off with `0 ERRORLEVEL`, Checker 2000 keeps them with `3`. This
+    ///   machine checks always, which is the same run for every script that
+    ///   passes the checks — see the departures ledger. Not the DOS exit code.
     /// * `DREQUEST` — hands three values to the diagnostic call at `0x5294d`
     ///   under category 0x1b, the same one `ANIMPLAY` uses to complain about being
     ///   entered twice. There is no debug channel here for it to reach.
-    /// * `SPEEDMODE` — writes a flag at `0xd6608`. All 356 kernel words were
-    ///   scanned for that address and `SPEEDMODE` is the only one that touches it,
-    ///   so no word can read it back; whatever consumes it lives in the native
-    ///   loop, which is replaced here by a frame clock of our own.
+    /// * `SPEEDMODE` — sets the word at `0xd6608` to 0 or 1 (`0x72936`). Fifteen
+    ///   native copy routines read it (`0x18993` to `0x1c030`): at 1 they copy
+    ///   through the clipping blitter (`0x81300` and the routine after it), at
+    ///   0 through an inline loop without clipping — read in full at
+    ///   `0x18993`, whole rows in groups of eight pixels. Both shipped 32-bit
+    ///   games set 1 in `START`, before their frame loop, and the renderer
+    ///   here draws what the clipping path draws. The flag starts at 0; what
+    ///   is copied before the call is an open question.
     /// * `GFXCRUNCH`, `XGFXCRUNCH` — read, not assumed: the routine behind them
     ///   (`0x59768`) walks a range of graphics and does nothing but `orb $8,7(%eax)`
     ///   or `andb $0xf7,7(%eax)` on a 22-byte record each. One bit, no pixels. The

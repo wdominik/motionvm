@@ -47,8 +47,23 @@ the sign-extended dividend, which is where the signs above come from; the
 negative cases are measured in the original as well. Neither reaches `idiv`
 with a zero divisor: each tests it first and, on a zero, reports through
 `0x5294d`, sets the flag at `0xdb043` and leaves 0 where the result goes.
-What the report and the flag do to the run is not read — asked to divide by
-zero, the original brings no module back — and motionvm stops there.
+
+The report is the engine's error box: message 0 of its table, *Division
+durch Null!*, in a grey *Fehler* panel with an *OK* button at 40,40
+(`0x53246`–`0x532e9`), and the engine waits there for the click. The flag
+is what the threaded-code loop tests after every word (`0x61173`,
+`0x61180`): set, it leaves the word it is running. Measured in the
+original, with the click made by script:
+
+- **In a word the frame loop runs** (the `CTRL` word), the rest of that
+  word is skipped for the frame and the loop goes on: a counter the word
+  advances reached all 200 frames, and the store after the division never
+  happened.
+- **In the boot script**, the engine ends after the *OK*, without running
+  the lines after the failing one.
+- **Without the click**, the original waits at the box.
+
+motionvm stops the run instead; see the departures ledger.
 
 ## Logic and bit operations
 
@@ -207,8 +222,6 @@ for `t`; what that is a departure from, and why, is on the
 
 ## Open questions
 
-- What the report `/` and `MOD` make on a zero divisor (`0x5294d`) and the
-  flag they set (`0xdb043`) do to the run.
 
 ## See also
 

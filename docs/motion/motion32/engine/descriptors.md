@@ -49,7 +49,7 @@ A descriptor is a **0x3E-byte structure** plus a payload. Known fields:
 
 | Offset | Type | Description |
 |---|---|---|
-| +0x02 | `u16` | Descriptor type: 1 group, 2 sprite, 3 image, 4 text — **unverified**, see [Open questions](#open-questions) |
+| +0x02 | `u16` | **Kind**, stored: 2 sprite, 3 image, 4 text — see [The kind](#the-kind) |
 | +0x04 / +0x06 | `i16` | X / Y position (interpreted per placement mode) |
 | +0x08 | `i16` | Level (draw order) |
 | +0x0E | | Group: sibling-list head/tail; text: the layout record |
@@ -216,20 +216,34 @@ per-descriptor semantics are not. `SDNORM`/`SDPOS` switch animation
 modes (unmapped). `GDCOL` returns the color **undivided** — a backed
 text answers 421, not 165 (see [Text rendering](text-rendering.md)).
 
+## The kind
+
+`+0x02` says what the object is, and the 32-bit engine stores it. Screens
+and descriptors share the field. The words that give a descriptor its
+picture write it:
+
+| Kind | Object | Written by |
+|---|---|---|
+| 1 | a screen | `NEWSCREEN` (`0x70800`) |
+| 2 | a sprite | `SDSPR` (`0x716db`) |
+| 3 | an image | `SDBL` (`0x719bf`), `NEWSETDESC` (`0x70cd9`) |
+| 4 | a text | `SDTXT` (`0x71ba7`), `SDTB` (`0x71d9d`) |
+
+Each of the four setters compares the kind first (`SDSPR` `0x716b4`). When
+it differs, the setter frees the payload at `+0x0E`, allocates the new
+kind's payload and writes the new kind; otherwise it keeps the payload. So
+a descriptor changes what it shows by changing its kind, and one payload
+is ever live. `NEWSETDESC` checks that the screen it is handed is of kind 1
+(`0x6a666`) and reports otherwise (message `0x138b`).
+
+The 16-bit engine stores no kind. There the pair `+0x10`/`+0x12` says what a
+descriptor is, worked out on every ask
+([16-bit descriptors](../../motion16/engine/descriptors.md)).
+
 ## Open questions
 
 - The meaning of `NEWSETDESC`'s fifth argument.
 - The third callback-address check (`0x68367`).
-- **Whether a descriptor's type is stored at all.** The table above reads
-  `+0x02` as a type field, and no handler on this page cites writing or
-  reading it. The same reading of the 16-bit engine did not survive contact
-  with its handlers: there the pair `+0x10`/`+0x12` says what a descriptor is,
-  it is worked out on every ask rather than stored, and the earlier
-  three-field model was an artifact of reading the two fields the other way
-  round ([16-bit descriptors](../../motion16/engine/descriptors.md)). Whether
-  the 32-bit engine keeps a discriminant that the 16-bit one does not is open
-  until `SDSPR` (`0x71715`), `SDBL`, `SDTXT` (`0x71b4f`) and `SDTB`
-  (`0x71d45`) are read for what they write there.
 - The animation state inside the sprite payload.
 - `SDBUF`, `SDTRANS`, `SDSHADE` semantics.
 - What flag `0x10` picks between — see [Screens](screens.md#open-questions).

@@ -523,3 +523,28 @@ fn every_module_disassembles_without_an_unknown_ordinal() {
     }
     assert_eq!(bodies, 493, "every colon definition in the game");
 }
+
+/// The four places the 16-bit builds differ, read off this one's handlers.
+///
+/// `?XINSIDE` (`09e6:1a7f`) is 71 instructions with no hole case, as in
+/// `HPPLAY.EXE` and `LL.EXE`; `NEWSETDESC` tests for a hundred descriptors
+/// (`05e1:0a65`), as `ENVIRO.EXE`, `HPPLAY.EXE` and `BMZ.EXE` do; `CROUTE` (`09e6:10cc`) runs
+/// to its `lret` in 760 lines like `HPPLAY.EXE` and `BMZ.EXE` — no default
+/// for a zero shrink, which `ENVIRO.EXE` adds, and no pass over the
+/// headings, which `LL.EXE` adds.
+#[test]
+fn this_builds_capabilities_are_hpplays() {
+    let Some((img, words)) = kernel_or_skip() else {
+        return;
+    };
+    assert!(!mz::skips_empty_areas(&img, &words), "hole case");
+    assert!(
+        mz::newsetdesc_capped(&img, &words),
+        "hundred-descriptor test"
+    );
+    assert!(
+        !mz::croute_defaults_shrink(&img, &words),
+        "zero-shrink default"
+    );
+    assert!(!mz::croute_smooths_headings(&img, &words), "heading pass");
+}

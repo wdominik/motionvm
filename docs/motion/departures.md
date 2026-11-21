@@ -104,6 +104,27 @@ the engine's native error box is not rebuilt — and counts the miss instead.
 Read on a DOSBox-X recording of the original.
 ([Game structure](games/checker/game-structure.md#saving))
 
+**The machine's checks stay on.** The 32-bit engines keep a check level,
+set by `ERRORLEVEL` (`0xdb053`, initially 3). 121 places compare it with
+2, and those read skip their checks below it: `!` (`0x62826`) its stack
+check and its test that it stores into a variable (`0x65c87`), `/`
+(`0x61d44`) its stack check. Dunkle Schatten 2's `START`
+sets `0 ERRORLEVEL`, so from there on the original pops past an empty
+stack and stores anywhere without a word; motionvm checks at every level
+and stops on what would fail. For a script that passes every check the
+runs are the same; Checker 2000 sets `3 ERRORLEVEL` and keeps the checks.
+([Kernel words](motion32/vm/kernel-words.md))
+
+**A division by zero stops the run.** The 32-bit `/` and `MOD` (`0x61cff`,
+`0x61da9`) put up the engine's error box, *Division durch Null!*, wait for
+its *OK*, and then abandon the word that is running: in the frame loop's
+word the rest of it is skipped for that frame and play goes on; in the boot
+script the engine ends. Read, and measured in the original with the click
+made by script. motionvm stops with `DivideByZero` instead: the native
+error box is not rebuilt, and going on without it would skip words the
+player never saw a reason for.
+([Word semantics](motion32/vm/word-semantics.md))
+
 **A full message queue stops the run.** `ADDMESSPIPE` appends a record to
 the deferred-change queue the branch nodes write (`_ORDER+0x1C0`); when the
 queue's room (`+0x1C4`) is used up, the 32-bit handler (`0x7f26d`) puts up

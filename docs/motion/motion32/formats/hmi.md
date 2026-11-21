@@ -48,12 +48,12 @@ chip — `0x8CF23` divides the two divisors against each other in 16.16 fixed
 point. And `1500.86 / 120` is **12.507** master ticks, which is not a whole
 number. The original takes thirteen: `1500.86 / 13 = 115.45 Hz`.
 
-The two constants are read from the code. That the remainder is dropped rather
-than carried is measured against the recording: over the first 150 notes of
+The two constants are read from the code. That the period is thirteen is
+measured against the recording: over the first 150 notes of
 block 25, thirteen master ticks puts every one of them within 41 ms of where the
-original played it, where the header's 120 Hz has run 313 ms ahead. The
-fixed-point arithmetic inside the timer service that produces the thirteen has
-not been read — see [Open questions](../../open-questions.md).
+original played it, where the header's 120 Hz has run 313 ms ahead. How the
+timer service arrives at thirteen is read only in part — it carries the
+fraction rather than dropping it — see [Open questions](../../open-questions.md).
 
 The maps carry one entry each in every shipped song: 126 BPM for `TEST.HMI`,
 90–110 for the game's, always 4/4. **There is no tempo event in any stream**,

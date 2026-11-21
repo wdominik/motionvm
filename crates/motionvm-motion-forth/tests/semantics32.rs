@@ -15,9 +15,9 @@
 //! modules with the kernel words answered rather than stubbed.
 //!
 //! One thing is deliberately *not* asserted as original behavior: what
-//! follows a division by zero. The handler's test of the divisor is read, its
-//! consequence is not, and the test that touches it says it is pinning *our*
-//! choice, not the original's.
+//! follows a division by zero. The original puts up its error box there,
+//! which is not rebuilt, and the test that touches it says it is pinning
+//! *our* choice, not the original's.
 
 use motionvm_motion_formats::Binding;
 use motionvm_motion_formats::m32::le::{INLINE, TAG_KERNEL, inline};
@@ -340,11 +340,9 @@ fn division_truncates_toward_zero() {
 /// Division by zero stops rather than answering something.
 ///
 /// **This is our choice, not the original's.** `/` (`0x61cff`) tests the
-/// divisor before it divides and, on a zero, reports through `0x5294d`, sets
-/// `0xdb043` and leaves 0 in place of the quotient; it never reaches `idiv`.
-/// What the report and the flag do to the run is not read — the original,
-/// asked to divide by zero, brings no module back — so this stops rather than
-/// carry on with a 0 whose consequences are unknown.
+/// divisor before it divides and, on a zero, puts up the engine's error box,
+/// waits for its OK and abandons the running word; it never reaches `idiv`.
+/// The box is not rebuilt, so this stops — a departure on the ledger.
 #[test]
 fn division_by_zero_is_refused() {
     assert!(matches!(
