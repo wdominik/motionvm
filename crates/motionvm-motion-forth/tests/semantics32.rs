@@ -14,11 +14,10 @@
 //! bytecode go through the engine's `ds2_*` suites, which drive the same
 //! modules with the kernel words answered rather than stubbed.
 //!
-//! Four things are deliberately *not* asserted as original behavior, because
-//! they have never been measured: what `/LOOP` does at its limit, where `LEAVE`
-//! continues, what the original makes of a negative `/` or `MOD`, and what it
-//! does on division by zero. Where a test touches those it says it is pinning
-//! *our* choice, not the original's.
+//! One thing is deliberately *not* asserted as original behavior: what
+//! follows a division by zero. The handler's test of the divisor is read, its
+//! consequence is not, and the test that touches it says it is pinning *our*
+//! choice, not the original's.
 
 use motionvm_motion_formats::Binding;
 use motionvm_motion_formats::m32::le::{INLINE, TAG_KERNEL, inline};
@@ -47,6 +46,9 @@ const FIXED: &[(&str, u32)] = &[
     ("_CheckElse", inline::CHECK_ELSE),
     ("_AddLoop", inline::ADD_LOOP),
     ("_ULoopEnd", inline::U_LOOP_END),
+    // Table 0, index 53, in the shipped kernel.
+    ("LEAVE", 369),
+    ("_ChElseDup", inline::CH_ELSE_DUP),
     ("_Until", inline::UNTIL),
     ("_LoopBreak", inline::LOOP_BREAK),
     ("_Repeat", inline::REPEAT),
@@ -324,12 +326,25 @@ fn arithmetic_matches_the_original() {
     assert_eq!(run(&[prim("MOD"), 0], &[10, 3]), [1]);
 }
 
+/// `/` and `MOD` truncate toward zero, and the remainder takes the dividend's
+/// sign: `idiv` on the sign-extended dividend (`/` `0x61cff`, `MOD` `0x61da9`). Measured in the original: `-7 2 /`
+/// and `7 -2 /` are both −3, `-7 2 MOD` is −1 and `7 -2 MOD` is 1.
+#[test]
+fn division_truncates_toward_zero() {
+    assert_eq!(run(&[prim("/"), 0], &[-7, 2]), [-3]);
+    assert_eq!(run(&[prim("/"), 0], &[7, -2]), [-3]);
+    assert_eq!(run(&[prim("MOD"), 0], &[-7, 2]), [-1]);
+    assert_eq!(run(&[prim("MOD"), 0], &[7, -2]), [1]);
+}
+
 /// Division by zero stops rather than answering something.
 ///
-/// **This is our choice, not a measurement.** What a Watcom-built DOS binary
-/// does with `idiv` by zero is a trap, and what the original engine made of
-/// that is not established. Refusing is the one answer that cannot be quietly
-/// wrong.
+/// **This is our choice, not the original's.** `/` (`0x61cff`) tests the
+/// divisor before it divides and, on a zero, reports through `0x5294d`, sets
+/// `0xdb043` and leaves 0 in place of the quotient; it never reaches `idiv`.
+/// What the report and the flag do to the run is not read — the original,
+/// asked to divide by zero, brings no module back — so this stops rather than
+/// carry on with a 0 whose consequences are unknown.
 #[test]
 fn division_by_zero_is_refused() {
     assert!(matches!(
@@ -644,6 +659,147 @@ fn a_counted_loop_sums_its_index() {
         0,
     ];
     assert_eq!(run(cells, &[]), [10]);
+}
+
+/// `+LOOP` leaves on `index >= limit` whatever the step's sign.
+///
+/// `_AddLoop` (`0x641bf`) adds the step and leaves by one `jge`. Measured in
+/// the original: `0 R ! 0 3 DO R @ 1 + R ! -1 +LOOP` stores 1 — the first
+/// step takes the index to 2, which is at or above the limit 0.
+#[test]
+fn plus_loop_leaves_at_or_above_the_limit_whatever_the_step() {
+    // 0 0 3 DO 1 + -1 +LOOP
+    let cells = &[
+        op(inline::PUT_LIT),
+        0, // the accumulator
+        op(inline::PUT_LIT),
+        0, // limit
+        op(inline::PUT_LIT),
+        3, // start
+        prim("_LoopStart"),
+        op(inline::PUT_LIT),
+        1,
+        prim("+"),
+        op(inline::PUT_LIT),
+        u32::MAX, // -1
+        op(inline::ADD_LOOP),
+        6, // operand at cell 13, backward 6 → cell 7, the body
+        0,
+    ];
+    assert_eq!(run(cells, &[]), [1], "the body runs once");
+}
+
+/// `/LOOP` is `LOOP`: it steps by one and takes nothing from the stack.
+///
+/// `_ULoopEnd` (`0x6405e`) is instruction for instruction `_LoopEnd`
+/// (`0x63fd7`) — `incl`, `cmp`, `jge`. Measured in the original:
+/// `0 R ! 10 0 DO R @ 1 + R ! 2 /LOOP` stores 10, not 5.
+#[test]
+fn slash_loop_steps_by_one_and_pops_nothing() {
+    // 0 10 0 DO 1 + /LOOP — the accumulator is the only thing on the stack,
+    // so a `/LOOP` that popped a step would take it.
+    let cells = &[
+        op(inline::PUT_LIT),
+        0,
+        op(inline::PUT_LIT),
+        10,
+        op(inline::PUT_LIT),
+        0,
+        prim("_LoopStart"),
+        op(inline::PUT_LIT),
+        1,
+        prim("+"),
+        op(inline::U_LOOP_END),
+        4, // operand at cell 11, backward 4 → cell 7, the body
+        0,
+    ];
+    assert_eq!(run(cells, &[]), [10]);
+}
+
+/// `LEAVE` sets the limit to the index and lets the body finish.
+///
+/// `0x6426f` copies the index over the limit and returns; the loop's own end
+/// then steps past it and falls out. Measured in the original:
+/// `0 R ! 10 0 DO R @ 1 + R ! LEAVE R @ 100 + R ! LOOP` stores 101.
+#[test]
+fn leave_finishes_the_body_and_ends_the_loop() {
+    // 0 10 0 DO 1 + LEAVE 100 + LOOP
+    let cells = &[
+        op(inline::PUT_LIT),
+        0,
+        op(inline::PUT_LIT),
+        10,
+        op(inline::PUT_LIT),
+        0,
+        prim("_LoopStart"),
+        op(inline::PUT_LIT),
+        1,
+        prim("+"),
+        prim("LEAVE"),
+        op(inline::PUT_LIT),
+        100,
+        prim("+"),
+        op(inline::LOOP_END),
+        8, // operand at cell 15, backward 8 → cell 7, the body
+        0,
+    ];
+    assert_eq!(run(cells, &[]), [101]);
+}
+
+/// `LEAVE` ends only the innermost loop.
+///
+/// Measured in the original: `0 R ! 3 0 DO 3 0 DO R @ 1 + R ! LEAVE LOOP
+/// R @ 10 + R ! LOOP` stores 33 — each outer pass runs the inner body once.
+#[test]
+fn leave_ends_only_the_innermost_loop() {
+    // 0 3 0 DO 3 0 DO 1 + LEAVE LOOP 10 + LOOP
+    let cells = &[
+        op(inline::PUT_LIT),
+        0,
+        op(inline::PUT_LIT),
+        3,
+        op(inline::PUT_LIT),
+        0,
+        prim("_LoopStart"),
+        op(inline::PUT_LIT),
+        3,
+        op(inline::PUT_LIT),
+        0,
+        prim("_LoopStart"),
+        op(inline::PUT_LIT),
+        1,
+        prim("+"),
+        prim("LEAVE"),
+        op(inline::LOOP_END),
+        5, // operand at cell 17, backward 5 → cell 12, the inner body
+        op(inline::PUT_LIT),
+        10,
+        prim("+"),
+        op(inline::LOOP_END),
+        15, // operand at cell 22, backward 15 → cell 7, the outer body
+        0,
+    ];
+    assert_eq!(run(cells, &[]), [33]);
+}
+
+/// `ELSEDUP`'s runtime is unread, so the machine stops on it by address
+/// rather than branching somewhere plausible.
+#[test]
+fn elsedup_stops_by_address() {
+    assert!(matches!(
+        fails(&[op(inline::CH_ELSE_DUP), 1, 0], &[0]),
+        Error::Unread { at: "0x638e0", .. }
+    ));
+}
+
+/// `LEAVE` outside a loop is an underflow, as `LOOP` outside one is: the
+/// handler's return-stack check (`0x65b7c`) reports both the same way.
+#[test]
+fn leave_outside_a_loop_is_an_underflow() {
+    assert!(matches!(
+        fails(&[prim("LEAVE"), 0], &[]),
+        Error::StackUnderflow { word: "LEAVE", .. }
+    ));
 }
 
 // --------------------------------------------------------------------- random

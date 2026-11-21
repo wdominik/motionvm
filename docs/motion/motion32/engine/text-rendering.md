@@ -202,25 +202,20 @@ line by line. (motionvm therefore leaves it inert; see
 
 ### Vertical centering: the gap is included
 
-The instruction reading and the measurement disagree here, and the
-measurement is what the engine does.
+A vertically centered block stands on the same height the block routine
+measures. The output routine's centering branch (from `0x2588e`, behind
+`testl $4,0x18(%ebp)`) computes `font[+2] × lines` (`0x258a6`), calls the
+line counter `0x25ebd` a second time, multiplies one less than its answer by
+the line gap at `0xd66ec` (`0x258b3`–`0x258bb`) and adds the two
+(`0x258be`); half of that (`sar`, `0x258c0`) comes off the anchor
+(`0x258c5`):
 
-**From the disassembly:** the centering height is `font height × lines`,
-**without** line gaps. `0x2588e` computes `schrift[+2] × zeilen` and the
-three instructions that follow it — `0x25897`, `0x258a1`, `0x258a6` — carry
-no gap term at all. On that reading the centering height is a different
-number from the measured block height.
+```
+top = y − (font height × lines + (lines − 1) × gap) / 2
+```
 
-**From a running original:** it is not. A caption whose block the gapless
-arithmetic puts at y 167 stands at 166, which is what the gap-inclusive
-height `(font height + gap) × lines − gap` gives. So the engine centers on
-the gap-inclusive height, whatever the instructions appear to say.
-
-What the disassembly reading is missing has not been established — the
-likeliest candidate is that `schrift[+2]` is not the bare glyph height but
-already carries the leading. [Open questions](../../open-questions.md) carries
-it, and [Departures](../../departures.md) records that the rebuild follows the
-measurement rather than the instruction reading.
+A running original agrees: the intro's caption that this puts at y 166
+stands at 166 (`the_intro_shows_its_two_texts_in_order`).
 
 ## Captions in practice
 

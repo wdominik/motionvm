@@ -29,10 +29,11 @@ impl Engine {
         match word {
             // --- resources and modules --------------------------------------
             // One handler per word, and in particular the `…STAT-` range
-            // markers are handled by the `STATUS_HINTS` arm further down and
-            // nowhere else. A second arm here would come first and win, and it
-            // would assert them onto the `NO_EFFECT` list — which is not where
-            // they live, so each would fault a debug build the moment it ran.
+            // markers are handled by the `Word::status_hint` arm in
+            // `words/resources.rs` and nowhere else. A second arm here would
+            // come first and win, and it would hand them to `note_no_effect`
+            // — which `Word::inert` does not admit them to, so each would
+            // fault a debug build the moment it ran.
             // `4:START` runs `XGFXSTAT-` six times and each of its four
             // siblings at least once, all before any test that enters through
             // `INCLLOC` gets far enough to notice.

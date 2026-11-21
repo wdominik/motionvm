@@ -130,7 +130,7 @@ fn a_run_says_what_it_walked_past() {
         .iter()
         .find(|d| d.subject == "words reached that do nothing")
         .unwrap_or_else(|| panic!("no inert-word line in {notes:?}"));
-    // Which words those are is the engine suite's business — `NO_EFFECT` is
+    // Which words those are is the engine suite's business — `Word::inert` is
     // where they are argued for. What is asserted here is that the count
     // reached the far side of the contract at all.
     assert!(inert.detail.contains('×'), "{}", inert.detail);

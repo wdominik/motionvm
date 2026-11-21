@@ -63,14 +63,14 @@ impl Engine {
             // engine's nearest-entry lookup (R78 `0x61289` → `0x1b940`, R109
             // `0x75e57` → `0x1ee26`), which answers a palette index, not a
             // packed color. Six-bit components, the same scale the palettes
-            // are stored in; the lookup's own metric is in [`crate::paint`].
+            // are stored in, and the handler hands over the low byte of each
+            // cell and nothing else (R109 `0x75e4a`–`0x75e54`, R78 `0x6127c`–
+            // `0x61286`: a `mov` of `%bl`, `%dl`, `%al`); the lookup compares
+            // bytes unsigned. Its metric
+            // is in [`crate::paint`].
             Word::RGB_TO_COL => {
                 let c = pop_n(stack, 3, "RGB->COL")?;
-                let [r, g, b] = [
-                    cell::low8(c[0].clamp(0, 63)),
-                    cell::low8(c[1].clamp(0, 63)),
-                    cell::low8(c[2].clamp(0, 63)),
-                ];
+                let [r, g, b] = [cell::low8(c[0]), cell::low8(c[1]), cell::low8(c[2])];
                 // The script's palette, not the display's: after a `SETPAL`
                 // the original's lookup already searches the new entries,
                 // even while a fade still hides the switch.

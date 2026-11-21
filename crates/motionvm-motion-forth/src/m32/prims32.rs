@@ -199,20 +199,25 @@ impl Vm {
             || ordinal == inline.add_loop
             || ordinal == inline.u_loop_end
         {
-            let step = if ordinal == inline.loop_end {
-                1
-            } else {
+            // Three handlers, one rule. `_LoopEnd` (`0x63fd7`) and `_ULoopEnd`
+            // (`0x6405e`) are the same instructions — `incl` on the index,
+            // `cmp` against the limit, `jge` out — so `/LOOP` steps by one and
+            // takes nothing from the data stack, signed like `LOOP`.
+            // `_AddLoop` (`0x641bf`) pops the step, `add`s it and leaves by
+            // the same `jge`, whatever the step's sign: a loop counting down
+            // ends at the first step that leaves it at or above its limit.
+            // Measured in the original: `0 3 DO … -1 +LOOP` runs its body
+            // once, `10 0 DO … 2 /LOOP` ten times.
+            let step = if ordinal == inline.add_loop {
                 self.pop("+LOOP")?
+            } else {
+                1
             };
             match self.loops.last().copied() {
                 Some(l) => {
-                    let index = cell::signed(self.ret[l.slot].0) + step;
+                    let index = cell::signed(self.ret[l.slot].0).wrapping_add(step);
                     self.ret[l.slot] = Address(cell::unsigned(index));
-                    let done = if step >= 0 {
-                        index >= l.limit
-                    } else {
-                        index <= l.limit
-                    };
+                    let done = index >= l.limit;
                     if done {
                         self.loops.pop();
                         self.ret.truncate(l.slot);
@@ -226,6 +231,14 @@ impl Vm {
                     });
                 }
             }
+        } else if Some(ordinal) == inline.ch_else_dup {
+            // `ELSEDUP` (`_ChElseDup`, handler `0x638e0`): its runtime is
+            // unread, and no shipped 32-bit module compiles one.
+            return Err(Error::Unread {
+                what: "_ChElseDup, the ELSEDUP runtime".into(),
+                binary: "ENGINE.EXE",
+                at: "0x638e0",
+            });
         } else {
             unreachable!("Inline::is_branch admitted {ordinal}")
         };
@@ -291,6 +304,12 @@ impl Vm {
                 // word that was never on the stack.
                 let word = if prim == Prim::Div { "/" } else { "MOD" };
                 let (b, a) = (self.pop(word)?, self.pop(word)?);
+                // Both handlers (`/` `0x61cff`, `MOD` `0x61da9`) test the
+                // divisor first; a zero is reported through `0x5294d` and
+                // sets `0xdb043`, and what that does to the run is unread, so
+                // it stops here. Otherwise `idiv` on the sign-extended
+                // dividend: truncation toward zero, the remainder with the
+                // dividend's sign — measured, `-7 2 /` is −3.
                 if b == 0 {
                     return Err(Error::DivideByZero { at: here });
                 }
@@ -407,10 +426,18 @@ impl Vm {
                 let v = self.ret[l.slot];
                 self.push(cell::signed(v.0));
             }
+            // LEAVE (`0x6426f`) copies the index over the limit and returns:
+            // the rest of the body runs, and the loop's end — which steps the
+            // index past it — falls out. Measured in the original:
+            // `10 0 DO … LEAVE R @ 100 + R ! LOOP` adds the 100 once. With no
+            // frame under it the handler's return-stack check (`0x65b7c`)
+            // reports, as `LOOP`'s does.
             Prim::Leave => {
-                if let Some(l) = self.loops.pop() {
-                    self.ret.truncate(l.slot);
-                }
+                let l = self.loops.last_mut().ok_or(Error::StackUnderflow {
+                    word: "LEAVE",
+                    at: Some(here),
+                })?;
+                l.limit = cell::signed(self.ret[l.slot].0);
             }
 
             // `RANDOM ( n -- r )`: the hash over the host's clock, reduced

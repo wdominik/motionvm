@@ -31,7 +31,7 @@ What remains:
 | Dialogue | Nothing in the machine itself: modes 12 to 18 are read, and the one the shipped game cannot reach — 15, entered only by `0x7b120`, which nothing calls, jumps to or points at — is refused rather than built. (Branch actions 5/6 and the name lookup `0x61596` are read and built; the lookup walks the resident modules in slot order, as the original's table at `0xEE6D0` is walked, and how `=>GET`/`=>ERASE` assign slots is read — first free slot, freed in place — and modeled, see [Savegames](motion32/engine/savegames.md)) |
 | Walking | Command 1007's call path (no queue in the game writes one); whether the two line kinds mean more than which end anchors the scale ramp |
 | Animation | The native layer: `ANIMPLAY` (meaning of the ten values the game pushes — the handler pops none), `ANIMSIM`. (`PUTANIM` `0x6dd87` and `GETANIM` `0x6e355` are read: the file layout, the tags `0x3E9`/`0x3EA`/`0x3EB`/`0x3EC`/`0x3EF` and the five globals are in [Savegames](motion32/engine/savegames.md). What three of them — `0xDB4AC`, `0xDB4B4`, `0xDB4B8` — and the 180-byte table at `0xF2594` mean is still open) |
-| Text | The layout fields `+0x24`/`+0x2C` (glyph-origin shift); the third callback-address check `0x68367`. **Vertical centering**: `0x2588e` and the three instructions after it compute the height with no gap term, but a real run puts a caption at 166 where that arithmetic gives 167, so the code centers on the gap-inclusive height. What the instruction reading is missing — most likely that `schrift[+2]` already carries the leading — is unread. See [Text rendering](motion32/engine/text-rendering.md) |
+| Text | The layout fields `+0x24`/`+0x2C` (glyph-origin shift); the third callback-address check `0x68367`. See [Text rendering](motion32/engine/text-rendering.md) |
 | Module state | `INTERPRET$` — the developer console, its only caller. (`=>PUTAS`/`=>GETAS`/`PUT`/`GET`/`EXIST` are read and built; so is the descriptor-slot order `=>GET`/`=>ERASE` produce. See [Savegames](motion32/engine/savegames.md)) |
 | Presenting | **The presenter is `0x1457D`**: it walks the 8×8 update map at `0xE7D84`, copies the marked tiles from the software surface (`0xE7D7C`, allocated at 0x14285) into video memory and clears the map. `0x18436` marks, `0x146D3` clears; twenty-odd callers include the fades, the mouse layer (0x25432/0x25622) and 0x270d6. See [Transitions](motion32/engine/transitions.md). Still open: why the inventory bar's real sprites stay invisible before the intro's first fade, and the drawer tail 0x69DB6–0x6A30A |
 | Misc | `TXTSTAT` record layout, `REQUEST`/`SDIAL`. (`ADDMESSPIPE` is read and built: it appends a 0x22-byte record to the deferred-change queue at `_ORDER+0x1C0`, the same one the branch nodes write.) (`?INVINCL` is read and built.) Location 12 cannot be entered: its location-table entry is uninitialized in the shipped data, so the jump goes nowhere in the original too |
@@ -58,6 +58,26 @@ is built because nothing can reach it. (The sampled-speech pump — `?STIME`,
 is how Checker 2000 speaks, and Dunkle Schatten 2 ships no WAV file for it
 to play.)
 
+## Where a run stops by address
+
+Paths whose continuation in the original is not read, or reads as something
+no rebuild should copy — an uninitialized local, a loop that never comes
+back. Each is a stop that names the address (`Error::Unread`) rather than a
+guess, and none is reached by shipped data; the table is where a reader
+starts when one is.
+
+| Address | Binary | Where | What is not followed |
+|---|---|---|---|
+| `0x7bece` | `ENGINE.EXE` | `CALCDIALOG`, action 6 with no word found yet | the original runs on the null globals (module 0, cell 4) |
+| `0x7f26d` | `ENGINE.EXE` | `ADDMESSPIPE` on a full queue | what follows the complaint and the key; see [departures](departures.md#the-virtual-machine) |
+| `0x76dcc`, `0x77a2b` | `ENGINE.EXE` | `CROUTE`, a negative route or auxiliary record | the original indexes unchecked; connected routes never produce one |
+| `0x78dc8` | `ENGINE.EXE` | `DOWALK`, command 1007 | it runs a script word through the interpreter entry `0x60c65`; no queue in the game writes one |
+| `0x7a2e2` | `ENGINE.EXE` | `GMSHOWMENU`, a negative verb mask | the bit count shifts arithmetically and never ends |
+| `0x7a900` | `ENGINE.EXE` | `ANIMATEORDERS`, item-menu slot 2 or later | the handler's local is uninitialized there |
+| `0x7ad26` | `ENGINE.EXE` | `CHOOSEORDERS`, item-menu slot 2 or later | the original complains and waits for a key |
+| `0d34:15a6` | `ENVIRO.EXE` | `CALCDIALOG`, branch kind 5 naming a word no resident module defines | the null header's id would run |
+| `05f1:105d` | `ENVIRO.EXE` | `SDPOS` on the 16-bit engine | the raw stores are read; the two routines after them, `0362:2111` and `0362:2007`, are not. No game calls the word |
+
 ## Virtual machine
 
 - **Module 0** — the kernel's base module, created at runtime, not a file.
@@ -69,13 +89,11 @@ to play.)
   every such read is reported (see
   [Execution model](motion32/vm/execution-model.md)).
   ([Execution model](motion32/vm/execution-model.md))
-- **`_LoopStart`'s ordinal** — arithmetic suggests 389; unconfirmed.
-  ([Threaded code](motion32/vm/threaded-code.md))
-- **`_ChElseDup`** — unmeasured; does not occur in the game's modules.
-- **`/LOOP` termination rule** — possibly unsigned (`_ULoopEnd`); only the
-  branch encoding is measured. ([Word semantics](motion32/vm/word-semantics.md))
-- **`LEAVE` continuation point**; **negative-operand `/` and `MOD`**;
-  **division by zero**.
+- **`_ChElseDup`** (handler `0x638e0`) — unread and unmeasured; it does
+  not occur in the games' modules, and the machine stops on it by address.
+- **Division by zero** — `/` and `MOD` test the divisor and, on a zero,
+  report through `0x5294d` and set `0xdb043` (`0x61cff`, `0x61da9`); what
+  the report and the flag do to the run is unread, and motionvm stops.
   ([Word semantics](motion32/vm/word-semantics.md))
 
 ## Timing

@@ -69,8 +69,6 @@ order. See [Savegames](../../motion32/engine/savegames.md) and [Shell](library/s
 
 - The duplication of the Karsten walk set (modules 9, 19, and again inside
   212).
-- The precise semantics of `=>PUTAS`/`=>GETAS` (module save/load "as" a
-  given id — inferred from usage, not confirmed).
 
 ## See also
 

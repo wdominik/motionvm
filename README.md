@@ -243,7 +243,7 @@ borderless window rather than a change of display mode.
 
 | What happens | What it is |
 |---|---|
-| `… is not a game motionvm can open`, then what each game needs | The directory holds no game, or one that is not among the five. Started without a path, motionvm says so in a message box and asks again |
+| `… is not a game motionvm can open`, then what each game needs | The directory holds no game, or one that is not among the seven. Started without a path, motionvm says so in a message box and asks again |
 | A named file is missing at start-up | The copy is incomplete — the table above says which files that game needs |
 | `sound is off: …` | A sound file is missing, or no audio device could be opened. The game plays on in silence |
 | `the game stopped: …`, in a message box | The engine reached something it does not implement or a savegame it cannot load; the message names it. Every such line also goes to stderr, and `MOTIONVM_LOG=1` appends it, with everything else the run reports, to `motionvm.log` beside `saves/` — which is where a report from a Windows build, whose release binary has no console, is found |
@@ -278,12 +278,12 @@ scheme read first. Until they are, motionvm refuses the directory by name at
 start-up rather than opening it under the name of a game it already knows.
 
 **How faithful is it?** Deliberately close, and honestly measured: single
-frames of Dunkle Schatten 2 and Die Enviro-Kids greifen ein and the whole
-eight-picture intro of Victor Loomes match recordings of the original pixel
-for pixel, and three of the games' music has been held against register
-captures of the original's sound hardware. Those recordings cannot ship, so
-what the test suite keeps instead is a digest of every scene and every tune
-it reaches — a change that moves a pixel or a register write is a failing
+frames of Dunkle Schatten 2 and Die Enviro-Kids greifen ein, two boards and
+two information pages of Checker 2000 and the whole eight-picture intro of
+Victor Loomes match recordings of the original pixel for pixel, and four of
+the games' music has been held against register captures of the original's
+sound hardware. Those recordings cannot ship, so what the test suite keeps
+instead is a digest of every scene it composes and every tune it plays — a change that moves a pixel or a register write is a failing
 test on any machine that has the game.
 [`docs/motion/verification.md`](docs/motion/verification.md) says what that covers and what
 it does not; [`docs/motion/departures.md`](docs/motion/departures.md) lists every place

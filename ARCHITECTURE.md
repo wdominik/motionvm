@@ -174,10 +174,10 @@ size and in two behaviors, and **none of that is keyed on a game name**:
 - The kernel binding is scanned out of the shipped executable, and the domain
   ordinal base is derived by disassembling the registration loop in the MZ
   image — the `cmp %si, imm8` bound gives 105 for three builds and 102 for
-  `LL.EXE`.
+  `LL.EXE` and `STERN.EXE`.
 - Whether this build's `?XINSIDE` skips an all-zero hot area is read out of its
-  code as well, and wired into the engine as the one capability that genuinely
-  varies *within* a generation.
+  code as well, and wired into the engine as a capability — one of the six
+  that genuinely vary *within* a generation (see below).
 - Which inline ordinals the branch decoder uses come from the same scan, on
   both machines.
 - The PSM driver's table location is chosen by counting the driver file's
@@ -227,14 +227,15 @@ in `motionvm-motion-engine` names a title.
 | `Profile` | `profile.rs` | what a build decides when a game opens from what a frame changes; the two generations' readings are its two constructors |
 | `Player` | `motionvm-motion-audio`'s root | a song from the driver that sounds it |
 | `Picture` | `motionvm-render`'s root | a decoded picture from the container it was decoded out of |
-| `LocationScheme` | `game.rs` | one location mechanism from five sets of variable names |
+| `LocationScheme` | `game.rs` | one location mechanism from four sets of variable names |
 | `Rules` | `order.rs`, `words/` | one algorithm from the generation-different constants it runs on |
 
 ## Behavior differences are named capabilities
 
 Where the two generations really do behave differently, the engine carries
-sixteen named booleans, two named enums — what `TOGFX` does with the pointer,
-what a text record makes of `SDINSERT` — a display size and a savegame layout
+nineteen named booleans, three named enums — what `TOGFX` does with the
+pointer, what a text record makes of `SDINSERT`, which master clock the frames
+count — a display size and a savegame layout
 — `opaque_blocks`, `text_runs`, `per_screen_descriptors`, `skips_holes` and
 the rest — each documented with the disassembly address it was measured at.
 They live on the `Profile`, which is built whole before the engine exists:
@@ -244,7 +245,7 @@ read into the profile rather than into a built engine: `skips_holes`,
 `walk_defaults_shrink`, `walk_smooths_headings` and `screen_holds_a_hundred`
 on the 16-bit side, `inserts` and `curtains_wait` on the 32-bit.
 
-Eleven of the booleans are, today, two-valued functions of "is this the
+Fourteen of the booleans are, today, two-valued functions of "is this the
 16-bit engine", and folding them into the `Generation` above would lose
 nothing that is currently true. It is deliberately not done. Each was
 *measured separately*, each names a behavior rather than a version, and the
@@ -261,8 +262,8 @@ right follows from what differs:
   over different offsets and coordinates, so there is one implementation and
   two tables of measurements, each field citing where it was read.
 - **When the *reading* differs, write twin files.** `dialogue32.rs` and
-  `dialogue16.rs` are the same conversation machine read twice, about 680 lines
-  each, and they stay twins: the 16-bit engine has two speaker words instead of
+  `dialogue16.rs` are the same conversation machine read twice, some 830 and
+  680 lines, and they stay twins: the 16-bit engine has two speaker words instead of
   a speaker table, two talking-head descriptors, the answers stacked downward,
   colors and templates out of the block. A `Rules`-parameterized version would
   have to pretend those are the same shape with different numbers, and they are
@@ -327,9 +328,9 @@ tense, because the cost is still there.
   dropped on the audio thread when a new one arrives. A second channel would
   avoid even that free, for a location change that happens every few
   minutes; more machinery than the problem is worth (`motionvm-motion/src/music.rs`).
-- **A generation enum that selects behavior.** Ten of the thirteen
+- **A generation enum that selects behavior.** Sixteen of the twenty-two
   capabilities are two-valued functions of "is this the 16-bit engine" today
-  and could be folded into `Generation`. Each was measured separately, three
+  and could be folded into `Generation`. Each was measured separately, six
   already vary within a generation, and the next build is unknown; the
   section above says the rest.
 - **The inspection CLI depending on the engine.** It could then say which

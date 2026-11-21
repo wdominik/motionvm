@@ -202,15 +202,15 @@ string_slice = "deny"
 #
 # `pedantic` — the shape matters more than the number:
 #
-#     482  must_use_candidate
-#     220  missing_errors_doc
-#      38  match_same_arms
-#      36  too_many_lines
+#     251  must_use_candidate
+#     117  missing_errors_doc
+#      26  match_same_arms
+#      18  too_many_lines
 #      22  casts, every one inside a function named for it
 #
 # The first is a mechanical `#[must_use]` pass. `missing_errors_doc` is
 # boilerplate this tree does not want: the `Result` type's own documentation
-# says what can go wrong, and repeating it at 220 sites would say it 220
+# says what can go wrong, and repeating it at 117 sites would say it 117
 # times less well. The casts are the ones `as_conversions` above already
 # accounts for, seen again by the lints that grade a cast by kind. What is
 # left below those is a few dozen objections of the kind the block above
@@ -218,11 +218,11 @@ string_slice = "deny"
 #
 # `nursery` — three lints are nearly all of it:
 #
-#    2015  use_self
-#     480  redundant_pub_crate
-#     311  missing_const_for_fn
+#     962  use_self
+#     265  redundant_pub_crate
+#     164  missing_const_for_fn
 #
-# `arithmetic_side_effects` — some 1700 outside the readers, most of them the
+# `arithmetic_side_effects` — some 950 outside the readers, most of them the
 # engine's, whose arithmetic is the original's, wrapping where the original
 # wraps; this lint objects to all of it. It is on where a malformed file is
 # the adversary — `motionvm-motion-formats` as a crate and the engine's
@@ -230,16 +230,16 @@ string_slice = "deny"
 # that inherits the workspace's admits no other key — and not worth that
 # many `#[expect]` elsewhere.
 #
-# `indexing_slicing` — some 900 outside the readers. Same shape: on in the
+# `indexing_slicing` — some 460 outside the readers. Same shape: on in the
 # readers, where a truncated file is the adversary, and noise on a drawing
 # path whose bounds were computed two lines earlier.
 #
-# `missing_docs_in_private_items` — 715, `absolute_paths` — 774,
-# `unseparated_literal_suffix` — 232, `shadow_unrelated` — 108: taste, at a
+# `missing_docs_in_private_items` — 742, `absolute_paths` — 396,
+# `unseparated_literal_suffix` — 95, `shadow_unrelated` — 58: taste, at a
 # scale where taste is a month's work.
 #
-# `unwrap_used` — 0 in `src/`, 506 over all targets. `expect_used` — 2 and
-# 1202, the two being the test-support crate's own. `panic` — 7 and 256, the
+# `unwrap_used` — 0 in `src/`, 558 over all targets. `expect_used` — 2 and
+# 1151, the two being the test-support crate's own. `panic` — 7 and 198, the
 # seven likewise. The gap is the whole point: the sources have almost none,
 # and the tests have all of them, because that is what a test does. Clippy's
 # `allow-*-in-tests` reaches `#[test]` functions and `#[cfg(test)]` modules
@@ -247,7 +247,7 @@ string_slice = "deny"
 # so denying the three would put an exemption header on sixty-odd test files
 # to hold a line the sources already hold.
 #
-# `must_use_candidate` — 235, and mechanical: every pure function would get
+# `must_use_candidate` — 251, and mechanical: every pure function would get
 # the attribute, which is more than the attribute means. `#[must_use]` is put
 # where ignoring the answer is a bug — `Error::located` — and not everywhere
 # a lint can see a value come back.

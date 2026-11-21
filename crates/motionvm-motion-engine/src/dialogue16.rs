@@ -355,7 +355,7 @@ impl Engine {
             );
             self.set_text(fetch(vm, line)?)?;
             self.set_text_table(fetch(vm, field(vm, line, 2))?)?;
-            self.note_no_effect(crate::words::Word::SDNORM);
+            self.set_normal()?;
             self.place_x(sx + 0x46, Placement::Edge)?;
             self.place_y(y, Placement::Edge)?;
             self.set_color(color)?;
@@ -368,7 +368,7 @@ impl Engine {
         self.set_wait(-1)?;
         self.set_text(block(vm, order, g::QUIET_TEXT)?)?;
         self.set_text_table(block(vm, order, g::QUIET_TABLE)?)?;
-        self.note_no_effect(crate::words::Word::SDNORM);
+        self.set_normal()?;
         self.place_x(sx + 0x46, Placement::Edge)?;
         self.place_y(sy + 0x82, Placement::Edge)?;
         self.set_color(color)?;

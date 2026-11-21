@@ -6,6 +6,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The 32-bit loop words do what the original's do.** `LEAVE` (`0x6426f`)
+  sets the limit to the index and lets the body finish, where the machine
+  dropped the loop's frame; `+LOOP` (`0x641bf`) leaves on `index >= limit`
+  whatever the step's sign; `/LOOP` (`0x6405e`) is `LOOP` and takes no step
+  from the stack. Each is measured in the original as well. No shipped
+  32-bit script uses any of the three.
+- **The descriptor and palette words follow their handlers.** The 32-bit
+  `SDPOS` takes three values and is `SDZ`, `SDY` and `SDX` in a row (R109
+  `0x7115c`, R78 `0x5d2c0`); the 16-bit one, a different handler, stops by
+  address. The 32-bit `SDNORM` keeps the justification bit and does nothing
+  when both placements are already the edge (`0x7339d`), and the dialogue
+  machines apply it rather than skip it. `RGB->COL` takes each component's
+  low byte (`0x75e4a`, `0x6127c`) instead of clamping to 0..63. The shipped
+  scripts give the same picture under both readings.
+- **A 32-bit `ELSEDUP` stops by address** (`0x638e0`) where the machine
+  panicked.
+
+### Added
+
+- **Tests hold the measured VM semantics**: the loop words, and `/` and
+  `MOD` with negative operands, which truncate toward zero. Division by zero
+  still stops; what the original's error report does to the run is unread.
+- **Every `Error::Unread` address is on a ledger**, held by a workspace
+  test. The open questions list the stops by address, and the departures
+  the code made without an entry are written down, `CCALCINV`'s clamp of a
+  negative scroll offset among them.
+- **Every location of Dunkle Schatten 2 is held to its inert words**: none
+  walks past a word that does nothing unless the inert list admits it.
+
+### Changed
+
+- **The vertical centering of a text is read, not measured**: the output
+  routine adds `(lines − 1) × gap` before it halves (`0x258a6`–`0x258c0`),
+  so its departures entry is gone.
+- **Dependencies are updated** within their semver ranges.
+
 ## [0.11.1] - 2026-10-19
 
 ### Fixed

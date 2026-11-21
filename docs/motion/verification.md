@@ -27,8 +27,10 @@ register stream — is on [The verification method](verification-method.md).
   over 206 palette indices, held against the original running under DOSBox-X.
   Every index maps to one color and every color back to one index, which is a
   stronger check than comparing RGB ([screens](motion32/engine/screens.md)).
-- **Fourteen VM primitives**, against modules the 1996 compiler produced.
-- **A song's first 8 000 OPL register writes**, and one mixer envelope
+- **Twenty-five VM cases**, against modules the 1996 compiler produced and
+  the original ran: the primitives, the loop words — `LEAVE`, `+LOOP` and
+  `/LOOP` among them — and `/` and `MOD` with negative operands.
+- **A song's 17 047 OPL register writes**, the whole recording, and one mixer envelope
   ([FM driver](motion32/engine/fm-driver.md)).
 
 ### Checker 2000, on the earlier 32-bit build
@@ -147,13 +149,13 @@ frame, or of the register stream in the order the chip would have seen it — an
 holds each run against the one before. Eighty-three of them, across all
 seven games: each game's intro, the room it starts in, four of Dunkle
 Schatten 2's densest scenes, Checker 2000's registration in two states, its
-main menu and a page of its information book, and every tune the six older
-games ship.
+main menu and a page of its information book, and every tune the six other
+games ship — Checker 2000's six songs are not among them yet.
 
 A digest says nothing about whether a picture is *right*. What it says is that
 nothing moved, which is what the comparisons above cannot say twice: a capture
 of the original is consulted once, by hand, on one machine, and a rebuild that
-matched it in 2025 has nothing holding it there. The digests are that. They may
+matched it once has nothing holding it there. The digests are that. They may
 live in the repository for the same reason the captures may not — sixteen hex
 digits reconstruct no artwork and are not a fixture derived from a game's data.
 
@@ -166,7 +168,8 @@ sorted order.
 
 Everything else. Each game is held against its own material: every item in its
 containers re-parsed, every script module disassembled with no unknown ordinal,
-every location it has entered and drawn, every tune it ships played, and its
+every location it has entered and drawn, every tune it ships played — but
+for Checker 2000's, which are parsed and not yet played — and its
 savegames written and read back in the engine's own layout. The 32-bit FM
 driver and the 16-bit PSM player read their tables out of the shipped driver
 binaries on every run rather than carrying transcriptions, so that part of the

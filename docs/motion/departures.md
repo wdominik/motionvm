@@ -104,6 +104,23 @@ the engine's native error box is not rebuilt — and counts the miss instead.
 Read on a DOSBox-X recording of the original.
 ([Game structure](games/checker/game-structure.md#saving))
 
+**A full message queue stops the run.** `ADDMESSPIPE` appends a record to
+the deferred-change queue the branch nodes write (`_ORDER+0x1C0`); when the
+queue's room (`+0x1C4`) is used up, the 32-bit handler (`0x7f26d`) puts up
+the engine's complaint and waits for a key; what it does after the key is
+not followed. motionvm stops with the address instead: the native complaint
+box is not rebuilt, and writing on past the queue would be a guess. No shipped script fills the queue; the 16-bit engine never reads
+the room cell. ([Dialogue machine](motion32/engine/dialogue-machine.md))
+
+**`CCALCINV` takes a negative scroll offset as 0.** The inventory window's
+offset goes negative when the back arrow is clicked at the start of the
+list. The handler (`0x7ece9`) checks only for 0 (`0x7ee34`) and otherwise
+walks the eight entries from the offset on (`0x7ee41`–`0x7ee5e`), so a
+negative one reads the cells before the list. motionvm takes it as 0,
+stores the 0 back and counts the call, rather than drawing whatever those
+cells hold. What the original shows for that click is not measured.
+([Game library](games/ds2/library/game-library.md))
+
 ## Display and timing
 
 **An unwaiting curtain takes no time at all.** R78's `FADEIN` and `FADEOUT`
@@ -199,15 +216,6 @@ fade finishes; the script's own view of the palette — `RGB->COL`, a save's
 record, the drawer's backing table — moves immediately, as the original's
 tables do inside `SETPAL` itself.
 
-**Text centers on the gap-inclusive height.** The disassembly says the centering
-height is `font height × lines`, with no line-gap term. A running original says
-otherwise: a caption the gapless arithmetic puts at y 167 stands at 166.
-motionvm centers on `(font height + gap) × lines − gap`, and its text lands
-where the original's does. This is the one place in the project where the code
-follows a measurement against the original rather than the instructions; what
-the instruction reading is missing is an
-[open question](open-questions.md). ([Text rendering](motion32/engine/text-rendering.md))
-
 **`SDAUTOBUF` rebuilds where the original remembers.** A descriptor carrying
 the flag is the only thing in this engine that disappears cleanly, and the
 original manages it with a copy: the drawer saves the surface under it before
@@ -228,10 +236,10 @@ place empty.
 
 **`SDBLK` is read but not built.** The word sets bit 7 of descriptor byte
 +0x17, which centers a text block as a whole on its widest line instead of
-centering each line. Nothing in Dunkle Schatten 2 calls it — every text that game
-draws centers line by line — so motionvm treats it as inert and counts it. The
-entry sits on the inert list with that reason beside it, so the day a path does
-call it, the run says so instead of drawing the wrong thing quietly.
+centering each line. Nothing in Dunkle Schatten 2 or Checker 2000 calls it — every text those
+games draw centers line by line — so the 32-bit drawer does not act on it, and
+a 32-bit call is counted among the words that did nothing, so the day a path
+does call it, the run says so instead of drawing the wrong thing quietly.
 ([Text rendering](motion32/engine/text-rendering.md), [Descriptors](motion32/engine/descriptors.md))
 
 **Only the 256-color modes are drawn.** `TOGFX` enters whichever of the
@@ -253,6 +261,26 @@ case is counted. No shipped text does it. `#s` of a number prints nothing
 where the original reads its memory at that number, and `TEXT->PRINTER`
 prints nothing at all: there is no printer.
 ([Text rendering](motion32/engine/text-rendering.md#the-layout-the-line-window-and-the-inserts))
+
+**A `#s` reads at most 4096 bytes for its NUL.** The original's layout
+reads a `#s` insert until it meets a zero byte, however far that is; the
+layout here gives up after 4096 and prints what it has, since a string that
+long is a pointer at something other than a string. No shipped text inserts
+one near that length.
+([Text rendering](motion32/engine/text-rendering.md#the-layout-the-line-window-and-the-inserts))
+
+**Alt and a cursor key answer a code of motionvm's own.** `?KEY` with Alt
+held walks the letter table at `0x237ed` and maps Alt+F1 to F10 back onto
+the plain function keys at `0x2383d`; what the BIOS hands the original for
+Alt and a cursor key — its own scan codes — is not pinned down by anything
+in the engine or the game, so motionvm answers the plain key's scan code
+with both flags set. No module reads an Alt code.
+
+**Six-bit palettes widen to eight bits by replicating the top bits.** The
+VGA DAC takes six bits a channel and the monitor saw a voltage; a window
+takes eight. `(v << 2) | (v >> 4)` puts full-scale 63 at 255 rather than
+252, for every game, so white is white. Nothing in any engine says what the
+analog stage made of the six bits; this is the platform's choice.
 
 ## Savegames
 
@@ -378,6 +406,14 @@ remembers the sampled rendition of a 16-bit tune will hear the
 synthesized one. Both are
 [open questions](open-questions.md) before they are choices; they are here
 because the choice is what a player meets.
+([Audio](motion32/engine/audio.md))
+
+**`->STARTSAMPLE` on a missing file answers 0.** The original's stream
+path retries a file it cannot open in an endless loop — the "insert the CD"
+spin — and the diagnostic it tries to print is swallowed, because the
+module id it passes is one the diagnostic routine ignores. motionvm answers
+0, as `STARTSAMPLE` does on the same miss, and counts the file by name. No
+shipped game is missing one.
 ([Audio](motion32/engine/audio.md))
 
 **The three parts run with a clock between them, in an audio callback.** After

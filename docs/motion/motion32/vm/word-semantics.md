@@ -36,14 +36,19 @@ Comparison words push **1** for true, not the standard Forth −1.
 | Word | Effect | Notes |
 |---|---|---|
 | `+` `-` `*` | `( a b -- n )` | wrapping 32-bit |
-| `/` | `( a b -- a/b )` | truncating; `20 4 /` → 5 |
-| `MOD` | `( a b -- a%b )` | `10 3 MOD` → 1 |
+| `/` | `( a b -- a/b )` | toward zero; `20 4 /` → 5, `-7 2 /` → −3, `7 -2 /` → −3 |
+| `MOD` | `( a b -- a%b )` | the dividend's sign; `10 3 MOD` → 1, `-7 2 MOD` → −1, `7 -2 MOD` → 1 |
 | `=` `!=` `<` `>` `<=` `>=` | `( a b -- f )` | signed; true = 1 |
 | `0=` `0>` `0<` | `( a -- f )` | |
 | `3 5 -` | | → −2 (operand order as in standard Forth) |
 
-Behavior of `/` and `MOD` with negative operands is unverified, as is
-division by zero.
+Both handlers (`/` at `0x61cff`, `MOD` at `0x61da9`) divide with `idiv` on
+the sign-extended dividend, which is where the signs above come from; the
+negative cases are measured in the original as well. Neither reaches `idiv`
+with a zero divisor: each tests it first and, on a zero, reports through
+`0x5294d`, sets the flag at `0xdb043` and leaves 0 where the result goes.
+What the report and the flag do to the run is not read — asked to divide by
+zero, the original brings no module back — and motionvm stops there.
 
 ## Logic and bit operations
 
@@ -89,16 +94,25 @@ return stack**: `4711 >R I` yields 4711, and inside a loop a pending
 first. Confirmed: `0 5 0 DO I + LOOP` leaves **10** (0+1+2+3+4).
 
 - `I` pushes the innermost loop index, `J` the next-outer one.
-- `LOOP` increments the index by 1 and exits when `index >= limit`.
-- `+LOOP` pops the step from the stack: `0 3 0 DO I 2 * + LOOP 100 +`
-  leaves 106. The termination rule depends on the step's sign: exit when
-  `index >= limit` for a non-negative step, `index <= limit` for a negative
-  one.
-- `/LOOP` compiles to its own runtime (`_ULoopEnd`) but its termination
-  rule has not been measured separately (see open questions).
-- `LEAVE` abandons the current loop frame. Whether it also jumps to the
-  cell after the loop end, or merely drops the frame and lets execution
-  continue, is unverified.
+- `LOOP` (`_LoopEnd`, `0x63fd7`) increments the index by 1 and exits when
+  `index >= limit`, signed (`incl`, `cmp`, `jge`).
+- `+LOOP` (`_AddLoop`, `0x641bf`) pops the step and adds it:
+  `0 3 0 DO I 2 * + LOOP 100 +` leaves 106. It exits by the same `jge`,
+  **whatever the step's sign** — a loop counting down ends at the first step
+  that leaves its index at or above the limit. Measured: `0 3 DO … -1 +LOOP`
+  runs its body once. `0 -3 DO … -1 +LOOP`, a loop counting away from its
+  limit, brings no module back from the original within the probe's time —
+  what the `jge` predicts, though a timeout cannot prove it.
+- `/LOOP` (`_ULoopEnd`, `0x6405e`) is instruction for instruction
+  `_LoopEnd`: a step of one, a signed compare, and **nothing taken from the
+  data stack**. Measured: `10 0 DO … 2 /LOOP` runs its body ten times, the 2
+  staying on the stack each pass.
+- `LEAVE` (`0x6426f`) copies the index over the limit and returns. The rest
+  of the body runs, and the loop's end — which steps the index past the
+  limit — falls out. Measured: `10 0 DO … LEAVE R @ 100 + R ! LOOP` adds the
+  100 once; nested, it ends only the innermost loop. Without a loop frame
+  under it, the handler's return-stack check (`0x65b7c`) reports, as
+  `LOOP`'s does.
 
 ### `BEGIN … UNTIL`
 
@@ -193,11 +207,8 @@ for `t`; what that is a departure from, and why, is on the
 
 ## Open questions
 
-- `/LOOP` (`_ULoopEnd`): only its branch distance encoding is measured. The
-  `U` prefix suggests an unsigned termination rule, distinct from `+LOOP`'s
-  signed one; unconfirmed.
-- `LEAVE`'s exact continuation point.
-- `/` and `MOD` with negative operands; division by zero.
+- What the report `/` and `MOD` make on a zero divisor (`0x5294d`) and the
+  flag they set (`0xdb043`) do to the run.
 
 ## See also
 

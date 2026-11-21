@@ -134,11 +134,11 @@ impl Engine {
                 // until it is — otherwise removing an item would leave gaps.
                 let mut offset = mem.fetch_cell(list)?;
                 // A negative offset means the back arrow was clicked at the
-                // start of the list. Taken as zero here, and counted, because
-                // the alternative is to walk backwards out of the list and
-                // report whatever the machine makes of that — which is noise,
-                // not the original's answer. If the bar is ever seen to scroll
-                // oddly, this is the entry to look for.
+                // start of the list. The 32-bit handler checks only for 0
+                // (`0x7ee34`) and walks the entries from the offset on
+                // (`0x7ee41`), reading the cells before the list; this takes
+                // it as zero, and counts it, rather than draw what those
+                // cells hold — see the departures ledger.
                 if offset < 0 {
                     self.note_unhandled(Word::CCALCINV, Some("negative scroll offset".into()));
                     offset = 0;

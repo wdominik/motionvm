@@ -192,7 +192,6 @@ blocking transition/animation words, not from scripted delays. See
 - The full story-flag assignment (which flag means which plot event).
 - The stale location-table entries (location 12; module 330) — see
   [Blocks](../../motion32/formats/blocks.md).
-- The exact semantics of `=>PUTAS`/`=>GETAS`.
 
 ## See also
 

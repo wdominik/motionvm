@@ -30,8 +30,8 @@
 //! `DUMMY#F0R3i` placeholders, then the domain table. So the first domain
 //! word binds at `core + placeholders + 1` — 105 in `ENVIRO.EXE`,
 //! `HPPLAY.EXE` and `BMZ.EXE`, whose core tables hold 82 words and which
-//! register 22 placeholders, and 102 in `LL.EXE`, whose core table holds 80
-//! and which registers 21.
+//! register 22 placeholders, and 102 in `LL.EXE` and `STERN.EXE`, whose core
+//! tables hold 80 and which register 21.
 //!
 //! The bases are confirmed against the modules: every one of the 24 282
 //! kernel cells in the 65 modules of Die Enviro-Kids greifen ein names an

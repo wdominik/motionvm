@@ -153,3 +153,65 @@ fn a_locations_modules_come_back_pristine_on_re_entry() {
     );
     assert_eq!(game.vm.data.len(), depth, "neither word leaves anything");
 }
+
+/// Words every location's frames walk past without effect, and why each may:
+/// the loader's status tables (`…STAT`, `…STAT±`), the crunch hint, the timer reset,
+/// the two subsystem resets of the boot, `SPEEDMODE` and `ERRORLEVEL` of the
+/// boot module. Each is on the engine's inert list with its reason.
+const INERT: &[&str] = &[
+    "ERRORLEVEL",
+    "RESETANIM",
+    "RESETFONT",
+    "RESETTI",
+    "SPEEDMODE",
+    "TXTSTAT",
+    "XBLKSTAT-",
+    "XGFXCRUNCH",
+    "XGFXSTAT+",
+    "XGFXSTAT-",
+    "XPALSTAT-",
+    "XSCRSTAT-",
+    "XTXTSTAT-",
+];
+
+/// Every location with a valid table entry — 1 to 23 but 12, whose entry is
+/// garbage; 23 is the title, and entry 30 is a stale second pointer at its
+/// module — is entered, runs its first frames, and nothing it reaches on
+/// the way is walked past that is not on [`INERT`]. A word that is not built
+/// stops the run by name; this is the other half: a word that is built as
+/// doing nothing has to be one that is meant to.
+#[test]
+fn every_location_walks_past_only_the_inert_words() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let mut walked: Vec<(i32, String)> = Vec::new();
+    for want in (1..=23).filter(|&l| l != 12) {
+        let mut game = Game::open(&dir).expect("game opens");
+        game.start().expect("4:START");
+        while game.pump().expect("startup runs") {}
+        game.set_var(2, "_NEXTLOC", want)
+            .expect("ask for the location");
+        let mut reached = false;
+        for frame in 0..600 {
+            game.set_input(0, 0, false, false, 0).expect("input");
+            if let Err(e) = game.step() {
+                panic!("location {want} stopped on frame {frame}: {e}");
+            }
+            reached |= game.get_var(2, "_ACTLOC") == Some(want);
+        }
+        assert!(reached, "location {want} was never entered");
+        walked.extend(
+            game.engine
+                .stubbed()
+                .keys()
+                .filter(|w| !INERT.contains(&w.as_str()))
+                .map(|w| (want, w.clone())),
+        );
+    }
+    assert!(
+        walked.is_empty(),
+        "walked past without effect, by location: {walked:?}"
+    );
+}

@@ -168,7 +168,9 @@ impl Engine {
             self.paint_ring(&w);
             return;
         }
-        let w = self.transitions.wipes.pop_front().expect("the front wipe");
+        let Some(w) = self.transitions.wipes.pop_front() else {
+            return;
+        };
         self.paint_tail(&w);
         if let Some(p) = w.palette_after {
             self.display.palette = p;

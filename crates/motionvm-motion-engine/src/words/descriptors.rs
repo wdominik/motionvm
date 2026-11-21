@@ -175,20 +175,43 @@ impl Engine {
             // the block's left edge and its inner spaces stretch to the
             // widest line (`14ee:11cf`, `14ee:111c`) — the newspaper's
             // module 615 is the caller.
+            // The 32-bit drawer does not justify (that build's bit is read,
+            // not built — see the departures ledger), so a 32-bit call is
+            // counted as one that did nothing.
             Word::SDBLK => {
                 if let Some(d) = self.descriptor_mut() {
                     d.fields.set(Field::SDBLK, 1);
                 }
-            }
-            Word::SDNORM => {
-                if let Some(d) = self.descriptor_mut() {
-                    d.fields.clear(Field::SDBLK);
-                    d.x_mode = Placement::Edge;
-                    d.y_mode = Placement::Edge;
+                if !self.profile.text_runs {
+                    self.note_no_effect(word);
                 }
             }
-            // A toggle with no argument.
-            Word::SDPOS => self.note_no_effect(word),
+            Word::SDNORM => self.set_normal()?,
+            // `( x y z -- )`: the 32-bit handler (R109 `0x7115c`, R78
+            // `0x5d2c0`) is three calls in a row — `SDZ`'s handler, then
+            // `SDY`'s, then `SDX`'s — each popping its own value, so the level
+            // comes off the top and the two coordinates are placed by their
+            // edge, as the words alone place them.
+            Word::SDPOS => {
+                let z = pop1(stack, "SDPOS")?;
+                self.set_level(z)?;
+                let y = pop1(stack, "SDPOS")?;
+                self.set_y_edge(y)?;
+                let x = pop1(stack, "SDPOS")?;
+                self.set_x_edge(x)?;
+            }
+            // The 16-bit handler (`ENVIRO.EXE` `05f1:105d`) is not those three
+            // words: it pops three values into the record raw — `+0x29`, `+2`,
+            // `+0` — raises bit 0x40 of `+0x28`, and then calls two routines
+            // (`0362:2111`, `0362:2007`) that are not read. No game calls it.
+            Word::SDPOS_16 => {
+                return Err(motionvm_motion_forth::Error::Unread {
+                    what: "SDPOS on the 16-bit engine: the two routines after its raw stores"
+                        .into(),
+                    binary: "ENVIRO.EXE",
+                    at: "05f1:105d (0362:2111, 0362:2007)",
+                });
+            }
             // `( value slot -- )` on R78 (`0x611c0`), `( value kind slot -- )`
             // on R109 (`0x75cfe`): the slot is popped first, the value last,
             // and which build this is was read off the handler

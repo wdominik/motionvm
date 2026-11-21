@@ -568,20 +568,14 @@ impl Engine {
             // drawer does the same per-pass centering, per line, with the
             // gaps the drawer set for the pass — `14ee:1231`, `14ee:1262`.)
             let height = line_height(pen.font, pen.spacing);
-            // The gap belongs in the centering height, and this is why.
-            //
-            // At 0x2588e the output routine computes `font[+2] × lines`
-            // with no gap (0x25897, 0x258a1, 0x258a6), and centering on that
-            // looked like the faithful reading. It is not what the engine
-            // does: `the_intro_shows_its_two_texts_in_order` measures a line at
-            // 166 against a real run, and the gapless height puts it at 167.
-            //
-            // So either that branch is not the one this path takes, or the
-            // height there serves something other than the centering. Measured
-            // beats read — the same way the oracle test threw out a -1 truth
-            // flag that had looked just as convincing. (The 16-bit measure is
-            // the same sum, read this time: `lines × height + (lines − 1) ×
-            // gap` at `14ee:1711`–`14ee:172b`.)
+            // The centering height is the block's, gap included: the output
+            // routine's branch at 0x2588e computes `font[+2] × lines`
+            // (0x258a6), adds `(lines − 1) × gap` with the gap from 0xd66ec
+            // (0x258ab–0x258be) and takes half of it off the anchor (`sar`,
+            // 0x258c0). `the_intro_shows_its_two_texts_in_order` holds the
+            // result against a real run: a line at 166. (The 16-bit measure
+            // is the same sum: `lines × height + (lines − 1) × gap` at
+            // `14ee:1711`–`14ee:172b`.)
             let block = (cell::count(lines.len()) * height - pen.spacing).max(0);
             let off = |v: i32| if runs && is_shadow { v } else { 0 };
             let top = match d.y_mode {

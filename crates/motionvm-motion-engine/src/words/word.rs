@@ -386,6 +386,8 @@ pub(crate) enum Word {
     SCRX_16,
     /// `SCRY`
     SCRY_16,
+    /// `SDPOS`
+    SDPOS_16,
     SETCYCLE,
     SETSHADE,
     SFT,
@@ -523,6 +525,7 @@ impl Word {
         Word::NEWANIM,
         Word::PLAYSAMPLE,
         Word::REMSCR_16,
+        Word::SDPOS_16,
         Word::NEWDESC,
         Word::NEWSCREEN,
         Word::NEWSETDESC,
@@ -1020,7 +1023,7 @@ impl Word {
             "SDNORM" => Word::SDNORM,
             "SDOX" => Word::SDOX,
             "SDOY" => Word::SDOY,
-            "SDPOS" => Word::SDPOS,
+            "SDPOS" => Word::SDPOS_16,
             "SDSHADE" => Word::SDSHADE,
             "SDSPR" => Word::SDSPR,
             "SDSTARTLINE" => Word::SDSTARTLINE,
@@ -1234,6 +1237,7 @@ impl Word {
             Word::SCRX_16 => "SCRX",
             Word::SCRY => "SCRY",
             Word::SCRY_16 => "SCRY",
+            Word::SDPOS_16 => "SDPOS",
             Word::SD_PCT_SHR => "SD%SHR",
             Word::SDACTIVE => "SDACTIVE",
             Word::SDALINES => "SDALINES",
@@ -1351,8 +1355,6 @@ impl Word {
     /// * `RESETANIM`, `RESETFONT` — reset subsystems that start out reset.
     /// * `CUTPAL`, `SETBUF`, `RESETBUF` — palette and buffer bookkeeping for the
     ///   engine's double buffering, which a composed still frame does not use.
-    /// * `SDNORM`, `SDPOS` — descriptor modes with no argument whose effect only
-    ///   shows in animation.
     /// * `SDBLK` — sets bit 7 of the descriptor's byte +0x17 (its only writer, at
     ///   0x73099). That bit makes the output routine center the whole text block on
     ///   one width rather than each line on its own (0x25833). Nothing on the paths
@@ -1372,8 +1374,10 @@ impl Word {
     ///   or `andb $0xf7,7(%eax)` on a 22-byte record each. One bit, no pixels. The
     ///   sibling `GFXVFLIP` at `0x595be` does transform, which is why the two are
     ///   treated differently despite looking alike at the call site.
-    /// * `FADEIN`, `FADEOUT` **in mode 2** — mode 1 is implemented as a curtain;
-    ///   the handlers' second branch has not been read, and nothing reaches it.
+    /// * `FADEOUT` **in mode 2** is counted the same way without being on this
+    ///   list, because the word itself is built in mode 1: a translucent fade
+    ///   through `SETPAL`'s darkening tables (R109 `0x74eef`) that no shipped
+    ///   call reaches. `FADEIN`'s mode 2 is built.
     ///
     /// `SDINSERT` and `XATMOUSE` are deliberately absent: they do something.
     ///
@@ -1381,8 +1385,7 @@ impl Word {
     /// give one back, and they keep the descriptor-slot table that decides what
     /// a savegame contains.
     ///
-    /// Was a list of names beside the code that used it, searched on every
-    /// call. A match here is what makes [`crate::Engine::note_no_effect`]'s
+    /// A match here is what makes [`crate::Engine::note_no_effect`]'s
     /// promise checkable: its argument is a `Word`, so a word this does not
     /// admit cannot be handed to it by mistake.
     pub(crate) fn inert(self) -> bool {
@@ -1397,8 +1400,6 @@ impl Word {
                 | Word::RESETFONT
                 | Word::RESETTI
                 | Word::SDBLK
-                | Word::SDNORM
-                | Word::SDPOS
                 | Word::SETBUF
                 | Word::SPEEDMODE
                 | Word::TEXT_TO_PRINTER
@@ -1508,7 +1509,7 @@ mod tests {
     #[test]
     fn a_split_word_means_one_thing_per_machine() {
         let split: Vec<Word> = Word::ALL.iter().copied().filter(|&w| is_16(w)).collect();
-        assert_eq!(split.len(), 16, "the split set changed");
+        assert_eq!(split.len(), 17, "the split set changed");
         for w in split {
             let name = w.name();
             assert_eq!(Word::of_m16(name), Some(w), "{name} on the 16-bit machine");

@@ -102,8 +102,9 @@ known to take operands:
 | `_PutString` | 499 | `." …"` | NUL-terminated string, padded to 4 bytes; **no game module uses it** |
 | `_PutStringAdr` | 504 | — | the same operand; pushes its address and continues. The engine steps `(strlen + 3) >> 2` cells, one less than the compiler laid down when the length divides by four (see [Word semantics](word-semantics.md)) |
 
-`_LoopStart` (compiled from `DO`) takes **no** operand — the one member of
-the loop family that doesn't, which is why guessing by word family fails.
+`_LoopStart` (compiled from `DO`, ordinal 389 — table 0, index 57, handler
+`0x63d8e` in the shipped kernel table) takes **no** operand — the one member
+of the loop family that doesn't, which is why guessing by word family fails.
 
 So `VAR X` compiles to `_PutAdr` plus a data cell, and `5 CONST Y` to
 `_PutConst 5` — exactly the pattern found at the inventory module's `STIFT`
@@ -137,9 +138,6 @@ The compiler's emissions for each construct:
 
 ## Open questions
 
-- `_LoopStart`'s ordinal: arithmetic suggests 389 (table 0, the only gap
-  between `_Repeat` = 384 and `_LoopEnd` = 394), but this has not been
-  confirmed.
 - `_ChElseDup` takes an unknown operand shape; it does not occur anywhere
   in the game's modules.
 

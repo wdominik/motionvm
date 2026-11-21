@@ -136,6 +136,33 @@ impl Engine {
         }
     }
 
+    /// `SDNORM`: both placements back to the edge.
+    ///
+    /// The 32-bit handler (`0x7339d`) reads the two mode fields of `+0x12`
+    /// (`0x6bd97`, `0x6bdc8`) and leaves when both already say edge;
+    /// otherwise it marks the descriptor, stores edge on both axes
+    /// (`0x6bd3c`, `0x6bd68`) and marks it again. It does not touch the
+    /// justification bit. The 16-bit one (file `0xa726`) writes whatever is
+    /// there, and its `and $0x80FF` takes `SDBLK`'s bit away with the center
+    /// modes. With nothing selected it does nothing.
+    pub(crate) fn set_normal(&mut self) -> Result<()> {
+        let sixteen = self.profile.text_runs;
+        let always = self.profile.sd_marks_always;
+        let Some(d) = self.descriptor_mut() else {
+            return Ok(());
+        };
+        if !always && (d.x_mode, d.y_mode) == (Placement::Edge, Placement::Edge) {
+            return Ok(());
+        }
+        self.changing("SDNORM", |d| {
+            d.x_mode = Placement::Edge;
+            d.y_mode = Placement::Edge;
+            if sixteen {
+                d.fields.clear(Field::SDBLK);
+            }
+        })
+    }
+
     /// `SDY`, `SDCY`/`SDVCEN`, `SDOY`: the vertical coordinate and what it means.
     ///
     /// `SDOX` is `SDOY` turned sideways: 0x71212 tests the *x* at +4 and 0x6bd97

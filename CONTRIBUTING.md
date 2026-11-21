@@ -412,8 +412,8 @@ shared things at their roots; `motionvm-motion-tools` dispatches on the game's
 files to an `m32` and an `m16` command set; `motionvm-motion-engine` hosts both
 machines behind one `Game<M>` driver, keeps each game's bootstrap under
 `titles/`, and keeps the one word group that exists for one machine only —
-the 16-bit words in `words/m16.rs`, buffer words among them — in a file of
-its own; the walk, the inventory, the savegame words and the dialogue queue
+the 16-bit words in `words/m16.rs`, with their buffer words beside it in
+`words/buffers.rs` — in files of their own; the walk, the inventory, the savegame words and the dialogue queue
 each serve both machines over `AddressSpace` and a `Rules` table. `motionvm-motion-audio` carries
 the two music stacks the same way, `m32` for the HMI sequencer and the FM
 driver and `m16` for PSM 2, with the OPL3 they both end at at its root.
@@ -454,7 +454,10 @@ claim is made checkable.
    not implement is not inert; it is absent, and a run stops on it by name.
 6. **Unread is a stop, not a guess.** Where a branch of the handler has not
    been read, the word answers `Error::Unread` naming the binary and the
-   address, and `docs/motion/open-questions.md` carries the same address.
+   address, and `docs/motion/open-questions.md` carries the same address —
+   or `docs/motion/departures.md` does, where the branch is read and the stop
+   is the choice. `motionvm-workspace-tests`' `ledger.rs` holds every
+   address an `Error::Unread` names to one of the two.
 7. **Which ledger.** A deliberate difference from the original is an entry in
    `docs/motion/departures.md`; what is still unread is one in
    `docs/motion/open-questions.md`; a word left unbuilt on purpose is a line

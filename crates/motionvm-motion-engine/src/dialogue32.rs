@@ -493,7 +493,7 @@ impl Engine {
         );
         self.set_text(text)?;
         self.set_text_table(table_id)?;
-        self.note_no_effect(crate::words::Word::SDNORM);
+        self.set_normal()?;
         self.place_x(sx + 0x140, Placement::Center)?;
         self.place_y(y, Placement::Center)?;
         y -= 0x23;

@@ -172,7 +172,7 @@ pub struct Engine {
     /// the machine's memory — see [`layout`] and [`Engine::lay_out_texts`].
     pub(crate) laid_out: BTreeMap<u32, String>,
     resources: Option<resources::Resources>,
-    /// Words that were reached but do nothing yet, with how often.
+    /// Words that were reached and did nothing, with how often.
     pub(crate) stubbed: BTreeMap<Stub, usize>,
     /// The palette rotation `SETCYCLE` asked for, or `None` where it asked
     /// for none — turned once a frame by [`Engine::tick_palette_cycle`].
@@ -447,12 +447,13 @@ impl Engine {
         self.request.is_some()
     }
 
-    /// Words that were reached but do nothing yet, with how often — by the
+    /// Words that were reached and did nothing, with how often — by the
     /// kernel's own spelling, a case in parentheses where only a case of the
-    /// word is inert (`FADEIN (mode 2)`).
+    /// word does nothing (`FADEOUT (mode 2)`).
     ///
     /// The other half of the instrumentation. A run can be asked afterwards
-    /// what it walked past; the inert words are listed on `NO_EFFECT`.
+    /// what it walked past; the inert words and their reasons are on
+    /// `Word::inert`.
     pub fn stubbed(&self) -> BTreeMap<String, usize> {
         self.stubbed
             .iter()
@@ -803,8 +804,8 @@ impl Engine {
 }
 
 /// A word reached that does nothing here: which word, and which case of it
-/// where only a case is inert — `FADEIN` in mode 2, `SCRX` with a non-zero
-/// argument. Keyed by the word as a value, so that a stub's identity is the
+/// where only a case of it does nothing — `FADEOUT` in mode 2, `GET` of a
+/// block that is not there. Keyed by the word as a value, so that a stub's identity is the
 /// kernel's and not a spelling; the spelling is what [`Engine::stubbed`]
 /// answers.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -878,6 +879,24 @@ mod tests {
         assert!(stack.is_empty(), "SDX takes exactly one value");
         e.plain_word32("GDX", &mut stack, &mut mem).unwrap();
         assert_eq!(stack, vec![42]);
+    }
+
+    /// `SDPOS` is `SDZ`, `SDY` and `SDX` in that order (`0x7115c`): the level
+    /// comes off the top, then y, then x.
+    #[test]
+    fn sdpos_places_and_levels_the_selected_descriptor() {
+        let mut mem = mem();
+        let mut e = Engine::new(Profile::motion32());
+        let mut stack = vec![0, 0, 0, 0, 0, 0];
+        e.plain_word32("NEWSETDESC", &mut stack, &mut mem).unwrap();
+        stack.clear();
+
+        stack.extend([10, 20, 3]);
+        e.plain_word32("SDPOS", &mut stack, &mut mem).unwrap();
+        assert!(stack.is_empty(), "SDPOS takes three values");
+        let d = &e.scene.descriptors[0];
+        assert_eq!((d.x, d.y, d.level), (10, 20, 3));
+        assert_eq!((d.x_mode, d.y_mode), (Placement::Edge, Placement::Edge));
     }
 
     /// The rows the handlers compute, checked against the disassembly.
@@ -1477,8 +1496,8 @@ mod tests {
     /// `FADEOUT`'s mode 2 is a different effect — a translucent fade through
     /// the darkening tables (0x74eef, color 0x102) — that no shipped call
     /// reaches, so it is recorded and skipped. It must not go through
-    /// `note_no_effect`, whose `debug_assert!` fires for any name not on
-    /// `NO_EFFECT`, and neither fade word is on that list.
+    /// `note_no_effect`, whose `debug_assert!` fires for any word
+    /// `Word::inert` does not admit, and neither fade word is admitted.
     #[test]
     fn a_mode_two_fade_out_is_recorded_rather_than_fatal() {
         let mut mem = mem();
