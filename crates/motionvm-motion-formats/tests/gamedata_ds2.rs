@@ -386,6 +386,15 @@ fn this_build_files_insert_kinds_and_waits_between_bands() {
     let words = motionvm_motion_formats::m32::le::kernel_words(&img);
     assert!(motionvm_motion_formats::m32::le::sdinsert_takes_kind(&img, &words).unwrap());
     assert!(motionvm_motion_formats::m32::le::fades_wait(&img, &words).unwrap());
+    // And a far edge is the box's last pixel: the corner routine adds one
+    // back (`0x6c563`) and `GDOY` takes it off again (`0x71508`).
+    assert_eq!(
+        motionvm_motion_formats::m32::le::far_edges(&img, &words).unwrap(),
+        motionvm_motion_formats::m32::le::FarEdges {
+            place: 1,
+            getter: -1
+        }
+    );
 }
 
 #[test]

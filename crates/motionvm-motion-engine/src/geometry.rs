@@ -144,7 +144,7 @@ impl Engine {
     ///
     /// It matters because the placement halves exactly this value: `0x6bdfa`,
     /// the routine behind `GDX`, does `desk[+4] − desk[+0x2e]/2` for a center
-    /// and `− desk[+0x2e]` for a far edge. Halving the bare measured size
+    /// and `− desk[+0x2e] + 1` for a far edge. Halving the bare measured size
     /// instead puts a centered text two pixels off — and `TSC` clamps the speech
     /// with `GDX`, so the error moved the sentence as well as its backing.
     pub(crate) fn stored_extent(&mut self, d: &Descriptor) -> (i32, i32) {
@@ -178,15 +178,16 @@ impl Engine {
         // centered text with a template stands a pixel left of its face.
         let (mw, mh) = self.template_margins(d);
         let (w, h) = (w + mw, h + mh);
+        let edge = self.profile.far_edge;
         let x = match d.x_mode {
             Placement::Edge => d.x,
             Placement::Center => d.x - w / 2,
-            Placement::FarEdge => d.x - w,
+            Placement::FarEdge => d.x - w + edge,
         };
         let y = match d.y_mode {
             Placement::Edge => d.y,
             Placement::Center => d.y - h / 2,
-            Placement::FarEdge => d.y - h,
+            Placement::FarEdge => d.y - h + edge,
         };
         (x, y)
     }

@@ -930,3 +930,95 @@ pub mod inline {
     /// `LOOP`.
     pub const LOOP_END: u32 = 394;
 }
+
+/// How this build counts a far edge: the offset its placement adds to
+/// `x − w` for `SDOX`/`SDOY`, and the one its far getters add to
+/// `corner + w`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FarEdges {
+    /// R109 `+1`: the routine behind `GDY` ends its far-edge branch with
+    /// `sub disp8(%ebp),%eax; inc %eax` (`0x6c560`). R78 `−1`: `sub
+    /// %eax,%edx; mov %edx,%eax; dec %eax` (`0x5a00c`).
+    pub place: i32,
+    /// R109 `−1`: `GDOY` adds and then `dec %eax` (`0x71506`). R78 `0`: a
+    /// bare `add %eax,%edx` (`0x5d6be`).
+    pub getter: i32,
+}
+
+/// Reads [`FarEdges`] off this build's `GDY` and `GDOY` handlers and the
+/// routine `GDY` calls for its corner. A build that matches neither reading
+/// is refused rather than guessed at.
+pub fn far_edges(img: &Image, words: &[KernelWord]) -> Result<FarEdges> {
+    let refuse = |what: &'static str, detail: String| Error::Corrupt { what, detail };
+    let handler = |name: &'static str| {
+        words
+            .iter()
+            .find(|w| w.name == name)
+            .map(|w| w.handler)
+            .ok_or_else(|| refuse(name, "no such kernel word".into()))
+    };
+    let bytes = |name: &'static str, at: u32, len: usize| {
+        img.slice(at, len)
+            .ok_or_else(|| refuse(name, format!("{at:#x} runs off the image")))
+    };
+    let has = |hay: &[u8], needle: &[Option<u8>]| {
+        hay.windows(needle.len())
+            .any(|w| w.iter().zip(needle).all(|(b, n)| n.is_none_or(|n| *b == n)))
+    };
+
+    let gdoy = bytes("GDOY", handler("GDOY")?, 0x40)?;
+    let getter = if has(gdoy, &[Some(0x01), Some(0xd0), Some(0x48)]) {
+        -1
+    } else if has(gdoy, &[Some(0x01), Some(0xc2)]) {
+        0
+    } else {
+        return Err(refuse(
+            "GDOY",
+            "neither far getter this reading knows".into(),
+        ));
+    };
+
+    let gdy_at = handler("GDY")?;
+    let gdy = bytes("GDY", gdy_at, 0x40)?;
+    let mut place = None;
+    for (i, w) in gdy.windows(5).enumerate() {
+        let &[0xe8, a, b, c, d] = w else {
+            continue;
+        };
+        let rel = i32::from_le_bytes([a, b, c, d]);
+        let Some(target) = u32::try_from(i)
+            .ok()
+            .and_then(|i| gdy_at.checked_add(i)?.checked_add(5))
+            .and_then(|next| next.checked_add_signed(rel))
+        else {
+            continue;
+        };
+        let Some(body) = img.slice(target, 0x120) else {
+            continue;
+        };
+        // From the far-edge test, `cmpl $3,disp8(%ebp)`, on.
+        let Some(start) = body
+            .windows(4)
+            .position(|w| matches!(w, [0x83, 0x7d, _, 0x03]))
+        else {
+            continue;
+        };
+        let Some(branch) = body.get(start..) else {
+            continue;
+        };
+        if has(branch, &[Some(0x2b), Some(0x45), None, Some(0x40)]) {
+            place = Some(1);
+        } else if has(
+            branch,
+            &[Some(0x29), Some(0xc2), Some(0x89), Some(0xd0), Some(0x48)],
+        ) {
+            place = Some(-1);
+        }
+        if place.is_some() {
+            break;
+        }
+    }
+    let place =
+        place.ok_or_else(|| refuse("GDY", "no far-edge branch this reading knows".into()))?;
+    Ok(FarEdges { place, getter })
+}

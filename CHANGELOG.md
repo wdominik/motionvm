@@ -24,6 +24,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scripts give the same picture under both readings.
 - **A 32-bit `ELSEDUP` stops by address** (`0x638e0`) where the machine
   panicked.
+- **A far edge is counted as the build counts it.** `SDOX` and `SDOY`
+  place a box's far edge at `x − w + 1` on R109 and `x − w − 1` on R78,
+  for the getters and the drawer alike, and R109's `GDOX`/`GDOY` answer
+  one less than corner plus size (`0x6bed3`, `0x6c563`, `0x71508`; R78
+  `0x5a010`); the opener reads which off the binary. The help viewer's
+  heading stood a pixel left of the original's.
+- **The text backing darkens through the engine's own nearest match.**
+  Its table (`0x14740`) finds each darkened color through `0x1ee26` and
+  that routine's metric, where a plain squared distance picked another
+  entry for some colors under the classroom's lines.
 - **A division by zero in a 32-bit game puts up the original's error box**
   and abandons the running word instead of stopping the run. The box —
   *Fehler*, *Division durch Null!*, *OK*, at 40,40 — is built from the two

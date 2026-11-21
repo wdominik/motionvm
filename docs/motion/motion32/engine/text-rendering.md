@@ -172,8 +172,10 @@ The drawer tests the color against 256 (`cmpl $0x100` at `0x69f50`):
   i.e. row 0.
 - Row 0 is built at startup (`0x14740`) by taking every palette entry,
   subtracting **20 from each 6-bit channel** (clamped at 0 — about a
-  third of full scale), and finding the nearest palette entry: a
-  uniform darkening. The game's values: `SETT1` passes 18+256, the
+  third of full scale), and finding the nearest palette entry through
+  `0x1ee26` (`0x147f5`), by that routine's own metric — the sum of
+  `(|Δ| + 1)²` over the channels, not plain squares: a uniform
+  darkening. A capture of the original's classroom holds it. The game's values: `SETT1` passes 18+256, the
   dialogue speaker table 165+256. `GDCOL` returns the composite value
   undivided (421, not 165).
 

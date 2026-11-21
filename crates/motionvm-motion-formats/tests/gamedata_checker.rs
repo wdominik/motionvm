@@ -343,3 +343,22 @@ fn the_curtains_do_not_wait_in_this_build() {
     let words = le::kernel_words(&img);
     assert!(!le::fades_wait(&img, &words).unwrap());
 }
+
+/// And how it counts a far edge: its corner routine takes one more off
+/// (`0x5a010`, `dec %eax`), and `GDOY` adds the size back bare (`0x5d6be`).
+#[test]
+fn this_build_counts_a_far_edge_one_short() {
+    let Some(dir) = gamedata_checker() else {
+        eprintln!("skipping: no Checker 2000 gamedata directory");
+        return;
+    };
+    let img = le::Image::open(game_file(&dir, "ENGINE.EXE")).expect("parse LE");
+    let words = le::kernel_words(&img);
+    assert_eq!(
+        le::far_edges(&img, &words).unwrap(),
+        le::FarEdges {
+            place: -1,
+            getter: 0
+        }
+    );
+}

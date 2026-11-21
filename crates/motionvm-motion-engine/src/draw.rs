@@ -393,15 +393,19 @@ impl Engine {
         // mille with its center at (320, 240), land on (0, 40).
         let scaling = self.scaling(d);
         let (sw, sh) = scaling.size_of(&sprite);
+        // The drawer places through the same routines `GDX` and `GDY` answer
+        // with (R109 `0x6bdfa`, `0x6c487`, called from `0x695c7` on), so a
+        // far edge counts the same there — see `Profile::far_edge`.
+        let edge = self.profile.far_edge;
         let x = match d.x_mode {
             Placement::Edge => d.x,
             Placement::Center => d.x - sw / 2,
-            Placement::FarEdge => d.x - sw,
+            Placement::FarEdge => d.x - sw + edge,
         };
         let y = match d.y_mode {
             Placement::Edge => d.y,
             Placement::Center => d.y - sh / 2,
-            Placement::FarEdge => d.y - sh,
+            Placement::FarEdge => d.y - sh + edge,
         };
         // Bit 15 of `+0x10`, and nothing else: `016a:0fe8` sends a sprite to
         // the keyed blit and a block to the opaque one, out of the same pool.

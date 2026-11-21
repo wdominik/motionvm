@@ -236,6 +236,7 @@ fn walk_m32(game: &str, dir: &Path) {
             let _ = m32::le::binding_of(&img, &words);
             let _ = m32::le::sdinsert_takes_kind(&img, &words);
             let _ = m32::le::fades_wait(&img, &words);
+            let _ = m32::le::far_edges(&img, &words);
         }
     });
     if let Some(bytes) = loose(dir, "SMPPATH") {

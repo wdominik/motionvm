@@ -530,15 +530,17 @@ impl Engine {
         self.selected_box().3
     }
 
-    /// `GDOX`: the far right edge, corner plus size — added at 0x712ff.
+    /// `GDOX`: the far right edge, corner plus size — added at 0x712ff,
+    /// less one on R109 ([`crate::Profile::far_getter`]).
     pub(crate) fn descriptor_far_x(&mut self) -> i32 {
         let (cx, _, w, _) = self.selected_box();
-        cx + w
+        cx + w + self.profile.far_getter
     }
 
-    /// `GDOY`: the far bottom edge, added at 0x71506.
+    /// `GDOY`: the far bottom edge, added at 0x71506; see
+    /// [`Engine::descriptor_far_x`].
     pub(crate) fn descriptor_far_y(&mut self) -> i32 {
         let (_, cy, _, h) = self.selected_box();
-        cy + h
+        cy + h + self.profile.far_getter
     }
 }

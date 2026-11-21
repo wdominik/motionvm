@@ -180,6 +180,22 @@ pub struct Profile {
     /// without a re-select.
     pub(crate) callbacks_need_active: bool,
 
+    /// What a far-edge placement adds to `x − w`. The 32-bit routines
+    /// behind `GDX` and `GDY`, which the drawer calls for every blit as well
+    /// (R109 `0x695c7` on), answer `x − w + 1` for `SDOX` and `SDOY` on
+    /// R109 (`0x6bed3`, `0x6c563`) and `x − w − 1` on R78 (`0x5a010`); the
+    /// opener reads which off the binary
+    /// ([`motionvm_motion_formats::m32::le::far_edges`]). Measured in the
+    /// original, R109's help viewer puts its right-aligned heading where
+    /// `+1` does. How the 16-bit `GDX` treats the far edge is not read, and
+    /// it keeps `x − w`.
+    pub(crate) far_edge: i32,
+
+    /// What `GDOX` and `GDOY` add to `corner + w`: R109 `−1` (`0x71301`,
+    /// `0x71508`), R78 `0` (`0x5d6be`). On R109 the two offsets cancel, so
+    /// `GDOY SDOY` puts a figure back where it stood.
+    pub(crate) far_getter: i32,
+
     /// Whether a frame is the 16-bit loop's, screen by screen. `ANIMPLAY`
     /// (`ENVIRO.EXE` `016a:0516`–`06da`) snapshots every descriptor's
     /// callback, flags and wait first, then for screen 0 and screen 1 in
@@ -302,8 +318,9 @@ impl Profile {
     ///
     /// Every field here is a reading of one build, and the two shipped
     /// builds — V0.06.06/R109 under Dunkle Schatten 2, V0.04.15/R78 under
-    /// Checker 2000 — agree on each that was read on both, save two:
-    /// `Profile::inserts` and `Profile::curtains_wait`, which the opener
+    /// Checker 2000 — agree on each that was read on both, save four:
+    /// `Profile::inserts`, `Profile::curtains_wait`, `Profile::far_edge` and
+    /// `Profile::far_getter`, which the opener
     /// reads off the binary the way the 16-bit builds' four are, and which
     /// stand here as R109 reads.
     pub fn motion32() -> Self {
@@ -327,6 +344,8 @@ impl Profile {
             sd_marks_always: false,
             scale_in_pixels: false,
             callbacks_need_active: false,
+            far_edge: 1,
+            far_getter: -1,
             frame_by_screen: false,
             freeze_is_global: false,
             per_screen_descriptors: false,
@@ -365,6 +384,8 @@ impl Profile {
             sd_marks_always: true,
             scale_in_pixels: true,
             callbacks_need_active: true,
+            far_edge: 0,
+            far_getter: 0,
             frame_by_screen: true,
             freeze_is_global: true,
             per_screen_descriptors: true,

@@ -187,11 +187,11 @@ pub(super) fn open(
         });
     }
 
-    // The two capabilities the two 32-bit builds disagree on, read off this
+    // The capabilities the two 32-bit builds disagree on, read off this
     // build's handlers rather than off the game: what a text's insert slot
-    // is, and with it whether a text without one is formatted at all; and
+    // is, and with it whether a text without one is formatted at all;
     // whether a curtain waits between its bands or runs at the presenter's
-    // pace.
+    // pace; and how a far edge is counted.
     let inserts = if motionvm_motion_formats::m32::le::sdinsert_takes_kind(&img, &kernel)
         .map_err(|e| Error::data(&engine_exe, e))?
     {
@@ -201,9 +201,13 @@ pub(super) fn open(
     };
     let curtains_wait = motionvm_motion_formats::m32::le::fades_wait(&img, &kernel)
         .map_err(|e| Error::data(&engine_exe, e))?;
+    let far = motionvm_motion_formats::m32::le::far_edges(&img, &kernel)
+        .map_err(|e| Error::data(&engine_exe, e))?;
     let profile = crate::Profile {
         inserts,
         curtains_wait,
+        far_edge: far.place,
+        far_getter: far.getter,
         ..crate::Profile::motion32()
     };
     let mut engine = Engine::new(profile).with_bank(dir, bank);

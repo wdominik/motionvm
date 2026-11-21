@@ -82,12 +82,21 @@ is computed from mode and **stored** size:
 ```
 mode 1: corner = value
 mode 2: corner = value − size/2
-mode 3: corner = value − size
+mode 3: corner = value − size + 1     (R109; R78: value − size − 1)
 ```
+
+The far edge is where the two builds part: R109's routines (`0x6bdfa`,
+`0x6c487`) add one back after the subtraction (`0x6bed3`, `0x6c563`),
+R78's (`0x59e70`, `0x59f50`) take one more off (`0x5a010`). The drawer
+places every blit through the same two routines (R109 `0x695c7` on).
+Measured in the original, R109's help viewer stands its right-aligned
+heading where the `+1` puts it.
 
 All geometry getters answer from this computation: `GDX`/`GDY` return
 the drawn corner, `GDCX`/`GDCY` corner + size/2, `GDOX`/`GDOY` the far
-edge. `GDWIDTH` and `GDXLEN` are one handler under two names (as are
+edge, corner + size − 1 on R109 (`0x71301`, `0x71508`) and corner +
+size on R78 (`0x5d6be`). On R109 the two ones cancel, so `GDOY SDOY`
+puts a figure back where it stood. `GDWIDTH` and `GDXLEN` are one handler under two names (as are
 `GDHEIGHT`/`GDYLEN`), both returning the stored size — which for text
 is the measured size **plus 4** (see
 [Text rendering](text-rendering.md)). Because getters and placement use

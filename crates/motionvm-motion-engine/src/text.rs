@@ -135,7 +135,7 @@ fn cp437_byte(ch: char) -> Option<u8> {
 ///
 /// Read from the table builder at 0x14740: it walks the palette, subtracts 20
 /// from red, green and blue, clamps each at zero and asks 0x1ee26 for the
-/// nearest entry to the result. The answers become a 256-byte row, and the
+/// nearest entry to the result, by that routine's own metric. The answers become a 256-byte row, and the
 /// backing sends every pixel under the text through it.
 pub const BACKING_DARKEN: i16 = 0x14;
 
@@ -164,28 +164,21 @@ pub fn darken_rect(frame: &mut Framebuffer, map: &[u8; 256], x: i32, y: i32, w: 
 }
 
 /// The 256-byte remap row the backing uses: every palette entry darkened by
-/// [`BACKING_DARKEN`] and brought back to the nearest entry there is.
+/// [`BACKING_DARKEN`] and brought back to the nearest entry there is, by the
+/// engine's own nearest match (`0x147f5` → `0x1ee26`) and its metric, the
+/// sum of `(|Δ| + 1)²` over the three channels. A plain squared distance
+/// picks a different entry for some colors; a capture of the original's
+/// classroom holds the backing to this one.
 pub fn backing_map(palette: &Palette) -> [u8; 256] {
     let mut map = [0u8; 256];
     for (i, slot) in map.iter_mut().enumerate() {
         // The subtraction is on the palette as stored — six-bit values, 0 to 63
         // — so twenty is about a third of full scale, not a twelfth. Reading it
         // as an eight-bit step would make the backing nearly invisible.
-        let want: [i16; 3] =
-            std::array::from_fn(|k| (i16::from(palette.raw[i * 3 + k]) - BACKING_DARKEN).max(0));
-        let mut best = (i32::MAX, 0u8);
-        for (j, index) in (0..Palette::COLORS).zip(0u8..=u8::MAX) {
-            let d: i32 = (0..3)
-                .map(|k| {
-                    let e = i32::from(want[k]) - i32::from(palette.raw[j * 3 + k]);
-                    e * e
-                })
-                .sum();
-            if d < best.0 {
-                best = (d, index);
-            }
-        }
-        *slot = best.1;
+        let [r, g, b]: [u8; 3] = std::array::from_fn(|k| {
+            u8::try_from((i16::from(palette.raw[i * 3 + k]) - BACKING_DARKEN).max(0)).unwrap_or(0)
+        });
+        *slot = crate::paint::nearest(palette, r, g, b);
     }
     map
 }
