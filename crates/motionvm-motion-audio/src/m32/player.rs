@@ -35,7 +35,7 @@
 use crate::chip::{Chip, Write};
 use crate::error::{Error, Result};
 use crate::m32::fm::Fm;
-use crate::m32::sequencer::{Message, Sequencer};
+use crate::m32::sequencer::{ChannelVolumes, Message, Sequencer};
 use crate::m32::voice::{Sample, Voice};
 use crate::num;
 use motionvm_motion_formats::m32::bnk::Bank;
@@ -74,7 +74,7 @@ pub struct Player {
     master: u8,
     /// The device's channel volumes, carried from one song to the next —
     /// see [`Sequencer::with_channel_volumes`].
-    channels: [u8; 16],
+    channels: ChannelVolumes,
 }
 
 impl std::fmt::Debug for Player {
@@ -162,7 +162,7 @@ impl Player {
             chip,
             fm,
             seq: None,
-            channels: [0; 16],
+            channels: ChannelVolumes::default(),
             rate,
             period: Self::master_ticks(Self::DEFAULT_TICK_HZ),
             clock: 0,

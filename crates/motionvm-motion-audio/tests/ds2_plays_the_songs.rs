@@ -33,6 +33,55 @@ fn play(song: Song, ticks: u32) -> Vec<(u32, Message)> {
     out
 }
 
+/// The device channel each OPL3 track of `song` ends up on, worked out
+/// from the events rather than by the sequencer: the drum channel keeps
+/// 9, and every other channel a track asks for takes the next free record
+/// — 0…8, then 10…15 — in the order the first controller 105 of its group
+/// falls due, the walk's track order breaking a tie (`0x994EA`). Good for
+/// a song whose tracks never give a channel back before the last has
+/// asked, which this file's songs are.
+fn handed_out(song: &Song) -> Vec<(u16, u8)> {
+    let mut asks: Vec<(u32, usize, u16)> = song
+        .tracks
+        .iter()
+        .filter(|t| motionvm_motion_audio::m32::sequencer::plays_on(&t.devices, Fm::DEVICE))
+        .enumerate()
+        .filter_map(|(i, t)| {
+            let at = t.events.iter().find_map(|e| match e.event {
+                Event::Control {
+                    controller: 105,
+                    value,
+                } if value != 0 => Some(e.tick),
+                _ => None,
+            })?;
+            Some((at, i, t.requested))
+        })
+        .collect();
+    asks.sort_unstable();
+    let mut free = (0u8..16).filter(|&c| c != 9);
+    let mut out: Vec<(u16, u8)> = Vec::new();
+    for (_, _, wanted) in asks {
+        if out.iter().any(|&(w, _)| w == wanted) {
+            continue;
+        }
+        let got = if wanted == 9 {
+            9
+        } else {
+            free.next().expect("a free record")
+        };
+        out.push((wanted, got));
+    }
+    out
+}
+
+/// The channel `track` plays on, by [`handed_out`].
+fn device_channel(map: &[(u16, u8)], track: &motionvm_motion_formats::m32::hmi::Track) -> u8 {
+    map.iter()
+        .find(|&&(w, _)| w == track.requested)
+        .map(|&(_, c)| c)
+        .expect("the track asks for a channel")
+}
+
 /// What comes out is what the decoder read — same notes, same order, same time.
 ///
 /// The decoder's own oracle is `TEST.MID`; this is the second half of the
@@ -61,6 +110,7 @@ fn the_notes_come_out_as_the_decoder_read_them() {
     // the same controller cache the sequencer keeps.
     let mut want: Vec<(u32, u8, u8, u8)> = Vec::new();
     let mut scaled = 0;
+    let map = handed_out(&song);
     // Only the tracks the OPL3 gets: the sequencer loads no other.
     for track in song
         .tracks
@@ -85,7 +135,7 @@ fn the_notes_come_out_as_the_decoder_read_them() {
                     } else {
                         velocity
                     };
-                    want.push((e.tick, u8::try_from(track.channel).unwrap(), note, velocity));
+                    want.push((e.tick, device_channel(&map, track), note, velocity));
                 }
                 _ => {}
             }
@@ -134,8 +184,13 @@ fn a_note_ends_where_its_length_says() {
     // earlier note's ending and says nothing.
     const WINDOW: u32 = 900;
     let mut want: std::collections::BTreeMap<(u8, u8), Vec<u32>> = Default::default();
-    for track in &song.tracks {
-        let channel = u8::try_from(track.channel).unwrap();
+    let map = handed_out(&song);
+    for track in song
+        .tracks
+        .iter()
+        .filter(|t| motionvm_motion_audio::m32::sequencer::plays_on(&t.devices, Fm::DEVICE))
+    {
+        let channel = device_channel(&map, track);
         for e in &track.events {
             if let Event::NoteOn { note, duration, .. } = e.event
                 && e.tick + duration + 1 < WINDOW

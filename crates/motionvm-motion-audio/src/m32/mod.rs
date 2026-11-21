@@ -15,5 +15,5 @@ pub mod voice;
 
 pub use fm::Fm;
 pub use player::Player;
-pub use sequencer::{Kind, Message, Sequencer};
+pub use sequencer::{ChannelVolumes, Kind, Message, Sequencer};
 pub use voice::{Sample, Voice};

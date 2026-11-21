@@ -41,15 +41,16 @@
 //!
 //! - **Running status is clobbered by `FE` and `FF`.** `0x8FD6C` stores *any*
 //!   byte ≥ 0x80 into `track+0x42`, extended events included.
-//! - **The channel nibble of the status byte is ignored.** Output goes to the
-//!   channel in the track header (`track+0x7B`, used at `0x98AEF` and
-//!   everywhere else). `TEST.HMI`'s first track is channel 4 and its first
-//!   status byte is `B0`.
+//! - **The channel nibble of the status byte is ignored.** Output goes to
+//!   `track+0x7B` (used at `0x98AEF` and everywhere else), where the engine
+//!   writes the device channel it hands the track for the one asked for at
+//!   `+0x79`. `TEST.HMI`'s first track is channel 4 and its first status
+//!   byte is `B0`.
 //! - **A note-on with velocity 0 is not a note-off.** `0x98A89` scales
 //!   velocity only on channel 9 and sends the message either way.
 
 use crate::cursor::Cursor;
-use crate::{Error, Record, Result, bytes, i16le, records, tail, u16le, u32at, wide};
+use crate::{Error, Record, Result, bytes, i16le, records, slice, tail, u16le, u32at, wide};
 
 /// A parsed song.
 #[derive(Debug, Clone)]
@@ -61,6 +62,14 @@ pub struct Song {
     /// `+0xE2` — how many notes may sound at once; the engine sizes its
     /// pending-note table from it (`0x8FA12`) and never checks the bound again.
     pub max_notes: u16,
+    /// `+0x26` — which controllers a track remembers, one byte per
+    /// controller number 0…126: the slot in the track's
+    /// [`Track::remembered`] values the engine stores that controller in
+    /// (`0x98E80`), or `0xFF` for one it does not keep. The keys 104 to 107
+    /// stand for program, pitch bend, poly and channel pressure
+    /// (`0x98ECE`, `0x98F10`, `0x98F60`). A track that takes a channel
+    /// replays the kept ones onto it (`0x9985D`).
+    pub slots: [u8; Song::SLOT_KEYS],
     /// The tracks, in file order.
     pub tracks: Vec<Track>,
 }
@@ -68,8 +77,15 @@ pub struct Song {
 /// One track: a channel and a list of events at absolute ticks.
 #[derive(Debug, Clone)]
 pub struct Track {
-    /// `+0x7B` — the channel every message of this track is sent on.
+    /// `+0x7B` — the channel every message of this track is sent on, once
+    /// the engine has written the device channel it hands out there. The
+    /// file holds the same value as [`Track::requested`].
     pub channel: u16,
+    /// `+0x79` — the channel the track asks for. The engine groups tracks
+    /// by it (`0x9887C`) and hands each group one of the device's channels
+    /// when a track's controller 105 asks (`0x994EA`), writing the one it
+    /// got into `+0x7B`. In every shipped track the two fields agree.
+    pub requested: u16,
     /// `+0x77` — voice priority, also settable by controller 107.
     pub priority: u16,
     /// `+0x99` — the devices this track is for: up to eight ids of the
@@ -82,6 +98,10 @@ pub struct Track {
     pub devices: Vec<u16>,
     /// The branch-point table at `+0x63`, by id and stream offset.
     pub branch_points: Vec<BranchPoint>,
+    /// The controller values the track starts out remembering, from the
+    /// area `+0x7D` points at: one byte per slot of [`Song::slots`], `0xFF`
+    /// for nothing kept yet — which is what every shipped track holds.
+    pub remembered: Vec<u8>,
     /// The events, in stream order, with their absolute ticks worked out.
     pub events: Vec<Timed>,
 }
@@ -214,6 +234,9 @@ impl Song {
     pub const MAGIC: &'static [u8] = b"HMI-MIDISONG061595";
     /// The thirteen bytes every track record starts with.
     pub const TRACK_MAGIC: &'static [u8] = b"HMI-MIDITRACK";
+    /// How many controller numbers the slot table covers: the replay walks
+    /// 0…126 (`0x99966`).
+    pub const SLOT_KEYS: usize = 0x7f;
 
     /// Reads a whole song: the header, then every track's event stream with
     /// its deltas summed into absolute ticks.
@@ -227,16 +250,19 @@ impl Song {
         let max_notes = u16le(data, 0xe2)?;
         let count = u32at(data, 0xe4)?;
         let table = u32at(data, 0xe8)?;
+        let slots = *bytes::<{ Self::SLOT_KEYS }>(data, 0x26)?;
+        let kept = slots.iter().filter(|&&s| s != 0xff).count();
 
         // Four bytes per entry in the offset table at `table`.
         let tracks = records::<4>(data, table, count)?
             .iter()
-            .map(|entry| Track::parse(data, wide(u32::from_le_bytes(*entry))))
+            .map(|entry| Track::parse(data, wide(u32::from_le_bytes(*entry)), kept))
             .collect::<Result<Vec<_>>>()?;
         Ok(Self {
             division,
             tick_hz,
             max_notes,
+            slots,
             tracks,
         })
     }
@@ -247,13 +273,14 @@ impl Track {
     /// at `+0x99` is the last of them.
     const HEADER_BYTES: usize = 0xa9;
 
-    fn parse(data: &[u8], at: usize) -> Result<Self> {
+    fn parse(data: &[u8], at: usize, kept: usize) -> Result<Self> {
         let magic = bytes::<{ Song::TRACK_MAGIC.len() }>(data, at)?;
         if magic.as_slice() != Song::TRACK_MAGIC {
             return Err(Error::MissingTrackMagic { at, found: *magic });
         }
         let head = Record(bytes::<{ Self::HEADER_BYTES }>(data, at)?);
         let channel = head.u16::<0x7b>();
+        let requested = head.u16::<0x79>();
         let priority = head.u16::<0x77>();
         let devices = head
             .bytes::<0x99, 16>()
@@ -272,8 +299,12 @@ impl Track {
         let track = tail(data, at)?;
         let branch_points = branch_table(track, head.u32at::<0x63>())?;
         let events = decode(track, head.u32at::<0x57>())?;
+        let from = head.u32at::<0x7d>();
+        let remembered = slice(track, from, kept)?.to_vec();
         Ok(Self {
             channel,
+            requested,
+            remembered,
             priority,
             devices,
             branch_points,

@@ -18,9 +18,12 @@
 //!
 //! The two places where a faithful rebuild differs from the obvious one:
 //!
-//! - **The channel comes from the track header**, not from the status byte
-//!   (`0x98AEF` and every other send site read `track+0x7B`). The nibble in the
-//!   stream is ignored.
+//! - **The channel is handed out, not read.** Every send site reads
+//!   `track+0x7B` (`0x98AEF` and the rest), and the nibble in the stream is
+//!   ignored. `+0x7B` is the device channel the track got when its
+//!   controller 105 asked for one ([`Sequencer`]'s channel records); until
+//!   then, and again after its controller 105 gives it back, the track
+//!   plays nothing.
 //! - **A loop is global.** `FE 15` sends *every* track of the song to its own
 //!   `FE 10` marker with the same id (`0x90714`), and a branch is more than a
 //!   seek: the engine kills the track's sounding notes, replays the marker's
@@ -98,6 +101,13 @@ struct Pending {
 
 #[derive(Debug, Clone)]
 struct TrackState {
+    /// The device channel the track holds — `track+0x7B` once its record
+    /// is set at `+0x81` — or `None` while the track waits for one, which
+    /// is the flag `0x10` at `+0x20` that every send site tests first.
+    channel: Option<u8>,
+    /// The track's group (`0x9887C`): the tracks that ask for the same
+    /// channel share a record and one set of remembered controllers.
+    group: usize,
     /// Index of the next event in the track's decoded list.
     next: usize,
     /// The delta the original keeps in `track+0x53`.
@@ -115,29 +125,43 @@ struct TrackState {
 /// reach.
 const RUNAWAY_TRACK: u32 = 10_000;
 
+/// How many channel records the OPL3 has (`0xB781C` indexed by the device
+/// id, `0xDF840` = 16), and the device channel behind each
+/// (`0xDFA88`: 0…8, then `-1`, then 10…15).
+const RECORDS: usize = 16;
+/// The record whose device channel is `-1`: it is built taken and locked
+/// (`0x8F55D` writes `0x8400`), so nothing allocates it, and the drum
+/// channel's tracks point at it without asking (`0x9952C`).
+const DRUMS: usize = 9;
+
+/// One of the device's channel records (`0xDFB08`, `0x24` bytes each).
+#[derive(Debug, Clone, Copy, Default)]
+struct Record {
+    /// Flag `0x80` at `+1`.
+    taken: bool,
+    /// `+4` — how many of the group's playing tracks hold the record; the
+    /// release frees it when the count comes to zero (`0x9980B`).
+    users: u32,
+}
+
 /// One song being played: where each track has got to, and what is still ringing.
 #[derive(Debug)]
 pub struct Sequencer {
     song: Song,
     tracks: Vec<TrackState>,
     pending: Vec<Pending>,
+    /// The device's channel records, all free when a song opens: the stop
+    /// gives back every channel the last song held (`0x99B74`).
+    records: [Record; RECORDS],
+    /// Each group's remembered controllers, one byte per slot of the
+    /// song's table (`Song::slots`), `0xFF` for nothing kept. The group's
+    /// first track lends its area to the rest (`0x9891F`).
+    remembered: Vec<Vec<u8>>,
     /// Set when a track's `FE 15` asked for a branch; applied to every track.
     branch_to: Option<i16>,
     finished: bool,
-    /// The controller-7 value each channel was last given, `chan+0x14`
-    /// (`0x98C4D` stores it beside the scaled one at `+0x1C`, which is the
-    /// one channel 9's notes are scaled by and has no other writer).
-    ///
-    /// The channel records are the device's, not the song's: a track's
-    /// pointer to its record is worked out of the device's own buffer
-    /// (`0x99515`), so a channel keeps what the last song gave it — see
-    /// [`Sequencer::with_channel_volumes`]. A song may play a note before
-    /// its first controller 7: song 1 opens with a drum note at velocity 1
-    /// ahead of it, and in a recording of the original that note takes no
-    /// voice, which any value below 127 explains (`1 × v / 127` is 0, and a
-    /// note at velocity 0 is a note-off to the driver). What the records
-    /// hold before any song has set them is not read; 0 stands for it here.
-    volume: [u8; 16],
+    /// The device channels' volumes; see [`ChannelVolumes`].
+    volume: ChannelVolumes,
     /// The sound layer's master volume, `0xbe9d0` in R78 (`0xbe9d0` set at
     /// `0x7b1bc`): what every controller 7 is scaled by on its way to the
     /// device, `chan+0x1c = value × master / 127` at `0x8371e` (R78), and
@@ -151,6 +175,35 @@ pub struct Sequencer {
     /// side finds out, and it is the same "counted and reported, never silent"
     /// shape the VM uses for its stray reads.
     runaway: Option<usize>,
+}
+
+/// The volumes in the device's channel records, carried from one song to the
+/// next: the records are the device's, not the song's — a track's pointer
+/// to its record is worked out of the device's own buffer (`0x99515`) — so
+/// a channel keeps what the last song gave it.
+///
+/// Each record keeps two: the last controller 7 at `+0x14`, and its scaled
+/// form at `+0x1C`, which is what goes to the device and what channel 9's
+/// notes are folded by. The device's install builds the records zeroed
+/// (`0x8F538`, `0x82C50` with a fill of 0) and then writes `+0x14 = 0x7F`
+/// (`0x8F575`) but not `+0x1C`. So before any song has set a channel, a
+/// note on channel 9 is folded to velocity 0, a note-off to the driver:
+/// song 1 opens with a drum note at velocity 1 ahead of its first
+/// controller 7, and in a recording of the original it takes no voice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChannelVolumes {
+    raw: [u8; 16],
+    scaled: [u8; 16],
+}
+
+impl Default for ChannelVolumes {
+    /// As the device's install leaves them.
+    fn default() -> Self {
+        Self {
+            raw: [0x7f; 16],
+            scaled: [0; 16],
+        }
+    }
 }
 
 /// Whether a track that names `designations` plays on `device`, as the song
@@ -185,10 +238,34 @@ impl Sequencer {
                 .collect(),
             ..song
         };
+        // The song-start pass (`0x9887C`): tracks asking for the same
+        // channel form a group, in track order, the first one's area of
+        // remembered values serving them all.
+        let mut leaders: Vec<u16> = Vec::new();
+        let mut remembered = Vec::new();
+        let groups: Vec<usize> = song
+            .tracks
+            .iter()
+            .map(|t| {
+                leaders
+                    .iter()
+                    .position(|&c| c == t.requested)
+                    .unwrap_or_else(|| {
+                        leaders.push(t.requested);
+                        remembered.push(t.remembered.clone());
+                        leaders.len() - 1
+                    })
+            })
+            .collect();
+        let mut records = [Record::default(); RECORDS];
+        records[DRUMS].taken = true;
         let tracks = song
             .tracks
             .iter()
-            .map(|t| TrackState {
+            .zip(groups)
+            .map(|(t, group)| TrackState {
+                channel: None,
+                group,
                 next: 0,
                 // The track initializer reads the first delta before anything
                 // plays (`0x9872B`), which is exactly the first event's.
@@ -201,9 +278,11 @@ impl Sequencer {
             song,
             tracks,
             pending: Vec::new(),
+            records,
+            remembered,
             branch_to: None,
             finished: false,
-            volume: [0; 16],
+            volume: ChannelVolumes::default(),
             master,
             runaway: None,
         }
@@ -212,13 +291,13 @@ impl Sequencer {
     /// The channel volumes the device's records hold when this song opens:
     /// what the song before it left there.
     #[must_use]
-    pub fn with_channel_volumes(mut self, volume: [u8; 16]) -> Self {
+    pub fn with_channel_volumes(mut self, volume: ChannelVolumes) -> Self {
         self.volume = volume;
         self
     }
 
     /// The channel volumes as this song leaves them, for the next.
-    pub fn channel_volumes(&self) -> [u8; 16] {
+    pub fn channel_volumes(&self) -> ChannelVolumes {
         self.volume
     }
 
@@ -229,24 +308,28 @@ impl Sequencer {
     /// scaled by the master, `value × master / 127` truncating (`0x8371e`
     /// in R78; the sequence's own volume and the channel's factor at `+0x18`
     /// are both 127 in every song and leave the product alone).
-    fn effective(&self, channel: u8) -> u8 {
-        let raw = u32::from(self.volume[usize::from(channel & 0x0f)]);
-        num::byte(raw * u32::from(self.master) / 127)
+    fn scale(&self, raw: u8) -> u8 {
+        num::byte(u32::from(raw) * u32::from(self.master) / 127)
+    }
+
+    /// A controller 7 reaching the record of `channel`: the value is kept at
+    /// `+0x14` and its scaled form at `+0x1C` (`0x98C44`, `0x98C4D`), and
+    /// the scaled form is what goes to the device.
+    fn set_volume(&mut self, channel: u8, value: u8) -> u8 {
+        let c = usize::from(channel & 0x0f);
+        let scaled = self.scale(value);
+        self.volume.raw[c] = value;
+        self.volume.scaled[c] = scaled;
+        scaled
     }
 
     /// `MUSVOLUME`'s path (`0x70590` → `0x7b1b9` → `0x7afad`): the master
-    /// changes, and every channel the song plays on is sent a controller 7 at
-    /// its new effective level — channel 9 included, which the event path
-    /// withholds and this one does not (`0x7b053` tests only that the
-    /// channel is mapped).
+    /// changes, and every channel the song holds is sent a controller 7 at
+    /// its new effective level — channel 9 included (`0x7b053` tests only
+    /// that the channel is mapped).
     pub fn set_master_volume(&mut self, master: u8, out: &mut Vec<Message>) {
         self.master = master;
-        let mut channels: Vec<u8> = self
-            .song
-            .tracks
-            .iter()
-            .map(|t| num::lo(t.channel) & 0x0f)
-            .collect();
+        let mut channels: Vec<u8> = self.tracks.iter().filter_map(|t| t.channel).collect();
         channels.sort_unstable();
         channels.dedup();
         for channel in channels {
@@ -254,10 +337,19 @@ impl Sequencer {
                 channel,
                 kind: Kind::Control {
                     controller: 7,
-                    value: self.effective(channel),
+                    value: self.rescale(channel),
                 },
             });
         }
+    }
+
+    /// The master path's work on one channel: `+0x1C` worked out again from
+    /// the kept `+0x14`.
+    fn rescale(&mut self, channel: u8) -> u8 {
+        let c = usize::from(channel & 0x0f);
+        let scaled = self.scale(self.volume.raw[c]);
+        self.volume.scaled[c] = scaled;
+        scaled
     }
 
     /// The song's tick rate in Hz — the rate its deltas are counted at.
@@ -339,6 +431,9 @@ impl Sequencer {
     ///
     /// Without this a location change would leave the old tune's notes hanging
     /// while the new one starts over the top of them.
+    /// The same pass gives back each channel (`0x99B74`), which is why a
+    /// song always opens on free records; nothing is left to give back
+    /// here, since a sequencer is not reused.
     pub fn all_notes_off(&mut self, out: &mut Vec<Message>) {
         for p in self.pending.drain(..) {
             out.push(Message {
@@ -368,10 +463,9 @@ impl Sequencer {
                 self.tracks[i].done = true;
                 return;
             };
-            let channel = num::lo(self.song.tracks[i].channel) & 0x0f;
             let event = timed.event.clone();
             self.tracks[i].next = index + 1;
-            self.dispatch(i, channel, &event, out);
+            self.dispatch(i, &event, out);
 
             // Whatever the event was, the next delta is the following event's.
             self.tracks[i].delta = self.song.tracks[i]
@@ -394,13 +488,21 @@ impl Sequencer {
         }
     }
 
-    fn dispatch(&mut self, i: usize, channel: u8, event: &Event, out: &mut Vec<Message>) {
+    /// One event of track `i`. Every send site tests the track's channel
+    /// first and sends nothing while it has none (`0x98A22`, `0x98AE7`,
+    /// `0x98BFF`, `0x98E58`, `0x98EA9` …); the controllers, program, bend
+    /// and pressures are remembered either way.
+    fn dispatch(&mut self, i: usize, event: &Event, out: &mut Vec<Message>) {
+        let channel = self.tracks[i].channel;
         match *event {
             Event::NoteOn {
                 note,
                 velocity,
                 duration,
             } => {
+                // A note of a track without a channel is skipped whole: no
+                // message and no entry in the note-off queue (`0x98A25`).
+                let Some(channel) = channel else { return };
                 // On channel 9 — and only there — the engine folds the
                 // channel's volume into the velocity before sending the note
                 // (`0x98A89`). The controller still goes out as well, so the
@@ -411,7 +513,7 @@ impl Sequencer {
                 // 105, reaches the chip as attenuation 0x10. Only 80·105/127 =
                 // 66 followed by the driver's (105·66)>>7 = 54 gives that.
                 let velocity = if channel == 9 {
-                    num::byte(u32::from(velocity) * u32::from(self.effective(9)) / 127)
+                    num::byte(u32::from(velocity) * u32::from(self.volume.scaled[9]) / 127)
                 } else {
                     velocity
                 };
@@ -426,28 +528,31 @@ impl Sequencer {
                 });
             }
             Event::NoteOff { note, .. } => {
-                out.push(Message {
-                    channel,
-                    kind: Kind::NoteOff { note },
-                });
+                if let Some(channel) = channel {
+                    out.push(Message {
+                        channel,
+                        kind: Kind::NoteOff { note },
+                    });
+                }
             }
-            Event::Control { controller, value } => self.control(channel, controller, value, out),
-            Event::Program(p) => out.push(Message {
-                channel,
-                kind: Kind::Program(p),
-            }),
-            Event::PitchBend { lsb, msb } => out.push(Message {
-                channel,
-                kind: Kind::PitchBend { lsb, msb },
-            }),
-            Event::PolyPressure { note, value } => out.push(Message {
-                channel,
-                kind: Kind::PolyPressure { note, value },
-            }),
-            Event::ChannelPressure(v) => out.push(Message {
-                channel,
-                kind: Kind::ChannelPressure(v),
-            }),
+            Event::Control { controller, value } => self.control(i, controller, value, out),
+            Event::Program(p) => {
+                self.remember(i, Self::PROGRAM, p);
+                self.send(channel, Kind::Program(p), out);
+            }
+            Event::PitchBend { lsb, msb } => {
+                self.remember(i, Self::BEND, msb);
+                self.send(channel, Kind::PitchBend { lsb, msb }, out);
+            }
+            Event::PolyPressure { note, value } => {
+                // The first data byte is what is kept (`0x98F68`).
+                self.remember(i, Self::POLY, note);
+                self.send(channel, Kind::PolyPressure { note, value }, out);
+            }
+            Event::ChannelPressure(v) => {
+                self.remember(i, Self::PRESSURE, v);
+                self.send(channel, Kind::ChannelPressure(v), out);
+            }
             Event::Loop { id, .. } => {
                 // The counter lives in the stream and every shipped song sets
                 // it to 0xFF, which the original reads as "forever"
@@ -465,43 +570,202 @@ impl Sequencer {
         }
     }
 
-    /// Controller changes.
-    ///
-    /// Controller 7 is cached on the way through (`0x98C4D`). The engine's
-    /// cache is not the raw value but `value · song · master · channel / 127³`
-    /// (`0x98C05`…`0x98C3C`); nothing in the game moves those three, and the
-    /// recording pins them down — any value but the maximum would change the
-    /// drum levels, and they match to the byte. So the cache is the value.
-    ///
-    /// The code at `0x98C56` withholds the controller from the device when a
-    /// field of the channel record reads 9. What that field is has not been
-    /// established, and in the recording the controller plainly does reach the
-    /// driver on channel 9: the drums come out attenuated by the channel volume
-    /// twice over, which only happens if the driver has it too.
-    fn control(&mut self, channel: u8, controller: u8, value: u8, out: &mut Vec<Message>) {
-        // A controller 7 is cached raw and leaves scaled by the master — the
-        // same number while the master is full, which is every recording
-        // this driver was held against.
-        let value = if controller == 7 {
-            self.volume[usize::from(channel & 0x0f)] = value;
-            self.effective(channel)
-        } else {
-            value
-        };
-        match controller {
-            // 103, 104, 106 and 107 are the sequencer's own bookkeeping, 105
-            // turns the track's voice on and off, 108 is its internal
-            // all-notes-off, and 119 is a callback the game never installs.
-            // None of them is a message for a device.
-            103..=108 | 119 => {}
-            _ => out.push(Message {
-                channel,
-                kind: Kind::Control { controller, value },
-            }),
+    /// The keys the slot table keeps program, pitch bend, poly pressure and
+    /// channel pressure under (`song+0x8E`…`+0x91`, read at `0x98ECE`,
+    /// `0x98F10`, `0x98F60` and after `0x98F8E`).
+    const PROGRAM: u8 = 104;
+    const BEND: u8 = 105;
+    const POLY: u8 = 106;
+    const PRESSURE: u8 = 107;
+
+    /// A message on `channel`, if the track holds one.
+    fn send(&self, channel: Option<u8>, kind: Kind, out: &mut Vec<Message>) {
+        if let Some(channel) = channel {
+            out.push(Message { channel, kind });
         }
     }
 
-    /// Sends one track to its branch point, the way `0x907BC` does it.
+    /// Stores `value` in the group's slot for `key`. The original stores at
+    /// the slot byte even when it reads `0xFF`, one past any slot a song
+    /// has; nothing reads that byte back, so it is not kept here.
+    fn remember(&mut self, i: usize, key: u8, value: u8) {
+        let Some(&slot) = self.song.slots.get(usize::from(key)) else {
+            return;
+        };
+        if let Some(v) = self.remembered[self.tracks[i].group].get_mut(usize::from(slot)) {
+            *v = value;
+        }
+    }
+
+    /// Controller changes, dispatched at `0x98B0B`.
+    ///
+    /// Controller 7 is cached on the way through (`0x98C4D`). The engine's
+    /// cache is not the raw value but `value · song · master · channel / 127³`
+    /// (`0x98C05`…`0x98C3C`); nothing in the game moves the song's or the
+    /// channel's factor, so the cache is the value scaled by the master.
+    /// `0x98C56` withholds the controller from the device when the
+    /// record's device channel reads 9; the OPL3's list has `-1` there
+    /// (`0xDFA88`), so on this device it always goes out.
+    ///
+    /// 105 asks for a channel (any value but 0) or gives it back (0); 108
+    /// ends the track's sounding notes (`0x98B56`); 103, 104, 106 and 107
+    /// keep the sequencer's books — a mask, a lock, a priority — that only
+    /// matter once records run out, which no shipped song comes near; and
+    /// 119 is a callback the game never installs. None of them reaches the
+    /// device.
+    fn control(&mut self, i: usize, controller: u8, value: u8, out: &mut Vec<Message>) {
+        let channel = self.tracks[i].channel;
+        match controller {
+            7 => {
+                if let Some(c) = channel {
+                    let value = self.set_volume(c, value);
+                    out.push(Message {
+                        channel: c,
+                        kind: Kind::Control { controller, value },
+                    });
+                }
+                self.remember(i, controller, value);
+            }
+            105 => {
+                if value != 0 {
+                    self.allocate(i, out);
+                } else if channel.is_some() {
+                    self.release(i);
+                }
+            }
+            108 => {
+                if let Some(c) = channel {
+                    self.notes_off(c, out);
+                }
+            }
+            103 | 104 | 106 | 107 | 119 => {}
+            _ => {
+                self.send(channel, Kind::Control { controller, value }, out);
+                self.remember(i, controller, value);
+            }
+        }
+    }
+
+    /// Controller 108's walk (`0x98B56`): every pending note on `channel`
+    /// ends now, in the order it was queued.
+    fn notes_off(&mut self, channel: u8, out: &mut Vec<Message>) {
+        self.pending.retain(|p| {
+            if p.channel == channel {
+                out.push(Message {
+                    channel,
+                    kind: Kind::NoteOff { note: p.note },
+                });
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Controller 105 asking for a channel (`0x994EA`).
+    ///
+    /// A track asking for channel 9 points at the drum record and takes
+    /// channel 9, and nothing is sent. Any other takes the first free
+    /// record, in order, for its whole group: every track of the group
+    /// gets the record's device channel, the record counts the group's
+    /// playing tracks as its users, and then the channel is restored
+    /// (`0x9981E`): controller 121 goes out on it, and every controller
+    /// the group remembers is replayed. A track that already holds a
+    /// channel asks for nothing.
+    ///
+    /// With no free record the original takes one from a group of lower
+    /// priority and queues that group to wait (`0x99624`…). The OPL3 has
+    /// fifteen records to hand out, and the largest shipped songs (blocks
+    /// 12 and 16) ask for exactly fifteen besides the drums, so that path
+    /// is not built; a track that finds none stays silent.
+    fn allocate(&mut self, i: usize, out: &mut Vec<Message>) {
+        if self.song.tracks[i].requested == 9 {
+            self.tracks[i].channel = Some(9);
+            return;
+        }
+        if self.tracks[i].channel.is_some() {
+            return;
+        }
+        let Some((r, channel)) = self
+            .records
+            .iter()
+            .position(|r| !r.taken)
+            .and_then(|r| Some((r, u8::try_from(r).ok()?)))
+        else {
+            return;
+        };
+        let group = self.tracks[i].group;
+        let mut users = 0;
+        for t in self.tracks.iter_mut().filter(|t| t.group == group) {
+            t.channel = Some(channel);
+            if !t.done {
+                users += 1;
+            }
+        }
+        self.records[r] = Record { taken: true, users };
+
+        out.push(Message {
+            channel,
+            kind: Kind::Control {
+                controller: 121,
+                value: 0,
+            },
+        });
+        // The replay walks the controller numbers in order and the slots
+        // with them, one slot per number the table keeps (`0x9985D`).
+        let slots = self.song.slots;
+        let kept = slots.iter().enumerate().filter(|&(_, &s)| s != 0xff);
+        for (slot, (key, _)) in kept.enumerate() {
+            let Ok(key) = u8::try_from(key) else { break };
+            let Some(&value) = self.remembered[group].get(slot) else {
+                break;
+            };
+            if value == 0xff {
+                continue;
+            }
+            let kind = match key {
+                Self::PROGRAM => Kind::Program(value),
+                Self::BEND => Kind::PitchBend { lsb: 0, msb: value },
+                Self::POLY => Kind::PolyPressure {
+                    note: value,
+                    value: 0,
+                },
+                Self::PRESSURE => Kind::ChannelPressure(value),
+                7 => Kind::Control {
+                    controller: 7,
+                    value: self.set_volume(channel, value),
+                },
+                controller => Kind::Control { controller, value },
+            };
+            out.push(Message { channel, kind });
+        }
+    }
+
+    /// Controller 105 giving the channel back (`0x997F0`): the track waits
+    /// again, and the record is free once its last user has gone. The drum
+    /// record is never given back — its device channel reads `-1`
+    /// (`0x997FA`). A freed record would go to the first group queued for
+    /// one, and none is, since nothing here takes a record away.
+    fn release(&mut self, i: usize) {
+        let Some(channel) = self.tracks[i].channel else {
+            return;
+        };
+        let r = usize::from(channel);
+        if r == DRUMS {
+            return;
+        }
+        self.tracks[i].channel = None;
+        let Some(record) = self.records.get_mut(r) else {
+            return;
+        };
+        record.users = record.users.wrapping_sub(1);
+        if record.users == 0 {
+            record.taken = false;
+        }
+    }
+
+    /// Sends one track to its branch point, the way `0x907BC` does it, and
+    /// brings it back if it had ended (`0x90760`).
     fn branch(&mut self, i: usize, id: i16, out: &mut Vec<Message>) {
         let track = &self.song.tracks[i];
         let Some(point) = track.branch_points.iter().find(|b| b.id == id) else {
@@ -510,35 +774,35 @@ impl Sequencer {
         let Some(index) = track.events.iter().position(|e| e.at == point.offset) else {
             return;
         };
-        let channel = num::lo(track.channel) & 0x0f;
-
-        // Controller 108: every note this track has sounding is killed. The
-        // original walks the pending list and drops the entries whose channel
-        // matches (`0x98B56`).
-        let mut still = Vec::with_capacity(self.pending.len());
-        for p in std::mem::take(&mut self.pending) {
-            if p.channel == channel {
-                out.push(Message {
-                    channel,
-                    kind: Kind::NoteOff { note: p.note },
-                });
-            } else {
-                still.push(p);
+        let snapshot = match &track.events[index].event {
+            Event::BranchPoint { snapshot, tick, .. } => {
+                self.tracks[i].tick = *tick;
+                snapshot.clone()
             }
-        }
-        self.pending = still;
+            _ => Vec::new(),
+        };
+        self.tracks[i].next = index + 1;
+        self.tracks[i].delta = track.events.get(index + 1).map_or(0, |e| e.delta);
 
-        // Then the marker's snapshot is replayed. Its keys are the engine's
-        // cache slots, not plain controller numbers: 104 is a program change
-        // and 105 a pitch bend (`0x99A1B` and `0x99A38`), everything else is
-        // the controller of that number.
-        if let Event::BranchPoint { snapshot, tick, .. } = &track.events[index].event {
+        // Controller 108 through the dispatcher: the track's sounding notes
+        // end. Then, if it holds a channel, the marker's snapshot is
+        // replayed (`0x99977`) — each value remembered as well as sent.
+        // Its keys are the slot table's: 104 a program change, 105 a pitch
+        // bend, 107 channel pressure (`0x99A11`, `0x99A2C`, `0x99A6C`), 7
+        // the channel volume, anything else the controller of that number.
+        if let Some(channel) = self.tracks[i].channel {
+            self.notes_off(channel, out);
             for pair in snapshot.as_chunks::<2>().0 {
                 let (key, value) = (pair[0], pair[1]);
+                self.remember(i, key, value);
                 let kind = match key {
-                    104 => Kind::Program(value),
-                    105 => Kind::PitchBend { lsb: 0, msb: value },
-                    107 => Kind::ChannelPressure(value),
+                    Self::PROGRAM => Kind::Program(value),
+                    Self::BEND => Kind::PitchBend { lsb: 0, msb: value },
+                    Self::PRESSURE => Kind::ChannelPressure(value),
+                    7 => Kind::Control {
+                        controller: 7,
+                        value: self.set_volume(channel, value),
+                    },
                     _ => Kind::Control {
                         controller: key,
                         value,
@@ -546,12 +810,14 @@ impl Sequencer {
                 };
                 out.push(Message { channel, kind });
             }
-            self.tracks[i].tick = *tick;
         }
 
-        self.tracks[i].next = index + 1;
-        self.tracks[i].delta = track.events.get(index + 1).map_or(0, |e| e.delta);
-        self.tracks[i].done = false;
+        // A track that had ended goes back into the walk and asks for a
+        // channel again, as if its stream said controller 105 = 1.
+        if self.tracks[i].done {
+            self.tracks[i].done = false;
+            self.allocate(i, out);
+        }
     }
 }
 

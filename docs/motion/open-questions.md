@@ -186,20 +186,19 @@ starts when one is.
 
 ## The FM driver
 
-Three things `fmmidi3.com` does not answer for itself: **which register bank
-is which side** (only the wiring can settle it, not a recording), **ordinal 1**
-and why ordinals 6 and 8 share a body while the fuller reset at `0x0793` is
-unreachable, and **`chan[8]`** in the engine's channel record, which is not the
-channel number. All three are set out in
+Two things `fmmidi3.com` does not answer for itself: **which register bank
+is which side** (only the wiring can settle it, not a recording), and
+**ordinal 1** and why ordinals 6 and 8 share a body while the fuller reset at
+`0x0793` is unreachable. Both are set out in
 [The FM driver](motion32/engine/fm-driver.md#open-questions).
 
-Two more from the songs recorded one by one. **What the channel records
-hold before any song sets them** — below 127, by a recording; the value is
-not read. And **songs 2, 4 and 5** (with their twins 9 and 15) part from
-the original's streams during a note-on, where the original rewrites the
-level of another voice of the same channel to a value the rebuilt driver
-does not reach (song 4: voice 2's carrier, `0x94` → `0x8c`). What changes
-that voice's sum is not read.
+One from the sequencer's master volume. The rebuild sends every held
+channel a controller 7 when the master changes, the drum channel included,
+as the R78 path reads (`0x7b053`). R109's sequencer has a pass of its own
+(`0x90699` → `0x9048D`). It works `+0x1C` out again from `+0x14` for each
+group's record, and sends nothing for a record whose device channel is `-1`,
+which on the OPL3 is the drum record. Which of the two `MUSVOLUME` reaches in
+Dunkle Schatten 2 is not read.
 
 ## The music's clock
 

@@ -20,6 +20,7 @@ All multi-byte values are little-endian.
 | Offset | Type | Description |
 |---|---|---|
 | `0x00` | `char[18]` | Magic `HMI-MIDISONG061595` |
+| `0x26` | `u8[127]` | **Slot table** — for each controller number 0…126, the slot a track remembers it in, or `0xFF` for one it does not keep (see [Channels are handed out](#channels-are-handed-out)) |
 | `0xd2` | `i16` | **Division** — ticks per quarter note. Musical bookkeeping only |
 | `0xd4` | `i16` | **Tick rate in Hz** — the unit every delta is counted in. 120 in all 26 songs and in `TEST.HMI` |
 | `0xd6` | `u32` | Tempo map: `u8 count; u8 pad[4]; { u32 bpm; u32 length }…` |
@@ -69,7 +70,9 @@ so tempo cannot change during playback.
 | `+0x57` | `u32` | → **the event stream** (relocated in place at `0x986DE`) |
 | `+0x63` | `u32` | → the branch-point table, or 0 |
 | `+0x77` | `u16` | Voice priority (also settable by controller 107) |
-| `+0x7b` | `u16` | **The channel every message of this track goes out on** |
+| `+0x79` | `u16` | **The channel the track asks for**; tracks asking for the same one form a group |
+| `+0x7b` | `u16` | The channel every message goes out on — written by the engine with the device channel the track gets. In the file it equals `+0x79` |
+| `+0x7d` | `u32` | → the track's remembered controller values, one byte per slot of the song's slot table, `0xFF` for none — all `0xFF` in every shipped track |
 | `+0x99` | `u16[≤8]` | **The devices the track is for**, ids of the `0xA000` series, zero-terminated. The song open (`0x9c8a6`) gives the track to the first installed device one of them names — `0xA000` naming `0xA001` and `0xA008` as well, `0xA002` naming `0xA009`, the OPL3 — and a track none of them names is not played. Every track of every shipped song names `0xA000`, and the ones that also name `0xA002` are the ones the OPL3 plays: song 17 has three tracks that do not, and the opening tune (25) two — its bass (channel 2) and second guitar (channel 4) |
 
 Note that the event stream is at **`+0x57`**. `+0x0c` holds 75 in every track
@@ -109,17 +112,18 @@ not:
 2. **Running status is one byte, and `FE` and `FF` clobber it.** `0x8FD6C`
    stores *any* byte ≥ 0x80 into `track+0x42`; it is never reset at a delta.
 3. **The channel nibble of the status byte is meaningless.** Output goes to
-   `track+0x7B`. `TEST.HMI`'s first track is channel 4 and its first status
-   byte is `B0`.
+   `track+0x7B`, the device channel the track was handed. `TEST.HMI`'s first
+   track is channel 4 and its first status byte is `B0`.
 4. **A note-on with velocity 0 is not a note-off.** The message is sent either
    way (`0x98A89`).
 
 ### Controllers the sequencer keeps for itself
 
-103, 104, 106, 107 are its own bookkeeping; **105** turns a track's voice on
-and off (`b0 69 01` opens every track); 108 is its internal all-notes-off; 119
-is a callback the game never installs. Everything else is passed through and
-cached per channel. Census over all 27 files: CC 1 (16,028), 7 (505), 10 (279),
+103, 104, 106, 107 are its own bookkeeping — a mask, a lock, a priority, which
+only matter once the device's channels run out; **105** asks for a channel and
+gives it back (`b0 69 01` opens every track, `b0 69 00` ends it); 108 is its
+internal all-notes-off; 119 is a callback the game never installs. Everything
+else is passed through and remembered per group. Census over all 27 files: CC 1 (16,028), 7 (505), 10 (279),
 64 (186), 91 (197), 93 (193), 105 (398), 123 (48), 2 (2), and nothing else.
 
 Volume is not a plain pass-through. Controller 7 is cached per channel as
@@ -132,11 +136,55 @@ at controller 7 = 105, reaches the chip as attenuation `0x10`, and only
 `80 × 105 / 127 = 66` followed by the driver's `(105 × 66) >> 7 = 54` gives
 that.
 
-`0x98C56` withholds the controller from the device when a field of the channel
-record reads 9. What that field is has not been established, and in the
-recording the controller plainly does reach the driver on channel 9. The three
-volume factors are all at their maximum in the game; any other value would move
-the drum levels, and they match to the byte.
+`0x98C56` withholds the controller from the device when the record's device
+channel (`+8`) reads 9. On the OPL3 the drum record's reads `-1`, so the
+controller reaches the driver on channel 9 as well, as the recording shows. The
+three volume factors are all at their maximum in the game; any other value would
+move the drum levels, and they match to the byte.
+
+### Channels are handed out
+
+A track does not own the channel in its header; it asks for it. Each device
+has a table of channel records (`0xDFB08`, `0x24` bytes each): sixteen for the
+OPL3 (`0xDF840`), whose device channels are 0…8, `-1`, 10…15 (`0xDFA88`). The
+record with `-1` is built taken and locked (`0x8F55D`), and the drum channel's
+tracks point at it without asking.
+
+- **At song start** (`0x9887C`) the tracks that ask for the same channel
+  (`+0x79`) form a group, in track order. The group shares one record and one
+  area of remembered values, the first track's.
+- **Controller 105 ≠ 0** (`0x994EA`): a track asking for 9 takes channel 9 and
+  nothing is sent. Any other track that has no channel takes the **first free
+  record**, for its whole group. The record counts the group's playing tracks as
+  its users, and the channel is restored (`0x9981E`): controller 121 goes out on
+  it, then every value the group remembers, in controller order. Keys 104–107
+  stand for program, pitch bend, poly pressure and channel pressure.
+- **Controller 105 = 0** (`0x997F0`): the track waits again, and the record is
+  free once its last user has gone. The drum record is never given back.
+- **While a track has no channel**, every send site skips it (`0x98A22` and the
+  others). A note is then dropped whole, with no entry in the note-off queue.
+  Controllers, program, bend and pressures are remembered either way.
+- **A loop** (`0x90714`) branches each track. One that still holds a channel
+  has its notes ended and the marker's snapshot replayed (`0x99977`), each value
+  remembered as it goes. A track that had ended goes back into the walk and asks
+  for a channel again, as if its stream said `b0 69 01`.
+- **Stopping a song** gives back every channel it holds (`0x99B74`), so the
+  next song opens on free records.
+- With no free record, the original takes one from a group of lower priority
+  and queues the loser to wait (`0x99624`…). The largest shipped songs
+  (blocks 12 and 16) ask for fifteen channels besides the drums, exactly the
+  OPL3's fifteen records, so the rebuild has no such path
+  ([Departures](../../departures.md#audio)).
+
+The controller 121 matters to the sound: the driver resets the channel with it,
+and by its own indexing sets the velocity of the voice numbered like the
+channel to 127 (`0x18a2`). A later controller 7 rescales that voice from it.
+
+Recorded one by one, every song agrees with the original write for write. Song 5
+was also recorded past its loop, where two ended tracks come back and ask
+again; that agrees too. The replay of remembered values does not show in any
+recording: each track sets program and controllers again right after its branch
+point. That part is read, not measured.
 
 ### The `FE` family — where the loops live
 

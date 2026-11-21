@@ -30,12 +30,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pan after (`0x24CB`); controller 121 resets the channel and, by the
   driver's own indexing, the velocity of the voice numbered like it
   (`0x1869`); 123 only stops the channel's voices (`0x1803`); a note at
-  velocity 0 is a note-off (`0x85d`). The sequencer keeps channel volumes
-  from one song to the next, as the device's records do, and they start
-  below 127, so a drum note ahead of a song's first controller 7 is
-  silent. Recorded one by one from the original, eighteen of the songs now
-  agree with it write for write; three part at a note-on whose cause is an
-  open question.
+  velocity 0 is a note-off (`0x85d`).
+- **The 32-bit sequencer hands out channels as the engine does.** A track's
+  controller 105 asks for one and gets the first free record of the device
+  for its whole group (`0x994EA`). The record's restore sends controller 121
+  and replays what the group remembers (`0x9981E`), and a 105 of 0 gives the
+  channel back (`0x997F0`). A track without one plays nothing, and a loop
+  brings an ended track back with a fresh request (`0x90714`). The records'
+  volumes carry from one song to the next and start as the device's install
+  leaves them, kept 127 and scaled 0 (`0x8F575`), so a drum note ahead of a
+  song's first controller 7 is silent. Recorded one by one from the original, all twenty-one
+  distinct songs now agree with it write for write, one of them also past
+  its loop.
 - **A conversation's line is measured before it is clamped.** The 32-bit
   dialogue machine sets a line through `SDTB` … `SDTXT` (`0x7b81e`–
   `0x7b868`), which measure it on the spot, and only then keeps it twenty

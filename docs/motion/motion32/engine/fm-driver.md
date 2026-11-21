@@ -271,20 +271,25 @@ sequencer inside `ENGINE.EXE`:
   device's buffer, `0x99515`), so a channel keeps what the last song gave
   it, and `+0x1C` has no writer but controller 7 (`0x98C4D`). A song may
   play a drum note before its first controller 7: song 1 opens with one at
-  velocity 1, and in a recording of the original it takes no voice — any
-  cached value below 127 makes it 0, a note-off to the driver. What the
-  records hold before any song has set them is not read. The controller still reaches the
+  velocity 1, and in a recording of the original it takes no voice: the
+  device's install builds the records zeroed (`0x82C50`) and sets only the
+  kept value `+0x14` to 127 (`0x8F575`), so `+0x1C` is 0 and the note's
+  velocity becomes 0, a note-off to the driver. The controller still reaches the
   driver, so the drums are attenuated twice over. Tune 25's hi-hat: velocity 80
   at controller 7 = 105 becomes 66 here, and the driver's `(105 × 66) >> 7 = 54`
   gives attenuation `0x10` — which is the recording's byte.
 
-  The code at `0x98C56` withholds the controller from the device when a field of
-  the channel record reads 9. What that field is has not been established, and
-  in the recording the controller plainly does reach the driver on channel 9.
+  The code at `0x98C56` withholds the controller from the device when the
+  record's device channel (`+8`) reads 9. The OPL3's list puts `-1` in the drum
+  record (`0xDFA88`), so here the controller always reaches the driver.
+- **The channels are handed out**, not taken from the track: a track's
+  controller 105 gets it the first free record, and the record's restore sends
+  controller 121 before anything else
+  ([Channels are handed out](../formats/hmi.md#channels-are-handed-out)).
 
 ## Open questions
 
-Three things `fmmidi3.com` does not answer for itself:
+Two things `fmmidi3.com` does not answer for itself:
 
 - **Which bank is which side.** The driver mirrors every voice onto both
   register banks and pans by quietening one of them. Bank 0 takes `0xC0`
@@ -294,10 +299,6 @@ Three things `fmmidi3.com` does not answer for itself:
   recording cannot settle it; only the wiring can.
 - **Ordinal 1**, and why ordinals 6 and 8 reach the same body while the
   fuller reset at `0x0793` is unreachable.
-- **`chan[8]`** in the engine's channel record. `0x98C56` withholds
-  controller 7 from the device when it reads 9, and a recording shows the
-  controller reaching the driver on channel 9 all the same — so the field is
-  not the channel number.
 
 ## See also
 

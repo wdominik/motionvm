@@ -419,6 +419,15 @@ module id it passes is one the diagnostic routine ignores. motionvm answers
 shipped game is missing one.
 ([Audio](motion32/engine/audio.md))
 
+**A song that asks for more channels than the device has goes partly
+silent.** The original takes a channel from a group of lower priority and
+queues that group until one comes free (`0x99624`…, with the lock and
+priority controllers 106 and 107 steering it). motionvm leaves the asking
+track without a channel, so it plays nothing. The OPL3 has fifteen channels
+to hand out, and the largest shipped songs ask for exactly fifteen besides
+the drums, so no shipped song reaches that path.
+([HMI songs](motion32/formats/hmi.md#channels-are-handed-out))
+
 **The three parts run with a clock between them, in an audio callback.** After
 the first few notes nothing on that path reaches the allocator; songs are parsed
 on the game thread and sent across. With no output device, no supported format
