@@ -24,6 +24,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scripts give the same picture under both readings.
 - **A 32-bit `ELSEDUP` stops by address** (`0x638e0`) where the machine
   panicked.
+- **The 32-bit FM driver handles volume, resets and silent notes as its
+  code does.** Controller 7 brings every sounding voice of the channel to
+  the new volume at once, on the bank the pan leaves alone, and runs the
+  pan after (`0x24CB`); controller 121 resets the channel and, by the
+  driver's own indexing, the velocity of the voice numbered like it
+  (`0x1869`); 123 only stops the channel's voices (`0x1803`); a note at
+  velocity 0 is a note-off (`0x85d`). The sequencer keeps channel volumes
+  from one song to the next, as the device's records do, and they start
+  below 127, so a drum note ahead of a song's first controller 7 is
+  silent. Recorded one by one from the original, eighteen of the songs now
+  agree with it write for write; three part at a note-on whose cause is an
+  open question.
 - **A conversation's line is measured before it is clamped.** The 32-bit
   dialogue machine sets a line through `SDTB` … `SDTXT` (`0x7b81e`–
   `0x7b868`), which measure it on the spot, and only then keeps it twenty

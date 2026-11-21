@@ -193,6 +193,14 @@ unreachable, and **`chan[8]`** in the engine's channel record, which is not the
 channel number. All three are set out in
 [The FM driver](motion32/engine/fm-driver.md#open-questions).
 
+Two more from the songs recorded one by one. **What the channel records
+hold before any song sets them** — below 127, by a recording; the value is
+not read. And **songs 2, 4 and 5** (with their twins 9 and 15) part from
+the original's streams during a note-on, where the original rewrites the
+level of another voice of the same channel to a value the rebuilt driver
+does not reach (song 4: voice 2's carrier, `0x94` → `0x8c`). What changes
+that voice's sum is not read.
+
 ## The music's clock
 
 The sequencer's timer rides the sound layer's 1500 Hz master rather than getting

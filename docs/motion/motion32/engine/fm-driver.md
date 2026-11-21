@@ -245,11 +245,16 @@ classes, is dropped.
 
 | | |
 |---|---|
-| 7 | volume — folded into velocity, never sent as a level of its own |
-| 10 | pan |
+| 7 | volume (`0x24CB`) — and every voice the channel is sounding on brought up to it at once: `(volume << 7) / 127 × velocity >> 7`, written to the one bank the pan leaves alone (the first below a pan of `0x40`, the second from it on), modulator first when the patch adds, then the pan routine over the channel |
+| 10 | pan (`0x276D`) |
 | 64 | sustain pedal, with the note queue |
 | 102 | pitch bend range, in semitones |
-| 121, 123 | reset: volume 127, no sustain, bend centered, range 2 |
+| 121 | reset (`0x1869`): volume 127, no sustain, bend centered, range 2 — and the velocity of the *voice* numbered like the channel set to 127, because the routine indexes the per-voice table at `0x2DA0` with the channel (`0x18a2`). Sounding notes and held notes stay |
+| 123 | every voice the channel owns stopped and freed (`0x1803`); nothing reset |
+
+A `0x9n` with velocity 0 goes down the note-off path: the decoder tests
+the velocity byte and hands a zero to the routine `0x8n` reaches (`0x85d`,
+`0x8c7`).
 
 ## The engine's own half
 
@@ -261,7 +266,14 @@ sequencer inside `ENGINE.EXE`:
   recording proves they are at maximum — any other value would change the drum
   levels, and they match to the byte.
 - **On channel 9, and only there, that cache is folded into note velocity**
-  (`0x98A89`, `velocity × chan[0x1C] / 127`). The controller still reaches the
+  (`0x98A89`, `velocity × chan[0x1C] / 127`). The channel records are the
+  device's, not the song's (a track's pointer to its record comes out of the
+  device's buffer, `0x99515`), so a channel keeps what the last song gave
+  it, and `+0x1C` has no writer but controller 7 (`0x98C4D`). A song may
+  play a drum note before its first controller 7: song 1 opens with one at
+  velocity 1, and in a recording of the original it takes no voice — any
+  cached value below 127 makes it 0, a note-off to the driver. What the
+  records hold before any song has set them is not read. The controller still reaches the
   driver, so the drums are attenuated twice over. Tune 25's hi-hat: velocity 80
   at controller 7 = 105 becomes 66 here, and the driver's `(105 × 66) >> 7 = 54`
   gives attenuation `0x10` — which is the recording's byte.

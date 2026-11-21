@@ -72,6 +72,9 @@ pub struct Player {
     /// leaves it (`0xbe9d0` in R78): `0x7f` at start, `0x38` ducked. Kept
     /// across songs, as the global is, and handed to every sequencer.
     master: u8,
+    /// The device's channel volumes, carried from one song to the next —
+    /// see [`Sequencer::with_channel_volumes`].
+    channels: [u8; 16],
 }
 
 impl std::fmt::Debug for Player {
@@ -159,6 +162,7 @@ impl Player {
             chip,
             fm,
             seq: None,
+            channels: [0; 16],
             rate,
             period: Self::master_ticks(Self::DEFAULT_TICK_HZ),
             clock: 0,
@@ -287,11 +291,15 @@ impl crate::Player for Player {
     /// one — but doing it here as well means a stray `STARTTUNE` cannot leave
     /// notes hanging.
     fn start(&mut self, song: Song) {
+        if let Some(seq) = &self.seq {
+            self.channels = seq.channel_volumes();
+        }
         self.stop();
         self.period = Self::master_ticks(num::unsigned(i32::from(song.tick_hz)));
         self.clock = 0;
         self.ticks = 0;
-        self.seq = Some(Sequencer::new(song, Fm::DEVICE, self.master));
+        self.seq =
+            Some(Sequencer::new(song, Fm::DEVICE, self.master).with_channel_volumes(self.channels));
     }
 
     /// Silences what the song left sounding, the way the original's stop path

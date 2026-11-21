@@ -370,8 +370,12 @@ impl Fm {
     pub fn send(&mut self, m: Message) {
         let ch = usize::from(m.channel & 0x0f);
         match m.kind {
-            // A velocity of zero is not a note-off — the sequencer does not
-            // send one and neither does the format.
+            // A velocity of zero goes down the note-off path: the decoder
+            // tests the velocity byte of a `0x9n` and sends a zero to the
+            // same routine `0x8n` reaches (`0x85d`, `0x8c7`). The sequencer
+            // makes one when it scales a drum note by a channel volume that
+            // has not been set.
+            Kind::NoteOn { note, velocity: 0 } => self.note_off(ch, note),
             Kind::NoteOn { note, velocity } => self.note_on(ch, note, velocity),
             Kind::NoteOff { note } => self.note_off(ch, note),
             Kind::Control { controller, value } => self.control(ch, controller, value),
@@ -591,6 +595,41 @@ impl Fm {
         }
     }
 
+    /// `0x24CB`: a channel's volume, and every voice it is sounding on
+    /// brought up to it at once.
+    ///
+    /// For each voice the channel owns (`0x2518`–`0x2537`), the level is
+    /// `(volume << 7) / 127 × velocity >> 7` (`0x2543`–`0x255a`), the note-on
+    /// path's own sum, written to the **one bank the pan leaves alone** —
+    /// the first below a pan of `0x40`, the second from it on
+    /// (`0x2618`, `0x26f4`): the modulator first when the patch adds
+    /// (`0x2587`, the same melodic-bank test as the pan's), then the carrier.
+    /// Then the pan routine runs over the channel (`0x2760`) and attenuates
+    /// the other bank. The flag the routine also raises (`0x2DC4`) is read
+    /// nowhere in the driver.
+    fn set_volume(&mut self, ch: usize, value: u8) {
+        self.volume[ch] = value;
+        let open = if self.pan[ch] < 0x40 { 0 } else { 1 };
+        for v in 0..VOICES {
+            if self.note[v] == 0 || usize::from(self.owner[v]) != ch {
+                continue;
+            }
+            let x = num::byte(((u32::from(value) << 7) / 0x7f * u32::from(self.velocity[v])) >> 7);
+            let patch = self
+                .melodic
+                .get(usize::from(self.program[ch]))
+                .copied()
+                .unwrap_or_default();
+            if patch.additive() {
+                let m = self.tables.modulator(v);
+                self.level(m, x, Some(open));
+            }
+            let c = self.tables.carrier(v);
+            self.level(c, x, Some(open));
+        }
+        self.set_pan(ch, self.pan[ch]);
+    }
+
     /// `0x276D`. Attenuates the copy on one side and leaves the other alone.
     fn set_pan(&mut self, ch: usize, pan: u8) {
         self.pan[ch] = pan;
@@ -731,7 +770,7 @@ impl Fm {
     /// `0x1926`. Five controllers reach the chip; everything else is dropped.
     fn control(&mut self, ch: usize, controller: u8, value: u8) {
         match controller {
-            7 => self.volume[ch] = value,
+            7 => self.set_volume(ch, value),
             10 => self.set_pan(ch, value),
             64 => {
                 self.sustain[ch] = value != 0;
@@ -742,22 +781,31 @@ impl Fm {
                 }
             }
             102 => self.bend_range[ch] = value,
-            // 121 resets the controllers, 123 silences the channel. Both go
-            // through the same per-channel defaults at `0x1875`.
-            121 | 123 => {
-                if controller == 123 {
-                    for v in 0..VOICES {
-                        if usize::from(self.owner[v]) == ch && self.note[v] != 0 {
-                            self.stop(v);
-                            self.note[v] = 0;
-                        }
-                    }
-                }
+            // 121 resets the channel's controllers (`0x1869`): volume 127,
+            // sustain off, bend centered, a range of two — and, through an
+            // index the routine takes from the wrong table, the velocity of
+            // the *voice* numbered like the channel (`0x18a2` writes the
+            // per-voice table at `0x2DA0` with the channel; past voice 8 it
+            // lands on a flag nothing reads). Sounding notes and the notes
+            // the sustain holds are left alone.
+            121 => {
                 self.volume[ch] = 0x7f;
+                if let Some(v) = self.velocity.get_mut(ch) {
+                    *v = 0x7f;
+                }
                 self.sustain[ch] = false;
                 self.bend[ch] = 0x40;
                 self.bend_range[ch] = 2;
-                self.held[ch].clear();
+            }
+            // 123 stops every voice the channel owns and frees it
+            // (`0x1803`), and resets nothing.
+            123 => {
+                for v in 0..VOICES {
+                    if usize::from(self.owner[v]) == ch {
+                        self.stop(v);
+                        self.note[v] = 0;
+                    }
+                }
             }
             _ => {}
         }

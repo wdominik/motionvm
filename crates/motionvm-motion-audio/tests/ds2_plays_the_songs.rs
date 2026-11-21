@@ -67,7 +67,9 @@ fn the_notes_come_out_as_the_decoder_read_them() {
         .iter()
         .filter(|t| motionvm_motion_audio::m32::sequencer::plays_on(&t.devices, Fm::DEVICE))
     {
-        let mut volume = 0x7fu32;
+        // The channel records start below 127 before a song sets them —
+        // see `Sequencer::with_channel_volumes` — and stand at 0 there.
+        let mut volume = 0u32;
         for e in &track.events {
             match e.event {
                 Event::Control {

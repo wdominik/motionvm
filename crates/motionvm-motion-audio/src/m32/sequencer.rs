@@ -125,9 +125,18 @@ pub struct Sequencer {
     branch_to: Option<i16>,
     finished: bool,
     /// The controller-7 value each channel was last given, `chan+0x14`
-    /// (`0x98C4D` stores it beside the scaled one). Every song sets it on
-    /// every channel before its first note; 127 is what an untouched channel
-    /// would be worth.
+    /// (`0x98C4D` stores it beside the scaled one at `+0x1C`, which is the
+    /// one channel 9's notes are scaled by and has no other writer).
+    ///
+    /// The channel records are the device's, not the song's: a track's
+    /// pointer to its record is worked out of the device's own buffer
+    /// (`0x99515`), so a channel keeps what the last song gave it — see
+    /// [`Sequencer::with_channel_volumes`]. A song may play a note before
+    /// its first controller 7: song 1 opens with a drum note at velocity 1
+    /// ahead of it, and in a recording of the original that note takes no
+    /// voice, which any value below 127 explains (`1 × v / 127` is 0, and a
+    /// note at velocity 0 is a note-off to the driver). What the records
+    /// hold before any song has set them is not read; 0 stands for it here.
     volume: [u8; 16],
     /// The sound layer's master volume, `0xbe9d0` in R78 (`0xbe9d0` set at
     /// `0x7b1bc`): what every controller 7 is scaled by on its way to the
@@ -194,10 +203,23 @@ impl Sequencer {
             pending: Vec::new(),
             branch_to: None,
             finished: false,
-            volume: [0x7f; 16],
+            volume: [0; 16],
             master,
             runaway: None,
         }
+    }
+
+    /// The channel volumes the device's records hold when this song opens:
+    /// what the song before it left there.
+    #[must_use]
+    pub fn with_channel_volumes(mut self, volume: [u8; 16]) -> Self {
+        self.volume = volume;
+        self
+    }
+
+    /// The channel volumes as this song leaves them, for the next.
+    pub fn channel_volumes(&self) -> [u8; 16] {
+        self.volume
     }
 
     /// The master volume a sequence starts under: full.
