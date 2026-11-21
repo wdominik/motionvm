@@ -1,0 +1,14 @@
+# Reference digests for checker, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-motion-testutil's
+# `digest` module for what each one covers.
+song_1  0xf9110f93bf9a7199
+song_60  0x7274b5bd5a1cb937
+song_61  0x6b1221d848480760
+song_62  0x19d2cf2017bb9a42
+song_63  0xc3b05ef1ab4a62f1
+song_64  0x95e2a0f73f35e28d
+songs  0x5d6f4a57919627a4

@@ -415,6 +415,94 @@ mod tests {
     /// The game these tests pretend to be.
     const SLUG: &str = "enviro";
 
+    /// Where the body starts in both files: the magic, the version, the
+    /// body's length and its checksum, four bytes each after the eight of
+    /// the magic (`lay_out`).
+    const BODY: usize = 20;
+
+    /// A reader under test, answering whether the file read.
+    type Reads = fn(&[u8], Generation) -> bool;
+
+    /// `body` behind `file`'s magic and version, with its length and its
+    /// checksum made true again — so that what reaches the reader past the
+    /// checksum is the damage, and not the checksum's refusal of it.
+    fn sealed(file: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut out = file[..12].to_vec();
+        out.extend_from_slice(&cell::narrow(body.len()).to_le_bytes());
+        out.extend_from_slice(&crc32(body).to_le_bytes());
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// Damaged savegames are refused, never crashed on — the damage made
+    /// past the checksum.
+    ///
+    /// The format mutation suite (`motionvm-motion-formats`'
+    /// `tests/mutation.rs`) walks the games' own files; a savegame is this
+    /// workspace's file, and the reader would stop almost every damaged one
+    /// at its checksum. So every cut of the body and three flips of every
+    /// body byte are sealed again before they are read, and what is asserted
+    /// is what a reader promises: an answer, `Ok` or `Err`, never an unwind.
+    /// Both files, both layouts.
+    #[test]
+    fn a_damaged_savegame_is_refused_not_crashed_on() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        for layout in [Generation::Motion32, Generation::Motion16] {
+            let images = vec![
+                ModuleImage {
+                    module: 2,
+                    bytes: (0u8..64).collect(),
+                },
+                ModuleImage {
+                    module: 11,
+                    bytes: vec![7; 16],
+                },
+            ];
+            let files: [(&str, Vec<u8>, Reads); 2] = [
+                ("anm", write_anm(&anim(layout), layout, SLUG), |b, l| {
+                    read_anm(b, "anm", l, SLUG).is_ok()
+                }),
+                ("frz", write_frz(&images, layout, SLUG), |b, l| {
+                    read_frz(b, "frz", l, SLUG).is_ok()
+                }),
+            ];
+            for (name, file, read) in files {
+                assert!(
+                    read(&file, layout),
+                    "{name} {layout:?}: the undamaged file reads"
+                );
+                let body = &file[BODY..];
+                let answers = |bytes: &[u8], what: &str| {
+                    catch_unwind(AssertUnwindSafe(|| read(bytes, layout)))
+                        .unwrap_or_else(|_| panic!("{name} {layout:?}: {what} unwound"))
+                };
+                for cut in 0..body.len() {
+                    answers(
+                        &sealed(&file, &body[..cut]),
+                        &format!("the body cut at {cut}"),
+                    );
+                }
+                for at in 0..body.len() {
+                    for mask in [0x01u8, 0x80, 0xff] {
+                        let mut flipped = body.to_vec();
+                        flipped[at] ^= mask;
+                        answers(
+                            &sealed(&file, &flipped),
+                            &format!("byte {at} flipped by {mask:#x}"),
+                        );
+                    }
+                }
+                // And unsealed, the checksum is what refuses it.
+                let mut torn = file.clone();
+                torn[BODY] ^= 0xff;
+                assert!(
+                    !read(&torn, layout),
+                    "{name} {layout:?}: a torn body is refused"
+                );
+            }
+        }
+    }
+
     /// A replaced file is replaced whole, and nothing is left beside it.
     #[test]
     fn an_atomic_write_leaves_no_temporary_and_no_half_file() {

@@ -146,6 +146,12 @@ table is only rewritten when the run produced lines for it, but a game that is
 present and whose suite skipped part of itself writes a shorter table, and
 those deletions are worth reading before committing them.
 
+A line that ends in `anchored: …` is different: its scene was held against a
+capture of the original and agreed, and the comparison that did so holds the
+line as well. `just digests` keeps such a line's value and fails when a run
+digests it otherwise; `REANCHOR=1 just digests` takes the new value, and the
+comparison with the original then has to pass again before the anchor stands.
+
 What a digest cannot say is *what* moved. Once one goes off, render the scene
 and look at it; the assertions beside each digest are what say whether a
 picture is right, where the digest only says whether it changed.

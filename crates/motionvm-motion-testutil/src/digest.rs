@@ -41,6 +41,17 @@
 //! `just digests` rewrites it from a run and leaves the difference in the
 //! working tree, so a deliberate change is a reviewed line in a diff and an
 //! accidental one is a red test.
+//!
+//! ## Anchored lines
+//!
+//! A line may end in `anchored: <what>`: the thing it digests has been held
+//! against a capture of the original and agreed with it, and the check that
+//! did so holds the same line too. Such a line is a measurement, not a
+//! record of the last run, so `just digests` will not move it on its own:
+//! a run that digests it differently leaves the old value in place and
+//! fails, and `REANCHOR=1 just digests` takes the new value with the anchor
+//! kept — after which the comparison against the original has to pass
+//! again before the anchor means anything.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -241,6 +252,14 @@ fn read_table(path: &Path) -> BTreeMap<String, u64> {
             .split_once(char::is_whitespace)
             .unwrap_or_else(|| panic!("{}:{}: no digest on the line", path.display(), n + 1));
         let hash = hash.trim();
+        let (hash, rest) = hash.split_once(char::is_whitespace).unwrap_or((hash, ""));
+        let rest = rest.trim();
+        assert!(
+            rest.is_empty() || rest.starts_with("anchored:"),
+            "{}:{}: after the digest only `anchored: …` may follow, not {rest}",
+            path.display(),
+            n + 1
+        );
         let value = u64::from_str_radix(hash.trim_start_matches("0x"), 16)
             .unwrap_or_else(|_| panic!("{}:{}: {hash} is not a digest", path.display(), n + 1));
         if out.insert(name.to_string(), value).is_some() {
@@ -258,9 +277,9 @@ fn read_table(path: &Path) -> BTreeMap<String, u64> {
 ///
 /// Opened in append mode for every line rather than held open, because the
 /// suite's tests run in parallel threads and its binaries in parallel
-/// processes: a short append is the one write several writers can make to one
-/// file without arranging anything between them. `just digests` sorts what
-/// comes out.
+/// processes: a short append made in one write is the one write several
+/// writers can make to one file without arranging anything between them.
+/// `just digests` sorts what comes out.
 fn append_line(path: &Path, name: &str, digest: u64) {
     use std::io::Write as _;
     if let Some(dir) = path.parent() {
@@ -271,12 +290,35 @@ fn append_line(path: &Path, name: &str, digest: u64) {
         .append(true)
         .open(path)
         .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    writeln!(f, "{name}  {digest:#018x}").unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    // One write for the whole line. `writeln!` on an unbuffered file hands
+    // the pieces of its format to the system one by one, and a writer in
+    // another process lands between them — which is how a table once came
+    // out with two names and a doubled `0x` on one line.
+    let line = format!("{name}  {digest:#018x}\n");
+    f.write_all(line.as_bytes())
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A line may carry its anchor after the digest, and nothing else.
+    #[test]
+    fn an_anchored_line_reads_its_digest() {
+        let dir = std::env::temp_dir().join("motionvm-digest-anchor");
+        let _ = std::fs::create_dir_all(&dir);
+        let table = dir.join("t.txt");
+        std::fs::write(
+            &table,
+            "# a table\nplain  0x0000000000000001\nheld  0x0000000000000002  anchored: a capture\n",
+        )
+        .expect("writes");
+        let t = read_table(&table);
+        assert_eq!(t.get("plain"), Some(&1));
+        assert_eq!(t.get("held"), Some(&2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// The published FNV-1a 64 test vectors, so that "FNV-1a" in the header is
     /// a claim someone else's implementation can be held to.

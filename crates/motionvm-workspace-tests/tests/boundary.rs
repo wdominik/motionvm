@@ -41,6 +41,14 @@ const FAMILY_EVIDENCE: &[&str] = &[
     "Jeff Jet",
     "JeffJet",
     "Loomes",
+    "Checker",
+    "Eddie",
+    "STERN.EXE",
+    "HPPLAY",
+    "BMZ",
+    "LL.EXE",
+    "R109",
+    "R78",
 ];
 
 /// What a crate's name says about it.
@@ -259,7 +267,10 @@ fn the_neutral_sources_carry_no_family_evidence() {
         // `src/` only, on purpose: this very file sits in a neutral crate's
         // `tests/` and carries the evidence list above, so the scan stops at
         // the sources a build ships.
-        for file in sources(&crates_dir().join(&name).join("src")) {
+        let files = sources(&crates_dir().join(&name).join("src"));
+        // A crate with no sources found passes for the wrong reason.
+        assert!(!files.is_empty(), "{name} has no sources to scan");
+        for file in files {
             // The roster is the sanctioned place a family is named.
             if name == "motionvm-app" && file.ends_with("roster.rs") {
                 continue;
@@ -286,12 +297,15 @@ fn the_neutral_sources_carry_no_family_evidence() {
 }
 
 /// Every `.rs` file under `dir`, recursively.
+///
+/// A directory that cannot be read stops the test: an empty list would let
+/// every scan over it pass for the wrong reason.
 fn sources(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return out;
-    };
-    for entry in entries.filter_map(|e| e.ok()) {
+    let entries =
+        fs::read_dir(dir).unwrap_or_else(|e| panic!("{} cannot be read: {e}", dir.display()));
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
         let path = entry.path();
         if path.is_dir() {
             out.extend(sources(&path));

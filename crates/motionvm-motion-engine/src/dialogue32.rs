@@ -677,6 +677,22 @@ impl Engine {
         // so +0x1e never lands on a cell. Reading the branch successor with
         // `fetch` handed back `[.. .. ff ff]` = -65536 for a stored -1 — the
         // negative node that then walked the spoken-line path.
+        // The comparisons are signed (`jge` at 0x7b534), so a negative node
+        // takes the line path and 0x7b53f reads its successor from below the
+        // line array, unchecked. What lies there is not the conversation's.
+        // None of the conversations the suites play reaches such a node: the
+        // -1 a branch ends on is stored and ends the conversation before mode
+        // 1 runs again.
+        if node < 0 {
+            return Err(Error::Unread {
+                what: format!(
+                    "CALCDIALOG mode 1: node {node} — the original reads a line record \
+                     below the array"
+                ),
+                binary: "ENGINE.EXE",
+                at: "0x7b53f",
+            });
+        }
         let mut next = if node < 1000 {
             cell::signed(Self::cell(&vm.mem, lines, cell::unsigned(node) * 0x10 + 8)?)
         } else if node < 2000 {

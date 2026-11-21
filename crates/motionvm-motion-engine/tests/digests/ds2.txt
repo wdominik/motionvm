@@ -7,6 +7,6 @@
 # `digest` module for what each one covers.
 dialogue_menu  0xa05ddabe066e2691
 help_viewer  0xaa95ffceeb4490de
-intro_text  0x729261c7bea4489f
+intro_text  0x729261c7bea4489f  anchored: a capture of the original, pixel for pixel
 opening  0xeae7a8d011c13180
-title  0x29e169c616446820
+title  0x29e169c616446820  anchored: a capture of the original, pixel for pixel

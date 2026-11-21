@@ -150,9 +150,40 @@ digests:
             echo "# where a rendered frame may not. See motionvm-motion-testutil's"
             echo "# \`digest\` module for what each one covers."
             sort -u "$f"
-        } > "$out"
+        } > "$out.new"
+        # An anchored line keeps its anchor, and keeps its value unless
+        # REANCHOR=1 says to take the new one (see the `digest` module).
+        if [ -f "$out" ]; then
+            awk -v reanchor="${REANCHOR:-}" -v table="$out" '
+                FNR == NR {
+                    if ($0 !~ /^#/ && $3 == "anchored:") {
+                        held[$1] = $2
+                        anchor[$1] = substr($0, index($0, "anchored:"))
+                    }
+                    next
+                }
+                /^#/ || NF < 2 { print; next }
+                ($1 in anchor) {
+                    if ($2 != held[$1] && reanchor != "1") {
+                        printf "%s: %s is anchored (%s) and digested as %s; the anchored value stays. REANCHOR=1 takes the new one, and the comparison with the original must then pass again.\n", table, $1, anchor[$1], $2 > "/dev/stderr"
+                        print $1 "  " held[$1] "  " anchor[$1]
+                        moved = 1
+                        next
+                    }
+                    print $1 "  " $2 "  " anchor[$1]
+                    next
+                }
+                { print }
+                END { exit moved }
+            ' "$out" "$out.new" > "$out.merged" || status=1
+            mv "$out.merged" "$out"
+            rm "$out.new"
+        else
+            mv "$out.new" "$out"
+        fi
     done
     git diff --stat -- 'crates/*/tests/digests'
+    exit "${status:-0}"
 
 # The measurement rigs: what a frame costs and how fast the machines run.
 #

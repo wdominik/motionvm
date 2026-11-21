@@ -146,11 +146,10 @@ A third kind, weaker than either but the only one that runs on every machine
 and on every change. For every scene the test suites compose and every tune
 they play, the suite keeps a **digest** — an FNV-1a 64 of the composed indexed
 frame, or of the register stream in the order the chip would have seen it — and
-holds each run against the one before. Eighty-three of them, across all
-seven games: each game's intro, the room it starts in, four of Dunkle
-Schatten 2's densest scenes, Checker 2000's registration in two states, its
-main menu and a page of its information book, and every tune the six other
-games ship — Checker 2000's six songs are not among them yet.
+holds each run against the one before, across all seven games: each game's
+intro, the room it starts in, four of Dunkle Schatten 2's densest scenes,
+Checker 2000's registration in two states, its main menu and a page of its
+information book, and every tune each game ships.
 
 A digest says nothing about whether a picture is *right*. What it says is that
 nothing moved, which is what the comparisons above cannot say twice: a capture
@@ -168,8 +167,7 @@ sorted order.
 
 Everything else. Each game is held against its own material: every item in its
 containers re-parsed, every script module disassembled with no unknown ordinal,
-every location it has entered and drawn, every tune it ships played — but
-for Checker 2000's, which are parsed and not yet played — and its
+every location it has entered and drawn, every tune it ships played, and its
 savegames written and read back in the engine's own layout. The 32-bit FM
 driver and the 16-bit PSM player read their tables out of the shipped driver
 binaries on every run rather than carrying transcriptions, so that part of the

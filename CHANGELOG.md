@@ -8,6 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A negative dialogue node stops the run by address** (`0x7b53f`) where
+  a debug build overflowed: the original's signed compare sends it down
+  the line path, which reads below the line array.
+- **Recorded digest lines are written whole.** Parallel suites appending to
+  one record file could interleave a line's pieces and garble the table
+  `just digests` wrote.
+- **The layer test cannot pass on an unreadable directory** and knows the
+  rest of the family's names: Checker 2000, Eddie M., `STERN.EXE`,
+  `HPPLAY`, `BMZ`, `LL.EXE`, and both builds.
 - **The 32-bit drawer leaves what it does not paint.** A descriptor drawn
   again took its whole rectangle from a fresh painting of the screen, so the
   mailbox's switched-off rows vanished under an empty caption the shell
@@ -77,6 +86,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Checker 2000's six songs are played in the test suite**, each held to a
+  digest of the register stream it writes, as every other game's are.
+- **Digests can be anchored.** A table line may end in `anchored: …` when
+  its scene agreed with a capture of the original; `just digests` keeps
+  such a value and fails when a run moves it, unless `REANCHOR=1` asks.
+  Dunkle Schatten 2's title and first intro page are anchored.
+- **Damaged savegames are held to an answer.** Every cut of a savegame's
+  body and three flips of every body byte, sealed again so the damage gets
+  past the checksum, are read in both layouts; each one is refused or
+  read, never crashed on.
 - **Tests hold the measured VM semantics**: the loop words, and `/` and
   `MOD` with negative operands, which truncate toward zero. A test holds
   the four build capabilities of Falsches Spiel mit Eddie M.'s `STERN.EXE`

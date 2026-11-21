@@ -70,6 +70,7 @@ starts when one is.
 |---|---|---|---|
 | `0x7bece` | `ENGINE.EXE` | `CALCDIALOG`, action 6 with no word found yet | the original runs on the null globals (module 0, cell 4) |
 | `0x7f26d` | `ENGINE.EXE` | `ADDMESSPIPE` on a full queue | what follows the complaint and the key; see [departures](departures.md#the-virtual-machine) |
+| `0x7b53f` | `ENGINE.EXE` | `CALCDIALOG` mode 1 on a negative node | the signed compare sends it down the line path, which reads below the line array; none of the conversations the suites play reaches one |
 | `0x76dcc`, `0x77a2b` | `ENGINE.EXE` | `CROUTE`, a negative route or auxiliary record | the original indexes unchecked; connected routes never produce one |
 | `0x78dc8` | `ENGINE.EXE` | `DOWALK`, command 1007 | it runs a script word through the interpreter entry `0x60c65`; no queue in the game writes one |
 | `0x7a2e2` | `ENGINE.EXE` | `GMSHOWMENU`, a negative verb mask | the bit count shifts arithmetically and never ends |
