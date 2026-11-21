@@ -112,15 +112,6 @@ not followed. motionvm stops with the address instead: the native complaint
 box is not rebuilt, and writing on past the queue would be a guess. No shipped script fills the queue; the 16-bit engine never reads
 the room cell. ([Dialogue machine](motion32/engine/dialogue-machine.md))
 
-**`CCALCINV` takes a negative scroll offset as 0.** The inventory window's
-offset goes negative when the back arrow is clicked at the start of the
-list. The handler (`0x7ece9`) checks only for 0 (`0x7ee34`) and otherwise
-walks the eight entries from the offset on (`0x7ee41`–`0x7ee5e`), so a
-negative one reads the cells before the list. motionvm takes it as 0,
-stores the 0 back and counts the call, rather than drawing whatever those
-cells hold. What the original shows for that click is not measured.
-([Game library](games/ds2/library/game-library.md))
-
 ## Display and timing
 
 **An unwaiting curtain takes no time at all.** R78's `FADEIN` and `FADEOUT`

@@ -184,6 +184,44 @@ fn the_bar_shows_the_first_eight() {
     );
 }
 
+/// A negative offset ends at the start of the list.
+///
+/// The back arrow's branch takes eight off with no floor, so a click on it at
+/// the start of the list leaves the head cell negative. Both handlers set it
+/// to 0 after the walk (`0x7ee7e`–`0x7ee89`), and the original, given -8 and
+/// -1, ends at 0 both times. Nothing about it is a word that did nothing.
+#[test]
+fn a_negative_offset_ends_at_the_start() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let mut game = in_a_location(&dir);
+    let b = bar(&mut game);
+    let items = fill(&mut game, &b, 10);
+    for start in [-8i32, -1] {
+        game.vm
+            .store(cell(b.list, 0), cell::unsigned(start))
+            .expect("head");
+        game.call_at(b.calcinv).expect("CALCINV");
+        assert_eq!(b.offset(&game), 0, "from {start}");
+        assert_eq!(
+            b.shown(&game),
+            b.wanted(&game),
+            "from {start} the slots do not match the list\nitems: {items:?}"
+        );
+    }
+    assert!(
+        !game
+            .engine
+            .stubbed()
+            .keys()
+            .any(|k| k.starts_with("CCALCINV")),
+        "CCALCINV counted as a word that did nothing: {:?}",
+        game.engine.stubbed()
+    );
+}
+
 /// And it still does after the arrows have moved it.
 ///
 /// **The arrows do work.** `free_play.rs` clicks one and watches the window

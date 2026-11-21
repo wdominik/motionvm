@@ -32,8 +32,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   still stops; what the original's error report does to the run is unread.
 - **Every `Error::Unread` address is on a ledger**, held by a workspace
   test. The open questions list the stops by address, and the departures
-  the code made without an entry are written down, `CCALCINV`'s clamp of a
-  negative scroll offset among them.
+  the code made without an entry are written down.
 - **Every location of Dunkle Schatten 2 is held to its inert words**: none
   walks past a word that does nothing unless the inert list admits it.
 

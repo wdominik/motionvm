@@ -94,16 +94,9 @@ impl Engine {
                 let cell = mem.cell_size();
 
                 // Both of these index with values that come out of module
-                // memory, so both wrap rather than multiply into an overflow.
-                // A negative scroll offset is reachable — in Dunkle Schatten 2
-                // the back
-                // arrow's branch is `_ACTINV @ @ 8 - _ACTINV @ !` (module 4,
-                // `0x02b28`) with no floor under it, and the hit box does not
-                // care whether the arrow is being drawn — and a garbage item
-                // number follows from reading outside the list. The original
-                // indexes both unchecked; what it reads there is whatever the
-                // heap holds, which is not reproducible from here, but a panic
-                // is not what it does either.
+                // memory, so both wrap rather than multiply into an overflow:
+                // a garbage item number follows from a list the scripts wrote
+                // wrong, and the original indexes both unchecked.
                 let entry = |mem: &dyn AddressSpace, i: i32| slot_address(mem, list, i);
                 let record = |mem: &dyn AddressSpace, item: i32, field: i32| {
                     mem.offset(
@@ -131,16 +124,20 @@ impl Engine {
                 }
 
                 // A scrolled list whose window is no longer full scrolls back
-                // until it is — otherwise removing an item would leave gaps.
+                // until it is — otherwise removing an item would leave gaps —
+                // and a negative offset ends at 0. Both handlers walk from
+                // the offset to the first empty entry inside the window, take
+                // eight off where it stops short, and then set a negative
+                // offset to 0 (`0x7ee7e`–`0x7ee89`; `ENVIRO.EXE`
+                // `0d34:3649`–`0d34:364f`). The scripts reach a negative one:
+                // in Dunkle Schatten 2 the back arrow is a hit box, not the
+                // drawn arrow, and its branch is `_ACTINV @ @ 8 - _ACTINV @ !`
+                // (module 4, `0x02b28`) with no floor. From a negative start
+                // the walk can only leave it negative, whatever the cells
+                // before the list hold, so the offset is 0 without reading
+                // them — as measured in the original, from -8 and from -1.
                 let mut offset = mem.fetch_cell(list)?;
-                // A negative offset means the back arrow was clicked at the
-                // start of the list. The 32-bit handler checks only for 0
-                // (`0x7ee34`) and walks the entries from the offset on
-                // (`0x7ee41`), reading the cells before the list; this takes
-                // it as zero, and counts it, rather than draw what those
-                // cells hold — see the departures ledger.
                 if offset < 0 {
-                    self.note_unhandled(Word::CCALCINV, Some("negative scroll offset".into()));
                     offset = 0;
                     mem.store_cell(list, 0)?;
                 }
