@@ -89,9 +89,10 @@ are copyrighted. The `justfile` reads eight locations and one switch:
   savegame tests: the `saves/` the program writes, not `saves/ds2/`, because
   that is what the engine is pointed at and it puts the game's name on itself.
   Dunkle Schatten's tests take a `SAVEGAME.SAV` and `SAVEGAME.CFG` the
-  original wrote from `ds1/` below it.
-  Savegames cannot be reconstructed, only played to, so there is no default
-  that could work; without one those tests skip.
+  original wrote from `ds1/` below it. Savegames cannot be reconstructed,
+  only played to, and never enter the repository; the default is `../saves/`
+  beside the checkout, the way the games sit in `../games/`, passed only when
+  it is there. Without it those tests skip.
 - `MOTIONVM_NO_GAMEDATA=1` — the opposite: no data at all, whatever this
   machine has. `just check-nodata` sets it, and that is the only way to
   reproduce CI's floor here, because the sibling-directory defaults above are
@@ -476,15 +477,20 @@ are all the family's answers, made behind `motionvm-motion`.
 PARSEC has one generation, `parsec1994`, so its rule has two kinds rather
 than three: with one generation read, there is no level above it whose
 claims would have to hold for another. What belongs to **the game** is
-code under `titles/ds1/` in `motionvm-parsec-engine` — where its program
-keeps a fresh game's start and the status-line templates, a module per
-location named as the location table names it, the puzzle logic — and
-documentation under `docs/parsec/games/ds1/`. What the game's program is
-linked against belongs to **the generation**: its runtime — the mode
-machine, the animator, the tasks, the dialogue, the options and the
-savegame — under `titles/parsec1994/`, each part with the map of where a
-build keeps what it reads (`OptionsMap`, `SaveMap`, `PointerMap`,
-`MusicMap`) and that map's `DS1` beside it, the readings of its tables in
+code under `titles/ds1/` in `motionvm-parsec-engine` — its build in
+`build.rs` (the values of every map the generation reads, the file names,
+the kinds of its location table, which logic each row has), where its
+program keeps a fresh game's start and the status-line templates, a module
+per location named as the location table names it, its global rules, the
+puzzle logic, its title program and the addresses its trace cases call —
+and documentation under `docs/parsec/games/ds1/`. What the game's program
+is linked against belongs to **the generation**: its runtime — the
+program's main loop and its visits, the mode machine, the animator, the
+tasks, the dialogue, the options and the savegame, the walk on and the
+way back into a loaded game, the trace runner — under
+`titles/parsec1994/`, each part with the type of the map it reads
+(`OptionsMap`, `SaveMap`, `PointerMap`, `MusicMap`, `GateMap`, `Kinds`)
+and no title's values, the readings of its tables in
 `titles/xp1994.rs` and `titles/palette1994.rs`, and the walk, the movers,
 the subjects, the caption, the strip's widgets and the generator in modules
 of their own beside them; the scaler and the rest of the drawing sit in

@@ -89,7 +89,7 @@ impl Adventure {
     /// `0C3Fh:095Ch(id)`: item `id` given, unless the player has it
     /// (`0x0CD5A`, `0B06h`) or it is not an item (`0x0CD4F`, `17h` and up).
     pub(crate) fn give_item(&mut self, id: u8) {
-        if id >= 0x17 || self.carried(id) {
+        if u16::from(id) >= self.items_end() || self.carried(id) {
             return;
         }
         self.give(id);

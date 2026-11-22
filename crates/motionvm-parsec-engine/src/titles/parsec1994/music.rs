@@ -96,20 +96,6 @@ pub(crate) struct MusicMap {
     pub effect_masks: u16,
 }
 
-impl MusicMap {
-    /// Dunkle Schatten's.
-    pub(crate) const DS1: MusicMap = MusicMap {
-        switch: 0x0212,
-        loops: 0x0214,
-        kept: 0x0216,
-        room_song: 0x285D,
-        slot_songs: 0x13E8,
-        effect_seg: 0x2140,
-        effect_rows: 0x0034,
-        effect_masks: 0x0000,
-    };
-}
-
 /// The effect slots at `DS:1EF4h`: as many as table A's bound lets the
 /// fetch take (`[1EA6h]`, 21), the count the free loops run to (`mov si,
 /// 15h`, `0x146FD`).
@@ -439,7 +425,8 @@ impl Adventure {
     }
 
     /// `1458h:00F7h(slot)` (`0x14677`): with a digital driver and a room
-    /// slot `0 < slot < 26` whose mask is not zero, slots 20 down to 12
+    /// slot `0 < slot < 26` (`0x14685`, `0x14689`: `cmp ax, 1Ah`) whose
+    /// mask is not zero, slots 20 down to 12
     /// fetched where the mask names them and they are still empty.
     fn effects_load(&mut self, slot: u16) {
         if !self.music.dac() || slot == 0 || slot >= 26 {
@@ -612,18 +599,20 @@ impl Adventure {
     }
 
     /// `0x8394`–`0x83FB`: whether the place left and the place ahead are
-    /// both forest rows — two different locations in 0..=60 whose kind is
-    /// 3 — so the loader will keep the slot.
+    /// both forest rows — two different locations of the table (in *Dunkle
+    /// Schatten* 0 to 60, `cmp …, 3Dh`) of the forest's kind — so the loader
+    /// will keep the slot.
     pub(crate) fn forest_kept(&self) -> bool {
         let (a, b) = (self.here_word, self.location_word);
         let kind = |n: u16| self.locations.kind(&self.image, usize::from(n));
+        let rows = crate::num::word(self.locations.count);
         a != b
             && crate::num::signed(a) >= 0
-            && a < 0x3D
+            && a < rows
             && crate::num::signed(b) >= 0
-            && b < 0x3D
-            && kind(a) == Some(3)
-            && kind(b) == Some(3)
+            && b < rows
+            && kind(a) == Some(self.kinds.forest)
+            && kind(b) == Some(self.kinds.forest)
     }
 
     /// The music switch flipped by the options (`0x12304`): off, the

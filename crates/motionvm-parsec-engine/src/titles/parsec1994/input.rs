@@ -142,7 +142,7 @@ impl Adventure {
         if id == 0 {
             return None;
         }
-        if id < 0x17 {
+        if id < self.items_end() {
             return self
                 .item_name(num::low8(id))
                 .map(motionvm_parsec_formats::to_cp437);

@@ -45,37 +45,43 @@ mod dialogue;
 mod effects;
 mod frame;
 mod input;
+pub(crate) mod logic;
 mod menu;
 mod mode;
 mod movers;
 mod music;
 mod objects;
+pub(crate) mod onward;
 mod options;
 mod player;
+pub(crate) mod program;
 mod render;
+pub(crate) mod restore;
 mod rules;
 mod savegame;
 mod script;
 mod tasks;
+#[cfg(test)]
+pub(crate) mod trace;
 
 pub(crate) use anim::{AniRun, Body};
 pub(crate) use clock::{BiosTick, Clock};
 pub(crate) use cursor::PointerMap;
 pub(crate) use dialogue::Event;
 pub(crate) use effects::{RETRACE_DEN, RETRACE_NUM};
-pub(crate) use menu::MenuKey;
 #[cfg(test)]
 pub(crate) use menu::prepare_menu_text;
-pub(crate) use mode::Gate;
+pub(crate) use menu::{MenuKey, MenuShape};
+pub(crate) use mode::{Gate, GateMap};
 pub(crate) use movers::MoverRt;
 pub(crate) use music::{MusicMap, Request};
-pub(crate) use objects::{HotspotRt, ObjectRt};
+pub(crate) use objects::{HotspotRt, LIVE as OBJECT_LIVE, ObjectRt};
 pub(crate) use options::{
     Input as OptionsInput, KEY_ESCAPE, KEY_TAB, Opened, OptionsMap, REFERENCE_DISSOLVE_DRAWS,
 };
 #[cfg(test)]
 pub(crate) use savegame::sav_check;
-pub(crate) use savegame::{Cfg, SAV_LEN, SaveMap, cfg_read, sav_valid};
+pub(crate) use savegame::{Block, Cfg, SaveMap, cfg_read, sav_valid};
 pub(crate) use tasks::{BankId, DialogueRef};
 
 use std::collections::BTreeMap;
@@ -109,9 +115,6 @@ pub(crate) struct Script {
 }
 
 pub(crate) use api::{Api, DsMap, Far};
-/// The dialogue flags inside it: 256 bytes at `DS:273Fh` (`0x0DB39`,
-/// `0x0D915`).
-const FLAGS: usize = 0x273F;
 
 /// Rows of the playfield, from the `RDV1.00` header every room carries.
 const PLAYFIELD_H: i32 = 128;
@@ -175,11 +178,35 @@ pub(crate) struct Files {
     pub pointers: &'static str,
     /// The RIB holding the player's cels and their bank.
     pub player: &'static str,
+    /// The RIB holding the two global dialogue banks and the figure's
+    /// animations.
+    pub dialog: &'static str,
     /// Where in the program the status-line templates are, and how many.
     /// The row and its length are this title's own reading.
     pub templates: (usize, usize),
     /// The music library, and where the build keeps the music's words.
     pub music: (&'static str, MusicMap),
+}
+
+/// What a build's location table means by the kind word at `+7` of a row,
+/// where the generation's routines tell rows apart by it. The numbers are
+/// immediates of those routines and differ from title to title.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Kinds {
+    /// A row that is not a place: the main loop does not dispatch it but
+    /// walks on past it, and a door does not lead to it.
+    pub passage: u16,
+    /// A forest row: the room loader takes the shared forest picture for
+    /// it, and between two of them the picture, the music and the effect
+    /// stay.
+    pub forest: u16,
+    /// A row the entry reveals into from another of its kind, as it does
+    /// between two forest rows.
+    pub reveal: u16,
+    /// The restore row's kind, which the walk on steps over too.
+    pub restore: u16,
+    /// The room slot a forest row's picture is taken from.
+    pub forest_slot: u16,
 }
 
 /// One loaded install of a parsec1994 game: the program, its locations,
@@ -189,6 +216,8 @@ pub(crate) struct Adventure {
     pub image: Image,
     /// The location table this program dispatches on.
     pub locations: Locations,
+    /// What the table's kinds mean to this build.
+    pub kinds: Kinds,
     /// One entry per room-file slot; `None` where the slot carries no
     /// playfield.
     pub rooms: Vec<Option<RoomFile>>,
@@ -218,6 +247,8 @@ pub(crate) struct Adventure {
     pointer_cels: Vec<Option<Picture>>,
     /// The pointer library, `179Eh`, once the game's logic has installed it.
     pub(crate) cursor: Option<cursor::Cursor>,
+    /// The choice menu's geometry, read out of the program.
+    pub menu_shape: MenuShape,
     /// The player's cels: bundle 1, which is the figure file from its
     /// resource **1** — the loader advances the slot by four bytes, one
     /// far pointer, past the palette (`0x10AD0`).
@@ -496,6 +527,7 @@ impl Adventure {
         res: &Path,
         image: Image,
         locations: Locations,
+        kinds: Kinds,
         ds_map: DsMap,
         files: Files,
     ) -> Result<Self> {
@@ -589,10 +621,18 @@ impl Adventure {
         // The two global banks, the rules that hold everywhere, and the
         // numbers a caption is drawn and timed with, all read out of the
         // program.
-        let dialog = rib(res, "DIALOG.DAT")?;
+        let dialog = rib(res, files.dialog)?;
         let dialogues = (
-            Bank::parse(dialog.get(0).ok_or("DIALOG.DAT has no bank 999")?)?,
-            Bank::parse(dialog.get(1).ok_or("DIALOG.DAT has no bank 2")?)?,
+            Bank::parse(
+                dialog
+                    .get(0)
+                    .ok_or_else(|| format!("{} has no bank 999", files.dialog))?,
+            )?,
+            Bank::parse(
+                dialog
+                    .get(1)
+                    .ok_or_else(|| format!("{} has no bank 2", files.dialog))?,
+            )?,
         );
         // Resource 2 is the figure's `AN` block, loaded beside the banks
         // (`0x0525F`); without one no figure animation plays.
@@ -636,9 +676,12 @@ impl Adventure {
             ds[..n].copy_from_slice(&bytes[at..at + n]);
             ds
         };
+        let menu_shape = MenuShape::read(&image, &ds, ds_map.menu)?;
         let mut me = Adventure {
+            menu_shape,
             image,
             locations,
+            kinds,
             rooms,
             panel,
             banks,
@@ -856,12 +899,12 @@ impl Adventure {
 
     /// Dialogue flag `n`, `[273Fh + n]`.
     pub(crate) fn flag(&self, n: usize) -> u8 {
-        self.sav_byte(FLAGS + n)
+        self.sav_byte(usize::from(self.ds_map.flags) + n)
     }
 
     /// The same, set (`0x0D915`).
     pub(crate) fn set_flag(&mut self, n: usize) {
-        self.sav_set(FLAGS + n, 1);
+        self.sav_set(usize::from(self.ds_map.flags) + n, 1);
     }
 
     /// `0EB9h:1691h(counter, scenes…, −1)`: the next scene of a sequence.
@@ -913,7 +956,7 @@ impl Adventure {
             let kept = std::mem::take(&mut self.slot_kept)
                 && self.bound_map.is_some()
                 && u16::try_from(n).is_ok_and(|n| self.forest_row(n))
-                && self.place_pair_kind() == 3;
+                && self.place_pair_kind() == self.kinds.forest;
             self.picture_kept = kept;
             self.loc = n;
             self.clear_mode_block();
@@ -1025,7 +1068,7 @@ impl Adventure {
         // transition (0x0ED4F), and the music stopped once it has played
         // (0x0ED55) — a second into the fade, so what still sounds dies
         // away from the level the fade has reached.
-        if self.place_pair_kind() != 3 {
+        if self.place_pair_kind() != self.kinds.forest {
             self.music_call(music::Call::Fade(0x05DC));
             let effect = num::low8(self.roll(1, 6));
             self.events.push(Event::Transition(effect));
@@ -1113,10 +1156,12 @@ impl Adventure {
         // `si`, the room's song, cleared between two forest rows alone
         // (`0x0EC74`).
         let picture = self.render_scene();
-        self.entry_music = self.place_pair_kind() != 3;
-        match self.place_pair_kind() {
-            3 | 5 => self.effects.reveal(&picture, &self.presented),
-            _ => self.effects.entry(&picture, &self.presented),
+        let pair = self.place_pair_kind();
+        self.entry_music = pair != self.kinds.forest;
+        if pair == self.kinds.forest || pair == self.kinds.reveal {
+            self.effects.reveal(&picture, &self.presented);
+        } else {
+            self.effects.entry(&picture, &self.presented);
         }
         // 0x0EC84: the game's gray ramp, after the effect.
         if let Some((start, rgb)) = self.entry_ramp.clone() {
@@ -1172,11 +1217,13 @@ impl Adventure {
 
     /// `14DDh:08F1h` (`0x156C1`): the kind two places share when the
     /// handler's own place `[1F4Ch]` and the main loop's `[1F4Ah]` differ,
-    /// both lie in 1..=60 and both are of kind 3 (forest) or 5 (the F
-    /// rows); 0 otherwise.
+    /// both lie in the table past row 0 (in *Dunkle Schatten* 1 to 60) and
+    /// both are forest rows or both of the other kind the entry reveals
+    /// into (in *Dunkle Schatten* 3 and 5, the F rows); 0 otherwise.
     pub(crate) fn place_pair_kind(&self) -> u16 {
         let (a, b) = (self.here_word, self.location_word);
-        if a == b || !(1..=60).contains(&a) || !(1..=60).contains(&b) {
+        let rows = 1..num::word(self.locations.count);
+        if a == b || !rows.contains(&a) || !rows.contains(&b) {
             return 0;
         }
         let kind = |n: u16| {
@@ -1185,7 +1232,7 @@ impl Adventure {
                 .unwrap_or(0)
         };
         let k = kind(b);
-        if kind(a) == k && (k == 3 || k == 5) {
+        if kind(a) == k && (k == self.kinds.forest || k == self.kinds.reveal) {
             k
         } else {
             0
@@ -1389,19 +1436,25 @@ impl Adventure {
         self.sync_links();
     }
 
-    /// Whether row `loc` is a forest row: kind 3, the Wald and the maze.
+    /// Whether row `loc` is a forest row: in *Dunkle Schatten* the Wald
+    /// and the maze.
     pub(crate) fn forest_row(&self, loc: u16) -> bool {
-        self.locations.kind(&self.image, usize::from(loc)) == Some(3)
+        self.locations.kind(&self.image, usize::from(loc)) == Some(self.kinds.forest)
     }
 
     /// The `DSROOM.DAT` slot the room loader (`0766h:010Ah`) takes for row
-    /// `loc`: slot 20, the forest picture, for a forest row (`0x077ED`
-    /// reads the kind, `0x077F2` compares it with 3, `0x077F7` takes 14h),
-    /// and the row's own slot otherwise (`0x077FC`). The picture, the walk
+    /// `loc`: the forest picture's slot for a forest row (in *Dunkle
+    /// Schatten* `0x077ED` reads the kind, `0x077F2` compares it with 3,
+    /// `0x077F7` takes slot 14h), and the row's own slot otherwise
+    /// (`0x077FC`). The picture, the walk
     /// graph, the animations and the row's dialogue bank all come out of
     /// that slot.
     pub(crate) fn room_slot(&self, loc: u16) -> u16 {
-        if self.forest_row(loc) { 20 } else { loc }
+        if self.forest_row(loc) {
+            self.kinds.forest_slot
+        } else {
+            loc
+        }
     }
 
     /// The slot the current location was loaded from.

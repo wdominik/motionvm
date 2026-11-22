@@ -12,8 +12,8 @@
 //! 0500  0136        the width a line may take, 310
 //! 0502  000D        the line height, 13
 //! 0504  2139:003C   one word a line: which choice it belongs to
-//! 050C  2139:0000   the inks: F8 F8 FA E8 E8 E8 FE F8
-//! 0510  21EF:1CD4   one far pointer a line: its text
+//! 0508  2139:0000   the inks: F8 F8 FA E8 E8 E8 FE F8
+//! 050C  21EF:1CD4   one far pointer a line: its text
 //! ```
 //!
 //! The dialogue player builds it in its choice arm (`0x0DB74`): every
@@ -37,23 +37,63 @@ use motionvm_parsec_formats::Font;
 use motionvm_render::Framebuffer;
 
 use super::tasks::PARKED;
-use super::{Adventure, Event};
+use super::{Adventure, Event, cursor};
 
-/// `[04FCh]`: where a line starts.
-pub(crate) const MENU_X: i32 = 5;
-/// `[04FEh]`: the first line's row, the band's top.
-pub(crate) const MENU_Y: i32 = 0x84;
-/// `[0500h]`: the width a line may take.
-const MENU_WIDTH: i32 = 0x136;
-/// `[0502h]`: from one line to the next.
-pub(crate) const MENU_LINE_H: i32 = 0x0D;
-/// `[04F8h]`: how many lines there are.
-const MENU_LINES: usize = 5;
-/// The ink row at `2139:0000`. Entry 0 is a line's ink, entry 3 the
-/// highlighted choice's, and a `01 n` in a text picks entry `n`.
-const MENU_INKS: [u8; 8] = [0xF8, 0xF8, 0xFA, 0xE8, 0xE8, 0xE8, 0xFE, 0xF8];
-/// The menu's mouse object, `2139:002A`: x, y, width, height.
-const MENU_HOTSPOT: (i32, i32, i32, i32) = (0, 0x84, 0x140, 0x44);
+/// The menu's geometry, as its record ships it: read out of the program
+/// rather than copied from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MenuShape {
+    /// `+0`: how many lines there are.
+    pub lines: usize,
+    /// `+4`: where a line starts.
+    pub x: i32,
+    /// `+6`: the first line's row, the band's top.
+    pub y: i32,
+    /// `+8`: the width a line may take.
+    pub width: i32,
+    /// `+0Ah`: from one line to the next.
+    pub line_h: i32,
+    /// The ink row the far pointer at `+10h` names (`0x12AE7`). Entry 0 is
+    /// a line's ink, entry 3 the highlighted choice's, and a `01 n` in a
+    /// text picks entry `n`.
+    pub inks: [u8; 8],
+}
+
+impl MenuShape {
+    /// The record at `DS:record` of the program, `ds` its data segment.
+    pub(crate) fn read(
+        image: &crate::exe::Image,
+        ds: &[u8],
+        record: u16,
+    ) -> crate::error::Result<Self> {
+        let at = usize::from(record);
+        let word = |k: usize| -> crate::error::Result<u16> {
+            let lo = ds.get(at + k).copied();
+            let hi = ds.get(at + k + 1).copied();
+            match (lo, hi) {
+                (Some(lo), Some(hi)) => Ok(u16::from_le_bytes([lo, hi])),
+                _ => Err(
+                    format!("the menu record at DS:{record:04X}h runs past the data segment")
+                        .into(),
+                ),
+            }
+        };
+        let inks_at = usize::from(word(0x12)?) * 16 + usize::from(word(0x10)?);
+        let inks = image
+            .bytes()
+            .get(inks_at..inks_at + 8)
+            .and_then(|b| b.first_chunk::<8>().copied())
+            .ok_or_else(|| format!("the menu's inks at {inks_at:#x} run past the image"))?;
+        Ok(MenuShape {
+            lines: usize::from(word(0)?),
+            x: i32::from(num::signed(word(4)?)),
+            y: i32::from(num::signed(word(6)?)),
+            width: i32::from(num::signed(word(8)?)),
+            line_h: i32::from(num::signed(word(0x0A)?)),
+            inks,
+        })
+    }
+}
 
 /// One line of the menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +107,7 @@ pub(crate) struct MenuLine {
 /// The record at `DS:04F8h`, the parts of it that change.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Menu {
-    /// The lines, in order; at most [`MENU_LINES`].
+    /// The lines, in order; at most [`MenuShape::lines`].
     pub lines: Vec<MenuLine>,
     /// `[04FAh]`: the highlighted choice, 1-based, 0 for none.
     pub highlight: u16,
@@ -146,7 +186,7 @@ impl Adventure {
     /// this choice's (`0x12C2F`) and the text cut there (`0x12C45`).
     fn menu_add(&mut self, text: &[u8], choice: u16) {
         let mut rest = text;
-        while !rest.is_empty() && self.menu.lines.len() < MENU_LINES {
+        while !rest.is_empty() && self.menu.lines.len() < self.menu_shape.lines {
             let n = self.wrap_line(rest).max(1).min(rest.len());
             self.menu.lines.push(MenuLine {
                 text: rest[..n].to_vec(),
@@ -177,7 +217,7 @@ impl Adventure {
     fn wrap_line(&self, text: &[u8]) -> usize {
         let space =
             i32::from(self.font.advance(b' ')) + i32::from(motionvm_parsec_formats::font::SPACING);
-        let mut left = MENU_WIDTH;
+        let mut left = self.menu_shape.width;
         let mut taken = 0usize;
         let mut space_last = false;
         let mut at = 0usize;
@@ -217,10 +257,12 @@ impl Adventure {
             return;
         }
         let (x, y) = self.mouse;
-        let (mx, my, mw, mh) = MENU_HOTSPOT;
+        let Some((mx, my, mw, mh)) = self.cursor.as_ref().map(cursor::Cursor::menu_rect) else {
+            return;
+        };
         let inside = x >= mx && x < mx + mw && y >= my && y < my + mh;
         self.menu.highlight = if inside {
-            let line = usize::try_from((y - my) / MENU_LINE_H).unwrap_or(usize::MAX);
+            let line = usize::try_from((y - my) / self.menu_shape.line_h).unwrap_or(usize::MAX);
             self.menu.lines.get(line).map_or(0, |l| l.choice)
         } else {
             0
@@ -285,9 +327,9 @@ impl Adventure {
     fn menu_pointer_to_highlight(&mut self) {
         let h = self.menu.highlight;
         let choice = |k: usize| self.menu.lines.get(k).map_or(0, |l| l.choice);
-        let mut end = MENU_LINES;
+        let mut end = self.menu_shape.lines;
         let mut start = 0;
-        let mut dx = MENU_LINES;
+        let mut dx = self.menu_shape.lines;
         while dx > 0 {
             dx -= 1;
             let c = choice(dx);
@@ -299,8 +341,9 @@ impl Adventure {
                 break;
             }
         }
-        let y = MENU_Y + ((num::count(start + end) * MENU_LINE_H) >> 1);
-        let x = MENU_X + MENU_WIDTH - 3;
+        let m = self.menu_shape;
+        let y = m.y + ((num::count(start + end) * m.line_h) >> 1);
+        let x = m.x + m.width - 3;
         if let Some(c) = &mut self.cursor {
             self.mouse = c.set_position(x, y);
         }
@@ -352,14 +395,15 @@ impl Adventure {
         if !self.menu.up {
             return;
         }
+        let m = self.menu_shape;
         for (i, line) in self.menu.lines.iter().enumerate() {
-            let y = MENU_Y + MENU_LINE_H * num::count(i);
+            let y = m.y + m.line_h * num::count(i);
             let mut ink = if line.choice == self.menu.highlight {
-                MENU_INKS[3]
+                m.inks[3]
             } else {
-                MENU_INKS[0]
+                m.inks[0]
             };
-            let mut x = MENU_X;
+            let mut x = m.x;
             let mut k = 0;
             while k < line.text.len() {
                 let b = line.text[k];
@@ -370,7 +414,7 @@ impl Adventure {
                     k += 1;
                 } else if b == 1 {
                     let n = usize::from(line.text.get(k + 1).copied().unwrap_or(0));
-                    ink = MENU_INKS.get(n).copied().unwrap_or(ink);
+                    ink = m.inks.get(n).copied().unwrap_or(ink);
                     k += 2;
                 } else {
                     break;

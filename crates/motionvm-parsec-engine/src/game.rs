@@ -21,33 +21,39 @@ use crate::titles::{Runtime as Program, Start};
 
 use crate::error::{Error, Result};
 
-/// What a directory must hold before [`Game::open`] can do anything with it.
+/// What a directory must hold before [`Game::open`] can do anything with
+/// it, by the names the title's build reads.
 ///
 /// Established by taking files away and watching what broke, not by reading
 /// the loader. The locations are slots of one file, and the cursor file
 /// carries the font as well as the pointer.
-const REQUIRED: &[(&str, &str)] = &[
-    ("DSROOM.DAT", "every location, as slots of one FGROUP"),
-    ("PANELS.DAT", "the verb strip under the playfield"),
-    ("CMBMOU.DAT", "the font and the pointers"),
-    ("PLAY00.DAT", "the player's cels and their palette bank"),
-];
+fn required(title: Title) -> [(&'static str, &'static str); 4] {
+    let names = match title {
+        Title::DunkleSchatten => &crate::titles::ds1::build::BUILD.names,
+    };
+    [
+        (names.rooms, "every location, as slots of one FGROUP"),
+        (names.panel, "the verb strip under the playfield"),
+        (names.pointers, "the font and the pointers"),
+        (names.player, "the player's cels and their palette bank"),
+    ]
+}
 
 /// Which of the required files `dir` does not hold, as `(what, what for)`.
 ///
 /// Empty means [`Game::open`] will get as far as parsing. It is an existence
-/// check, not a validity one — a truncated `DSROOM.DAT` still fails later.
+/// check, not a validity one — a truncated room container still fails
+/// later.
 pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
-    if detect::identify(dir).is_none() {
+    let Some(title) = detect::identify(dir) else {
         return vec![(
             "a PARSEC game",
             "XP00.EXE / XP01.EXE and RESOURCE/*.DAT (DSROOM.DAT)",
         )];
-    }
+    };
     let res = detect::resource_dir(dir);
-    REQUIRED
-        .iter()
-        .copied()
+    required(title)
+        .into_iter()
         .filter(|(name, _)| find_ci(&res, name).is_none())
         .collect()
 }

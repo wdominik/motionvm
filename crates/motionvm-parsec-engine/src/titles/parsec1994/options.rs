@@ -51,29 +51,6 @@ pub(crate) struct OptionsMap {
     pub save: SaveMap,
 }
 
-impl OptionsMap {
-    /// *Dunkle Schatten*'s `XP01.EXE`.
-    pub(crate) const DS1: OptionsMap = OptionsMap {
-        // 0x11A65: `les bx, [bx+14A4h]`.
-        rows: 0x14A4,
-        // 0x11A51: `push 0E60h`.
-        title: 0x0E60,
-        // 0x11EE0: `push 2 ; push 0C0h ; push ds ; push 14C8h`.
-        colors: (0x14C8, 0xC0),
-        // 0x125E5: `mov ax, [bx+14CEh]`, the row `8 · [146Ch]`.
-        text_speeds: 0x14CE,
-        // 0x1261D: `mov al, [bx+14E6h]`.
-        walk_speeds: 0x14E6,
-        // 0x12393, 0x123B7, 0x123DE, 0x123F0.
-        confirms: [0x1424, 0x1430, 0x143C, 0x1448],
-        // 0x12304: `xor word [212h], 1`.
-        music: 0x0212,
-        // 0x12379: `test word [1EDCh], 10h`.
-        switches: 0x1EDC,
-        save: SaveMap::DS1,
-    };
-}
-
 /// The menu's own inks and grounds, all immediates of the routines.
 const HEAD_INK: u8 = 0xF4; // 0x11A4B
 const HOVER_INK: u8 = 0xFE; // 0x12214

@@ -260,16 +260,21 @@ follows from MOTION's shape — one interpreter, every game data on top of it.
 
 PARSEC's original is a compiled program, so it has no such interpreter to
 keep title-free, and its answer is the other way round: the game is a
-module of its own, `titles/ds1/` — its address map, its location
-handlers and its puzzle logic, each re-expressed from the program with the
-addresses it was read from — beside the library that program is linked
-against, which is the `parsec1994` generation: its runtime in
-`titles/parsec1994/` (the mode machine, the animator, the tasks, the
-dialogue) and the modules beside it (the walk, the location dispatch, the
-panel colors). The handlers reach the generation through one trait,
-`Api`, and through nothing else, which is what lets the location logic run
-against a recording stand-in and be held, case by case, against the
-original routines traced on the same inputs. The program's tables and
+module of its own, `titles/ds1/` — its build (where its program keeps
+what the runtime reads, and which file is which), its location handlers,
+its global rules and its puzzle logic, each re-expressed from the program
+with the addresses it was read from, and its title program — beside the
+library that program is linked against, which is the `parsec1994`
+generation: its runtime in `titles/parsec1994/` (the program's main loop
+and its visits, the mode machine, the animator, the tasks, the dialogue,
+the saved game, the walk on past the rows that are not places and the way
+back into a loaded game) and the modules beside it (the walk, the
+location dispatch, the panel colors). The generation carries no title's
+values: where a build keeps what, and what its tables mean, are the
+title's build's, handed over when the program opens. The handlers reach the generation through one
+trait, `Api`, and through nothing else, which is what lets the location
+logic run against a recording stand-in and be held, case by case, against
+the original routines traced on the same inputs. The program's tables and
 texts are read out of the unpacked image when the game opens, never
 transcribed. The boundary test holds the layout: the game's directory
 under `titles/` is named for its slug, and the only other directory there

@@ -78,39 +78,6 @@ pub(crate) struct PointerMap {
     pub menu_region: usize,
 }
 
-impl PointerMap {
-    /// Dunkle Schatten's `XP01.EXE`.
-    pub(crate) const DS1: PointerMap = PointerMap {
-        // `0590h:064Dh`'s table at `cs:06A1h`: `push 234h` (0x05F71),
-        // `274h` (0x05F83), `2B4h` (0x05F8D), `2D4h` (0x05F97), each
-        // copied to `push 334h` by `179Eh:0960h`.
-        modes: [0x0234, 0x0274, 0x02B4, 0x02D4],
-        slot: 0x0334,
-        // `0x05EC4`: `mov [3B6h], ds ; mov word [3B4h], 254h`.
-        regions: 0x0254,
-        // `0x05DFA` (`[195Eh]+4`), `0x05E47` (`+14h`), `0x05E6E`
-        // (`+18h`), `0x05E95` (`+8`).
-        centered: [(0x0254, 1), (0x02B4, 5), (0x02D4, 6), (0x0374, 2)],
-        // `0x188FD`: `mul word [1864h]`.
-        seed: 0x1864,
-        // `0x17ABE`: `mov ax, [3C2h] ; xchg [3C4h], ax`.
-        timeout: 0x03C2,
-        // `0x05EE0`: `push word [314h]`.
-        interval: 0x0314,
-        // `0x185B2`, `0x185BA`, `0x185F1`, `0x185F9`.
-        limits: 0x030A,
-        position: 0x03E6,
-        // `0x05F5A`: `mov [1962h], ax`.
-        mode: 0x1962,
-        // `0x18A0F`, `0x18A01`, `0x188CB`.
-        dirty: 0x02F6,
-        state: 0x0316,
-        drawn: 0x03EE,
-        // `0x0DC8B`: `push 2139h ; push 2Ah ; call far 179Eh:0210h`.
-        menu_region: 0x2139 * 16 + 0x2A,
-    };
-}
-
 /// One 32-byte descriptor, as it stands in `DGROUP`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Descriptor {
@@ -269,6 +236,13 @@ fn word(ds: &[u8], at: u16) -> u16 {
 }
 
 impl Cursor {
+    /// The menu's mouse object's rectangle, `+8` to `+0Eh` of its record:
+    /// x, y, width, height.
+    pub(crate) fn menu_rect(&self) -> (i32, i32, i32, i32) {
+        let (x, y, w, h) = self.menu.rect;
+        (i32::from(x), i32::from(y), i32::from(w), i32::from(h))
+    }
+
     /// The state the loader leaves (`0x05D45`–`0x05F0A`): descriptors read
     /// from `ds` and centered on the cels, `0234h` copied to the slot, the
     /// library initialised (`179Eh:0A00h`), the pointer hidden
@@ -1057,12 +1031,12 @@ mod tests {
         put(0x03E6, &[0xA0, 0x64]);
         put(0x03EE, &[0xA0, 0x64]);
         put(0x1864, &[0x0457]);
-        let mut image = vec![0u8; PointerMap::DS1.menu_region + 0x12];
+        let mut image = vec![0u8; crate::titles::ds1::build::POINTER.menu_region + 0x12];
         for (k, w) in [0u16, 0, 1, 0x0101, 0, 0x84, 0x140, 0x44]
             .iter()
             .enumerate()
         {
-            let a = PointerMap::DS1.menu_region + 2 * k;
+            let a = crate::titles::ds1::build::POINTER.menu_region + 2 * k;
             image[a..a + 2].copy_from_slice(&w.to_le_bytes());
         }
         (ds, image)
@@ -1082,13 +1056,13 @@ mod tests {
 
     fn loaded() -> Cursor {
         let (ds, image) = fixture();
-        Cursor::load(PointerMap::DS1, &ds, &image, &cels())
+        Cursor::load(crate::titles::ds1::build::POINTER, &ds, &image, &cels())
     }
 
     fn loaded_with(patch: impl FnOnce(&mut Vec<u8>)) -> Cursor {
         let (mut ds, image) = fixture();
         patch(&mut ds);
-        Cursor::load(PointerMap::DS1, &ds, &image, &cels())
+        Cursor::load(crate::titles::ds1::build::POINTER, &ds, &image, &cels())
     }
 
     /// `0x188FA` from the shipped seed `0457h`: the seeds and the
@@ -1522,7 +1496,7 @@ mod tests {
         ] {
             assert_eq!(&bytes[at + lo..at + hi], &ds[lo..hi], "DS:{lo:04X}");
         }
-        let r = PointerMap::DS1.menu_region;
+        let r = crate::titles::ds1::build::POINTER.menu_region;
         assert_eq!(&bytes[r..r + 0x10], &img[r..r + 0x10]);
     }
 }

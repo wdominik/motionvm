@@ -9,47 +9,24 @@
 //! onto the stack at `DS:1F4Eh` and copies the same blocks out to the
 //! buffer at `2163:0000`.
 //!
-//! Re-expressed from the handler at `147A:052C` (image `0x14CCC`) against
-//! [`Api`] alone. The handler has no hook, no rules and no frame loop of
-//! its own: it copies the loaded blocks back, pops the location it was
-//! saved in and returns, and the main loop goes on there.
+//! The handler at `147A:052C` (image `0x14CCC`) is the generation's way
+//! back ([`parsec1994::restore`]), here with this build's save map, its
+//! buffer and its main loop's words.
 
-use super::logic::Logic;
-use crate::titles::parsec1994::{Api, Far};
+use super::build;
+use super::logic::{Logic, SAVE_BUFFER};
+use crate::titles::parsec1994::{self, Api, restore::MainLoop};
 
-/// `[1744h]`: a loaded game is waiting in the buffer.
-const LOADED: u16 = 0x1744;
-/// `DS:1F4Eh`: the location stack — a count word, then the locations.
-const STACK: u16 = 0x1F4E;
 /// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-/// The far buffer the save fills and this handler reads back,
-/// `2163h:0000h` (`0x14CDA`: `mov [bp-2], 2163h`, `mov [bp-4], 0`). It
-/// is a segment of its own below `DGROUP`, not an offset in it.
-const BUFFER: u16 = 0x2163;
+const WORDS: MainLoop = MainLoop {
+    entry: 0x1F48,
+    location: 0x1F4A,
+    here: 0x1F4C,
+};
 
-/// The handler, `0x14CCC` to `0x14D7B`, whole: there is no frame loop.
+/// The handler, whole: there is no frame loop.
 pub(crate) fn enter(api: &mut dyn Api) {
-    // 0x14CD0: nothing loaded, nothing to do.
-    if api.word(LOADED) == 0 {
-        return; // 0x14CD7
-    }
-    let buf = |off: u16| Far { off, seg: BUFFER };
-    api.movmem(buf(0x07F9), api.ds(STACK), 8); // 0x14CF4
-    api.movmem(buf(0x0801), api.ds(0x1693), 0x30); // 0x14D0C: the player's walker
-    api.set_word(HERE, 0xFFFF); // 0x14D14
-    // 0x14D1A: the location on top of the stack, popped.
-    let top = api.word(STACK);
-    let loc = api.word(STACK.wrapping_add(top << 1));
-    api.set_word(LOCATION, loc); // 0x14D24
-    api.set_word(STACK, top.wrapping_sub(1)); // 0x14D27
-    api.set_word(ENTRY, 0xFFFF); // 0x14D2B
-    api.movmem(buf(0x0014), api.ds(0x26F6), 0x45); // 0x14D41: story bytes
-    api.movmem(buf(0x0059), api.ds(0x1F56), 0x07A0); // 0x14D5A: object states
-    // 0x14D72: 23h bytes back, though the save copied 7Fh (0x14C8B).
-    api.movmem(buf(0x0831), api.ds(0x15FE), 0x23);
+    parsec1994::restore::enter(api, &build::SAVE, SAVE_BUFFER, WORDS);
 }
 
 /// No frame loop: the handler has returned.

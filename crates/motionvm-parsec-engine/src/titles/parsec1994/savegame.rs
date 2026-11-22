@@ -30,47 +30,42 @@ use crate::titles::rng::LcRng;
 
 use super::{Adventure, Api, Far};
 
-/// The file and the buffer: `push 8B1h` at the clear (`0x14821`), the write
-/// (`0x14AE1`) and the size check (`0x14901`).
-pub(crate) const SAV_LEN: usize = 0x8B1;
-
 /// The settings file: `push 1Fh` at the write (`0x14BBE`) and `cmp ax, 1Fh`
 /// at the size check (`0x1485B`).
 pub(crate) const CFG_LEN: usize = 0x1F;
-
-/// `mov cx, 453h` (`0x14A93`) and `mov si, 453h` (`0x1496D`): the words the
-/// checksum walks from `+14h`. That is `8A6h` bytes, nine past the file's
-/// end, into the segment's padding — which is zero, and which nothing but
-/// this segment's own code reaches.
-const SUM_WORDS: usize = 0x453;
-
-/// Where the walk starts: `add dx, 14h` (`0x14A8A`, `0x14964`).
-const SUM_FROM: usize = 0x14;
-
-/// `DSchSAV\0`: the four words `0x14A66`–`0x14A77` store and `0x149A9`–
-/// `0x149BF` compare.
-const SAV_MAGIC: [u16; 4] = [0x5344, 0x6863, 0x4153, 0x0056];
-
-/// `DSchCFG\0`: `0x14B35`–`0x14B44` and `0x14881`–`0x14898`.
-const CFG_MAGIC: [u16; 4] = [0x5344, 0x6863, 0x4643, 0x0047];
 
 /// `mov bx, 3E5h` (`0x147EE`): the settings' check value is multiplied by
 /// 997 after each word.
 const CFG_FACTOR: u32 = 0x3E5;
 
 /// One block of the data segment the save copies: where in the buffer,
-/// from where, how many bytes. The way back is location 60's handler,
-/// which copies the same blocks — the last of them shorter.
+/// from where, how many bytes out and how many back. The way back is the
+/// restore row's handler, which copies the same blocks — in *Dunkle
+/// Schatten* the last of them shorter.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Block {
     pub buf: u16,
     pub ds: u16,
     pub out: u16,
+    pub back: u16,
 }
 
-/// Where one build keeps what its saved game is made of.
+/// Where one build keeps what its saved game is made of, and the shape of
+/// its two files.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SaveMap {
+    /// The file and the buffer, in bytes.
+    pub len: usize,
+    /// The checksum's walk: the byte it starts at and how many words it
+    /// takes, which may run past the file into the segment's padding.
+    pub sum: (usize, usize),
+    /// The four words `SAVEGAME.SAV` opens with.
+    pub sav_magic: [u16; 4],
+    /// The four words `SAVEGAME.CFG` opens with.
+    pub cfg_magic: [u16; 4],
+    /// The row the main loop is sent to when a game is loaded, whose
+    /// handler copies the blocks back.
+    pub restore_row: u16,
     /// The five blocks, in the save's order.
     pub blocks: [Block; 5],
     /// The location stack: a count word, then the locations.
@@ -98,58 +93,6 @@ pub(crate) struct SaveMap {
     pub msg_create: u16,
     pub msg_write: u16,
     pub msg_invalid: u16,
-}
-
-impl SaveMap {
-    /// *Dunkle Schatten*'s `XP01.EXE`.
-    pub(crate) const DS1: SaveMap = SaveMap {
-        blocks: [
-            // 0x14C2A: the story bytes.
-            Block {
-                buf: 0x014,
-                ds: 0x26F6,
-                out: 0x45,
-            },
-            // 0x14C42: 61 object rows of 32 bytes.
-            Block {
-                buf: 0x059,
-                ds: 0x1F56,
-                out: 0x7A0,
-            },
-            // 0x14C5B: the location stack.
-            Block {
-                buf: 0x7F9,
-                ds: 0x1F4E,
-                out: 8,
-            },
-            // 0x14C73: the player's record.
-            Block {
-                buf: 0x801,
-                ds: 0x1693,
-                out: 0x30,
-            },
-            // 0x14C8B: 7Fh bytes saved, of which 0x14D62 restores 23h.
-            Block {
-                buf: 0x831,
-                ds: 0x15FE,
-                out: 0x7F,
-            },
-        ],
-        stack: 0x1F4E,
-        saved: 0x1742,
-        loaded: 0x1744,
-        version: 0x1718,
-        cfg_dirty: 0x1ED2,
-        mouse: 0x16F3,
-        divisors: (0x03DC, 0x03DA),
-        text: 0x167D,
-        speed: 0x16A7,
-        sav_name: 0x0A64,
-        cfg_name: 0x0A56,
-        msg_create: 0x07BC,
-        msg_write: 0x07E4,
-        msg_invalid: 0x171A,
-    };
 }
 
 /// The word at `at`, a byte past the end reading as zero — which is what
@@ -194,14 +137,14 @@ fn srand(rng: &mut LcRng, lo: u16, hi: u16) {
 ///
 /// `buf` is the file's bytes; the walk's last nine bytes are the
 /// segment's padding, zero.
-pub(crate) fn sav_check(buf: &[u8], rng: &mut LcRng) -> (u32, u16) {
+pub(crate) fn sav_check(buf: &[u8], map: &SaveMap, rng: &mut LcRng) -> (u32, u16) {
     srand(rng, word(buf, 0x0A), word(buf, 0x0C));
     let r1 = rng.inclusive(1, 0xFFFE);
     let r2 = rng.inclusive(1, 0xFFFE);
     let mut sum = num::unsigned32(i32::from(num::signed(r1)));
     let mut xor = r2;
-    let file = buf.get(..SAV_LEN).unwrap_or(buf);
-    for at in words_from(SUM_FROM, SUM_WORDS) {
+    let file = buf.get(..map.len).unwrap_or(buf);
+    for at in words_from(map.sum.0, map.sum.1) {
         let w = word(file, at);
         sum = sum.wrapping_add(num::unsigned32(i32::from(num::signed(w))));
         xor ^= w;
@@ -229,13 +172,13 @@ pub(crate) fn cfg_check(cfg: &[u8], rng: &mut LcRng) -> u32 {
 /// asks for, then the sum, the xor and the magic (`0x149A3`–`0x149C5`).
 /// The generator is reseeded either way, as the original reseeds it before
 /// it compares.
-pub(crate) fn sav_valid(buf: &[u8], rng: &mut LcRng) -> bool {
-    if buf.len() != SAV_LEN {
+pub(crate) fn sav_valid(buf: &[u8], map: &SaveMap, rng: &mut LcRng) -> bool {
+    if buf.len() != map.len {
         return false;
     }
-    let (sum, xor) = sav_check(buf, rng);
+    let (sum, xor) = sav_check(buf, map, rng);
     let stored = (u32::from(word(buf, 0x10)) << 16) | u32::from(word(buf, 0x0E));
-    sum == stored && xor == word(buf, 0x12) && magic_is(buf, &SAV_MAGIC)
+    sum == stored && xor == word(buf, 0x12) && magic_is(buf, &map.sav_magic)
 }
 
 /// Whether the four words at the start of `b` are `magic`.
@@ -257,8 +200,8 @@ pub(crate) enum Cfg {
 
 /// Reads a settings file. The magic is compared first and the check value,
 /// which reseeds the generator, only after it (`0x148A6`).
-pub(crate) fn cfg_read(cfg: &[u8], rng: &mut LcRng) -> Cfg {
-    if cfg.len() != CFG_LEN || !magic_is(cfg, &CFG_MAGIC) {
+pub(crate) fn cfg_read(cfg: &[u8], map: &SaveMap, rng: &mut LcRng) -> Cfg {
+    if cfg.len() != CFG_LEN || !magic_is(cfg, &map.cfg_magic) {
         return Cfg::Ignored;
     }
     let v = cfg_check(cfg, rng);
@@ -303,18 +246,18 @@ impl Adventure {
             .to_string()
     }
 
-    /// `147Ah:0072h`'s first act: the buffer cleared, `8B1h` bytes
+    /// `147Ah:0072h`'s first act: the buffer cleared, the file's length
     /// (`0x14821`, `1EE7h:0004h`).
-    pub(crate) fn save_buffer_clear(&mut self) {
-        for i in 0..SAV_LEN {
+    pub(crate) fn save_buffer_clear(&mut self, map: &SaveMap) {
+        for i in 0..map.len {
             self.save_buffer_set(i, 0);
         }
     }
 
     /// A file read at the start, put into the buffer (`0590h:0BD2h` at
     /// `0x14922`).
-    pub(crate) fn save_buffer_fill(&mut self, bytes: &[u8]) {
-        for (i, &b) in bytes.iter().take(SAV_LEN).enumerate() {
+    pub(crate) fn save_buffer_fill(&mut self, map: &SaveMap, bytes: &[u8]) {
+        for (i, &b) in bytes.iter().take(map.len).enumerate() {
             self.save_buffer_set(i, b);
         }
     }
@@ -349,25 +292,26 @@ impl Adventure {
 
     /// `147Ah:0241h` (`0x149E1`): the header, the checksum, the bytes. The
     /// tick at `+0Ah` is the BIOS tick, `0:046Ch` low and `0:046Eh` high
-    /// (`0x14A11`, `0x14A15`); byte `+8B0h` is cleared (`0x14A60`); and the
+    /// (`0x14A11`, `0x14A15`); the file's last byte, `+8B0h`, is cleared
+    /// (`0x14A60`); and the
     /// word at `+8` is `[1718h]` (`0x14A7D`).
     fn save_0241(&mut self, map: &SaveMap, tick: u32) -> Option<Vec<u8>> {
         if self.word(map.saved) == 0 {
             return None;
         }
-        let mut buf = self.save_buffer().get(..SAV_LEN)?.to_vec();
+        let mut buf = self.save_buffer().get(..map.len)?.to_vec();
         put(&mut buf, 0x0A, num::low_word(tick));
         put(&mut buf, 0x0C, num::high_word(tick));
-        set(&mut buf, 0x8B0, 0);
-        for (at, &m) in words_from(0, 4).zip(&SAV_MAGIC) {
+        set(&mut buf, map.len.checked_sub(1)?, 0);
+        for (at, &m) in words_from(0, 4).zip(&map.sav_magic) {
             put(&mut buf, at, m);
         }
         put(&mut buf, 0x08, self.word(map.version));
-        let (sum, xor) = sav_check(&buf, &mut self.rng);
+        let (sum, xor) = sav_check(&buf, map, &mut self.rng);
         put(&mut buf, 0x0E, num::low_word(sum));
         put(&mut buf, 0x10, num::high_word(sum));
         put(&mut buf, 0x12, xor);
-        self.save_buffer_fill(&buf);
+        self.save_buffer_fill(map, &buf);
         Some(buf)
     }
 
@@ -378,7 +322,7 @@ impl Adventure {
             return None;
         }
         let mut cfg = vec![0u8; CFG_LEN];
-        for (at, &m) in words_from(0, 4).zip(&CFG_MAGIC) {
+        for (at, &m) in words_from(0, 4).zip(&map.cfg_magic) {
             put(&mut cfg, at, m);
         }
         put(&mut cfg, 0x08, self.word(map.version));
@@ -427,11 +371,11 @@ impl Adventure {
     }
 
     /// `147Ah:0518h` (`0x14CB8`): loading in game. No file is read: with a
-    /// game in the buffer, the main loop is sent to location 60.
+    /// game in the buffer, the main loop is sent to the restore row.
     pub(crate) fn load_0518(&mut self, map: &SaveMap) {
         if self.word(map.loaded) != 0 {
             let m = self.map();
-            self.set_word(m.location, 0x3C);
+            self.set_word(m.location, map.restore_row);
             self.set_word(m.entry, 1);
         }
     }
@@ -464,12 +408,12 @@ mod tests {
 
     #[test]
     fn the_save_sum_takes_each_word_signed_and_the_padding_as_zero() {
-        let mut buf = vec![0u8; SAV_LEN];
+        let mut buf = vec![0u8; crate::titles::ds1::build::SAVE.len];
         put(&mut buf, 0x0A, 7);
         put(&mut buf, 0x14, 0xFFFF);
         buf[0x8B0] = 0x80;
         let mut rng = LcRng::default();
-        let (sum, xor) = sav_check(&buf, &mut rng);
+        let (sum, xor) = sav_check(&buf, &crate::titles::ds1::build::SAVE, &mut rng);
         let mut seed = LcRng::default();
         srand(&mut seed, 7, 0);
         let r1 = seed.inclusive(1, 0xFFFE);

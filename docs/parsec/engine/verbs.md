@@ -140,10 +140,10 @@ carries one and a line of bank 999 otherwise:
 |---|---|---|
 | `1586h:0125h` | *Betrachte* | the hotspot's fourth text (`0x15996`), else bank 2's place for an item, else bank 999's place 16 |
 | `1586h:017Ch` | *Sprich mit* | the hotspot's fifth text, else place 4 for something carried and 3 for anything else |
-| `1586h:01CCh` | *Nimm* | the hotspot's sixth text; else an item that is there and live goes out of the room and into the player's hands (`0x15A8F`, `0x15AB2`); else one of places 9, 10 and 11, rolled |
+| `1586h:01CCh` | *Nimm* | the hotspot's sixth text; else an item that is there and live goes out of the room — its live bit cleared (`0x15A8F`) and its own hotspot with it (`14DDh:074Bh`, `0x15A98`) — and into the player's hands (`0x15AB2`); else one of places 9, 10 and 11, rolled |
 | `1586h:0273h` | *Benutze* | place 7 for something carried; else the hotspot's third text, else place 6 |
 | `1586h:02C3h` | *Benutze … mit* | place 15 when both are class 2, 12 when the second is, 8 otherwise |
-| `1586h:00D3h` | *Gib … an* | one of places 0 to 2 when the second object is carried; else place 14 for a class-2 second object, else 5 |
+| `1586h:00D3h` | *Gib … an* | one of places 0 to 2 when the second object is carried; else, for a class-2 second object, its record in subject slot 9 (`0x1596C`; the setter stamps `3000h` when the room has no such object) and place 14; else 5 |
 | `1586h:04A3h` | the third button | *Gib* for something carried, *Nimm* otherwise (`0x15D14`) |
 | `1586h:02E9h` | walk | the figure to the object, and on through a door |
 

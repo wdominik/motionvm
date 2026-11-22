@@ -75,9 +75,9 @@ pub(crate) enum Event {
     /// `10B8h:0210h(k)`: transition effect `k` of six, rolled on the way
     /// out of a location and played.
     Transition(u8),
-    /// An effect routine a handler calls, by its far address `(segment,
-    /// offset)`: `10B8h:03BAh`, the reveal, which plays.
-    Effect(u16, u16),
+    /// `10B8h:03BAh` in *Dunkle Schatten*: the reveal over the playfield a
+    /// handler calls, which plays.
+    Reveal,
     /// The rule search reached a handler this engine has not read.
     UnreadRule { far: (u16, u16), flags: u16 },
     /// The location logic wrote a word through a far pointer outside

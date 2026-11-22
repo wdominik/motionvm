@@ -33,11 +33,14 @@
 // driven by `logic`.
 mod bogenstrasse;
 mod brand;
+pub(crate) mod build;
 mod f1;
 mod f2;
 mod f3;
 mod forest_maze;
+mod global_rules;
 mod hook;
+mod hotspot_rules;
 mod in_der_ruine;
 mod joerg;
 mod jz;
@@ -68,115 +71,41 @@ mod xp01data;
 mod zimmer;
 
 use crate::num;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use motionvm_parsec_formats::Title;
-use motionvm_parsec_formats::detect::resource_dir;
 use motionvm_render::{Framebuffer, Palette};
 
 use crate::error::{Error, Result};
-use crate::exe::Image;
-use crate::titles::xp1994::Locations;
 use crate::titles::{Start, parsec1994};
-use parsec1994::{Api, SaveMap};
 
-use logic::Visit;
+use parsec1994::program::Program;
 use xp01data::ExeText;
 
 /// One loaded install of *Dunkle Schatten*.
 pub(crate) struct DunkleSchatten {
-    /// This title's own reading of its own program.
-    ///
-    /// Most of it is read and pinned before the runtime needs it, which is
-    /// deliberate: a fact taken out of a listing with an address beside it
-    /// is worth keeping the moment it is read.
-    text: ExeText,
-    /// The parsec1994 generation's parts: locations, rooms, strip, palette
-    /// banks.
-    inner: parsec1994::Adventure,
-    /// The location being visited, whose handler's frame loop the ticks
-    /// run. `None` before the main loop and after it, and after a host's
-    /// jump without an entry.
-    visit: Option<Visit>,
-    /// The install, which savegames must not be written into.
-    game_dir: PathBuf,
-    /// Where `SAVEGAME.SAV` and `SAVEGAME.CFG` are read and written; the
-    /// original uses the DOS working directory (`0590h:0DD5h`, `*` names).
-    saves: Option<PathBuf>,
-    /// Whether play has begun: the title program, or `XP01`'s start
-    /// (`_main`, `0x4F19`–`0x4F87`) directly.
-    started: bool,
+    /// `XP01.EXE`, the game program, on the generation's runtime.
+    game: Program,
     /// The title program `XP00` while it runs, before `XP01`.
     xp00: Option<Box<xp00::Xp00>>,
-    /// Whether the main loop has ended: the player quit.
-    over: bool,
 }
 
 impl DunkleSchatten {
     /// Opens the install at `dir`. Nothing is played yet: the start, which
     /// reads the save directory, is [`crate::titles::Runtime::start`].
+    ///
+    /// The program is read twice over: by the generation, for its tables,
+    /// and by this title's own reading ([`ExeText`]) for what only it
+    /// finds. Most of that is read and pinned before the runtime needs it,
+    /// which is deliberate: a fact taken out of a listing with an address
+    /// beside it is worth keeping the moment it is read.
     pub(crate) fn open(dir: &Path) -> Result<Self> {
-        let res = resource_dir(dir);
         let text = ExeText::read(dir)?;
-        let image = Image::open(dir, "XP01.EXE", 150_096)?;
-        let locations = Locations::read(&image)?;
-        let map = logic::ds_map(&locations, text.inventory_at);
-        let mut inner = parsec1994::Adventure::open(
-            &res,
-            image,
-            locations,
-            map,
-            parsec1994::Files {
-                rooms: "DSROOM.DAT",
-                panel: "PANELS.DAT",
-                pointers: "CMBMOU.DAT",
-                player: "PLAY00.DAT",
-                templates: (text.template_row, xp01data::VERB_TEMPLATES),
-                music: ("PSMP2L.DAT", parsec1994::MusicMap::DS1),
-            },
-        )?;
-        inner.options_map = Some(parsec1994::OptionsMap::DS1);
-        inner.install_pointer(parsec1994::PointerMap::DS1);
-        inner.rule_hook = logic::rule_handler;
-        inner.hook = hook::answer;
-        inner.location_hook = logic::location_hook;
-        inner.anim_hook = logic::anim_hook;
-        // The substitution row as the image ships it. Nothing is drawn
-        // into it at the start: the roll at `0x1189` that fills entry 0
-        // sits inside the Wohnzimmer's handler, for a wrong number on the
-        // telephone.
-        inner.substitutions = text
-            .substitutions
-            .iter()
-            .map(|s| motionvm_parsec_formats::to_cp437(s))
-            .collect();
-        inner.initialize_inventory(&text.initial_items, text.initial_scroll)?;
-        inner.enable_panel_colors(text.panel_curves, text.gray_ramp.clone())?;
-        if logic::logic(num::low16(text.start_location)).is_none() {
-            return Err(format!(
-                "the program opens at location {} and that location cannot be entered",
-                text.start_location
-            )
-            .into());
-        }
-        Ok(DunkleSchatten {
-            text,
-            inner,
-            visit: None,
-            game_dir: dir.to_path_buf(),
-            saves: None,
-            started: false,
-            xp00: None,
-            over: false,
-        })
-    }
-
-    /// A file of the save directory, by the name the program builds.
-    fn save_path(&self, name_at: u16) -> Option<PathBuf> {
-        let dir = self.saves.as_ref()?;
-        let name = self.inner.save_file_name(name_at);
-        Some(motionvm_parsec_formats::find_ci(dir, &name).unwrap_or_else(|| dir.join(name)))
+        let game = Program::open(dir, &build::BUILD, |l| Ok(build::reading(&text, l)))?;
+        Ok(DunkleSchatten { game, xp00: None })
     }
 
     /// `XP01` started directly, as its batch line runs it, with the saved
@@ -189,36 +118,23 @@ impl DunkleSchatten {
     /// [`Runtime::start`]: crate::titles::Runtime::start
     /// [`Runtime::start_past_title`]: crate::titles::Runtime::start_past_title
     pub(crate) fn start_in_xp01(&mut self, how: Start) -> Result<()> {
-        if self.started {
+        if self.game.started {
             return Err(Error::AlreadyStarted);
         }
-        self.boot(how);
+        self.game.boot(how);
         Ok(())
-    }
-
-    /// Resource `n` of `RESOURCE\PSMDRV.DAT`, a driver file.
-    fn sound_driver(&self, n: usize) -> Result<Vec<u8>> {
-        let res = resource_dir(&self.game_dir);
-        let path = motionvm_parsec_formats::find_ci(&res, "PSMDRV.DAT")
-            .ok_or("RESOURCE/PSMDRV.DAT: not found")?;
-        Ok(motionvm_parsec_formats::p2l::driver(
-            &std::fs::read(path)?,
-            n,
-        )?)
     }
 
     /// The title program begun: `XP00.EXE` read, `SAVEGAME.SAV` looked
     /// for in the save directory the way `_main` probes it (`0x5EC`).
     fn begin_xp00(&mut self) -> Result<()> {
-        let mut x = xp00::Xp00::open(&self.game_dir)?;
-        let saved = self
-            .save_path(SaveMap::DS1.sav_name)
-            .is_some_and(|p| p.is_file());
+        let mut x = xp00::Xp00::open(&self.game.game_dir)?;
+        let saved = self.game.has_save();
         // XP00 `0x9A2`–`0x9E4`: its digital driver with three channels.
-        self.inner.music.install(3);
+        self.game.inner.music.install(3);
         x.begin(saved);
         self.xp00 = Some(Box::new(x));
-        self.started = true;
+        self.game.started = true;
         Ok(())
     }
 
@@ -230,9 +146,9 @@ impl DunkleSchatten {
     /// does.
     fn leave_xp00_for_a_jump(&mut self) {
         if self.xp00.take().is_some() {
-            self.inner.music.send(parsec1994::Request::Stop);
-            self.inner.music.send(parsec1994::Request::Reinstall);
-            self.boot(Start::Continue);
+            self.game.inner.music.send(parsec1994::Request::Stop);
+            self.game.inner.music.send(parsec1994::Request::Reinstall);
+            self.game.boot(Start::Continue);
         }
     }
 
@@ -250,123 +166,25 @@ impl DunkleSchatten {
         let cycles = self.xp00.take().map_or(0, |x| x.cycles());
         // The title program's driver goes with it, and `XP01`'s init loads
         // and installs its own (`0x5B7B`).
-        self.inner.music.send(parsec1994::Request::Reinstall);
-        let bios = u64::from(self.inner.bios.count()) + cycles / 0x1_0000;
-        self.inner.bios = parsec1994::BiosTick::seeded(bios);
+        let a = &mut self.game.inner;
+        a.music.send(parsec1994::Request::Reinstall);
+        let bios = u64::from(a.bios.count()) + cycles / 0x1_0000;
+        a.bios = parsec1994::BiosTick::seeded(bios);
         match choice {
-            xp00::Choice::Quit => self.over = true,
+            xp00::Choice::Quit => self.game.over = true,
             xp00::Choice::New => {
-                if let Some(p) = self.save_path(SaveMap::DS1.sav_name)
-                    && p.is_file()
-                {
-                    let _ = std::fs::remove_file(p);
-                }
-                self.boot(Start::New);
+                self.game.delete_save();
+                self.game.boot(Start::New);
             }
-            xp00::Choice::Continue => self.boot(Start::Continue),
-        }
-    }
-
-    /// `_main` from `0x4F19` to the options (`0x4F87`), after the sound of
-    /// its init: the main loop's words, the start's load (`147Ah:0072h`), a
-    /// fresh game when nothing was loaded (`0x4F2A`), then the options,
-    /// unconditionally.
-    fn boot(&mut self, how: Start) {
-        self.started = true;
-        let map = SaveMap::DS1;
-        let a = &mut self.inner;
-        // The init before it: the digital driver with six channels
-        // (`0x5BD3`–`0x5C15`), the effects' volume set again (`0x4E85`),
-        // and the twelve effects every room keeps (`0x053AB`).
-        a.music.install(6);
-        a.music.send(parsec1994::Request::EffectVolume(0x3C));
-        a.effects_preload();
-        a.here_word = 0xFFFF; // 0x4F19
-        a.entry_word = 0; // 0x4F1F
-        a.save_buffer_clear(); // 0x14821
-        // 0x14847: the settings, when the file is exactly 1Fh bytes.
-        if let Some(bytes) = self
-            .save_path(map.cfg_name)
-            .and_then(|p| std::fs::read(p).ok())
-            && let parsec1994::Cfg::Taken { mouse, text, speed } =
-                parsec1994::cfg_read(&bytes, self.inner.rng_mut())
-        {
-            self.inner.cfg_take(&map, mouse, text, speed);
-        }
-        // 0x148ED: the saved game, when the file is exactly 8B1h bytes.
-        // A new game is one whose file the title program deleted.
-        let sav = match how {
-            Start::New => None,
-            Start::Continue => self
-                .save_path(map.sav_name)
-                .and_then(|p| std::fs::read(p).ok()),
-        };
-        if let Some(bytes) = sav.filter(|b| b.len() == parsec1994::SAV_LEN) {
-            self.inner.save_buffer_fill(&bytes);
-            if parsec1994::sav_valid(&bytes, self.inner.rng_mut()) {
-                // 0x149D3: held, and restored at once (`147Ah:052Ch`).
-                self.inner.set_word(map.loaded, 1);
-                restore::enter(&mut self.inner);
-            } else {
-                // 0x149C7: the original ends here.
-                let msg = self.inner.save_message(map.msg_invalid, "");
-                self.inner.notice = Some(msg);
-            }
-        }
-        let a = &mut self.inner;
-        if a.location_word == 0 {
-            // 0x4F31: a fresh game.
-            a.here_word = 0xFFFF;
-            a.location_word = num::low16(self.text.start_location);
-            a.entry_word = num::unsigned(self.text.start_entry);
-        }
-        a.options_open(parsec1994::Opened::Start);
-    }
-
-    /// The file the options' save left, written (`1E69h:003Ch`, `00C0h`).
-    /// Where the original ends the program, the message stays up instead.
-    fn write_save(&mut self, name_at: u16, bytes: &[u8]) {
-        use std::io::Write;
-        let map = SaveMap::DS1;
-        let name = self.inner.save_file_name(name_at);
-        let file = self
-            .save_path(name_at)
-            .and_then(|p| std::fs::File::create(p).ok());
-        let Some(mut file) = file else {
-            self.inner.notice = Some(self.inner.save_message(map.msg_create, &name));
-            return;
-        };
-        if file.write_all(bytes).is_err() {
-            self.inner.notice = Some(self.inner.save_message(map.msg_write, &name));
-        }
-    }
-
-    /// After the main loop: the settings written when they changed
-    /// (`0x4FF0`, `147Ah:0373h`).
-    fn finish(&mut self) {
-        self.over = true;
-        let map = SaveMap::DS1;
-        let tick = self.inner.bios.count();
-        if let Some(cfg) = self.inner.cfg_0373(&map, tick) {
-            self.write_save(map.cfg_name, &cfg);
-        }
-    }
-
-    /// The main loop's next location entered — or, below zero, its end.
-    fn main_loop(&mut self) {
-        if num::signed(self.inner.location_word) < 0 {
-            self.finish();
-        } else {
-            self.visit = Some(Visit::enter(&mut self.inner));
+            xp00::Choice::Continue => self.game.boot(Start::Continue),
         }
     }
 }
 
 /// The frontend's view of this title.
 ///
-/// Pointer input, keys and ticks reach the parsec1994 runtime; the visit's
-/// location logic runs its frame loop one turn per tick, and the options
-/// run theirs while they are up.
+/// While the title program runs it takes the pointer, the keys and the
+/// ticks; then `XP01` does, on the generation's runtime ([`Program`]).
 impl crate::titles::Runtime for DunkleSchatten {
     fn title(&self) -> Title {
         Title::DunkleSchatten
@@ -375,14 +193,14 @@ impl crate::titles::Runtime for DunkleSchatten {
     fn palette(&self) -> &Palette {
         match &self.xp00 {
             Some(x) => x.palette(),
-            None => self.inner.palette(),
+            None => self.game.palette(),
         }
     }
 
     fn render(&self) -> Framebuffer {
         match &self.xp00 {
             Some(x) => x.render(),
-            None => self.inner.render(),
+            None => self.game.render(),
         }
     }
 
@@ -390,22 +208,15 @@ impl crate::titles::Runtime for DunkleSchatten {
         if let Some(t) = &mut self.xp00 {
             t.mouse_move(x, y);
         }
-        self.inner.mouse_move(x, y);
+        self.game.inner.mouse_move(x, y);
     }
 
-    /// A button. The options take any button the same (`cs:0C86h`: events
-    /// 5, 6 and 7 go to one arm); the game takes the left.
     fn click(&mut self, left: bool) {
         if let Some(x) = &mut self.xp00 {
             x.click(left);
             return;
         }
-        self.inner.notice = None;
-        if self.inner.options_up() {
-            self.inner.options_input(parsec1994::OptionsInput::Click);
-        } else if left {
-            self.inner.click();
-        }
+        self.game.click(left);
     }
 
     /// A key, mapped the way `179Eh:0611h` maps the BIOS's (`0x18041`–
@@ -414,7 +225,7 @@ impl crate::titles::Runtime for DunkleSchatten {
     /// `106h`; a character is itself. The host sends 27, 13, 9 and
     /// `100h + 0Fh` for those four.
     fn key(&mut self, code: i32) {
-        self.inner.notice = None;
+        self.game.inner.notice = None;
         let mapped = match code {
             27 => parsec1994::KEY_ESCAPE,
             13 => 0x101,
@@ -429,124 +240,44 @@ impl crate::titles::Runtime for DunkleSchatten {
             x.key(mapped);
             return;
         }
-        if self.inner.options_up() {
-            self.inner
-                .options_input(parsec1994::OptionsInput::Key(mapped));
-            return;
-        }
-        // The choice menu's own table (`cs:11ACh`, `0x0E0B6`): `20h` and
-        // `101h` take, `105h` and `106h` move.
-        if self.inner.menu.up {
-            let key = match mapped {
-                0x20 | 0x101 => parsec1994::MenuKey::Select,
-                0x105 => parsec1994::MenuKey::Down,
-                0x106 => parsec1994::MenuKey::Up,
-                _ => return,
-            };
-            self.inner.menu_key(key);
-            return;
-        }
-        self.inner.key_event(mapped);
+        self.game.key(mapped);
     }
 
     fn tick(&mut self) -> bool {
-        if !self.started && self.begin_xp00().is_err() {
+        if !self.game.started && self.begin_xp00().is_err() {
             // An install whose title program cannot be read starts as
             // `XP01` alone would; `start` answers the error instead.
-            self.boot(Start::Continue);
+            self.game.boot(Start::Continue);
         }
-        if self.over {
+        if self.game.over {
             return false;
         }
         if let Some(x) = &mut self.xp00 {
             let choice = x.tick();
             for request in x.take_music() {
-                self.inner.music.send(request);
+                self.game.inner.music.send(request);
             }
             if let Some(choice) = choice {
                 self.end_xp00(choice);
             }
-            return !self.over;
+            return !self.game.over;
         }
-        // The timer's tick, then one turn of the running handler's frame
-        // loop: the input polled and dispatched, the handler's own check,
-        // the shared frame pass — and when the turn ends the visit, the
-        // handler leaves and the main loop enters the next location's.
-        self.inner.interrupt();
-        // A screen effect blocks the game: the clock goes on, the handler's
-        // frame loop waits.
-        if self.inner.effects.busy() {
-            self.inner.effects_tick();
-            return true;
-        }
-        if self.inner.options_up() {
-            let closed = self.inner.options_tick();
-            if let Some(bytes) = self.inner.save_written.take() {
-                self.write_save(SaveMap::DS1.sav_name, &bytes);
-            }
-            match closed {
-                // `_main` goes on into its main loop (`0x4F8C`).
-                Some(parsec1994::Opened::Start) => self.main_loop(),
-                // The gate goes on after its call (`0x0F033`).
-                Some(parsec1994::Opened::Gate) => self.inner.options_gate_close(),
-                None => {}
-            }
-            return !self.over;
-        }
-        match self.visit.take() {
-            Some(v) => {
-                self.visit = v.frame(&mut self.inner);
-                if self.visit.is_none() {
-                    self.finish();
-                }
-            }
-            None => {
-                self.inner.dispatch();
-                self.inner.frame_pass();
-            }
-        }
-        if let Some(bytes) = self.inner.save_written.take() {
-            self.write_save(SaveMap::DS1.sav_name, &bytes);
-        }
-        !self.over
+        self.game.tick()
     }
 
     fn set_location(&mut self, n: i32) {
-        // A row of kind 0 is not a place: the main loop hands it to the
-        // walk on to the next row that is one, which names the entry,
-        // `7Fh`, itself ([`onward`]). The jump goes the same way.
-        if u16::try_from(n)
-            .is_ok_and(|r| self.inner.locations.kind(&self.inner.image, usize::from(r)) == Some(0))
-        {
-            self.set_location_via(n, 0x7F);
-            return;
-        }
         self.leave_xp00_for_a_jump();
-        self.started = true;
-        self.inner.options_drop();
-        self.inner.complete_entry();
-        if let Some(v) = self.visit.take() {
-            v.leave(&mut self.inner);
-        }
-        self.inner.set_location(n);
+        self.game.set_location(n);
     }
 
     fn set_location_via(&mut self, n: i32, entry: i16) {
         // The same gate as the jump's: a number past the table names no
         // handler, and is ignored.
-        if u16::try_from(n).ok().and_then(logic::logic).is_none() {
+        if !self.game.enterable(n) {
             return;
         }
         self.leave_xp00_for_a_jump();
-        self.started = true;
-        self.inner.options_drop();
-        self.inner.complete_entry();
-        if let Some(v) = self.visit.take() {
-            v.leave(&mut self.inner);
-        }
-        self.inner.location_word = num::low16(n);
-        self.inner.entry_word = num::unsigned(entry);
-        self.visit = Some(Visit::enter(&mut self.inner));
+        self.game.set_location_via(n, entry);
     }
 
     /// The BIOS tick the machine starts with, `0:046Ch`: on the original
@@ -555,23 +286,12 @@ impl crate::titles::Runtime for DunkleSchatten {
     /// writes a save or the settings, both of which reseed the generator
     /// from it. Without a seed it starts at 0.
     fn seed(&mut self, seed: u64) {
-        self.inner.bios = parsec1994::BiosTick::seeded(seed);
+        self.game.inner.bios = parsec1994::BiosTick::seeded(seed);
     }
 
     /// Refused inside the install, which is treated as read-only.
     fn set_saves(&mut self, dir: &Path) -> Result<()> {
-        let game = std::fs::canonicalize(&self.game_dir).unwrap_or_else(|_| self.game_dir.clone());
-        let want = if dir.exists() {
-            std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
-        } else {
-            dir.to_path_buf()
-        };
-        if want.starts_with(&game) {
-            return Err(Error::SavesInsideGame);
-        }
-        std::fs::create_dir_all(&want)?;
-        self.saves = Some(want);
-        Ok(())
+        self.game.set_saves(dir)
     }
 
     /// Play begins where the batch file begins it, in the title program.
@@ -579,7 +299,7 @@ impl crate::titles::Runtime for DunkleSchatten {
     /// program's menu decides it, by deleting the saved game or not.
     /// Tests start `XP01` directly with `start_in_xp01`.
     fn start(&mut self, _how: Start) -> Result<()> {
-        if self.started {
+        if self.game.started {
             return Err(Error::AlreadyStarted);
         }
         self.begin_xp00()
@@ -591,36 +311,27 @@ impl crate::titles::Runtime for DunkleSchatten {
     }
 
     fn location(&self) -> Option<i32> {
-        Some(self.inner.location())
+        Some(self.game.inner.location())
     }
 
     fn location_name(&self) -> Option<&str> {
-        self.inner.location_name()
+        self.game.inner.location_name()
     }
 
-    /// A 120th of a second, read from the timer.
-    ///
-    /// The library's init hooks INT 8 (`1950h:1883h`) and registers the
-    /// record at `DS:1C74h` with it (`0x5B45`, `push 1C74h`; `1950h:170Fh`).
-    /// The handler at `0x19F40` then counts the elapsed PIT cycles into
-    /// that record, and its second group of counters — `[1C76h]`, which
-    /// the frame pass takes as its delta at `0x0ED6E` — advances once
-    /// every `26D6h` cycles (`0x19F7F`): 9942 cycles of the 1 193 182 Hz
-    /// chip, 120 ticks a second.
-    ///
-    /// While the title program runs, a frame is a retrace of the screen,
-    /// which is what its fades wait for — see [`xp00`].
+    /// `XP01`'s timer tick ([`Program::frame_duration`]). While the title
+    /// program runs, a frame is a retrace of the screen, which is what its
+    /// fades wait for — see [`xp00`].
     fn frame_duration(&self) -> Duration {
         if self.xp00.is_some() {
             return Duration::from_nanos(xp00::frame_nanos());
         }
-        Duration::from_nanos(parsec1994::Clock::tick_nanos())
+        Program::frame_duration()
     }
 
     /// Both programs' music goes the one way: `XP00`'s calls are forwarded
     /// as it makes them, `XP01`'s made by its runtime.
     fn set_music(&mut self, sink: Box<dyn crate::MusicSink>) {
-        self.inner.music.set_sink(sink);
+        self.game.inner.music.set_sink(sink);
     }
 
     /// `MUSADL.DRV` as the program loads it: resource 5 of
@@ -628,20 +339,21 @@ impl crate::titles::Runtime for DunkleSchatten {
     /// RIB holding the one file. Without the music library there is no
     /// music to drive, and that is the answer instead.
     fn music_driver(&self) -> Result<Vec<u8>> {
-        if let Some(why) = self.inner.music.missing() {
+        if let Some(why) = self.game.inner.music.missing() {
             return Err(Error::Unexpected(why.to_string()));
         }
-        self.sound_driver(motionvm_parsec_formats::p2l::AD_LIB)
+        self.game.sound_driver(motionvm_parsec_formats::p2l::AD_LIB)
     }
 
     /// The digital driver beside it: resource 1 of `PSMDRV.DAT`,
     /// `DMABLAST.DRV` (`0x5BB3`, installed at `0x5BEC`), the same RIB in a
     /// RIB.
     fn dac_driver(&self) -> Result<Option<Vec<u8>>> {
-        if !self.inner.music.dac() {
+        if !self.game.inner.music.dac() {
             return Ok(None);
         }
-        self.sound_driver(motionvm_parsec_formats::p2l::DMABLAST)
+        self.game
+            .sound_driver(motionvm_parsec_formats::p2l::DMABLAST)
             .map(Some)
     }
 }
@@ -676,24 +388,29 @@ fn ds1_or_skip() -> Option<DunkleSchatten> {
 #[cfg(test)]
 fn close_start_options(g: &mut DunkleSchatten) {
     use crate::titles::Runtime;
-    while g.inner.options_fading() {
+    while g.game.inner.options_fading() {
         g.tick();
     }
     g.key(27);
     g.tick();
-    assert!(!g.inner.options_up(), "Escape closes the options");
+    assert!(!g.game.inner.options_up(), "Escape closes the options");
 }
 
 /// The parsec1994 runtime of a fresh game, for the shared runtime's own
 /// tests — which need an install to stand on, and this is the one they have.
 #[cfg(test)]
 pub(crate) fn adventure_for_test() -> Option<parsec1994::Adventure> {
-    ds1_or_skip().map(|g| g.inner)
+    ds1_or_skip().map(|g| g.game.inner)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This title's reading of the install's program, read again.
+    fn text(g: &DunkleSchatten) -> ExeText {
+        ExeText::read(&g.game.game_dir).expect("XP01.EXE reads")
+    }
     use crate::titles::parsec1994::{Api, Event, Far};
     use motionvm_parsec_formats::Bank;
 
@@ -701,7 +418,7 @@ mod tests {
     /// original's blocking loops would before anything else runs.
     fn settle_effects(g: &mut DunkleSchatten) {
         let mut guard = 0;
-        while g.inner.effects.busy() && guard < 10_000 {
+        while g.game.inner.effects.busy() && guard < 10_000 {
             crate::titles::Runtime::tick(g);
             guard += 1;
         }
@@ -718,12 +435,12 @@ mod tests {
         let mut out = Vec::new();
         let mut at = 0x1060u16;
         loop {
-            let off = usize::from(g.inner.word(at));
-            let seg = usize::from(g.inner.word(at + 2));
+            let off = usize::from(g.game.inner.word(at));
+            let seg = usize::from(g.game.inner.word(at + 2));
             if off == 0 && seg == 0 {
                 return out;
             }
-            let name = g.inner.image.c_string(seg * 16 + off).expect("a name");
+            let name = g.game.inner.image.c_string(seg * 16 + off).expect("a name");
             out.push(motionvm_parsec_formats::to_cp437(&name));
             at += 4;
         }
@@ -731,7 +448,7 @@ mod tests {
 
     /// The Wohnzimmer father's base animation, `[18A4h]`.
     fn father_base(g: &DunkleSchatten) -> i16 {
-        num::signed(g.inner.word(0x18A4))
+        num::signed(g.game.inner.word(0x18A4))
     }
 
     macro_rules! ds1 {
@@ -751,11 +468,11 @@ mod tests {
         let mut g = ds1_or_skip()?;
         crate::titles::Runtime::set_location_via(&mut g, 3, 100);
         settle_effects(&mut g);
-        g.inner.sav_set(STATE, 4);
-        g.inner.sav_set(BED, 0);
+        g.game.inner.sav_set(STATE, 4);
+        g.game.inner.sav_set(BED, 0);
         // The opening is over on a later day: waking up clears `[1892h]`
         // (`0xA5E`), or the Zimmer's hook would arm task 0 at every page.
-        g.inner.set_word(0x1892, 0);
+        g.game.inner.set_word(0x1892, 0);
         crate::titles::Runtime::set_location_via(&mut g, 2, 0x7F);
         settle_effects(&mut g);
         Some(g)
@@ -801,36 +518,37 @@ mod tests {
     /// Whether task 0 shows a text or a dialogue — not a hover text, which
     /// is kind 2 and stays while the pointer does.
     fn text_up(g: &DunkleSchatten) -> bool {
-        matches!(g.inner.tasks.t[0].kind, 3 | 4) && g.inner.caption_is_up()
+        matches!(g.game.inner.tasks.t[0].kind, 3 | 4) && g.game.inner.caption_is_up()
     }
 
     /// Lets whatever task 0 is doing run out, with the pointer off the
     /// room so that no hover text keeps it, until the machine is not
     /// acting any more.
     fn settle(g: &mut DunkleSchatten) {
-        g.inner.mouse_move(0, 0);
+        g.game.inner.mouse_move(0, 0);
         for _ in 0..12_000 {
-            if !matches!(g.inner.tasks.t[0].kind, 3..=5) && !matches!(g.inner.mode, 4..=8) {
+            if !matches!(g.game.inner.tasks.t[0].kind, 3..=5) && !matches!(g.game.inner.mode, 4..=8)
+            {
                 return;
             }
             // A menu waits for the player: the first choice is taken.
-            if g.inner.tasks.t[0].kind == 5 {
-                g.inner.menu_key(parsec1994::MenuKey::Down);
-                g.inner.menu_key(parsec1994::MenuKey::Select);
+            if g.game.inner.tasks.t[0].kind == 5 {
+                g.game.inner.menu_key(parsec1994::MenuKey::Down);
+                g.game.inner.menu_key(parsec1994::MenuKey::Select);
             }
             crate::titles::Runtime::tick(g);
         }
         panic!(
             "the machine did not settle: mode {} kind {} bits {:x} target {} gate {:?} node {} walking {:?} verb {} object {}",
-            g.inner.mode,
-            g.inner.tasks.t[0].kind,
-            g.inner.bits,
-            g.inner.walk_target,
-            g.inner.gate,
-            g.inner.player_node_id(),
-            g.inner.walker.as_ref().map(|w| w.walking),
-            g.inner.verb,
-            g.inner.object1
+            g.game.inner.mode,
+            g.game.inner.tasks.t[0].kind,
+            g.game.inner.bits,
+            g.game.inner.walk_target,
+            g.game.inner.gate,
+            g.game.inner.player_node_id(),
+            g.game.inner.walker.as_ref().map(|w| w.walking),
+            g.game.inner.verb,
+            g.game.inner.object1
         );
     }
 
@@ -845,26 +563,29 @@ mod tests {
     ) -> Option<String> {
         settle(g);
         // The button (`0x0FC12`): mode 2 and the verb, nothing chosen.
-        g.inner.mode = 2;
-        g.inner.verb = verb;
-        g.inner.verb_chosen = u16::from(verb);
-        g.inner.object1 = 0;
-        g.inner.object2 = 0;
-        g.inner.two_object = 0;
-        g.inner.mouse_move(0, 0);
+        g.game.inner.mode = 2;
+        g.game.inner.verb = verb;
+        g.game.inner.verb_chosen = u16::from(verb);
+        g.game.inner.object1 = 0;
+        g.game.inner.object2 = 0;
+        g.game.inner.two_object = 0;
+        g.game.inner.mouse_move(0, 0);
         crate::titles::Runtime::tick(g);
         let (x, y) = middle(spot);
-        g.inner.mouse_move(x, y);
+        g.game.inner.mouse_move(x, y);
         crate::titles::Runtime::tick(g);
-        if !g.inner.click() {
+        if !g.game.inner.click() {
             return None;
         }
         for _ in 0..12_000 {
             crate::titles::Runtime::tick(g);
             if text_up(g) {
-                return Some(g.inner.caption_text());
+                return Some(g.game.inner.caption_text());
             }
-            if g.inner.mode == 0 && g.inner.tasks.t[0].kind == 0 && g.inner.player_linked() {
+            if g.game.inner.mode == 0
+                && g.game.inner.tasks.t[0].kind == 0
+                && g.game.inner.player_linked()
+            {
                 return None;
             }
         }
@@ -877,7 +598,7 @@ mod tests {
     #[test]
     fn every_row_has_its_logic() {
         let g = ds1!();
-        let locs = &g.inner.locations;
+        let locs = &g.game.inner.locations;
         let missing: Vec<usize> = (0..locs.count)
             .filter(|&n| logic::logic(u16::try_from(n).unwrap()).is_none())
             .collect();
@@ -897,21 +618,24 @@ mod tests {
             } else {
                 crate::titles::Runtime::set_location_via(&mut g, 20, 0x7F);
             }
-            assert_eq!(g.inner.location_word, 21);
-            assert_eq!(g.inner.entry_word, 0x7F);
+            assert_eq!(g.game.inner.location_word, 21);
+            assert_eq!(g.game.inner.entry_word, 0x7F);
             settle_effects(&mut g);
             crate::titles::Runtime::tick(&mut g);
             settle_effects(&mut g);
-            assert_eq!(g.inner.location(), 21);
-            assert_eq!(g.inner.here_word, 21);
+            assert_eq!(g.game.inner.location(), 21);
+            assert_eq!(g.game.inner.here_word, 21);
         }
         let mut g = ds1!();
         crate::titles::Runtime::set_location(&mut g, 0);
-        assert_eq!((g.inner.location_word, g.inner.entry_word), (1, 0x7F));
+        assert_eq!(
+            (g.game.inner.location_word, g.game.inner.entry_word),
+            (1, 0x7F)
+        );
         settle_effects(&mut g);
         crate::titles::Runtime::tick(&mut g);
         settle_effects(&mut g);
-        assert_eq!(g.inner.location(), 1);
+        assert_eq!(g.game.inner.location(), 1);
     }
 
     /// A forest row is drawn from slot 20, the forest picture, with its own
@@ -932,12 +656,12 @@ mod tests {
     fn a_forest_row_shows_slot_20_through_its_object_map() {
         let mut g = ds1!();
         let object = |g: &DunkleSchatten, id: u8| {
-            let o = &g.inner.objects[g.inner.object_index(id).expect("the object")];
+            let o = &g.game.inner.objects[g.game.inner.object_index(id).expect("the object")];
             (o.x, o.y, o.cel, o.visible())
         };
         let picture = |g: &DunkleSchatten| {
-            let room = g.inner.room().expect("a playfield");
-            let slot = g.inner.rooms[20].as_ref().expect("slot 20");
+            let room = g.game.inner.room().expect("a playfield");
+            let slot = g.game.inner.rooms[20].as_ref().expect("slot 20");
             room.room.palette_rgb == slot.room.palette_rgb && room.walks.len() == slot.walks.len()
         };
         crate::titles::Runtime::set_location_via(&mut g, 23, 109);
@@ -953,11 +677,11 @@ mod tests {
     /// The ids a forest row's hotspots carry once its map is bound, in the
     /// picture's table order, with whether each is active.
     fn forest_exits(g: &DunkleSchatten) -> Vec<(u16, bool)> {
-        let room = g.inner.room().expect("a playfield");
+        let room = g.game.inner.room().expect("a playfield");
         room.hotspots
             .spots
             .iter()
-            .zip(&g.inner.hotspots_rt)
+            .zip(&g.game.inner.hotspots_rt)
             .map(|(h, rt)| (h.verb_mask & 0xFF, rt.active))
             .collect()
     }
@@ -988,7 +712,12 @@ mod tests {
                 (0, false)
             ]
         );
-        let graph = g.inner.room().and_then(|r| r.walk()).expect("a walk graph");
+        let graph = g
+            .game
+            .inner
+            .room()
+            .and_then(|r| r.walk())
+            .expect("a walk graph");
         let ids: Vec<u16> = graph.nodes.iter().map(|n| n.id).collect();
         for (was, now) in [
             (0, 2103),
@@ -1026,11 +755,11 @@ mod tests {
     fn settle_in_forest(g: &mut DunkleSchatten) {
         let mut frames = 0;
         loop {
-            let standing = g.inner.walker.as_ref().is_some_and(|w| !w.walking);
-            if !g.inner.effects.busy()
-                && g.inner.player_linked()
+            let standing = g.game.inner.walker.as_ref().is_some_and(|w| !w.walking);
+            if !g.game.inner.effects.busy()
+                && g.game.inner.player_linked()
                 && standing
-                && g.inner.tasks.t[0].kind <= 2
+                && g.game.inner.tasks.t[0].kind <= 2
             {
                 return;
             }
@@ -1053,27 +782,27 @@ mod tests {
     /// Clicks hotspot `s` of the room's table, at a point no later hotspot
     /// covers, and plays until the location changes.
     fn click_spot(g: &mut DunkleSchatten, s: usize) -> i32 {
-        let h = g.inner.hotspots_rt[s].clone();
+        let h = g.game.inner.hotspots_rt[s].clone();
         let point = (h.y..h.y + h.h)
             .step_by(4)
             .flat_map(|y| (h.x..h.x + h.w).step_by(4).map(move |x| (x, y)))
             .find(|&(x, y)| {
-                g.inner.mouse_move(x, y);
-                g.inner.hotspot_index_under_pointer() == Some(s)
+                g.game.inner.mouse_move(x, y);
+                g.game.inner.hotspot_index_under_pointer() == Some(s)
             })
             .expect("a point of the hotspot's own");
         crate::titles::Runtime::mouse_move(g, point.0, point.1);
         crate::titles::Runtime::tick(g);
         crate::titles::Runtime::click(g, true);
-        let from = g.inner.location();
+        let from = g.game.inner.location();
         let mut frames = 0;
-        while g.inner.location() == from {
+        while g.game.inner.location() == from {
             crate::titles::Runtime::tick(g);
             frames += 1;
             assert!(frames < 4000, "the walk must leave through hotspot {s}");
         }
         assert!(frames > 1, "the click starts a walk, not a jump");
-        g.inner.location()
+        g.game.inner.location()
     }
 
     /// Through the maze by clicks, as a player plays it, each click on a
@@ -1091,12 +820,12 @@ mod tests {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 23, 100);
         settle_in_forest(&mut g);
-        let mut path = vec![g.inner.location()];
+        let mut path = vec![g.game.inner.location()];
         for (spot, exit) in [(0, 100), (3, 101), (2, 104), (0, 100)] {
             assert_eq!(forest_exits(&g)[spot], (exit, true));
             path.push(click_spot(&mut g, spot));
-            assert_eq!(g.inner.entry_word, 0, "the arrival took the entry");
-            if g.inner.location() != 18 {
+            assert_eq!(g.game.inner.entry_word, 0, "the arrival took the entry");
+            if g.game.inner.location() != 18 {
                 settle_in_forest(&mut g);
             }
         }
@@ -1113,7 +842,7 @@ mod tests {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 30, 100);
         settle_in_forest(&mut g);
-        let slot = g.inner.rooms[20].as_ref().expect("slot 20");
+        let slot = g.game.inner.rooms[20].as_ref().expect("slot 20");
         let file: Vec<_> = slot
             .room
             .overlays
@@ -1126,16 +855,28 @@ mod tests {
             .iter()
             .map(|h| (i32::from(h.x), i32::from(h.y)))
             .collect();
-        let d6 = g.inner.object_index(0xD6).expect("D6h");
-        assert_ne!(g.inner.objects[d6].x, file[d6].1, "row 30 moves D6h");
+        let d6 = g.game.inner.object_index(0xD6).expect("D6h");
+        assert_ne!(g.game.inner.objects[d6].x, file[d6].1, "row 30 moves D6h");
         // The door's gate has chosen row 31.
-        g.inner.location_word = 31;
-        g.inner.slot_release();
-        let back: Vec<_> = g.inner.objects.iter().map(|o| (o.id, o.x, o.y)).collect();
+        g.game.inner.location_word = 31;
+        g.game.inner.slot_release();
+        let back: Vec<_> = g
+            .game
+            .inner
+            .objects
+            .iter()
+            .map(|o| (o.id, o.x, o.y))
+            .collect();
         assert_eq!(back, file);
-        let back: Vec<_> = g.inner.hotspots_rt.iter().map(|h| (h.x, h.y)).collect();
+        let back: Vec<_> = g
+            .game
+            .inner
+            .hotspots_rt
+            .iter()
+            .map(|h| (h.x, h.y))
+            .collect();
         assert_eq!(back, rects);
-        let d = g.inner.objects[d6].defaults;
+        let d = g.game.inner.objects[d6].defaults;
         assert_eq!((d.id, d.live, d.cel, d.dx, d.dy), (0xD6, 1, 0, 63, 0));
     }
 
@@ -1152,7 +893,8 @@ mod tests {
         crate::titles::Runtime::set_location_via(&mut g, 31, 100);
         settle_in_forest(&mut g);
         let state = |g: &DunkleSchatten| -> Vec<_> {
-            g.inner
+            g.game
+                .inner
                 .objects
                 .iter()
                 .map(|o| (o.id, o.x, o.y, o.flags))
@@ -1162,23 +904,26 @@ mod tests {
         let fresh_exits = forest_exits(&g);
         crate::titles::Runtime::set_location_via(&mut g, 30, 100);
         settle_in_forest(&mut g);
-        let d6 = g.inner.object_index(0xD6).expect("D6h");
-        let file_scale = g.inner.objects[d6].scale;
-        g.inner.objects[d6].scale = (0x123, 0x123);
+        let d6 = g.game.inner.object_index(0xD6).expect("D6h");
+        let file_scale = g.game.inner.objects[d6].scale;
+        g.game.inner.objects[d6].scale = (0x123, 0x123);
         assert_eq!(click_exit(&mut g, 101), 31);
         settle_in_forest(&mut g);
-        assert!(g.inner.picture_kept);
+        assert!(g.game.inner.picture_kept);
         assert_eq!(state(&g), fresh);
         assert_eq!(forest_exits(&g), fresh_exits);
         assert_eq!(
-            g.inner.objects[d6].scale,
+            g.game.inner.objects[d6].scale,
             (0x123, 0x123),
             "the records were kept"
         );
         crate::titles::Runtime::set_location_via(&mut g, 30, 100);
         settle_effects(&mut g);
-        assert!(!g.inner.picture_kept);
-        assert_eq!(g.inner.objects[d6].scale, file_scale, "a jump loads afresh");
+        assert!(!g.game.inner.picture_kept);
+        assert_eq!(
+            g.game.inner.objects[d6].scale, file_scale,
+            "a jump loads afresh"
+        );
     }
 
     /// The forest's song: entering the maze from the Ruine, a place of
@@ -1192,33 +937,35 @@ mod tests {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 18, 109);
         settle_in_forest(&mut g);
-        g.inner.music.sent.clear();
+        g.game.inner.music.sent.clear();
         // The Ruine's left-hand Wald is its exit 102, to row 30.
         assert_eq!(click_exit(&mut g, 102), 30);
         settle_in_forest(&mut g);
         assert!(
-            g.inner
+            g.game
+                .inner
                 .music
                 .sent
                 .iter()
                 .any(|r| matches!(r, parsec1994::Request::Play { .. })),
             "the forest's song starts: {:?}",
-            g.inner.music.sent
+            g.game.inner.music.sent
         );
-        g.inner.music.sent.clear();
+        g.game.inner.music.sent.clear();
         assert_eq!(click_exit(&mut g, 101), 31);
         settle_in_forest(&mut g);
         // Footsteps play on the way; nothing else reaches either driver —
         // the map's bit 2 keeps the effects as bit 3 keeps the song
         // (`0x85D4`).
         assert!(
-            g.inner
+            g.game
+                .inner
                 .music
                 .sent
                 .iter()
                 .all(|r| matches!(r, parsec1994::Request::Effect { row: 0 | 1 })),
             "and plays on: {:?}",
-            g.inner.music.sent
+            g.game.inner.music.sent
         );
     }
 
@@ -1229,10 +976,10 @@ mod tests {
     #[test]
     fn the_ruine_plays_its_background_scenes_on_task_1() {
         let mut g = ds1!();
-        g.inner.sav_set(0x271D, 2);
+        g.game.inner.sav_set(0x271D, 2);
         crate::titles::Runtime::set_location_via(&mut g, 18, 109);
         settle_effects(&mut g);
-        let t = &g.inner.tasks.t[1];
+        let t = &g.game.inner.tasks.t[1];
         assert!(t.dialogue.is_some(), "a scene is bound to task 1");
         assert_eq!(t.range, (0, 2));
         assert_eq!(t.flags & 1, 1, "and rolls the next one");
@@ -1240,6 +987,7 @@ mod tests {
         for _ in 0..3000 {
             crate::titles::Runtime::tick(&mut g);
             pages += g
+                .game
                 .inner
                 .events
                 .drain(..)
@@ -1259,10 +1007,13 @@ mod tests {
         settle_effects(&mut g);
         // Place object 205 stands for location 5, the Ralf; its scene byte
         // at DS:262Eh+CDh is zero in a fresh game, so the map leaves.
-        g.inner.object1 = 0xCD;
-        let answer = logic::rule_handler(&mut g.inner, (0x0060, 0x000A), 1);
+        g.game.inner.object1 = 0xCD;
+        let answer = logic::rule_handler(&mut g.game.inner, (0x0060, 0x000A), 1);
         assert_eq!(answer, Some(1));
-        assert_eq!((g.inner.entry_word, g.inner.location_word), (0x6D, 5));
+        assert_eq!(
+            (g.game.inner.entry_word, g.game.inner.location_word),
+            (0x6D, 5)
+        );
     }
 
     /// A location keeps its objects' states between visits, through the
@@ -1271,23 +1022,24 @@ mod tests {
     #[test]
     fn a_room_keeps_its_objects_between_visits_on_the_generic_path() {
         let mut g = ds1!();
-        g.inner.set_location_via(2, 100);
+        g.game.inner.set_location_via(2, 100);
         settle_effects(&mut g);
         // An object whose state the row keeps (`14DDh:068Ah` stores kinds
         // 0, 1 and 5), live: the Zimmer's toolbox, kind 0.
         let live = |g: &DunkleSchatten, id: u8| {
-            g.inner
+            g.game
+                .inner
                 .objects
                 .iter()
                 .find(|o| o.id == id)
                 .map(|o| (o.kind, o.flags & 1))
         };
         assert_eq!(live(&g, 1), Some((0, 1)), "the toolbox, live");
-        g.inner.object_hide(1);
+        g.game.inner.object_hide(1);
         assert_eq!(live(&g, 1), Some((0, 0)));
-        g.inner.set_location_via(3, 100);
+        g.game.inner.set_location_via(3, 100);
         settle_effects(&mut g);
-        g.inner.set_location_via(2, 100);
+        g.game.inner.set_location_via(2, 100);
         settle_effects(&mut g);
         assert_eq!(
             live(&g, 1),
@@ -1325,7 +1077,7 @@ mod tests {
         let mut menu_at = None;
         for tick in 0..30_000 {
             crate::titles::Runtime::tick(g);
-            let events = std::mem::take(&mut g.inner.events);
+            let events = std::mem::take(&mut g.game.inner.events);
             if menu_at.is_none() && events.iter().any(|e| matches!(e, Event::MenuUp { .. })) {
                 menu_at = Some(tick);
             }
@@ -1337,7 +1089,7 @@ mod tests {
             if menu_at.is_some_and(|m| tick == m + 61) {
                 crate::titles::Runtime::click(g, true);
             }
-            if g.inner.location() == 1 {
+            if g.game.inner.location() == 1 {
                 return Some((menu_at?, tick));
             }
         }
@@ -1361,8 +1113,8 @@ mod tests {
         let mut asked = Vec::new();
         for _ in 0..30_000 {
             crate::titles::Runtime::tick(&mut g);
-            let events = std::mem::take(&mut g.inner.events);
-            let here = g.inner.location() == 3;
+            let events = std::mem::take(&mut g.game.inner.events);
+            let here = g.game.inner.location() == 3;
             let mut menu = false;
             for e in events {
                 match e {
@@ -1405,6 +1157,7 @@ mod tests {
             crate::titles::Runtime::tick(&mut g);
         }
         let named = g
+            .game
             .inner
             .events
             .drain(..)
@@ -1415,16 +1168,17 @@ mod tests {
         for _ in 0..3000 {
             crate::titles::Runtime::tick(&mut g);
             steps += g
+                .game
                 .inner
                 .events
                 .drain(..)
                 .filter(|e| matches!(e, Event::Sample(_)))
                 .count();
-            if g.inner.location() != 1 {
+            if g.game.inner.location() != 1 {
                 break;
             }
         }
-        assert_eq!(g.inner.location(), 8);
+        assert_eq!(g.game.inner.location(), 8);
         assert!(steps > 0, "the walk is heard");
     }
 
@@ -1443,22 +1197,22 @@ mod tests {
     fn the_greeting_in_the_jz_is_composed_again_where_the_speaker_stands() {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 8, 0x6D);
-        let armed_at = g.inner.tasks.t[0].point;
+        let armed_at = g.game.inner.tasks.t[0].point;
         let mut shown = false;
         for _ in 0..2000 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.caption_is_up() {
+            if g.game.inner.caption_is_up() {
                 shown = true;
                 break;
             }
         }
         assert!(shown, "the greeting goes up");
-        assert_eq!(g.inner.caption_text(), "\u{3}o\u{3}gMoin, Klaus!");
-        let t = &g.inner.tasks.t[0];
+        assert_eq!(g.game.inner.caption_text(), "\u{3}o\u{3}gMoin, Klaus!");
+        let t = &g.game.inner.tasks.t[0];
         assert_ne!(t.point, armed_at, "Karsten has walked in");
         let page = motionvm_parsec_formats::to_cp437("\u{3}o\u{3}gMoin, Klaus!");
         let (want, _) = crate::titles::caption::Caption::compose(
-            g.inner.font_for_test(),
+            g.game.inner.font_for_test(),
             &page,
             t.point,
             t.style_word,
@@ -1480,7 +1234,7 @@ mod tests {
     fn a_click_lays_the_hover_text_again_at_the_pointer() {
         let mut g = ds1!();
         // The first day opens the Jugendzentrum (`DS:26F6h + 8`).
-        g.inner.sav_set(0x26FE, 1);
+        g.game.inner.sav_set(0x26FE, 1);
         crate::titles::Runtime::set_location_via(&mut g, 1, 0x6D);
         let run = |g: &mut DunkleSchatten, n: usize| {
             for _ in 0..n {
@@ -1490,20 +1244,21 @@ mod tests {
         run(&mut g, 400);
         crate::titles::Runtime::mouse_move(&mut g, 120, 90);
         run(&mut g, 100);
-        assert_eq!(g.inner.caption_text(), "Jugendzentrum");
-        let laid = g.inner.tasks.t[0].box_.as_ref().map(|b| (b.x, b.y));
+        assert_eq!(g.game.inner.caption_text(), "Jugendzentrum");
+        let laid = g.game.inner.tasks.t[0].box_.as_ref().map(|b| (b.x, b.y));
         crate::titles::Runtime::mouse_move(&mut g, 120, 100);
         run(&mut g, 100);
         assert_eq!(
-            g.inner.tasks.t[0].box_.as_ref().map(|b| (b.x, b.y)),
+            g.game.inner.tasks.t[0].box_.as_ref().map(|b| (b.x, b.y)),
             laid,
             "the same hotspot: the text stays"
         );
-        g.inner.events.clear();
+        g.game.inner.events.clear();
         crate::titles::Runtime::click(&mut g, true);
         run(&mut g, 1);
         assert!(
-            g.inner
+            g.game
+                .inner
                 .events
                 .iter()
                 .any(|e| matches!(e, Event::PageUp { text, .. } if text == "Jugendzentrum")),
@@ -1511,7 +1266,7 @@ mod tests {
         );
         let (x, y) = laid.expect("a box");
         assert_eq!(
-            g.inner.tasks.t[0].box_.as_ref().map(|b| (b.x, b.y)),
+            g.game.inner.tasks.t[0].box_.as_ref().map(|b| (b.x, b.y)),
             Some((x, y + 10)),
             "at the pointer, ten rows lower"
         );
@@ -1532,42 +1287,49 @@ mod tests {
     fn the_exit_effect_plays_in_the_old_rooms_colors() {
         let mut g = ds1!();
         let range = |g: &DunkleSchatten| {
-            let r = &g.inner.room().expect("a room").room;
+            let r = &g.game.inner.room().expect("a room").room;
             let off = usize::from(r.palette_start) * 3;
             (off, off + r.palette_count * 3)
         };
         let (a, b) = range(&g);
-        let zimmer = g.inner.palette().raw[a..b].to_vec();
+        let zimmer = g.game.inner.palette().raw[a..b].to_vec();
         crate::titles::Runtime::set_location_via(&mut g, 3, 100);
-        assert!(g.inner.effects.busy(), "the transition is queued");
+        assert!(g.game.inner.effects.busy(), "the transition is queued");
         let (a, b) = range(&g);
-        let kueche = g.inner.room().expect("the Küche").room.palette_rgb.clone();
+        let kueche = g
+            .game
+            .inner
+            .room()
+            .expect("the Küche")
+            .room
+            .palette_rgb
+            .clone();
         assert_ne!(zimmer, kueche, "two rooms, two palettes");
         assert_eq!(
-            g.inner.palette().raw[a..b],
+            g.game.inner.palette().raw[a..b],
             zimmer[..],
             "still the Zimmer's"
         );
         for _ in 0..40 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert!(g.inner.effects.busy(), "the exit is playing");
+        assert!(g.game.inner.effects.busy(), "the exit is playing");
         assert_eq!(
-            g.inner.palette().raw[a..b],
+            g.game.inner.palette().raw[a..b],
             zimmer[..],
             "the Zimmer's colors under the mosaic"
         );
         settle_effects(&mut g);
         assert_eq!(
-            g.inner.palette().raw[a..b],
+            g.game.inner.palette().raw[a..b],
             kueche[..],
             "the Küche's after it"
         );
-        let shown = g.inner.palette().clone();
-        g.inner.rebuild_dac();
+        let shown = g.game.inner.palette().clone();
+        g.game.inner.rebuild_dac();
         assert_eq!(
             shown.raw[..],
-            g.inner.palette().raw[..],
+            g.game.inner.palette().raw[..],
             "and nothing else differs"
         );
     }
@@ -1583,17 +1345,21 @@ mod tests {
     #[test]
     fn the_tick_that_leaves_a_room_shows_that_room() {
         let mut g = ds1!();
-        let from = g.inner.location();
+        let from = g.game.inner.location();
         let mut before = crate::titles::Runtime::render(&g);
         for _ in 0..20_000 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.location() != from {
+            if g.game.inner.location() != from {
                 break;
             }
             before = crate::titles::Runtime::render(&g);
         }
-        assert_ne!(g.inner.location(), from, "the opening leaves the Zimmer");
-        assert!(g.inner.effects.busy(), "with its effects queued");
+        assert_ne!(
+            g.game.inner.location(),
+            from,
+            "the opening leaves the Zimmer"
+        );
+        assert!(g.game.inner.effects.busy(), "with its effects queued");
         let shown = crate::titles::Runtime::render(&g);
         // Pixels of the playfield in which two pictures differ.
         let apart = |a: &Framebuffer, b: &Framebuffer| {
@@ -1603,7 +1369,7 @@ mod tests {
                 .filter(|(x, y)| x != y)
                 .count()
         };
-        let next = g.inner.render_scene();
+        let next = g.game.inner.render_scene();
         assert!(apart(&next, &before) > 0, "two rooms, two pictures");
         assert_eq!(apart(&shown, &before), 0, "the room the last frame showed");
     }
@@ -1611,7 +1377,7 @@ mod tests {
     /// How many pixels of the status band carry one of the painter's inks
     /// (`0F4h`, `0FAh`, `0FCh`, each with the glyph's second shade).
     fn status_ink(g: &DunkleSchatten) -> usize {
-        let fb = g.inner.render();
+        let fb = g.game.inner.render();
         (128..140)
             .flat_map(|y| (0..320).map(move |x| (x, y)))
             .filter(|&(x, y)| matches!(fb.get(x, y), Some(0xF4 | 0xF5 | 0xFA | 0xFB | 0xFC | 0xFD)))
@@ -1630,7 +1396,7 @@ mod tests {
     #[test]
     fn the_status_line_is_set_through_its_gate() {
         let mut g = ds1!();
-        g.inner.sav_set(0x26FE, 1);
+        g.game.inner.sav_set(0x26FE, 1);
         crate::titles::Runtime::set_location_via(&mut g, 1, 0x6D);
         for _ in 0..400 {
             crate::titles::Runtime::tick(&mut g);
@@ -1643,7 +1409,7 @@ mod tests {
         }
         crate::titles::Runtime::tick(&mut g);
         assert!(status_ink(&g) > 0, "the fourth frame sets the line");
-        assert_eq!(g.inner.status_line, b"\x09Gehe zu \x09Jugendzentrum");
+        assert_eq!(g.game.inner.status_line, b"\x09Gehe zu \x09Jugendzentrum");
     }
 
     /// The status line is set in the inks its `%c` choose: red while the
@@ -1657,14 +1423,14 @@ mod tests {
     #[test]
     fn the_status_line_takes_its_inks_from_the_mode() {
         let count = |g: &DunkleSchatten, inks: &[u8]| {
-            let fb = g.inner.render();
+            let fb = g.game.inner.render();
             (128..140)
                 .flat_map(|y| (0..320).map(move |x| (x, y)))
                 .filter(|&(x, y)| fb.get(x, y).is_some_and(|p| inks.contains(&p)))
                 .count()
         };
         let mut g = ds1!();
-        g.inner.sav_set(0x26FE, 1);
+        g.game.inner.sav_set(0x26FE, 1);
         crate::titles::Runtime::set_location_via(&mut g, 1, 0x6D);
         for _ in 0..400 {
             crate::titles::Runtime::tick(&mut g);
@@ -1673,14 +1439,14 @@ mod tests {
         for _ in 0..10 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert_eq!((g.inner.mode, g.inner.two_object), (0, 2));
+        assert_eq!((g.game.inner.mode, g.game.inner.two_object), (0, 2));
         assert!(count(&g, &[0xFA, 0xFB]) > 0, "named in 0FAh");
         assert_eq!(count(&g, &[0xF4, 0xF5]), 0, "and in nothing else");
         crate::titles::Runtime::click(&mut g, true);
         for _ in 0..10 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert_eq!(g.inner.mode, 4, "clicked: on the way");
+        assert_eq!(g.game.inner.mode, 4, "clicked: on the way");
         assert!(count(&g, &[0xF4, 0xF5]) > 0, "now in 0F4h");
         assert_eq!(count(&g, &[0xFA, 0xFB]), 0);
     }
@@ -1701,7 +1467,7 @@ mod tests {
         let mut said = false;
         for tick in 0..30_000 {
             crate::titles::Runtime::tick(&mut g);
-            let events = std::mem::take(&mut g.inner.events);
+            let events = std::mem::take(&mut g.game.inner.events);
             if menu_at.is_none() && events.iter().any(|e| matches!(e, Event::MenuUp { .. })) {
                 menu_at = Some(tick);
             }
@@ -1714,16 +1480,16 @@ mod tests {
             if events.iter().any(|e| matches!(e, Event::ScriptExit(109))) {
                 leaving = true;
             }
-            if g.inner.location() == 1 {
+            if g.game.inner.location() == 1 {
                 break;
             }
-            if leaving && !g.inner.effects.busy() {
-                said |= g.inner.status().starts_with("Gehe durch");
+            if leaving && !g.game.inner.effects.busy() {
+                said |= g.game.inner.status().starts_with("Gehe durch");
                 assert_eq!(status_ink(&g), 0, "tick {tick}: the band says nothing");
             }
         }
         assert!(leaving && said, "the walk out ran, under verb 0Ah");
-        assert_eq!(g.inner.location(), 1);
+        assert_eq!(g.game.inner.location(), 1);
     }
 
     #[test]
@@ -1732,7 +1498,7 @@ mod tests {
         let (menu_at, map_at) = play_opening_to_the_map(&mut g).expect("the map is reached");
         assert_eq!(menu_at, 4458);
         assert_eq!(map_at, 9881);
-        assert_eq!(g.inner.here_word, 1);
+        assert_eq!(g.game.inner.here_word, 1);
     }
 
     /// The main loop's globals are what the loop's own instructions name.
@@ -1744,8 +1510,8 @@ mod tests {
     #[test]
     fn the_main_loop_dispatches_on_the_globals_it_names() {
         let g = ds1!();
-        assert_eq!(g.inner.locations.location, 0x1F4A);
-        assert_eq!(g.text.entry, 0x1F48);
+        assert_eq!(g.game.inner.locations.location, 0x1F4A);
+        assert_eq!(text(&g).entry, 0x1F48);
     }
 
     /// A wrong number asks for one of eight, and the text only points at
@@ -1764,15 +1530,15 @@ mod tests {
         let g = ds1!();
         assert_eq!(
             wrong_numbers(&g),
-            g.text
+            text(&g)
                 .wrong_numbers
                 .iter()
                 .map(|s| motionvm_parsec_formats::to_cp437(s))
                 .collect::<Vec<_>>()
         );
         assert_eq!(
-            g.inner.substitutions,
-            g.text
+            g.game.inner.substitutions,
+            text(&g)
                 .substitutions
                 .iter()
                 .map(|s| motionvm_parsec_formats::to_cp437(s))
@@ -1780,7 +1546,7 @@ mod tests {
             "nothing drawn at the start"
         );
         assert_eq!(
-            g.text.wrong_numbers,
+            text(&g).wrong_numbers,
             [
                 "der Kleintierzuchtverein",
                 "Familie Penzelklöt",
@@ -1804,13 +1570,13 @@ mod tests {
     #[test]
     fn a_caption_has_eleven_styles_and_one_flattening_rule() {
         let g = ds1!();
-        assert_eq!(g.inner.styles.len(), 11);
-        assert_eq!(g.inner.styles[0].ink, 248);
-        assert_eq!(g.inner.styles[0].panel, 232);
-        assert_eq!(g.inner.styles[1].panel, 238);
-        assert_eq!(g.inner.flatten.to, 192);
-        assert_eq!(g.inner.flatten.first, 192);
-        assert_eq!(g.inner.flatten.count, 16);
+        assert_eq!(g.game.inner.styles.len(), 11);
+        assert_eq!(g.game.inner.styles[0].ink, 248);
+        assert_eq!(g.game.inner.styles[0].panel, 232);
+        assert_eq!(g.game.inner.styles[1].panel, 238);
+        assert_eq!(g.game.inner.flatten.to, 192);
+        assert_eq!(g.game.inner.flatten.first, 192);
+        assert_eq!(g.game.inner.flatten.count, 16);
     }
 
     /// A verb and a hotspot produce a caption, and while it is up a
@@ -1825,6 +1591,7 @@ mod tests {
     fn a_verb_and_a_hotspot_put_a_caption_up() {
         let mut g = zimmer_later!();
         let spot = g
+            .game
             .inner
             .room()
             .and_then(|r| {
@@ -1839,23 +1606,26 @@ mod tests {
             act(&mut g, 1, &spot).is_some(),
             "the click ends in a caption"
         );
-        assert!(g.inner.caption_is_up(), "and it is up");
+        assert!(g.game.inner.caption_is_up(), "and it is up");
         assert!(
-            g.inner.tasks.t[0].countdown > 0x28,
+            g.game.inner.tasks.t[0].countdown > 0x28,
             "with more than 40 ticks to go"
         );
-        assert!(g.inner.click(), "a second click is taken by the text");
-        assert_eq!(g.inner.tasks.t[0].countdown, 0x28, "and leaves it 40 ticks");
-        assert!(g.inner.caption_is_up(), "still up");
+        assert!(g.game.inner.click(), "a second click is taken by the text");
+        assert_eq!(
+            g.game.inner.tasks.t[0].countdown, 0x28,
+            "and leaves it 40 ticks"
+        );
+        assert!(g.game.inner.caption_is_up(), "still up");
 
         // It takes itself away once its pages have been up long enough.
         for _ in 0..4000 {
-            g.inner.tick();
-            if !g.inner.caption_is_up() {
+            g.game.inner.tick();
+            if !g.game.inner.caption_is_up() {
                 break;
             }
         }
-        assert!(!g.inner.caption_is_up(), "and then it is gone");
+        assert!(!g.game.inner.caption_is_up(), "and then it is gone");
     }
 
     /// The shipped data at `DS:15FEh` and `DS:1602h` contains one item,
@@ -1863,9 +1633,9 @@ mod tests {
     #[test]
     fn a_fresh_game_carries_the_original_inventory_entry() {
         let g = ds1!();
-        assert!(g.inner.carried(19), "the original starts with item 19");
+        assert!(g.game.inner.carried(19), "the original starts with item 19");
         for id in 1..23 {
-            assert_eq!(g.inner.carried(id), id == 19, "initial item {id}");
+            assert_eq!(g.game.inner.carried(id), id == 19, "initial item {id}");
         }
     }
 
@@ -1879,67 +1649,67 @@ mod tests {
     #[test]
     fn a_slot_holds_an_item_and_the_item_names_itself() {
         let mut g = zimmer_later!();
-        g.inner.set_location_via(2, 0x7F);
+        g.game.inner.set_location_via(2, 0x7F);
         settle_effects(&mut g);
-        g.inner.take_item(19);
-        g.inner.give(1);
-        g.inner.give(13);
+        g.game.inner.take_item(19);
+        g.game.inner.give(1);
+        g.game.inner.give(13);
         // The empty template is verb 0, so the line only says anything
         // once a verb is picked; `Betrachte` is 1.
-        g.inner.verb = 1;
+        g.game.inner.verb = 1;
 
         // Slot 0 is the first thing carried, and the strip names it.
         let (x, y) = (0xC8 + 12, 0x92 + 12);
-        g.inner.mouse_move(x, y);
-        g.inner.tick();
+        g.game.inner.mouse_move(x, y);
+        g.game.inner.tick();
         assert!(
-            g.inner.status().contains("Werkzeugkasten"),
+            g.game.inner.status().contains("Werkzeugkasten"),
             "slot 0 should name the toolbox, got {:?}",
-            g.inner.status()
+            g.game.inner.status()
         );
 
         // Slot 1 is the second, twenty-seven pixels along.
-        g.inner.mouse_move(x + 0x1B, y);
-        g.inner.tick();
+        g.game.inner.mouse_move(x + 0x1B, y);
+        g.game.inner.tick();
         assert!(
-            g.inner.status().contains("Schlüssel"),
+            g.game.inner.status().contains("Schlüssel"),
             "slot 1 should name the key, got {:?}",
-            g.inner.status()
+            g.game.inner.status()
         );
 
         // And an empty slot names nothing.
-        g.inner.mouse_move(x + 2 * 0x1B, y);
-        g.inner.tick();
-        let line = g.inner.status();
+        g.game.inner.mouse_move(x + 2 * 0x1B, y);
+        g.game.inner.tick();
+        let line = g.game.inner.status();
         assert!(
             !line.contains("Werkzeugkasten") && !line.contains("Schlüssel"),
             "an empty slot names no item, got {line:?}"
         );
 
         // Scrolled on by one, slot 0 shows what slot 1 showed.
-        g.inner.scroll_to(1);
-        g.inner.mouse_move(x, y);
-        g.inner.tick();
+        g.game.inner.scroll_to(1);
+        g.game.inner.mouse_move(x, y);
+        g.game.inner.tick();
         assert!(
-            g.inner.status().contains("Schlüssel"),
+            g.game.inner.status().contains("Schlüssel"),
             "scrolled, slot 0 should name the key, got {:?}",
-            g.inner.status()
+            g.game.inner.status()
         );
-        g.inner.scroll_to(0);
+        g.game.inner.scroll_to(0);
 
         // `Betrachte` on a filled slot puts bank 2's description up.
-        g.inner.mouse_move(x, y);
-        assert!(g.inner.click(), "examining slot 0 says something");
-        assert!(g.inner.caption_is_up());
+        g.game.inner.mouse_move(x, y);
+        assert!(g.game.inner.click(), "examining slot 0 says something");
+        assert!(g.game.inner.caption_is_up());
         // Place `id - 1` of bank 2, which for the toolbox is its own line.
         assert!(
-            g.inner.caption_text().contains("Werkzeugkasten"),
+            g.game.inner.caption_text().contains("Werkzeugkasten"),
             "got {:?}",
-            g.inner.caption_text()
+            g.game.inner.caption_text()
         );
         for _ in 0..4000 {
-            g.inner.tick();
-            if !g.inner.caption_is_up() {
+            g.game.inner.tick();
+            if !g.game.inner.caption_is_up() {
                 break;
             }
         }
@@ -1954,14 +1724,14 @@ mod tests {
 
         // The cel really lands where the drawing loop puts it: twenty-four
         // pixels of item at 0C8h, 92h, and nothing at the column before.
-        let frame = g.inner.render();
+        let frame = g.game.inner.render();
         let bare = {
             let mut empty = ds1!();
-            empty.inner.set_location_via(2, 0x7F);
+            empty.game.inner.set_location_via(2, 0x7F);
             // The jump's effects hold the screen until they are over.
             settle_effects(&mut empty);
-            empty.inner.take_item(19);
-            empty.inner.render()
+            empty.game.inner.take_item(19);
+            empty.game.inner.render()
         };
         let (sx, sy) = (0xC8 + 12, 0x92 + 12);
         assert_ne!(
@@ -1985,7 +1755,7 @@ mod tests {
     #[test]
     fn the_global_interaction_table_is_thirty_three_rules() {
         let g = ds1!();
-        let rules = &g.inner.global_rules;
+        let rules = &g.game.inner.global_rules;
         assert_eq!(rules.len(), 33);
 
         // Verb 1 is `Betrachte`, verb 4 `Benutze`, and both answer for
@@ -2026,11 +1796,11 @@ mod tests {
     #[test]
     fn a_location_is_a_row_of_fifty_two_bytes_with_a_far_handler() {
         let g = ds1!();
-        assert_eq!(g.inner.locations.table, 0x204B);
-        assert_eq!(g.inner.locations.stride, 0x34);
-        assert_eq!(g.inner.locations.handler, 0x23);
+        assert_eq!(g.game.inner.locations.table, 0x204B);
+        assert_eq!(g.game.inner.locations.stride, 0x34);
+        assert_eq!(g.game.inner.locations.handler, 0x23);
         // The bound the program checks before it dispatches, not a walk.
-        assert_eq!(g.inner.locations.count, 61);
+        assert_eq!(g.game.inner.locations.count, 61);
     }
 
     /// Every slot of `DSROOM.DAT` that holds a playfield has a row in that
@@ -2042,13 +1812,17 @@ mod tests {
     #[test]
     fn every_location_with_a_playfield_has_a_handler() {
         let g = ds1!();
-        assert_eq!(g.inner.rooms.len(), 60);
-        let rooms = g.inner.rooms.iter().filter(|r| r.is_some()).count();
+        assert_eq!(g.game.inner.rooms.len(), 60);
+        let rooms = g.game.inner.rooms.iter().filter(|r| r.is_some()).count();
         assert_eq!(rooms, 28);
-        for (n, room) in g.inner.rooms.iter().enumerate() {
+        for (n, room) in g.game.inner.rooms.iter().enumerate() {
             if room.is_some() {
                 assert!(
-                    g.inner.locations.handler(&g.inner.image, n).is_some(),
+                    g.game
+                        .inner
+                        .locations
+                        .handler(&g.game.inner.image, n)
+                        .is_some(),
                     "location {n}"
                 );
             }
@@ -2062,9 +1836,9 @@ mod tests {
     #[test]
     fn a_fresh_game_starts_at_location_two() {
         let g = ds1!();
-        assert_eq!(g.text.start_location, 2);
-        assert_eq!(g.text.start_entry, 0x7F);
-        assert_eq!(g.inner.location(), 2);
+        assert_eq!(text(&g).start_location, 2);
+        assert_eq!(text(&g).start_entry, 0x7F);
+        assert_eq!(g.game.inner.location(), 2);
     }
 
     /// Sixteen status-line templates, indexed by `[288Dh]`, and every one
@@ -2076,12 +1850,12 @@ mod tests {
     #[test]
     fn the_status_templates_carry_ink_controls() {
         let g = ds1!();
-        assert_eq!(g.text.verb_index, 0x288D);
-        assert_eq!(g.inner.templates.len(), 16);
-        assert_eq!(g.inner.templates[0], "");
-        assert_eq!(g.inner.templates[1], "%cBetrachte %c%s");
-        assert_eq!(g.inner.templates[5], "%cBenutze %c%s%c mit %c%s");
-        for (i, t) in g.inner.templates.iter().enumerate().skip(1) {
+        assert_eq!(text(&g).verb_index, 0x288D);
+        assert_eq!(g.game.inner.templates.len(), 16);
+        assert_eq!(g.game.inner.templates[0], "");
+        assert_eq!(g.game.inner.templates[1], "%cBetrachte %c%s");
+        assert_eq!(g.game.inner.templates[5], "%cBenutze %c%s%c mit %c%s");
+        for (i, t) in g.game.inner.templates.iter().enumerate().skip(1) {
             assert!(t.contains("%c"), "template {i} {t:?} has no ink control");
         }
     }
@@ -2100,8 +1874,8 @@ mod tests {
     #[test]
     fn every_named_location_names_itself_in_its_own_record() {
         let g = ds1!();
-        assert_eq!(g.inner.locations.name, 0x27);
-        let names = &g.inner.locations.names;
+        assert_eq!(g.game.inner.locations.name, 0x27);
+        let names = &g.game.inner.locations.names;
         assert_eq!(names[2].as_deref(), Some("Zimmer"));
         assert_eq!(names[3].as_deref(), Some("Küche"));
         assert_eq!(names[6].as_deref(), Some("Straße"));
@@ -2112,7 +1886,7 @@ mod tests {
         assert_eq!(named, 30);
         assert!(names[30..].iter().all(Option::is_none));
         // The engine hands out a name only where there is one to hand.
-        assert_eq!(g.inner.location_name(), Some("Zimmer"));
+        assert_eq!(g.game.inner.location_name(), Some("Zimmer"));
     }
 
     /// An entry puts the player on a node, or on nothing.
@@ -2133,7 +1907,12 @@ mod tests {
     #[test]
     fn an_entry_stands_the_player_where_the_room_has_a_node_for_it() {
         let mut g = ds1!();
-        let w = g.inner.walker.as_ref().expect("the entry stands one up");
+        let w = g
+            .game
+            .inner
+            .walker
+            .as_ref()
+            .expect("the entry stands one up");
         assert_eq!((w.x, w.y), (259, 94));
         assert_eq!(w.scale, 283);
         assert_eq!(w.dest_id, 100, "on the first exit's node");
@@ -2141,21 +1920,32 @@ mod tests {
 
         // A jump without an entry is not an arrival: the record stays,
         // but out of every chain, and is not drawn.
-        g.inner.set_location(2);
-        let w = g.inner.walker.as_ref().expect("the record stays");
+        g.game.inner.set_location(2);
+        let w = g.game.inner.walker.as_ref().expect("the record stays");
         assert!(w.node.is_none() && w.layer.is_none());
 
-        g.inner.set_location_via(1, 0x7F);
+        g.game.inner.set_location_via(1, 0x7F);
 
         settle_effects(&mut g);
-        let w = g.inner.walker.as_ref().expect("Karte carries node 127");
+        let w = g
+            .game
+            .inner
+            .walker
+            .as_ref()
+            .expect("Karte carries node 127");
         assert_eq!((w.x, w.y), (180, 60));
         assert_eq!(w.scale, 112);
         assert_eq!(w.layer, Some(0));
         assert_eq!(w.cel(), (20, false));
 
-        g.inner.set_location(1);
-        assert!(g.inner.walker.as_ref().is_some_and(|w| w.layer.is_none()));
+        g.game.inner.set_location(1);
+        assert!(
+            g.game
+                .inner
+                .walker
+                .as_ref()
+                .is_some_and(|w| w.layer.is_none())
+        );
     }
 
     /// A room draws the objects its chain holds, and only the live ones.
@@ -2167,7 +1957,7 @@ mod tests {
     fn a_room_draws_the_objects_that_are_up() {
         let g = ds1!();
         let counts = |n: usize| {
-            let room = g.inner.rooms[n].as_ref().expect("a playfield");
+            let room = g.game.inner.rooms[n].as_ref().expect("a playfield");
             let all = room.room.overlays.len();
             let live = room
                 .room
@@ -2185,7 +1975,7 @@ mod tests {
         // asserted one by one, because a silent miss is what a wrong
         // bundle would look like too.
         let (mut live, mut drawable) = (0usize, 0usize);
-        for room in g.inner.rooms.iter().flatten() {
+        for room in g.game.inner.rooms.iter().flatten() {
             for o in room.room.overlays.iter().filter(|o| o.flags & 1 == 1) {
                 assert_eq!(
                     o.bundle, 0,
@@ -2207,39 +1997,46 @@ mod tests {
     #[test]
     fn a_verb_button_picks_its_verb_and_the_line_says_so() {
         let mut g = ds1!();
-        g.inner.set_location_via(3, 100);
+        g.game.inner.set_location_via(3, 100);
         settle_effects(&mut g);
-        assert_eq!(g.inner.verb, 0, "a fresh location has no verb");
-        assert_eq!(g.inner.status(), "", "and so nothing to say");
+        assert_eq!(g.game.inner.verb, 0, "a fresh location has no verb");
+        assert_eq!(g.game.inner.status(), "", "and so nothing to say");
 
-        g.inner.mouse_move(20, 155);
-        assert!(g.inner.click(), "the button did not take");
-        assert_eq!(g.inner.verb, 3);
+        g.game.inner.mouse_move(20, 155);
+        assert!(g.game.inner.click(), "the button did not take");
+        assert_eq!(g.game.inner.verb, 3);
 
-        g.inner.mouse_move(88, 60);
+        g.game.inner.mouse_move(88, 60);
         assert_eq!(
-            g.inner.hotspot_under_pointer().map(|h| h.name.as_str()),
+            g.game
+                .inner
+                .hotspot_under_pointer()
+                .map(|h| h.name.as_str()),
             Some("Haustür")
         );
         // Nothing is chosen until the dispatcher looks, so the line has
         // the verb and the composer's stand-in for a missing name,
         // `DS:053Fh` (`0x100CB`).
-        assert_eq!(g.inner.status(), "Nimm/Gib  ??? ");
+        assert_eq!(g.game.inner.status(), "Nimm/Gib  ??? ");
         // The dispatcher chooses what the pointer is over, which stores
         // its name (`0x0F6A0`) and asks the phase-2 rules: the door's
         // answers 5 with a verb of its own, `Nimm`, which takes `[288Dh]`
         // while the verb picked stays in `[289Dh]`.
-        g.inner.tick();
+        g.game.inner.tick();
         assert_eq!(
-            (g.inner.verb, g.inner.verb_chosen, g.inner.two_object),
+            (
+                g.game.inner.verb,
+                g.game.inner.verb_chosen,
+                g.game.inner.two_object
+            ),
             (12, 3, 4)
         );
-        assert_eq!(g.inner.status(), "Nimm Haustür");
+        assert_eq!(g.game.inner.status(), "Nimm Haustür");
 
         // A scroll arrow is not a verb, and leaves the one that is.
-        g.inner.mouse_move(310, 150);
-        assert!(!g.inner.click());
-        assert_eq!(g.inner.verb_chosen, 3);
+        g.game.inner.mouse_move(310, 150);
+        assert!(!g.game.inner.click());
+        assert_eq!(g.game.inner.verb_chosen, 3);
     }
 
     /// The map is data: a location's exits are two byte lists in its own
@@ -2251,13 +2048,16 @@ mod tests {
     #[test]
     fn a_click_on_the_door_of_the_bedroom_reaches_the_kitchen() {
         let mut g = zimmer_later!();
-        assert_eq!(g.inner.locations.exits, 9);
-        assert_eq!(g.inner.locations.destinations, 0x11);
+        assert_eq!(g.game.inner.locations.exits, 9);
+        assert_eq!(g.game.inner.locations.destinations, 0x11);
         // The Zimmer has one exit: id 100 to location 3, the Küche.
-        assert_eq!(g.inner.locations.exits(&g.inner.image, 2), vec![(100, 3)]);
+        assert_eq!(
+            g.game.inner.locations.exits(&g.game.inner.image, 2),
+            vec![(100, 3)]
+        );
         // Its `Tür` is at (254,29) 20×65 and reads `In die Küche`.
-        g.inner.mouse_move(260, 60);
-        let spot = g.inner.hotspot_under_pointer().expect("the door");
+        g.game.inner.mouse_move(260, 60);
+        let spot = g.game.inner.hotspot_under_pointer().expect("the door");
         assert_eq!(spot.name, "Tür");
         assert_eq!(spot.verb_mask & 0xFF, 100);
         // The figure stands on the door's node already, so the click
@@ -2265,21 +2065,24 @@ mod tests {
         // walk verb's rule, the door's own rule — it opens — and the
         // door's gate, which walks the figure through the twin node and
         // ends the visit.
-        assert!(g.inner.player_linked(), "the entry stood one up");
+        assert!(g.game.inner.player_linked(), "the entry stood one up");
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.verb, 10, "over a door the verb is the walk verb");
-        assert!(g.inner.click(), "the click went nowhere");
         assert_eq!(
-            g.inner.mode, 7,
+            g.game.inner.verb, 10,
+            "over a door the verb is the walk verb"
+        );
+        assert!(g.game.inner.click(), "the click went nowhere");
+        assert_eq!(
+            g.game.inner.mode, 7,
             "standing there already, the arrival ran at once"
         );
         let mut frames = 0;
         let mut opened = false;
-        while g.inner.location() == 2 {
+        while g.game.inner.location() == 2 {
             crate::titles::Runtime::tick(&mut g);
             frames += 1;
             assert!(frames < 2000, "the walk must reach the door");
-            opened |= g.inner.events.drain(..).any(|e| {
+            opened |= g.game.inner.events.drain(..).any(|e| {
                 e == Event::ObjectAnim {
                     object: 100,
                     anim: 1,
@@ -2288,34 +2091,41 @@ mod tests {
         }
         assert!(opened, "the door's animation 1 was asked for");
         assert!(frames > 1, "and the walk through took more than an instant");
-        assert_eq!(g.inner.location(), 3);
-        assert_eq!(g.inner.location_name(), Some("Küche"));
+        assert_eq!(g.game.inner.location(), 3);
+        assert_eq!(g.game.inner.location_name(), Some("Küche"));
 
         // Arriving on entry 100 puts the figure on the twin node and
         // walks it in, so the way back is walked too: the Küche's
         // Treppenhaus is exit 100. The Küche's own arm for this state
         // plays a scene first, and a click while it is up is the text's.
-        assert!(g.inner.walker.as_ref().is_some_and(|w| w.walking));
+        assert!(g.game.inner.walker.as_ref().is_some_and(|w| w.walking));
         let mut frames = 0;
-        while !g.inner.player_linked() || g.inner.tasks.t[0].kind != 0 {
+        while !g.game.inner.player_linked() || g.game.inner.tasks.t[0].kind != 0 {
             crate::titles::Runtime::tick(&mut g);
             frames += 1;
             assert!(frames < 6000, "the Küche's scene must end");
         }
-        g.inner.mouse_move(132, 60);
+        g.game.inner.mouse_move(132, 60);
         assert_eq!(
-            g.inner.hotspot_under_pointer().map(|h| h.name.as_str()),
+            g.game
+                .inner
+                .hotspot_under_pointer()
+                .map(|h| h.name.as_str()),
             Some("Treppenhaus")
         );
-        assert!(g.inner.click());
-        assert_eq!(g.inner.location(), 3, "the click starts a walk, not a jump");
+        assert!(g.game.inner.click());
+        assert_eq!(
+            g.game.inner.location(),
+            3,
+            "the click starts a walk, not a jump"
+        );
         let mut frames = 0;
-        while g.inner.location() == 3 {
+        while g.game.inner.location() == 3 {
             crate::titles::Runtime::tick(&mut g);
             frames += 1;
             assert!(frames < 2000, "the walk must reach the door");
         }
-        assert_eq!(g.inner.location(), 2);
+        assert_eq!(g.game.inner.location(), 2);
         assert!(frames > 1, "and it must take more than an instant");
     }
 
@@ -2329,17 +2139,20 @@ mod tests {
     #[test]
     fn a_bare_click_on_the_wardrobe_looks_at_it() {
         let mut g = zimmer_later!();
-        g.inner.mouse_move(290, 40);
+        g.game.inner.mouse_move(290, 40);
         crate::titles::Runtime::tick(&mut g);
         assert_eq!(
-            g.inner.hotspot_under_pointer().map(|h| h.name.as_str()),
+            g.game
+                .inner
+                .hotspot_under_pointer()
+                .map(|h| h.name.as_str()),
             Some("Schrank")
         );
-        assert_eq!(g.inner.verb, 1, "Betrachte by default");
-        assert_eq!(g.inner.status(), "Betrachte Schrank");
-        assert!(g.inner.click());
-        assert_eq!(g.inner.mode, 4, "walking there first");
-        assert!(g.inner.walker.as_ref().is_some_and(|w| w.walking));
+        assert_eq!(g.game.inner.verb, 1, "Betrachte by default");
+        assert_eq!(g.game.inner.status(), "Betrachte Schrank");
+        assert!(g.game.inner.click());
+        assert_eq!(g.game.inner.mode, 4, "walking there first");
+        assert!(g.game.inner.walker.as_ref().is_some_and(|w| w.walking));
         let mut frames = 0;
         while !text_up(&g) {
             crate::titles::Runtime::tick(&mut g);
@@ -2347,10 +2160,13 @@ mod tests {
             assert!(frames < 2000, "the walk must end in a look");
         }
         assert!(frames > 1);
-        assert_eq!(g.inner.player_node_id(), 201, "on the wardrobe's node");
-        assert_eq!(g.inner.walker.as_ref().map(|w| w.facing()), Some(1));
-        assert!(g.inner.caption_text().contains("Schrank") || !g.inner.caption_text().is_empty());
-        assert_eq!(g.inner.location(), 2);
+        assert_eq!(g.game.inner.player_node_id(), 201, "on the wardrobe's node");
+        assert_eq!(g.game.inner.walker.as_ref().map(|w| w.facing()), Some(1));
+        assert!(
+            g.game.inner.caption_text().contains("Schrank")
+                || !g.game.inner.caption_text().is_empty()
+        );
+        assert_eq!(g.game.inner.location(), 2);
     }
 
     /// No exit id matches more than one hotspot.
@@ -2363,9 +2179,9 @@ mod tests {
     fn no_exit_id_matches_two_hotspots_in_one_location() {
         let g = ds1!();
         let (mut matched, mut unmatched) = (0, 0);
-        for (n, room) in g.inner.rooms.iter().enumerate() {
+        for (n, room) in g.game.inner.rooms.iter().enumerate() {
             let Some(room) = room else { continue };
-            for (id, _) in g.inner.locations.exits(&g.inner.image, n) {
+            for (id, _) in g.game.inner.locations.exits(&g.game.inner.image, n) {
                 let hits = room
                     .hotspots
                     .spots
@@ -2398,37 +2214,40 @@ mod tests {
     fn the_entry_fills_the_subject_slots() {
         use crate::titles::subject::Subject;
         let mut g = ds1!();
-        g.inner.set_location_via(3, 100);
+        g.game.inner.set_location_via(3, 100);
         settle_effects(&mut g);
 
         assert_eq!(
-            g.inner.subjects.get(0).map(|s| s.subject),
+            g.game.inner.subjects.get(0).map(|s| s.subject),
             Some(Subject::Player),
             "slot 0 is the player"
         );
         assert_eq!(
-            g.inner.subjects.get(1).map(|s| s.subject),
+            g.game.inner.subjects.get(1).map(|s| s.subject),
             Some(Subject::Object(200)),
             "slot 1 is the first object of the record"
         );
         for n in 2..=9 {
             assert_eq!(
-                g.inner.subjects.get(n).map(|s| s.subject),
+                g.game.inner.subjects.get(n).map(|s| s.subject),
                 Some(Subject::Nothing),
                 "slot {n} has nothing in it"
             );
         }
-        let screen = g.inner.subjects.get(10).expect("slot 10");
+        let screen = g.game.inner.subjects.get(10).expect("slot 10");
         assert_eq!(screen.subject, Subject::Point(160, 64));
         assert_eq!(screen.code, 0x53, "kind 0, payload 53h");
         assert_eq!(screen.payload(), 0x53);
-        assert_eq!(g.inner.subjects.point(&g.inner, 10), Some((160, 64)));
+        assert_eq!(
+            g.game.inner.subjects.point(&g.game.inner, 10),
+            Some((160, 64))
+        );
 
         // The Wohnzimmer lists three, and they keep their order.
-        g.inner.set_location_via(4, 0x7F);
+        g.game.inner.set_location_via(4, 0x7F);
         settle_effects(&mut g);
         let kinds: Vec<Subject> = (1..=3)
-            .map(|n| g.inner.subjects.get(n).unwrap().subject)
+            .map(|n| g.game.inner.subjects.get(n).unwrap().subject)
             .collect();
         assert_eq!(
             kinds,
@@ -2440,11 +2259,11 @@ mod tests {
         );
 
         // The Zimmer lists none, so every slot but 0 and 10 is empty.
-        g.inner.set_location_via(2, 0x7F);
+        g.game.inner.set_location_via(2, 0x7F);
         settle_effects(&mut g);
         for n in 1..=9 {
             assert_eq!(
-                g.inner.subjects.get(n).map(|s| s.subject),
+                g.game.inner.subjects.get(n).map(|s| s.subject),
                 Some(Subject::Nothing),
                 "the Zimmer names no object for slot {n}"
             );
@@ -2462,10 +2281,11 @@ mod tests {
     fn a_slot_resolves_to_a_point() {
         use crate::titles::subject::{align_point, scaled};
         let mut g = ds1!();
-        g.inner.set_location_via(3, 100);
+        g.game.inner.set_location_via(3, 100);
         settle_effects(&mut g);
 
         let mother = g
+            .game
             .inner
             .room()
             .expect("the Küche")
@@ -2479,7 +2299,7 @@ mod tests {
         let w = scaled(i32::from(cel.width), mother.scale.0);
         let h = scaled(i32::from(cel.height), mother.scale.1);
         let want = align_point(mother.align, i32::from(mother.x), i32::from(mother.y), w, h);
-        assert_eq!(g.inner.subjects.point(&g.inner, 1), Some(want));
+        assert_eq!(g.game.inner.subjects.point(&g.game.inner, 1), Some(want));
 
         // The three arms, each one instruction in the original.
         assert_eq!(align_point(0, 100, 50, 30, 40), (115, 50), "x += w/2");
@@ -2491,9 +2311,13 @@ mod tests {
         assert_eq!(scaled(46, 0x80), 23);
 
         // A location with a figure resolves slot 0 to the top of its head.
-        let p = g.inner.player_point().expect("the Küche stands her up");
-        assert_eq!(g.inner.subjects.point(&g.inner, 0), Some(p));
-        let w = g.inner.walker.as_ref().unwrap();
+        let p = g
+            .game
+            .inner
+            .player_point()
+            .expect("the Küche stands her up");
+        assert_eq!(g.game.inner.subjects.point(&g.game.inner, 0), Some(p));
+        let w = g.game.inner.walker.as_ref().unwrap();
         assert!(p.1 < w.y, "the head is above the feet");
     }
 
@@ -2505,14 +2329,27 @@ mod tests {
     fn the_bedroom_handler_removes_the_sleeping_figure_from_the_draw_chain() {
         use crate::titles::subject::Subject;
         let g = ds1!();
-        assert_eq!(g.inner.sav_byte(STATE), 0, "a fresh game is in state 0");
-        assert_eq!(g.inner.sav_byte(BED), 2, "and the opening arm marked it");
         assert_eq!(
-            g.inner.subjects.get(0).map(|s| s.subject),
+            g.game.inner.sav_byte(STATE),
+            0,
+            "a fresh game is in state 0"
+        );
+        assert_eq!(
+            g.game.inner.sav_byte(BED),
+            2,
+            "and the opening arm marked it"
+        );
+        assert_eq!(
+            g.game.inner.subjects.get(0).map(|s| s.subject),
             Some(Subject::Object(0xC8)),
             "slot 0 is the object the opening is about, not the player"
         );
-        let w = g.inner.walker.as_ref().expect("the figure record remains");
+        let w = g
+            .game
+            .inner
+            .walker
+            .as_ref()
+            .expect("the figure record remains");
         assert_eq!(w.layer, None, "the sleeping figure is not drawn");
         assert_eq!((w.x, w.y, w.dest_id), (259, 94, 100));
         assert!(w.node.is_some(), "removing a draw link preserves the node");
@@ -2520,10 +2357,10 @@ mod tests {
         // Calling the shared entry alone bypasses the Küche handler:
         // slot 0 stays the player.
         let mut g = ds1!();
-        g.inner.set_location_via(3, 100);
+        g.game.inner.set_location_via(3, 100);
         settle_effects(&mut g);
         assert_eq!(
-            g.inner.subjects.get(0).map(|s| s.subject),
+            g.game.inner.subjects.get(0).map(|s| s.subject),
             Some(Subject::Player)
         );
     }
@@ -2542,28 +2379,29 @@ mod tests {
     fn take_and_give_are_one_button_and_two_verbs() {
         let mut g = zimmer_later!();
         let spot = g
+            .game
             .inner
             .room()
             .and_then(|r| r.hotspots.spots.iter().find(|h| h.name == "Bett").cloned())
             .expect("the bed");
         // With the button picked, the pointer over the bed runs the
         // phase-2 rules, and rule 28 writes the verb it means.
-        g.inner.mode = 2;
-        g.inner.verb = 3;
-        g.inner.verb_chosen = 3;
+        g.game.inner.mode = 2;
+        g.game.inner.verb = 3;
+        g.game.inner.verb_chosen = 3;
         let (x, y) = middle(&spot);
-        g.inner.mouse_move(x, y);
+        g.game.inner.mouse_move(x, y);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.verb, 12, "nothing carried: Nimm");
+        assert_eq!(g.game.inner.verb, 12, "nothing carried: Nimm");
         // Carrying it turns the same button into Gib.
-        g.inner.give(200);
-        g.inner.mouse_move(0, 0);
+        g.game.inner.give(200);
+        g.game.inner.mouse_move(0, 0);
         crate::titles::Runtime::tick(&mut g);
-        g.inner.verb = 3;
-        g.inner.mouse_move(x, y);
+        g.game.inner.verb = 3;
+        g.game.inner.mouse_move(x, y);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.verb, 9, "carried: Gib");
-        g.inner.take_item(200);
+        assert_eq!(g.game.inner.verb, 9, "carried: Gib");
+        g.game.inner.take_item(200);
 
         let said = act(&mut g, 3, &spot).expect("Nimm on the bed says something");
         assert!(
@@ -2574,6 +2412,7 @@ mod tests {
         // Something with nothing of its own to say falls back on the roll:
         // one of bank 999's three ways of refusing to take a thing.
         let spot = g
+            .game
             .inner
             .room()
             .and_then(|r| {
@@ -2630,7 +2469,8 @@ mod tests {
     fn die_rueckfaelle_kommen_aus_bank_999() {
         let g = ds1!();
         let place = |n: usize| {
-            g.inner
+            g.game
+                .inner
                 .bank999_place_for_test(n)
                 .unwrap_or_else(|| panic!("place {n}"))
         };
@@ -2659,6 +2499,7 @@ mod tests {
     fn every_verb_reads_its_slot_and_falls_back_on_its_place() {
         let mut g = zimmer_later!();
         let spots: Vec<_> = g
+            .game
             .inner
             .room()
             .expect("the Zimmer")
@@ -2678,16 +2519,17 @@ mod tests {
             (12, 5, &[9, 10, 11]),
         ];
         let places: Vec<String> = (0..20)
-            .map(|n| g.inner.bank999_place_for_test(n).unwrap_or_default())
+            .map(|n| g.game.inner.bank999_place_for_test(n).unwrap_or_default())
             .collect();
 
         // Pairs the location claims for itself go through its own rule
         // and answer with whatever that names, so they are not this
         // test's business.
         let claimed: Vec<(u16, i16)> = g
+            .game
             .inner
             .locations
-            .rules(&g.inner.image, 2)
+            .rules(&g.game.inner.image, 2)
             .iter()
             .map(|r| (r.verb, r.object))
             .collect();
@@ -2752,14 +2594,15 @@ mod tests {
         let g = ds1!();
         let mut reachable = 0;
         let mut claimed = 0;
-        for loc in 0..g.inner.rooms.len() {
-            let Some(room) = g.inner.rooms[loc].as_ref() else {
+        for loc in 0..g.game.inner.rooms.len() {
+            let Some(room) = g.game.inner.rooms[loc].as_ref() else {
                 continue;
             };
             let own: Vec<(u16, i16)> = g
+                .game
                 .inner
                 .locations
-                .rules(&g.inner.image, loc)
+                .rules(&g.game.inner.image, loc)
                 .iter()
                 .map(|r| (r.verb, r.object))
                 .collect();
@@ -2800,16 +2643,19 @@ mod tests {
     #[test]
     fn a_location_rule_answers_out_of_the_locations_own_bank() {
         let mut g = zimmer_later!();
-        let zimmer = g.inner.own_banks[2]
+        let zimmer = g.game.inner.own_banks[2]
             .as_ref()
             .expect("the Zimmer keeps a bank");
         assert_eq!(zimmer.len(), 10, "the Zimmer keeps ten places");
         assert!(
-            g.inner.own_banks[3].as_ref().is_some_and(|b| !b.is_empty()),
+            g.game.inner.own_banks[3]
+                .as_ref()
+                .is_some_and(|b| !b.is_empty()),
             "and the Küche keeps some too"
         );
 
         let spot = g
+            .game
             .inner
             .room()
             .and_then(|r| {
@@ -2837,15 +2683,20 @@ mod tests {
     #[test]
     fn a_scene_past_the_bank_plays_the_programmers_joke() {
         let g = ds1!();
-        let joke = g.inner.bank999_place_for_test(0x13).expect("place 19");
+        let joke = g.game.inner.bank999_place_for_test(0x13).expect("place 19");
         assert!(joke.contains("Grr"), "place 19 is the joke, got {joke:?}");
-        let past = g.inner.own_banks[2].as_ref().map_or(0, Bank::len);
+        let past = g.game.inner.own_banks[2].as_ref().map_or(0, Bank::len);
         let text = g
+            .game
             .inner
             .scene_text_for_test(i16::try_from(past).unwrap())
             .expect("the joke plays");
         assert!(text.contains("Grr"), "got {text:?}");
-        let inside = g.inner.scene_text_for_test(3).expect("scene 3 is a place");
+        let inside = g
+            .game
+            .inner
+            .scene_text_for_test(3)
+            .expect("scene 3 is a place");
         assert!(inside.contains("Werkzeugkasten"), "got {inside:?}");
     }
 
@@ -2865,44 +2716,52 @@ mod tests {
     #[test]
     fn a_second_click_on_the_same_verb_parks_it() {
         let mut g = zimmer_later!();
-        assert_eq!(g.inner.mode, 0, "a fresh location is mode 0");
-        assert_eq!(g.inner.verb, 0);
+        assert_eq!(g.game.inner.mode, 0, "a fresh location is mode 0");
+        assert_eq!(g.game.inner.verb, 0);
 
         // The first button is `103h`, so it picks verb 3.
-        g.inner.mouse_move(20, 155);
-        assert!(g.inner.click());
-        assert_eq!((g.inner.mode, g.inner.verb), (2, 3), "picked");
+        g.game.inner.mouse_move(20, 155);
+        assert!(g.game.inner.click());
+        assert_eq!((g.game.inner.mode, g.game.inner.verb), (2, 3), "picked");
 
         // The same button again parks it.
-        g.inner.mouse_move(20, 155);
-        assert!(g.inner.click());
-        assert_eq!((g.inner.mode, g.inner.verb), (1, 3), "parked, verb kept");
+        g.game.inner.mouse_move(20, 155);
+        assert!(g.game.inner.click());
+        assert_eq!(
+            (g.game.inner.mode, g.game.inner.verb),
+            (1, 3),
+            "parked, verb kept"
+        );
 
         // The parked state lasts while the pointer is on the strip: over
         // the room the dispatcher resets it (`0x0FE1E`), and a click there
         // is a bare click.
         let bett = g
+            .game
             .inner
             .room()
             .and_then(|r| r.hotspots.spots.iter().find(|h| h.name == "Bett").cloned())
             .expect("the bed");
-        g.inner.mouse_move(middle(&bett).0, middle(&bett).1);
+        g.game.inner.mouse_move(middle(&bett).0, middle(&bett).1);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.mode, 0, "the pointer over the room ends mode 1");
-        assert_eq!(g.inner.verb, 1, "and the bed's class means Betrachte");
+        assert_eq!(
+            g.game.inner.mode, 0,
+            "the pointer over the room ends mode 1"
+        );
+        assert_eq!(g.game.inner.verb, 1, "and the bed's class means Betrachte");
 
         // Arriving somewhere puts the machine back to mode 0.
         crate::titles::Runtime::set_location_via(&mut g, 3, 100);
         settle_effects(&mut g);
         assert_eq!(
-            (g.inner.mode, g.inner.verb),
+            (g.game.inner.mode, g.game.inner.verb),
             (0, 0),
             "a new location resets"
         );
         // The Küche's own arm plays a scene on arrival, and the strip
         // takes no click while a text is up.
         let mut frames = 0;
-        while g.inner.tasks.t[0].kind != 0 {
+        while g.game.inner.tasks.t[0].kind != 0 {
             crate::titles::Runtime::tick(&mut g);
             frames += 1;
             assert!(frames < 6000, "the Küche's scene must end");
@@ -2910,15 +2769,15 @@ mod tests {
 
         // A third click on a parked verb takes it again: 1 is one of the
         // three modes the take-a-verb arm answers.
-        g.inner.mouse_move(20, 155);
-        assert!(g.inner.click());
-        assert_eq!(g.inner.mode, 2);
-        g.inner.mouse_move(20, 155);
-        assert!(g.inner.click());
-        assert_eq!(g.inner.mode, 1);
-        g.inner.mouse_move(20, 155);
-        assert!(g.inner.click());
-        assert_eq!(g.inner.mode, 2, "and back again");
+        g.game.inner.mouse_move(20, 155);
+        assert!(g.game.inner.click());
+        assert_eq!(g.game.inner.mode, 2);
+        g.game.inner.mouse_move(20, 155);
+        assert!(g.game.inner.click());
+        assert_eq!(g.game.inner.mode, 1);
+        g.game.inner.mouse_move(20, 155);
+        assert!(g.game.inner.click());
+        assert_eq!(g.game.inner.mode, 2, "and back again");
     }
 
     /// The strip's rectangle is the program's, not this engine's
@@ -2932,8 +2791,11 @@ mod tests {
     #[test]
     fn the_strip_sits_where_the_program_reserves_it() {
         let g = ds1!();
-        assert_eq!(g.inner.panel_y, 128);
-        assert_eq!((g.inner.panel.width, g.inner.panel.height), (320, 72));
+        assert_eq!(g.game.inner.panel_y, 128);
+        assert_eq!(
+            (g.game.inner.panel.width, g.game.inner.panel.height),
+            (320, 72)
+        );
     }
 
     /// `0x0EEF0`/`0x0ECF4` bracket entry with panel owner 4. The
@@ -2942,26 +2804,26 @@ mod tests {
     fn entry_panel_release_is_delayed_and_rendering_does_not_advance_it() {
         let mut g = ds1!();
         // Enter without invoking the title handler that immediately claims task 0.
-        g.inner.set_location_via(3, 100);
+        g.game.inner.set_location_via(3, 100);
         settle_effects(&mut g);
-        assert_eq!(g.inner.status_dim & 4, 4);
-        let lookup = g.inner.flatten;
-        let raw = g.inner.banks[0][2..].to_vec();
+        assert_eq!(g.game.inner.status_dim & 4, 4);
+        let lookup = g.game.inner.flatten;
+        let raw = g.game.inner.banks[0][2..].to_vec();
         for _ in 0..5 {
-            let _ = g.inner.render();
+            let _ = g.game.inner.render();
         }
-        assert_eq!(g.inner.status_dim & 4, 4);
-        g.inner.tick();
-        g.inner.tick();
-        assert_eq!(g.inner.status_dim & 4, 4);
-        g.inner.tick();
-        assert_eq!(g.inner.status_dim, 0);
-        assert_eq!(&g.inner.palette().raw[480..576], raw);
+        assert_eq!(g.game.inner.status_dim & 4, 4);
+        g.game.inner.tick();
+        g.game.inner.tick();
+        assert_eq!(g.game.inner.status_dim & 4, 4);
+        g.game.inner.tick();
+        assert_eq!(g.game.inner.status_dim, 0);
+        assert_eq!(&g.game.inner.palette().raw[480..576], raw);
         assert_eq!(
-            g.inner.flatten, lookup,
+            g.game.inner.flatten, lookup,
             "raw palette selection must not update flattening"
         );
-        let room = &g.inner.room().unwrap().room;
+        let room = &g.game.inner.room().unwrap().room;
         assert_eq!((room.palette_start, room.palette_count), (0, 128));
     }
 
@@ -2972,13 +2834,13 @@ mod tests {
     fn opening_dialogue_uses_the_restored_ramp_and_separate_panel_colors() {
         let mut g = ds1!();
         assert_eq!(
-            g.text.panel_curves,
+            text(&g).panel_curves,
             [[[3, 30], [1, 25], [1, 25]], [[0, 8]; 3]]
         );
-        assert_eq!(g.text.gray_ramp.0, 192);
-        assert_eq!(&g.text.gray_ramp.1[..3], &[3, 3, 3]);
+        assert_eq!(text(&g).gray_ramp.0, 192);
+        assert_eq!(&text(&g).gray_ramp.1[..3], &[3, 3, 3]);
         assert_eq!(
-            g.text
+            text(&g)
                 .gray_ramp
                 .1
                 .as_chunks::<3>()
@@ -2991,18 +2853,18 @@ mod tests {
         for _ in 0..1440 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert_eq!(g.inner.palette().rgb8(192), [12, 12, 12]);
-        assert_eq!(g.inner.palette().rgb8(160), [12, 4, 4]);
+        assert_eq!(g.game.inner.palette().rgb8(192), [12, 12, 12]);
+        assert_eq!(g.game.inner.palette().rgb8(160), [12, 4, 4]);
         assert_eq!(
-            g.inner.flatten.map(160),
+            g.game.inner.flatten.map(160),
             192,
             "use base RGB, not tinted RGB"
         );
-        let frame = g.inner.render();
+        let frame = g.game.inner.render();
         for y in 128..140 {
             for x in 0..320 {
                 assert_eq!(
-                    g.inner.palette().rgb8(frame.get(x, y).unwrap()),
+                    g.game.inner.palette().rgb8(frame.get(x, y).unwrap()),
                     [12, 12, 12]
                 );
             }
@@ -3014,7 +2876,7 @@ mod tests {
     #[test]
     fn three_palette_banks_go_over_the_locations_own() {
         let g = ds1!();
-        let starts: Vec<u8> = g.inner.banks.iter().map(|b| b[0]).collect();
+        let starts: Vec<u8> = g.game.inner.banks.iter().map(|b| b[0]).collect();
         assert_eq!(starts, vec![160, 224, 128]);
     }
 
@@ -3043,13 +2905,13 @@ mod tests {
     #[test]
     fn the_exit_search_runs_fifteen_slots_and_the_overlap_is_inert() {
         let g = ds1!();
-        for row in 0..g.inner.locations.count {
-            for (id, dest) in g.inner.locations.exits(&g.inner.image, row) {
+        for row in 0..g.game.inner.locations.count {
+            for (id, dest) in g.game.inner.locations.exits(&g.game.inner.image, row) {
                 assert!(
                     id > 60,
                     "row {row}: exit id {id} would collide with a destination"
                 );
-                assert!(usize::from(dest) < g.inner.locations.count);
+                assert!(usize::from(dest) < g.game.inner.locations.count);
             }
         }
     }
@@ -3068,13 +2930,13 @@ mod tests {
     fn a_page_is_held_for_the_compositors_count_less_one() {
         let mut g = ds1!();
         settle_effects(&mut g);
-        let up = g.inner.events.drain(..).find_map(|e| match e {
+        let up = g.game.inner.events.drain(..).find_map(|e| match e {
             Event::PageUp { task: 0, text } => Some(text),
             _ => None,
         });
         assert_eq!(up.as_deref(), Some("\u{1}\u{1}* Schnarch! *"));
         assert_eq!(
-            g.inner.tasks.t[0].countdown,
+            g.game.inner.tasks.t[0].countdown,
             120 + 8 * 15 + ((10 * 15) >> 5)
         );
     }
@@ -3088,16 +2950,16 @@ mod tests {
     #[test]
     fn the_entry_goes_on_to_its_first_page_when_its_effect_is_over() {
         let mut g = ds1!();
-        assert!(g.inner.effects.busy(), "the slide into the Zimmer");
+        assert!(g.game.inner.effects.busy(), "the slide into the Zimmer");
         let mut ended = None;
         let mut composed = None;
         for tick in 1..=400 {
-            let busy = g.inner.effects.busy();
+            let busy = g.game.inner.effects.busy();
             crate::titles::Runtime::tick(&mut g);
-            if busy && !g.inner.effects.busy() {
+            if busy && !g.game.inner.effects.busy() {
                 ended = Some(tick);
             }
-            for e in std::mem::take(&mut g.inner.events) {
+            for e in std::mem::take(&mut g.game.inner.events) {
                 if let Event::PageUp { task: 0, .. } = e {
                     composed.get_or_insert(tick);
                 }
@@ -3153,7 +3015,7 @@ mod tests {
     #[test]
     fn the_opening_plays_page_by_page_and_leaves_through_the_door() {
         let mut g = ds1!();
-        assert!(!g.inner.caption_is_up(), "armed, not yet shown");
+        assert!(!g.game.inner.caption_is_up(), "armed, not yet shown");
         let mut pages = Vec::new();
         let mut events = Vec::new();
         let mut ups = Vec::new();
@@ -3163,11 +3025,11 @@ mod tests {
         let mut left = None;
         for tick in 1..=3600 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.location() != 2 {
+            if g.game.inner.location() != 2 {
                 left = Some(tick);
                 break;
             }
-            let up = g.inner.caption_is_up();
+            let up = g.game.inner.caption_is_up();
             if up && !was_up {
                 ups.push(tick);
             }
@@ -3175,12 +3037,12 @@ mod tests {
                 downs.push(tick);
             }
             was_up = up;
-            for e in g.inner.events.drain(..) {
+            for e in g.game.inner.events.drain(..) {
                 match e {
                     Event::PageUp { task: 0, text } => pages.push((tick, text)),
                     Event::Script { n, .. } => events.push(n),
                     Event::ObjectHidden(200) => {
-                        let w = g.inner.walker.as_ref().expect("a figure");
+                        let w = g.game.inner.walker.as_ref().expect("a figure");
                         at_bed = Some((tick, w.x, w.y, w.dest_id, w.facing()));
                     }
                     other => events_note(tick, other),
@@ -3207,8 +3069,13 @@ mod tests {
         assert_eq!(events, [12, 10, 102, 120]);
         assert_eq!(at_bed, Some((822, 168, 87, 200, 2)), "up, by the bed");
         assert_eq!(left, Some(3082));
-        assert_eq!(g.inner.location(), 3, "the door leads to the Küche");
-        let w = g.inner.walker.as_ref().expect("and the figure is there");
+        assert_eq!(g.game.inner.location(), 3, "the door leads to the Küche");
+        let w = g
+            .game
+            .inner
+            .walker
+            .as_ref()
+            .expect("and the figure is there");
         assert_eq!((w.x, w.y), (108, 75), "on the Küche's twin node 2100");
         assert!(w.walking, "walking in");
     }
@@ -3225,13 +3092,14 @@ mod tests {
         let mut first_up = None;
         for tick in 1..=400 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.caption_is_up() {
+            if g.game.inner.caption_is_up() {
                 first_up = Some(tick);
                 break;
             }
         }
         assert_eq!(first_up, Some(231), "the first page is up");
         let c = g
+            .game
             .inner
             .cursor
             .as_ref()
@@ -3247,11 +3115,11 @@ mod tests {
             "resources 7 to 14, got {}",
             cel + 1
         );
-        let first = g.inner.pointer_cel(6).expect("resource 7");
+        let first = g.game.inner.pointer_cel(6).expect("resource 7");
         let (w, h) = (i32::from(first.width), i32::from(first.height));
         assert_eq!((x, y), (160 - (w >> 1), 100 - (h >> 1)));
-        let pic = g.inner.pointer_cel(cel).expect("the cel");
-        let frame = g.inner.render();
+        let pic = g.game.inner.pointer_cel(cel).expect("the cel");
+        let frame = g.game.inner.render();
         let mut drawn = 0;
         for sy in 0..i32::from(pic.height) {
             for sx in 0..i32::from(pic.width) {
@@ -3269,11 +3137,11 @@ mod tests {
         let mut cels = std::collections::BTreeSet::new();
         for _ in 232..=481 {
             crate::titles::Runtime::tick(&mut g);
-            let c = g.inner.cursor.as_ref().unwrap();
+            let c = g.game.inner.cursor.as_ref().unwrap();
             assert_eq!((c.mode, c.current), (4, 0));
             cels.insert(c.sprite().expect("drawn").0);
         }
-        assert_ne!(g.inner.cursor.as_ref().unwrap().seed, seed);
+        assert_ne!(g.game.inner.cursor.as_ref().unwrap().seed, seed);
         assert!(cels.len() > 2, "{cels:?}");
         assert!(cels.iter().all(|n| (6..=13).contains(n)), "{cels:?}");
     }
@@ -3296,7 +3164,7 @@ mod tests {
                     anim: 1,
                 },
             )
-            | (822, Event::Effect(0x10B8, 0x03BA))
+            | (822, Event::Reveal)
             | (822 | 1556 | 2208, Event::FigureAnim(7))
             | (822 | 2785, Event::Sample(2))
             | (2208, Event::ScriptExit(100))
@@ -3370,11 +3238,11 @@ mod tests {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 3, 100);
         settle_effects(&mut g);
-        g.inner.events.clear();
+        g.game.inner.events.clear();
         let mut menu_at = None;
         for tick in 1..=2000 {
             crate::titles::Runtime::tick(&mut g);
-            let lines = g.inner.events.drain(..).find_map(|e| match e {
+            let lines = g.game.inner.events.drain(..).find_map(|e| match e {
                 Event::MenuUp { lines } => Some(lines),
                 _ => None,
             });
@@ -3393,47 +3261,50 @@ mod tests {
                 (3, "Guter Spruch für dein Alter, Mutti!".to_string()),
             ]
         );
-        assert_eq!(g.inner.tasks.t[0].kind, 5);
-        assert!(!g.inner.caption_is_up(), "the box gives way to the menu");
-        assert!(g.inner.menu.up);
-        assert_eq!(g.inner.menu.highlight, 0, "nothing highlighted yet");
+        assert_eq!(g.game.inner.tasks.t[0].kind, 5);
+        assert!(
+            !g.game.inner.caption_is_up(),
+            "the box gives way to the menu"
+        );
+        assert!(g.game.inner.menu.up);
+        assert_eq!(g.game.inner.menu.highlight, 0, "nothing highlighted yet");
         assert_eq!(
-            g.inner.palette().rgb8(160),
+            g.game.inner.palette().rgb8(160),
             [0, 0, 0],
             "choice palette variant 1"
         );
-        let frame = g.inner.render();
+        let frame = g.game.inner.render();
         assert!(
             (132..140).any(|y| (0..320).any(|x| frame.get(x, y) == Some(248))),
             "the menu's first line must keep its ink over the status band"
         );
 
         // The pointer's row.
-        g.inner.mouse_move(100, 132 + 13 + 5);
-        assert_eq!(g.inner.menu.highlight, 2);
-        g.inner.mouse_move(100, 100);
-        assert_eq!(g.inner.menu.highlight, 0, "off the menu, none");
-        g.inner.mouse_move(300, 132 + 2 * 13);
-        assert_eq!(g.inner.menu.highlight, 3);
-        g.inner.mouse_move(300, 132 + 3 * 13);
-        assert_eq!(g.inner.menu.highlight, 0, "a row with no line is none");
+        g.game.inner.mouse_move(100, 132 + 13 + 5);
+        assert_eq!(g.game.inner.menu.highlight, 2);
+        g.game.inner.mouse_move(100, 100);
+        assert_eq!(g.game.inner.menu.highlight, 0, "off the menu, none");
+        g.game.inner.mouse_move(300, 132 + 2 * 13);
+        assert_eq!(g.game.inner.menu.highlight, 3);
+        g.game.inner.mouse_move(300, 132 + 3 * 13);
+        assert_eq!(g.game.inner.menu.highlight, 0, "a row with no line is none");
 
         // The keys go round.
         crate::titles::Runtime::key(&mut g, 9);
-        assert_eq!(g.inner.menu.highlight, 1, "past none, the first");
+        assert_eq!(g.game.inner.menu.highlight, 1, "past none, the first");
         crate::titles::Runtime::key(&mut g, 0x10F);
-        assert_eq!(g.inner.menu.highlight, 3, "before the first, the last");
+        assert_eq!(g.game.inner.menu.highlight, 3, "before the first, the last");
         crate::titles::Runtime::key(&mut g, 9);
-        assert_eq!(g.inner.menu.highlight, 1);
+        assert_eq!(g.game.inner.menu.highlight, 1);
 
         // A click on the third takes it.
-        g.inner.mouse_move(50, 132 + 2 * 13 + 12);
-        assert_eq!(g.inner.menu.highlight, 3);
-        assert!(g.inner.click());
-        assert!(!g.inner.menu.up, "the menu is down");
-        assert_eq!(g.inner.tasks.t[0].kind, 4, "and a line plays");
+        g.game.inner.mouse_move(50, 132 + 2 * 13 + 12);
+        assert_eq!(g.game.inner.menu.highlight, 3);
+        assert!(g.game.inner.click());
+        assert!(!g.game.inner.menu.up, "the menu is down");
+        assert_eq!(g.game.inner.tasks.t[0].kind, 4, "and a line plays");
         let mut spoken = Vec::new();
-        for e in g.inner.events.drain(..) {
+        for e in g.game.inner.events.drain(..) {
             match e {
                 Event::ChoiceTaken(rec) => spoken.push(format!("record {rec}")),
                 Event::PageUp { task: 0, text } => spoken.push(text),
@@ -3449,7 +3320,7 @@ mod tests {
         let mut next = None;
         for _ in 0..2000 {
             crate::titles::Runtime::tick(&mut g);
-            next = g.inner.events.drain(..).find_map(|e| match e {
+            next = g.game.inner.events.drain(..).find_map(|e| match e {
                 Event::PageUp { task: 0, text } => Some(text),
                 _ => None,
             });
@@ -3476,7 +3347,7 @@ mod tests {
         let mut up = false;
         for _ in 1..=2000 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.menu.up {
+            if g.game.inner.menu.up {
                 up = true;
                 break;
             }
@@ -3485,23 +3356,23 @@ mod tests {
         // The mother's line asked for mode 3 (`0x0DE43`): resource 6, the
         // pointer a DOSBox-X recording shows with the menu up and the mouse
         // above it.
-        let c = g.inner.cursor.as_ref().unwrap();
+        let c = g.game.inner.cursor.as_ref().unwrap();
         assert_eq!((c.mode, c.current), (3, 0));
         assert_eq!(c.sprite().map(|s| s.0), Some(5));
         crate::titles::Runtime::key(&mut g, 9);
-        assert_eq!(g.inner.menu.highlight, 1);
+        assert_eq!(g.game.inner.menu.highlight, 1);
         // Choice 1 is line 0: y = 132 + (0 + 1) * 13 / 2, x = 5 + 310 - 3.
-        assert_eq!(g.inner.mouse, (312, 138));
+        assert_eq!(g.game.inner.mouse, (312, 138));
         for _ in 0..3 {
             crate::titles::Runtime::tick(&mut g);
         }
-        let c = g.inner.cursor.as_ref().unwrap();
+        let c = g.game.inner.cursor.as_ref().unwrap();
         assert_eq!(c.current, 0x80, "region shape 1");
         let (at, _) = c.shown_descriptor_for_test();
         assert_eq!(at, 0x0254);
         let (cel, x, y) = c.sprite().expect("shown");
         assert_eq!(cel, 1, "resource 2");
-        let pic = g.inner.pointer_cel(1).unwrap();
+        let pic = g.game.inner.pointer_cel(1).unwrap();
         assert_eq!(
             (x, y),
             (
@@ -3509,21 +3380,21 @@ mod tests {
                 138 - i32::from(pic.height >> 1)
             )
         );
-        g.inner.mouse_move(100, 100);
+        g.game.inner.mouse_move(100, 100);
         for _ in 0..3 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert_eq!(g.inner.cursor.as_ref().unwrap().current, 0);
+        assert_eq!(g.game.inner.cursor.as_ref().unwrap().current, 0);
         // A choice taken: the region goes, the player's line asks for mode
         // 4 (`0x0DDFE`), applied three task passes on — the ball the
         // recording shows once the menu is gone.
-        g.inner.mouse_move(50, 132 + 2);
-        assert!(g.inner.click());
-        assert!(!g.inner.cursor.as_ref().unwrap().menu_registered);
+        g.game.inner.mouse_move(50, 132 + 2);
+        assert!(g.game.inner.click());
+        assert!(!g.game.inner.cursor.as_ref().unwrap().menu_registered);
         for _ in 0..4 {
             crate::titles::Runtime::tick(&mut g);
         }
-        let c = g.inner.cursor.as_ref().unwrap();
+        let c = g.game.inner.cursor.as_ref().unwrap();
         assert_eq!((c.mode, c.current), (4, 0));
         assert!((6..=13).contains(&c.sprite().expect("shown").0));
     }
@@ -3536,6 +3407,7 @@ mod tests {
         crate::titles::Runtime::set_location_via(&mut g, 3, 100);
         settle_effects(&mut g);
         let long = g
+            .game
             .inner
             .dialogue_of(parsec1994::DialogueRef {
                 bank: parsec1994::BankId::Own,
@@ -3546,9 +3418,9 @@ mod tests {
             .expect("the Küche's record 9");
         let prepared = parsec1994::prepare_menu_text(&long);
         assert!(!prepared.contains(&b'\r') && !prepared.contains(&b'\n'));
-        g.inner.menu = Default::default();
-        g.inner.menu_add_for_test(&prepared, 1);
-        let lines = &g.inner.menu.lines;
+        g.game.inner.menu = Default::default();
+        g.game.inner.menu_add_for_test(&prepared, 1);
+        let lines = &g.game.inner.menu.lines;
         assert!(lines.len() >= 3, "{lines:?}");
         let joined: Vec<u8> = lines
             .iter()
@@ -3557,7 +3429,7 @@ mod tests {
             .join(&b' ');
         assert_eq!(joined, prepared, "nothing lost between the rows");
         for (i, l) in lines.iter().enumerate() {
-            let (_, w) = g.inner.font_for_test().measure_task_text(&l.text);
+            let (_, w) = g.game.inner.font_for_test().measure_task_text(&l.text);
             assert!(w <= 310, "row {i} is {w} wide");
             assert!(l.choice == 1);
             if let Some(nxt) = lines.get(i + 1) {
@@ -3571,7 +3443,7 @@ mod tests {
                 let mut with = l.text.clone();
                 with.push(b' ');
                 with.extend_from_slice(&word);
-                let (_, ww) = g.inner.font_for_test().measure_task_text(&with);
+                let (_, ww) = g.game.inner.font_for_test().measure_task_text(&with);
                 assert!(
                     ww > 310,
                     "row {i} could have taken {:?}",
@@ -3598,11 +3470,13 @@ mod tests {
     fn the_pointer_picks_the_verb_by_class_and_shows_the_hover_text() {
         let mut g = zimmer_later!();
         let door = g
+            .game
             .inner
             .room()
             .and_then(|r| r.hotspots.spots.iter().find(|h| h.name == "Tür").cloned())
             .expect("the door");
         let bett = g
+            .game
             .inner
             .room()
             .and_then(|r| r.hotspots.spots.iter().find(|h| h.name == "Bett").cloned())
@@ -3611,56 +3485,59 @@ mod tests {
         assert_eq!((bett.verb_mask >> 8) & 0xF, 0, "the bed is class 0");
 
         let (x, y) = middle(&door);
-        g.inner.mouse_move(x, y);
+        g.game.inner.mouse_move(x, y);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.verb, 10);
-        assert_eq!(g.inner.status(), "Gehe durch Tür");
-        assert_eq!(g.inner.object1, 100);
-        assert_eq!(g.inner.two_object, 2, "something to do with it");
+        assert_eq!(g.game.inner.verb, 10);
+        assert_eq!(g.game.inner.status(), "Gehe durch Tür");
+        assert_eq!(g.game.inner.object1, 100);
+        assert_eq!(g.game.inner.two_object, 2, "something to do with it");
         assert_eq!(
-            g.inner.tasks.t[0].kind, 2,
+            g.game.inner.tasks.t[0].kind, 2,
             "its own text is up at the pointer"
         );
-        assert_eq!(flat(&g.inner.caption_text()), flat(&door.texts[0]));
+        assert_eq!(flat(&g.game.inner.caption_text()), flat(&door.texts[0]));
         assert!(!door.texts[0].is_empty());
 
         let (x, y) = middle(&bett);
-        g.inner.mouse_move(x, y);
+        g.game.inner.mouse_move(x, y);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.verb, 1);
-        assert_eq!(g.inner.status(), "Betrachte Bett");
-        assert_eq!(g.inner.object1, 200);
+        assert_eq!(g.game.inner.verb, 1);
+        assert_eq!(g.game.inner.status(), "Betrachte Bett");
+        assert_eq!(g.game.inner.object1, 200);
 
-        g.inner.mouse_move(0, 0);
+        g.game.inner.mouse_move(0, 0);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.verb, 0, "off every object the verb goes");
-        assert_eq!(g.inner.object1, 0);
+        assert_eq!(g.game.inner.verb, 0, "off every object the verb goes");
+        assert_eq!(g.game.inner.object1, 0);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.tasks.t[0].kind, 0, "and the hover text is gone");
+        assert_eq!(
+            g.game.inner.tasks.t[0].kind, 0,
+            "and the hover text is gone"
+        );
 
         // A click on the bed walks to its node, facing left, and looks.
-        g.inner.mouse_move(x, y);
+        g.game.inner.mouse_move(x, y);
         crate::titles::Runtime::tick(&mut g);
-        assert!(g.inner.click());
-        assert_eq!(g.inner.mode, 4);
-        assert_eq!(g.inner.walk_target, 200);
+        assert!(g.game.inner.click());
+        assert_eq!(g.game.inner.mode, 4);
+        assert_eq!(g.game.inner.walk_target, 200);
         let mut frames = 0;
         while !text_up(&g) {
             crate::titles::Runtime::tick(&mut g);
             frames += 1;
             assert!(frames < 2000);
         }
-        assert_eq!(g.inner.player_node_id(), 200);
-        assert_eq!(g.inner.walker.as_ref().map(|w| w.facing()), Some(3));
-        assert!(flat(&bett.texts[3]).starts_with(&flat(&g.inner.caption_text())));
+        assert_eq!(g.game.inner.player_node_id(), 200);
+        assert_eq!(g.game.inner.walker.as_ref().map(|w| w.facing()), Some(3));
+        assert!(flat(&bett.texts[3]).starts_with(&flat(&g.game.inner.caption_text())));
         // The arrival sets mode 7 and the rule puts its text up at once
         // (`0x0F4BA`); the next step makes it 8 (`0x0F51E`).
-        assert_eq!(g.inner.mode, 7, "the action's text is up");
+        assert_eq!(g.game.inner.mode, 7, "the action's text is up");
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.mode, 8, "waiting for the text");
+        assert_eq!(g.game.inner.mode, 8, "waiting for the text");
         settle(&mut g);
         assert_eq!(
-            (g.inner.mode, g.inner.verb),
+            (g.game.inner.mode, g.game.inner.verb),
             (0, 0),
             "an action's end resets"
         );
@@ -3678,33 +3555,33 @@ mod tests {
     #[test]
     fn karsten_sleeps_in_the_bed_and_turns_over() {
         let mut g = ds1!();
-        let bed = g.inner.object_index(200).expect("the bed");
+        let bed = g.game.inner.object_index(200).expect("the bed");
         assert!(
-            g.inner.objects[bed].visible(),
+            g.game.inner.objects[bed].visible(),
             "shown by the handler's tail"
         );
-        assert_eq!(g.inner.objects[bed].state, 7, "bound to its entry");
-        let ai = g.inner.objects[bed].ani.expect("its entry");
-        assert_eq!(g.inner.anis[ai].current, 0);
+        assert_eq!(g.game.inner.objects[bed].state, 7, "bound to its entry");
+        let ai = g.game.inner.objects[bed].ani.expect("its entry");
+        assert_eq!(g.game.inner.anis[ai].current, 0);
         let mut cels = std::collections::BTreeSet::new();
         for _ in 0..600 {
             crate::titles::Runtime::tick(&mut g);
-            let o = &g.inner.objects[bed];
+            let o = &g.game.inner.objects[bed];
             assert!(o.visible(), "asleep the whole time");
             cels.insert(o.cel);
         }
         assert!(cels.iter().all(|c| (1..=5).contains(c)), "{cels:?}");
         assert!(cels.len() > 1, "turns over: {cels:?}");
-        assert_eq!(g.inner.anis[ai].current, 1, "the yawn took over");
+        assert_eq!(g.game.inner.anis[ai].current, 1, "the yawn took over");
         // And the bed is on the picture: the cel's pixels at its point.
-        let frame = g.inner.render();
+        let frame = g.game.inner.render();
         let bare = {
             let mut empty = ds1!();
-            empty.inner.object_hide(200);
-            empty.inner.render()
+            empty.game.inner.object_hide(200);
+            empty.game.inner.render()
         };
-        let o = &g.inner.objects[bed];
-        let (w, h) = g.inner.object_cel_size(0, o.cel).expect("a cel");
+        let o = &g.game.inner.objects[bed];
+        let (w, h) = g.game.inner.object_cel_size(0, o.cel).expect("a cel");
         let differs = (0..h)
             .flat_map(|dy| (0..w).map(move |dx| (dx, dy)))
             .filter(|&(dx, dy)| frame.get(o.x + dx, o.y + dy) != bare.get(o.x + dx, o.y + dy))
@@ -3730,24 +3607,35 @@ mod tests {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 3, 100);
         settle_effects(&mut g);
-        let head = g.inner.object_index(200).expect("the head");
-        let body = g.inner.object_index(201).expect("the body");
-        assert_eq!(g.inner.objects[head].state, 8);
-        assert_eq!(g.inner.objects[body].state, 9);
-        assert_eq!(g.inner.objects[head].ani, g.inner.objects[body].ani);
+        let head = g.game.inner.object_index(200).expect("the head");
+        let body = g.game.inner.object_index(201).expect("the body");
+        assert_eq!(g.game.inner.objects[head].state, 8);
+        assert_eq!(g.game.inner.objects[body].state, 9);
+        assert_eq!(
+            g.game.inner.objects[head].ani,
+            g.game.inner.objects[body].ani
+        );
         for _ in 0..2 {
             crate::titles::Runtime::tick(&mut g);
         }
-        let (h, b) = (g.inner.objects[head].clone(), g.inner.objects[body].clone());
+        let (h, b) = (
+            g.game.inner.objects[head].clone(),
+            g.game.inner.objects[body].clone(),
+        );
         assert!(h.visible() && b.visible(), "{h:?} {b:?}");
         assert_eq!((h.x, h.y), (44, 49));
         assert!((180..=191).contains(&h.cel), "head cel {}", h.cel);
         assert_eq!(b.cel, 192);
-        let (_, hh) = g.inner.object_cel_size(0, h.cel).expect("the head's cel");
+        let (_, hh) = g
+            .game
+            .inner
+            .object_cel_size(0, h.cel)
+            .expect("the head's cel");
         assert_eq!((b.x, b.y), (44, 49 + hh), "placement 1: under the head");
         assert_eq!((b.x, b.y), (44, 75), "which is where the file put it");
         // Her hotspot follows her live bit (`14DDh:074Bh`, kind 10).
         let spot = g
+            .game
             .inner
             .room()
             .and_then(|r| {
@@ -3757,12 +3645,12 @@ mod tests {
                     .position(|s| s.verb_mask & 0xFF == 200)
             })
             .expect("her hotspot");
-        assert!(g.inner.hotspots_rt[spot].active);
+        assert!(g.game.inner.hotspots_rt[spot].active);
         // And over a while she moves her head: more than one cel is shown.
         let mut cels = std::collections::BTreeSet::new();
         for _ in 0..1200 {
             crate::titles::Runtime::tick(&mut g);
-            cels.insert(g.inner.objects[head].cel);
+            cels.insert(g.game.inner.objects[head].cel);
         }
         assert!(cels.len() > 1, "{cels:?}");
     }
@@ -3781,22 +3669,26 @@ mod tests {
     fn the_door_opens_frame_by_frame_before_the_figure_goes_through() {
         let mut g = zimmer_later!();
         let spot = g
+            .game
             .inner
             .room()
             .and_then(|r| r.hotspots.spots.iter().find(|h| h.name == "Tür").cloned())
             .expect("the door");
-        let door = g.inner.object_index(100).expect("the door's object");
-        assert!(!g.inner.objects[door].visible(), "shut and unseen at first");
+        let door = g.game.inner.object_index(100).expect("the door's object");
+        assert!(
+            !g.game.inner.objects[door].visible(),
+            "shut and unseen at first"
+        );
         let (x, y) = middle(&spot);
-        g.inner.mouse_move(x, y);
+        g.game.inner.mouse_move(x, y);
         crate::titles::Runtime::tick(&mut g);
-        assert!(g.inner.click());
+        assert!(g.game.inner.click());
         let mut opened = None;
         let mut code = None;
         let mut cels = Vec::new();
         for tick in 1..=600 {
             crate::titles::Runtime::tick(&mut g);
-            for e in g.inner.events.drain(..) {
+            for e in g.game.inner.events.drain(..) {
                 match e {
                     Event::ObjectAnim {
                         object: 100,
@@ -3810,7 +3702,7 @@ mod tests {
                 }
             }
             if let Some(t) = opened {
-                let o = &g.inner.objects[door];
+                let o = &g.game.inner.objects[door];
                 let shown = if o.visible() { Some(o.cel) } else { None };
                 if cels.last().map(|&(_, c)| c) != Some(shown) {
                     cels.push((tick - t, shown));
@@ -3823,8 +3715,11 @@ mod tests {
         let t = opened.expect("the rule opened the door");
         assert_eq!(code, Some(t + 29), "code 2 twenty-nine ticks after");
         assert_eq!(cels, [(0, None), (9, Some(8)), (19, Some(9))]);
-        assert_eq!(g.inner.walk_target, 2100, "and the walk to the twin began");
-        assert_eq!(g.inner.word_28c1, 0);
+        assert_eq!(
+            g.game.inner.walk_target, 2100,
+            "and the walk to the twin began"
+        );
+        assert_eq!(g.game.inner.word_28c1, 0);
     }
 
     /// What a visit does to a room's things is there at the next visit.
@@ -3841,6 +3736,7 @@ mod tests {
     fn a_taken_item_stays_taken_at_the_next_visit() {
         let mut g = zimmer_later!();
         let spot = g
+            .game
             .inner
             .room()
             .and_then(|r| {
@@ -3851,22 +3747,26 @@ mod tests {
                     .cloned()
             })
             .expect("the toolbox");
-        let toolbox = g.inner.object_index(1).expect("object 1");
-        assert!(g.inner.objects[toolbox].visible(), "on its shelf");
+        let toolbox = g.game.inner.object_index(1).expect("object 1");
+        assert!(g.game.inner.objects[toolbox].visible(), "on its shelf");
         assert!(act(&mut g, 12, &spot).is_some(), "the rule answers");
         settle(&mut g);
-        assert!(g.inner.carried(1), "event 15 gave item 1");
-        assert!(!g.inner.objects[toolbox].visible(), "and hid the object");
+        assert!(g.game.inner.carried(1), "event 15 gave item 1");
+        assert!(
+            !g.game.inner.objects[toolbox].visible(),
+            "and hid the object"
+        );
         crate::titles::Runtime::set_location_via(&mut g, 3, 100);
         settle_effects(&mut g);
         // Kind 0 writes its live bit plus one; the drawer behind it, kind
         // 1 and shipped not live, writes 1 too.
-        assert_eq!(&g.inner.location_records[2][..2], &[1, 1]);
+        assert_eq!(&g.game.inner.location_records[2][..2], &[1, 1]);
         crate::titles::Runtime::set_location_via(&mut g, 2, 0x7F);
         settle_effects(&mut g);
-        let toolbox = g.inner.object_index(1).expect("object 1");
-        assert!(!g.inner.objects[toolbox].visible(), "still taken");
+        let toolbox = g.game.inner.object_index(1).expect("object 1");
+        assert!(!g.game.inner.objects[toolbox].visible(), "still taken");
         let spot_index = g
+            .game
             .inner
             .room()
             .and_then(|r| {
@@ -3876,14 +3776,18 @@ mod tests {
                     .position(|h| h.name == "Werkzeugkasten")
             })
             .expect("its hotspot");
-        assert!(!g.inner.hotspots_rt[spot_index].active, "and not clickable");
+        assert!(
+            !g.game.inner.hotspots_rt[spot_index].active,
+            "and not clickable"
+        );
     }
 
     /// Whether object `id` is shown, when the room has it.
     fn shown(g: &DunkleSchatten, id: u8) -> Option<bool> {
-        g.inner
+        g.game
+            .inner
             .object_index(id)
-            .map(|i| g.inner.objects[i].visible())
+            .map(|i| g.game.inner.objects[i].visible())
     }
 
     /// The first page task 0 puts up within `ticks` that `want` accepts.
@@ -3894,7 +3798,7 @@ mod tests {
     ) -> Option<String> {
         for _ in 0..ticks {
             crate::titles::Runtime::tick(g);
-            let said = g.inner.events.drain(..).find_map(|e| match e {
+            let said = g.game.inner.events.drain(..).find_map(|e| match e {
                 Event::PageUp { task: 0, text } if want(&text) => Some(text),
                 _ => None,
             });
@@ -3908,10 +3812,10 @@ mod tests {
     /// Every animation stopped, the walker's too: the exit frame at
     /// `0x0ED2C` advances running animations, and those can roll.
     fn stop_outgoing(g: &mut DunkleSchatten) {
-        for o in &mut g.inner.objects {
+        for o in &mut g.game.inner.objects {
             o.state = 0;
         }
-        if let Some(w) = &mut g.inner.walker {
+        if let Some(w) = &mut g.game.inner.walker {
             w.state = 0;
         }
     }
@@ -3956,7 +3860,7 @@ mod tests {
     #[test]
     fn the_father_sits_before_the_television_on_the_first_evening() {
         let mut g = ds1!();
-        g.inner.sav_set(0x2716, 1);
+        g.game.inner.sav_set(0x2716, 1);
         crate::titles::Runtime::set_location_via(&mut g, 4, 101);
         settle_effects(&mut g);
         assert_eq!(shown(&g, 200), Some(true), "the father's head");
@@ -3965,16 +3869,18 @@ mod tests {
         assert_eq!(shown(&g, 204), Some(true), "object 204");
         assert_eq!(shown(&g, 130), Some(false), "Mike is not there");
         assert_eq!(shown(&g, 203), Some(false), "nor his body");
-        let father = g.inner.object_index(200).expect("the father");
-        let ai = g.inner.objects[father].ani.expect("bound to his entry");
-        assert_eq!(g.inner.anis[ai].current, 0, "on his idle animation");
-        g.inner.events.clear();
+        let father = g.game.inner.object_index(200).expect("the father");
+        let ai = g.game.inner.objects[father]
+            .ani
+            .expect("bound to his entry");
+        assert_eq!(g.game.inner.anis[ai].current, 0, "on his idle animation");
+        g.game.inner.events.clear();
 
         // `Sprich mit` on him: the figure walks to node 200 and the rule
         // runs on arrival. Every menu on the way takes its first line.
-        g.inner.verb = 2;
-        g.inner.mouse_move(120, 80);
-        assert!(g.inner.click());
+        g.game.inner.verb = 2;
+        g.game.inner.mouse_move(120, 80);
+        assert!(g.game.inner.click());
         let mut speakers = None;
         let mut base_at_load = None;
         let mut plays = Vec::new();
@@ -3982,11 +3888,11 @@ mod tests {
         let mut over_at = None;
         for tick in 1..=30000 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.menu.up {
+            if g.game.inner.menu.up {
                 crate::titles::Runtime::key(&mut g, 9);
                 crate::titles::Runtime::key(&mut g, 13);
             }
-            let events = std::mem::take(&mut g.inner.events);
+            let events = std::mem::take(&mut g.game.inner.events);
             for e in events {
                 match e {
                     Event::LocationHook { code: 0, arg, .. } => {
@@ -3999,16 +3905,16 @@ mod tests {
                     _ => {}
                 }
             }
-            if over_at.is_some() || g.inner.location() != 4 {
+            if over_at.is_some() || g.game.inner.location() != 4 {
                 break;
             }
         }
         assert_eq!(speakers, Some(3), "Karsten and the father speak");
         assert_eq!(base_at_load, Some(1));
-        assert_eq!(g.inner.sav_byte(0x2726), 0);
-        assert_eq!(g.inner.sav_byte(STATE), 2);
-        assert_eq!(g.inner.sav_byte(0x271E), 0);
-        assert_eq!(g.inner.sav_byte(0x2715), 1);
+        assert_eq!(g.game.inner.sav_byte(0x2726), 0);
+        assert_eq!(g.game.inner.sav_byte(STATE), 2);
+        assert_eq!(g.game.inner.sav_byte(0x271E), 0);
+        assert_eq!(g.game.inner.sav_byte(0x2715), 1);
         let over_at = over_at.expect("the dialogue ends");
         let events: Vec<u8> = script_events.iter().map(|&(_, n)| n).collect();
         assert_eq!(events, [103, 10, 11, 121], "{script_events:?}");
@@ -4047,10 +3953,10 @@ mod tests {
         // Event 121 asked for exit 101, and the Küche's state is 2.
         let left = (1..=3000).any(|_| {
             crate::titles::Runtime::tick(&mut g);
-            g.inner.location() != 4
+            g.game.inner.location() != 4
         });
         assert!(left, "the machine leaves through the door");
-        assert_eq!(g.inner.location(), 3, "into the Küche");
+        assert_eq!(g.game.inner.location(), 3, "into the Küche");
         let said = first_page(&mut g, 3000, |_| true);
         assert_eq!(
             said.as_deref(),
@@ -4092,18 +3998,23 @@ mod tests {
         let mut g = ds1!();
         // The second morning as the Zimmer's wake-up leaves it, with the
         // Küche's own arms kept out of the way.
-        g.inner.sav_set(STATE, 1);
-        g.inner.sav_set(0x2715, 0x80);
-        g.inner.sav_set(0x2716, 0x80);
-        g.inner.sav_set(0x2714, 1);
-        g.inner.events.clear();
+        g.game.inner.sav_set(STATE, 1);
+        g.game.inner.sav_set(0x2715, 0x80);
+        g.game.inner.sav_set(0x2716, 0x80);
+        g.game.inner.sav_set(0x2714, 1);
+        g.game.inner.events.clear();
         // The start options' dissolve has drawn from the generator
         // (`0x1208C`), as many times as the machine fits into a second;
         // the rolls below are worked from seed zero, so they start there.
-        *g.inner.rng_mut() = LcRng::default();
-        assert_eq!(g.inner.seed_for_test(), (0, 0), "nothing has rolled yet");
+        *g.game.inner.rng_mut() = LcRng::default();
+        assert_eq!(
+            g.game.inner.seed_for_test(),
+            (0, 0),
+            "nothing has rolled yet"
+        );
         let bound = |g: &mut DunkleSchatten| -> Vec<i16> {
-            g.inner
+            g.game
+                .inner
                 .events
                 .drain(..)
                 .filter_map(|e| match e {
@@ -4121,11 +4032,11 @@ mod tests {
         settle_effects(&mut g);
         assert_eq!(shown(&g, 200), Some(false), "the father is out");
         assert_eq!(shown(&g, 201), Some(false), "body and all");
-        assert_eq!(g.inner.sav_byte(0x2714), 0, "the roll answers 0");
+        assert_eq!(g.game.inner.sav_byte(0x2714), 0, "the roll answers 0");
         assert_eq!(bound(&mut g), vec![12]);
-        assert_eq!(g.inner.substitutions[0], grossmutter);
+        assert_eq!(g.game.inner.substitutions[0], grossmutter);
         assert_eq!(
-            g.inner.seed_for_test(),
+            g.game.inner.seed_for_test(),
             (0x96AC, 0xFE32),
             "four rolls: the transition, the visit's, the draw's two"
         );
@@ -4139,7 +4050,7 @@ mod tests {
         );
 
         for visit in 2..=4 {
-            let (lo, hi) = g.inner.seed_for_test();
+            let (lo, hi) = g.game.inner.seed_for_test();
             let mut rng = LcRng { lo, hi };
             rng.inclusive(1, 6);
             rng.inclusive(1, 6);
@@ -4148,53 +4059,53 @@ mod tests {
                 (name, num::signed(rng.inclusive(11, 13)))
             });
             out_and_back(&mut g);
-            assert_eq!(g.inner.sav_byte(0x2714), 0);
+            assert_eq!(g.game.inner.sav_byte(0x2714), 0);
             match draw {
                 Some((name, scene)) => {
                     assert_eq!(bound(&mut g), vec![scene], "visit {visit}");
-                    assert_eq!(g.inner.substitutions[0], name, "visit {visit}");
+                    assert_eq!(g.game.inner.substitutions[0], name, "visit {visit}");
                 }
                 None => {
                     assert_eq!(bound(&mut g), Vec::<i16>::new(), "visit {visit} is quiet");
                 }
             }
             assert_eq!(
-                g.inner.seed_for_test(),
+                g.game.inner.seed_for_test(),
                 (rng.lo, rng.hi),
                 "visit {visit} rolled what the listing says"
             );
         }
 
         // `0x1110`: Tom's call.
-        g.inner.sav_set(0x2714, 2);
-        g.inner.sav_set(0x272D, 7);
+        g.game.inner.sav_set(0x2714, 2);
+        g.game.inner.sav_set(0x272D, 7);
         out_and_back(&mut g);
         assert_eq!(bound(&mut g), vec![4]);
-        assert_eq!(g.inner.sav_byte(0x2700), 1);
-        assert_eq!(g.inner.sav_byte(0x272E), 0);
-        assert_eq!(g.inner.sav_byte(0x272D), 1);
-        assert_eq!(g.inner.sav_byte(0x2714), 1);
+        assert_eq!(g.game.inner.sav_byte(0x2700), 1);
+        assert_eq!(g.game.inner.sav_byte(0x272E), 0);
+        assert_eq!(g.game.inner.sav_byte(0x272D), 1);
+        assert_eq!(g.game.inner.sav_byte(0x2714), 1);
 
         // `0x1134`: Stauf's call.
-        g.inner.sav_set(0x2714, 4);
+        g.game.inner.sav_set(0x2714, 4);
         out_and_back(&mut g);
         assert_eq!(bound(&mut g), vec![10]);
-        assert_eq!(g.inner.sav_byte(0x272D), 5);
-        assert_eq!(g.inner.sav_byte(0x2714), 1);
+        assert_eq!(g.game.inner.sav_byte(0x272D), 5);
+        assert_eq!(g.game.inner.sav_byte(0x2714), 1);
 
         // `0x1130`: Jörg's call; `0x1110` again with `[272Dh]` at 2, which
         // it leaves alone.
-        g.inner.sav_set(0x2714, 3);
+        g.game.inner.sav_set(0x2714, 3);
         out_and_back(&mut g);
         assert_eq!(bound(&mut g), vec![8]);
-        assert_eq!(g.inner.sav_byte(0x2714), 1);
-        g.inner.sav_set(0x2714, 2);
-        g.inner.sav_set(0x272D, 2);
-        g.inner.sav_set(0x272E, 9);
+        assert_eq!(g.game.inner.sav_byte(0x2714), 1);
+        g.game.inner.sav_set(0x2714, 2);
+        g.game.inner.sav_set(0x272D, 2);
+        g.game.inner.sav_set(0x272E, 9);
         out_and_back(&mut g);
         assert_eq!(bound(&mut g), vec![4]);
-        assert_eq!(g.inner.sav_byte(0x272D), 2);
-        assert_eq!(g.inner.sav_byte(0x272E), 9);
+        assert_eq!(g.game.inner.sav_byte(0x272D), 2);
+        assert_eq!(g.game.inner.sav_byte(0x272E), 9);
     }
 
     /// Event 12 stands the father up, and his animation reports back.
@@ -4217,13 +4128,13 @@ mod tests {
     #[test]
     fn the_father_gets_up_and_his_animation_reports_twice() {
         let mut g = ds1!();
-        g.inner.sav_set(0x2716, 1);
+        g.game.inner.sav_set(0x2716, 1);
         crate::titles::Runtime::set_location_via(&mut g, 4, 101);
         settle_effects(&mut g);
-        g.inner.events.clear();
-        logic::location_hook(&mut g.inner, 7, 12, 0);
+        g.game.inner.events.clear();
+        logic::location_hook(&mut g.game.inner, 7, 12, 0);
         assert_eq!(
-            g.inner.events,
+            g.game.inner.events,
             vec![
                 Event::Sample(8),
                 Event::Sample(9),
@@ -4233,14 +4144,14 @@ mod tests {
                 }
             ]
         );
-        assert_eq!(g.inner.sav_byte(BED), 1);
+        assert_eq!(g.game.inner.sav_byte(BED), 1);
         assert_eq!(father_base(&g), 0);
-        assert_ne!(g.inner.tasks.t[0].flags & 0x8000, 0, "task 0 armed");
-        g.inner.events.clear();
+        assert_ne!(g.game.inner.tasks.t[0].flags & 0x8000, 0, "task 0 armed");
+        g.game.inner.events.clear();
         let mut log = Vec::new();
         for tick in 1..=300 {
             crate::titles::Runtime::tick(&mut g);
-            let events = std::mem::take(&mut g.inner.events);
+            let events = std::mem::take(&mut g.game.inner.events);
             for e in events {
                 match e {
                     Event::AnimCode { object: 200, code } => {
@@ -4270,7 +4181,7 @@ mod tests {
         .collect();
         assert_eq!(log, want);
         assert_eq!(
-            g.inner.tasks.t[0].flags & 0x8000,
+            g.game.inner.tasks.t[0].flags & 0x8000,
             0,
             "task 0 started at code 100"
         );
@@ -4285,16 +4196,21 @@ mod tests {
         for _ in 0..837 {
             crate::titles::Runtime::tick(&mut g);
         }
-        let w = g.inner.walker.as_ref().expect("awake figure");
+        let w = g.game.inner.walker.as_ref().expect("awake figure");
         assert_eq!((w.x, w.y, w.dest_id), (168, 87, 200));
         assert!(w.layer.is_some(), "the wake-up snap inserts the figure");
         let node = w.node;
-        logic::location_hook(&mut g.inner, 7, 11, 0);
-        let w = g.inner.walker.as_ref().expect("sleeping figure record");
+        logic::location_hook(&mut g.game.inner, 7, 11, 0);
+        let w = g
+            .game
+            .inner
+            .walker
+            .as_ref()
+            .expect("sleeping figure record");
         assert_eq!(w.layer, None);
         assert_eq!(w.node, node);
         assert_eq!((w.x, w.y, w.dest_id), (168, 87, 200));
-        assert_eq!(g.inner.sav_byte(BED), 2);
+        assert_eq!(g.game.inner.sav_byte(BED), 2);
     }
 
     /// The Laden's person, 83h, walks from node 12Ch to 12Dh through the
@@ -4312,18 +4228,18 @@ mod tests {
         crate::titles::Runtime::set_location_via(&mut g, 6, 0x7F);
         settle_effects(&mut g);
         assert_eq!(
-            g.inner.subjects.get(1).map(|s| (s.subject, s.code)),
+            g.game.inner.subjects.get(1).map(|s| (s.subject, s.code)),
             Some((Subject::Mover(0), 0x2000)),
             "the Straße's slot 1 is its person"
         );
         crate::titles::Runtime::set_location_via(&mut g, 9, 0x7F);
         settle_effects(&mut g);
         assert_eq!(
-            g.inner.subjects.get(2).map(|s| s.subject),
+            g.game.inner.subjects.get(2).map(|s| s.subject),
             Some(Subject::Mover(0)),
             "the Laden's slot 2 is its person"
         );
-        let a = &mut g.inner;
+        let a = &mut g.game.inner;
         let rec = a.mover_find(0x83);
         assert_eq!(rec, Far::mover(0), "the room's record 0");
         let node = |a: &mut parsec1994::Adventure| {
@@ -4392,11 +4308,11 @@ mod tests {
     fn the_f1_binds_its_person_to_a_node_no_graph_has() {
         use crate::titles::subject::Subject;
         let mut g = ds1!();
-        g.inner.set_byte(0x2726, 4);
+        g.game.inner.set_byte(0x2726, 4);
         crate::titles::Runtime::set_location_via(&mut g, 27, 0x7F);
         settle_effects(&mut g);
-        assert_eq!(g.inner.location(), 27);
-        let a = &mut g.inner;
+        assert_eq!(g.game.inner.location(), 27);
+        let a = &mut g.game.inner;
         let rec = a.mover_find(0xC8);
         assert_eq!(rec, Far::mover(0));
         assert_eq!(a.movers[0].graph, Some(1), "bound, +24h written");
@@ -4433,7 +4349,7 @@ mod tests {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 9, 0x7F);
         settle_effects(&mut g);
-        let a = &mut g.inner;
+        let a = &mut g.game.inner;
         let rec = a.mover_find(0x83);
         let without = a.render_scene();
         assert_eq!(a.walker_bind_graph(rec, 1, 0x12C, 3), 1);
@@ -4480,7 +4396,7 @@ mod tests {
     #[test]
     fn the_data_segment_is_the_records_the_engine_keeps() {
         let mut g = ds1!();
-        let a = &mut g.inner;
+        let a = &mut g.game.inner;
         // Object rows.
         a.location_records[5][3] = 0x42;
         assert_eq!(a.byte(0x1F56 + 5 * 32 + 3), 0x42);
@@ -4515,8 +4431,8 @@ mod tests {
         for _ in 0..600 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert_eq!(g.inner.tasks.t[0].kind, 0, "no text up");
-        assert!(g.inner.player_linked(), "standing");
+        assert_eq!(g.game.inner.tasks.t[0].kind, 0, "no text up");
+        assert!(g.game.inner.player_linked(), "standing");
         Some(g)
     }
 
@@ -4524,7 +4440,7 @@ mod tests {
     /// many it took.
     fn until_the_options_take_input(g: &mut DunkleSchatten) -> u32 {
         for n in 0..400 {
-            if g.inner.options_up() && !g.inner.options_fading() {
+            if g.game.inner.options_up() && !g.game.inner.options_fading() {
                 return n;
             }
             crate::titles::Runtime::tick(g);
@@ -4542,8 +4458,11 @@ mod tests {
     /// Row `id`'s record, 1-based, as the program keeps it: its `y` and
     /// its index (`DS:14A4h`, `+2`, `+4`).
     fn option_row(g: &DunkleSchatten, id: u16) -> (i32, u16) {
-        let rec = g.inner.word(0x14A4 + 4 * (id - 1));
-        (i32::from(g.inner.word(rec + 2)), g.inner.word(rec + 4))
+        let rec = g.game.inner.word(0x14A4 + 4 * (id - 1));
+        (
+            i32::from(g.game.inner.word(rec + 2)),
+            g.game.inner.word(rec + 4),
+        )
     }
 
     /// A click on row `id` and the pass that takes it.
@@ -4578,8 +4497,11 @@ mod tests {
         let dir = gamedata_or_skip()?;
         let mut g = DunkleSchatten::open(&dir).expect("open Dunkle Schatten");
         g.start_in_xp01(Start::New).expect("start");
-        assert!(g.inner.options_fading(), "the start options dissolving in");
-        g.inner.dissolve_draws = draws;
+        assert!(
+            g.game.inner.options_fading(),
+            "the start options dissolving in"
+        );
+        g.game.inner.dissolve_draws = draws;
         Some(g)
     }
 
@@ -4594,14 +4516,14 @@ mod tests {
             eprintln!("skipping: no Dunkle Schatten gamedata directory");
             return;
         };
-        let (lo, hi) = g.inner.seed_for_test();
+        let (lo, hi) = g.game.inner.seed_for_test();
         let mut want = crate::titles::rng::LcRng { lo, hi };
         for _ in 0..1000 {
             want.inclusive(0, 0x5000);
         }
         until_the_options_take_input(&mut g);
-        assert!(g.inner.clock.hundredths_1c82() >= 100);
-        assert_eq!(g.inner.seed_for_test(), (want.lo, want.hi));
+        assert!(g.game.inner.clock.hundredths_1c82() >= 100);
+        assert_eq!(g.game.inner.seed_for_test(), (want.lo, want.hi));
         // A count of none is still one pass: the loop tests at its foot.
         let Some(mut g) = start_options_on(0) else {
             return;
@@ -4609,7 +4531,7 @@ mod tests {
         until_the_options_take_input(&mut g);
         let mut one = crate::titles::rng::LcRng { lo, hi };
         one.inclusive(0, 0x5000);
-        assert_eq!(g.inner.seed_for_test(), (one.lo, one.hi));
+        assert_eq!(g.game.inner.seed_for_test(), (one.lo, one.hi));
     }
 
     /// On the reference machine the start options leave the generator
@@ -4621,9 +4543,9 @@ mod tests {
             eprintln!("skipping: no Dunkle Schatten gamedata directory");
             return;
         };
-        assert_eq!(g.inner.seed_for_test(), (0, 0));
+        assert_eq!(g.game.inner.seed_for_test(), (0, 0));
         until_the_options_take_input(&mut g);
-        assert_eq!(g.inner.seed_for_test(), (0xE605, 0x7698));
+        assert_eq!(g.game.inner.seed_for_test(), (0xE605, 0x7698));
     }
 
     /// The entry's pass with no ticks (`0x0EC50`) steps the bed, whose
@@ -4640,15 +4562,18 @@ mod tests {
             return;
         };
         until_the_options_take_input(&mut g);
-        let (lo, hi) = g.inner.seed_for_test();
+        let (lo, hi) = g.game.inner.seed_for_test();
         let mut want = crate::titles::rng::LcRng { lo, hi };
         want.inclusive(0, 40);
         want.inclusive(0, 46);
         crate::titles::Runtime::key(&mut g, 27);
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.location(), 2, "the Zimmer");
-        assert!(g.inner.effects.busy(), "the entry effect still to play");
-        assert_eq!(g.inner.seed_for_test(), (want.lo, want.hi));
+        assert_eq!(g.game.inner.location(), 2, "the Zimmer");
+        assert!(
+            g.game.inner.effects.busy(),
+            "the entry effect still to play"
+        );
+        assert_eq!(g.game.inner.seed_for_test(), (want.lo, want.hi));
     }
 
     /// Escape in game asks the gate in place with 1, locks the input and
@@ -4662,17 +4587,17 @@ mod tests {
             return;
         };
         crate::titles::Runtime::key(&mut g, 27);
-        assert_eq!(g.inner.gate, parsec1994::Gate::Options);
-        assert_eq!((g.inner.verb, g.inner.mode), (6, 7));
+        assert_eq!(g.game.inner.gate, parsec1994::Gate::Options);
+        assert_eq!((g.game.inner.verb, g.game.inner.mode), (6, 7));
         until_the_options_take_input(&mut g);
         crate::titles::Runtime::key(&mut g, 27);
         crate::titles::Runtime::tick(&mut g);
-        assert!(!g.inner.options_up());
-        assert_eq!(g.inner.gate, parsec1994::Gate::None);
-        assert_eq!((g.inner.verb, g.inner.mode), (0, 0));
-        assert_eq!(g.inner.bits & 2, 0, "the input let go");
+        assert!(!g.game.inner.options_up());
+        assert_eq!(g.game.inner.gate, parsec1994::Gate::None);
+        assert_eq!((g.game.inner.verb, g.game.inner.mode), (0, 0));
+        assert_eq!(g.game.inner.bits & 2, 0, "the input let go");
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.location(), 4, "still in the Wohnzimmer");
+        assert_eq!(g.game.inner.location(), 4, "still in the Wohnzimmer");
     }
 
     /// The sixth verb picked on the strip goes straight to mode 5
@@ -4687,7 +4612,8 @@ mod tests {
         let at = (0..320)
             .flat_map(|x| (128..200).map(move |y| (x, y)))
             .find(|&(x, y)| {
-                g.inner
+                g.game
+                    .inner
                     .panel_widgets
                     .hit(x, y)
                     .and_then(crate::titles::panel::Panel::verb_of)
@@ -4696,9 +4622,9 @@ mod tests {
             .expect("the strip has a sixth verb");
         crate::titles::Runtime::mouse_move(&mut g, at.0, at.1);
         crate::titles::Runtime::click(&mut g, true);
-        assert_eq!(g.inner.mode, 5);
+        assert_eq!(g.game.inner.mode, 5);
         until_the_options_take_input(&mut g);
-        assert!(g.inner.options_up());
+        assert!(g.game.inner.options_up());
     }
 
     /// Each row's setting, and what it does to the engine on the close:
@@ -4722,26 +4648,31 @@ mod tests {
         assert_eq!(option_row(&g, 3).1, 2, "text: fast");
         assert_eq!(option_row(&g, 4).1, 1, "walk: normal");
         // The mouse at once: setting 2, divisors 40 and 40.
-        assert_eq!(g.inner.word(0x16F3), 2);
-        assert_eq!((g.inner.word(0x03DC), g.inner.word(0x03DA)), (40, 40));
+        assert_eq!(g.game.inner.word(0x16F3), 2);
+        assert_eq!(
+            (g.game.inner.word(0x03DC), g.game.inner.word(0x03DA)),
+            (40, 40)
+        );
         crate::titles::Runtime::key(&mut g, 27);
         crate::titles::Runtime::tick(&mut g);
-        assert!(!g.inner.options_up());
-        let fast: Vec<u16> = (0..4).map(|i| g.inner.word(0x14CE + 16 + 2 * i)).collect();
-        let now: Vec<u16> = (0..4).map(|i| g.inner.word(0x167D + 2 * i)).collect();
+        assert!(!g.game.inner.options_up());
+        let fast: Vec<u16> = (0..4)
+            .map(|i| g.game.inner.word(0x14CE + 16 + 2 * i))
+            .collect();
+        let now: Vec<u16> = (0..4).map(|i| g.game.inner.word(0x167D + 2 * i)).collect();
         assert_eq!(now, fast);
-        let t = g.inner.timing();
+        let t = g.game.inner.timing();
         assert_eq!(
             [t.base, t.per_line, t.per_char, t.max],
             [fast[0], fast[1], fast[2], fast[3]]
         );
-        let normal = g.inner.byte(0x14E6 + 1);
-        assert_eq!(g.inner.byte(0x16A7), normal);
+        let normal = g.game.inner.byte(0x14E6 + 1);
+        assert_eq!(g.game.inner.byte(0x16A7), normal);
         assert_eq!(
-            g.inner.walker.as_ref().map(|w| w.gait.speed),
+            g.game.inner.walker.as_ref().map(|w| w.gait.speed),
             Some(i32::from(normal))
         );
-        assert_eq!(g.inner.word(0x1ED2), 1, "the settings want writing");
+        assert_eq!(g.game.inner.word(0x1ED2), 1, "the settings want writing");
     }
 
     /// The walk row skips `****` unless the command line's `#SpeedHigh`
@@ -4757,7 +4688,7 @@ mod tests {
             click_option_row(&mut g, 4);
             assert_eq!(option_row(&g, 4).1, want);
         }
-        g.inner.set_word(0x1EDC, 0x10);
+        g.game.inner.set_word(0x1EDC, 0x10);
         click_option_row(&mut g, 4);
         assert_eq!(option_row(&g, 4).1, 3);
     }
@@ -4775,14 +4706,15 @@ mod tests {
         crate::titles::Runtime::set_saves(&mut g, &dir).unwrap();
         crate::titles::Runtime::seed(&mut g, 0x000C_1234);
         // Something to keep: a story byte, an item, an object row.
-        g.inner.sav_set(0x2700, 0x5A);
-        g.inner.give_item(3);
-        g.inner.location_records[9][4] = 0x21;
-        let items = g.inner.items.clone();
+        g.game.inner.sav_set(0x2700, 0x5A);
+        g.game.inner.give_item(3);
+        g.game.inner.location_records[9][4] = 0x21;
+        let items = g.game.inner.items.clone();
         // The figure somewhere else than where the entry put it, facing
         // left.
-        let here = g.inner.walker.as_ref().unwrap().dest_id;
+        let here = g.game.inner.walker.as_ref().unwrap().dest_id;
         let other = g
+            .game
             .inner
             .room()
             .and_then(|r| r.walk())
@@ -4793,9 +4725,9 @@ mod tests {
                     .find(|&id| id != here && id < 0x7D0)
             })
             .expect("a second node");
-        assert!(g.inner.snap_player(other, 1));
+        assert!(g.game.inner.snap_player(other, 1));
         let stood = {
-            let w = g.inner.walker.as_ref().unwrap();
+            let w = g.game.inner.walker.as_ref().unwrap();
             (w.dest_id, w.facing(), w.x, w.y)
         };
         crate::titles::Runtime::key(&mut g, 27);
@@ -4804,7 +4736,7 @@ mod tests {
         let ticks = until_the_options_take_input(&mut g) + 4;
         click_option_row(&mut g, 5);
         answer(&mut g, true);
-        assert!(!g.inner.options_up(), "a save closes the options");
+        assert!(!g.game.inner.options_up(), "a save closes the options");
         let file = std::fs::read(dir.join("SAVEGAME.SAV")).expect("the file is written");
         assert_eq!(file.len(), 0x8B1);
         assert_eq!(&file[..8], b"DSchSAV\0");
@@ -4819,16 +4751,19 @@ mod tests {
             "copied while pushed"
         );
         let mut rng = crate::titles::rng::LcRng::default();
-        assert!(parsec1994::sav_valid(&file, &mut rng));
+        assert!(parsec1994::sav_valid(&file, &build::SAVE, &mut rng));
         assert_eq!(
             (rng.lo, rng.hi),
-            (g.inner.seed_for_test().0, g.inner.seed_for_test().1),
+            (
+                g.game.inner.seed_for_test().0,
+                g.game.inner.seed_for_test().1
+            ),
             "the save reseeded the game's generator and drew two"
         );
         // Changed after the save, and undone by the load.
-        g.inner.sav_set(0x2700, 0);
-        g.inner.take_item(3);
-        g.inner.location_records[9][4] = 0;
+        g.game.inner.sav_set(0x2700, 0);
+        g.game.inner.take_item(3);
+        g.game.inner.location_records[9][4] = 0;
         for _ in 0..50 {
             crate::titles::Runtime::tick(&mut g);
         }
@@ -4836,25 +4771,25 @@ mod tests {
         until_the_options_take_input(&mut g);
         click_option_row(&mut g, 6);
         answer(&mut g, true);
-        assert!(!g.inner.options_up());
+        assert!(!g.game.inner.options_up());
         assert_eq!(
-            (g.inner.location_word, g.inner.entry_word),
+            (g.game.inner.location_word, g.game.inner.entry_word),
             (60, 1),
             "the main loop sent to location 60 (`0x14CBF`)"
         );
         for _ in 0..1500 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.here_word == 4 && g.inner.entry_word == 0 {
+            if g.game.inner.here_word == 4 && g.game.inner.entry_word == 0 {
                 break;
             }
         }
-        assert_eq!(g.inner.location(), 4);
-        assert_eq!(g.inner.sav_byte(0x2700), 0x5A);
-        assert_eq!(g.inner.items, items);
-        assert_eq!(g.inner.location_records[9][4], 0x21);
+        assert_eq!(g.game.inner.location(), 4);
+        assert_eq!(g.game.inner.sav_byte(0x2700), 0x5A);
+        assert_eq!(g.game.inner.items, items);
+        assert_eq!(g.game.inner.location_records[9][4], 0x21);
         // The entry −1 puts the figure back where its record says
         // (`0x0EFBC`).
-        let w = g.inner.walker.as_ref().unwrap();
+        let w = g.game.inner.walker.as_ref().unwrap();
         assert_eq!((w.dest_id, w.facing(), w.x, w.y), stood);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4871,11 +4806,12 @@ mod tests {
         };
         let dir = save_dir("start");
         crate::titles::Runtime::set_saves(&mut g, &dir).unwrap();
-        g.inner.sav_set(0x2701, 0x77);
+        g.game.inner.sav_set(0x2701, 0x77);
         let tick = 0x0001_0203;
         let bytes = g
+            .game
             .inner
-            .save_044e(&SaveMap::DS1, tick)
+            .save_044e(&build::SAVE, tick)
             .expect("in a location, a save is written");
         std::fs::write(dir.join("SAVEGAME.SAV"), &bytes).unwrap();
 
@@ -4887,9 +4823,12 @@ mod tests {
             g
         };
         let mut c = open(&dir, Start::Continue);
-        assert_eq!(c.inner.word(0x1744), 1, "a game in the buffer");
-        assert_eq!(c.inner.sav_byte(0x2701), 0x77);
-        assert_eq!((c.inner.location_word, c.inner.entry_word), (4, 0xFFFF));
+        assert_eq!(c.game.inner.word(0x1744), 1, "a game in the buffer");
+        assert_eq!(c.game.inner.sav_byte(0x2701), 0x77);
+        assert_eq!(
+            (c.game.inner.location_word, c.game.inner.entry_word),
+            (4, 0xFFFF)
+        );
         let mut seed = crate::titles::rng::LcRng {
             lo: 0x0203,
             hi: 0x0001,
@@ -4897,29 +4836,32 @@ mod tests {
         seed.inclusive(1, 0xFFFE);
         seed.inclusive(1, 0xFFFE);
         assert_eq!(
-            c.inner.seed_for_test(),
+            c.game.inner.seed_for_test(),
             (seed.lo, seed.hi),
             "seeded by the file's tick"
         );
         close_start_options(&mut c);
-        assert_eq!(c.inner.location(), 4);
+        assert_eq!(c.game.inner.location(), 4);
 
         let n = open(&dir, Start::New);
-        assert_eq!(n.inner.word(0x1744), 0);
-        assert_eq!(n.inner.location_word, 2);
+        assert_eq!(n.game.inner.word(0x1744), 0);
+        assert_eq!(n.game.inner.location_word, 2);
 
         let mut bad = bytes.clone();
         bad[0x100] ^= 1;
         std::fs::write(dir.join("SAVEGAME.SAV"), &bad).unwrap();
         let b = open(&dir, Start::Continue);
-        assert_eq!(b.inner.word(0x1744), 0);
-        assert_eq!(b.inner.location_word, 2, "a fresh game instead");
-        let invalid = b.inner.save_message(SaveMap::DS1.msg_invalid, "");
-        assert_eq!(b.inner.notice.as_deref(), Some(invalid.as_str()));
+        assert_eq!(b.game.inner.word(0x1744), 0);
+        assert_eq!(b.game.inner.location_word, 2, "a fresh game instead");
+        let invalid = b.game.inner.save_message(build::SAVE.msg_invalid, "");
+        assert_eq!(b.game.inner.notice.as_deref(), Some(invalid.as_str()));
 
         std::fs::write(dir.join("SAVEGAME.SAV"), &bytes[..0x8B0]).unwrap();
         let s = open(&dir, Start::Continue);
-        assert_eq!((s.inner.word(0x1744), s.inner.notice.is_none()), (0, true));
+        assert_eq!(
+            (s.game.inner.word(0x1744), s.game.inner.notice.is_none()),
+            (0, true)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4942,9 +4884,9 @@ mod tests {
         click_option_row(&mut g, 2);
         click_option_row(&mut g, 7);
         answer(&mut g, true);
-        assert!(g.inner.options_up(), "the second question");
+        assert!(g.game.inner.options_up(), "the second question");
         answer(&mut g, false);
-        assert!(!g.inner.options_up());
+        assert!(!g.game.inner.options_up());
         let mut over = false;
         for _ in 0..1000 {
             ticks += 1;
@@ -4967,10 +4909,13 @@ mod tests {
         let mut n = DunkleSchatten::open(&game).unwrap();
         crate::titles::Runtime::set_saves(&mut n, &dir).unwrap();
         n.start_in_xp01(Start::Continue).unwrap();
-        assert_eq!(n.inner.word(0x16F3), 2);
-        assert_eq!((n.inner.word(0x03DC), n.inner.word(0x03DA)), (40, 40));
+        assert_eq!(n.game.inner.word(0x16F3), 2);
         assert_eq!(
-            n.inner.seed_for_test(),
+            (n.game.inner.word(0x03DC), n.game.inner.word(0x03DA)),
+            (40, 40)
+        );
+        assert_eq!(
+            n.game.inner.seed_for_test(),
             (
                 u16::try_from(tick & 0xFFFF).unwrap(),
                 u16::try_from(tick >> 16).unwrap()
@@ -4989,14 +4934,14 @@ mod tests {
             return;
         };
         let mut g = DunkleSchatten::open(&dir).expect("open Dunkle Schatten");
-        assert_eq!(g.inner.bios.count(), 0);
+        assert_eq!(g.game.inner.bios.count(), 0);
         g.start_in_xp01(Start::Continue).expect("start");
         for _ in 0..6 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert_eq!(g.inner.bios.count(), 0, "six ticks are 59 652 cycles");
+        assert_eq!(g.game.inner.bios.count(), 0, "six ticks are 59 652 cycles");
         crate::titles::Runtime::tick(&mut g);
-        assert_eq!(g.inner.bios.count(), 1, "the seventh carries");
+        assert_eq!(g.game.inner.bios.count(), 1, "the seventh carries");
     }
 
     /// A save directory inside the install is refused.
@@ -5018,7 +4963,8 @@ mod tests {
     /// figure back on its node, and that changed none of its bytes.
     #[test]
     fn the_originals_saved_game_and_settings_are_read() {
-        let Some(dir) = motionvm_parsec_testutil::saves_dir_named() else {
+        let Some(dir) = motionvm_parsec_testutil::saves_dir_named(Title::DunkleSchatten.slug())
+        else {
             eprintln!("skipping: MOTIONVM_SAVES names no directory");
             return;
         };
@@ -5032,14 +4978,14 @@ mod tests {
         let file = std::fs::read(&sav).unwrap();
         let mut rng = crate::titles::rng::LcRng::default();
         assert!(
-            parsec1994::sav_valid(&file, &mut rng),
+            parsec1994::sav_valid(&file, &build::SAVE, &mut rng),
             "the original's checksum"
         );
         let cfg = motionvm_parsec_formats::find_ci(&dir, "SAVEGAME.CFG")
             .map(|p| std::fs::read(p).unwrap());
         if let Some(cfg) = &cfg {
             assert!(matches!(
-                parsec1994::cfg_read(cfg, &mut rng),
+                parsec1994::cfg_read(cfg, &build::SAVE, &mut rng),
                 parsec1994::Cfg::Taken { .. }
             ));
         }
@@ -5053,14 +4999,14 @@ mod tests {
         let mut g = DunkleSchatten::open(&game).unwrap();
         crate::titles::Runtime::set_saves(&mut g, &work).unwrap();
         g.start_in_xp01(Start::Continue).unwrap();
-        assert_eq!(g.inner.word(0x1744), 1);
-        let saved_in = g.inner.location_word;
+        assert_eq!(g.game.inner.word(0x1744), 1);
+        let saved_in = g.game.inner.location_word;
         close_start_options(&mut g);
-        assert_eq!(g.inner.location(), i32::from(saved_in));
-        assert!(g.inner.notice.is_none());
+        assert_eq!(g.game.inner.location(), i32::from(saved_in));
+        assert!(g.game.inner.notice.is_none());
         // The same game saved again, with the file's tick.
         let tick = u32::from_le_bytes([file[0x0A], file[0x0B], file[0x0C], file[0x0D]]);
-        let again = g.inner.save_044e(&SaveMap::DS1, tick).unwrap();
+        let again = g.game.inner.save_044e(&build::SAVE, tick).unwrap();
         assert_eq!(
             &again[..0x0E],
             &file[..0x0E],
@@ -5083,10 +5029,10 @@ mod tests {
         // The settings, written again with their own tick: the same 31
         // bytes.
         if let Some(cfg) = &cfg {
-            g.inner.set_word(SaveMap::DS1.cfg_dirty, 1);
+            g.game.inner.set_word(build::SAVE.cfg_dirty, 1);
             let tick = u32::from_le_bytes([cfg[0x0A], cfg[0x0B], cfg[0x0C], cfg[0x0D]]);
             assert_eq!(
-                g.inner.cfg_0373(&SaveMap::DS1, tick).as_deref(),
+                g.game.inner.cfg_0373(&build::SAVE, tick).as_deref(),
                 Some(&cfg[..])
             );
         }
@@ -5101,8 +5047,8 @@ mod tests {
     /// The player's record at `DS:1693h` in the image (`03 01 01 02 …`):
     /// standing on no node, block 0, base 0.
     fn image_record(g: &DunkleSchatten) -> Vec<u8> {
-        let at = g.inner.image.at(0x1693);
-        g.inner.image.bytes()[at..at + 0x30].to_vec()
+        let at = g.game.inner.image.at(0x1693);
+        g.game.inner.image.bytes()[at..at + 0x30].to_vec()
     }
 
     /// A record whose `+0Ch` and `+2Ch` disagree: the image's with the
@@ -5130,7 +5076,7 @@ mod tests {
 
     fn write_record(g: &mut DunkleSchatten, r: &[u8]) {
         for (i, &b) in r.iter().enumerate() {
-            g.inner.set_byte(0x1693 + u16::try_from(i).unwrap(), b);
+            g.game.inner.set_byte(0x1693 + u16::try_from(i).unwrap(), b);
         }
     }
 
@@ -5141,7 +5087,10 @@ mod tests {
     #[test]
     fn the_players_record_is_the_walker_both_ways() {
         let mut g = ds1!();
-        assert!(g.inner.walker.is_some(), "the Zimmer placed the figure");
+        assert!(
+            g.game.inner.walker.is_some(),
+            "the Zimmer placed the figure"
+        );
         let records = [
             image_record(&g),
             disagreeing_record(&g),
@@ -5150,23 +5099,27 @@ mod tests {
         for r in &records {
             for walker in [true, false] {
                 if !walker {
-                    g.inner.walker = None;
+                    g.game.inner.walker = None;
                 }
                 write_record(&mut g, r);
-                assert_eq!(&g.inner.player_record_bytes(), r, "walker {walker}");
-                let w = g.inner.take_player();
-                g.inner.walker = Some(w);
-                assert_eq!(&g.inner.player_record_bytes(), r, "made from the bytes");
+                assert_eq!(&g.game.inner.player_record_bytes(), r, "walker {walker}");
+                let w = g.game.inner.take_player();
+                g.game.inner.walker = Some(w);
+                assert_eq!(
+                    &g.game.inner.player_record_bytes(),
+                    r,
+                    "made from the bytes"
+                );
             }
         }
         // What the walker makes of them.
         let r = disagreeing_record(&g);
         write_record(&mut g, &r);
-        let w = g.inner.walker.as_ref().unwrap();
+        let w = g.game.inner.walker.as_ref().unwrap();
         assert_eq!((w.facing(), w.base, w.dest_id), (2, 0, 0xCE));
         assert_eq!(w.cel(), (0, false), "+0Ah as given, 0");
         write_record(&mut g, &SAVED_ON_THE_MAP);
-        let w = g.inner.walker.as_ref().unwrap();
+        let w = g.game.inner.walker.as_ref().unwrap();
         assert_eq!((w.facing(), w.base, w.block, w.mirror), (3, 7, 0x15, true));
         assert_eq!((w.x, w.y, w.scale, w.phase), (140, 45, 0x70, 6));
         assert_eq!((w.dest_id, w.final_facing, w.gait.speed), (0xCB, -1, 0x0E));
@@ -5174,14 +5127,14 @@ mod tests {
         assert!(w.cel_held.is_none(), "+0Ah is +0Ch plus +9's standing cel");
         // A byte the logic writes alone lands among the rest: the live
         // bit, then the node's low bit (`0x3412`, `0x0C00`).
-        let flags = g.inner.byte(0x1695);
-        g.inner.set_byte(0x1695, flags & 0xFE);
-        g.inner.set_word(0x16BB, g.inner.word(0x16BB) | 1);
+        let flags = g.game.inner.byte(0x1695);
+        g.game.inner.set_byte(0x1695, flags & 0xFE);
+        g.game.inner.set_word(0x16BB, g.game.inner.word(0x16BB) | 1);
         let mut want = SAVED_ON_THE_MAP;
         want[2] = 0x40;
         want[0x28] = 0xCB;
-        assert_eq!(g.inner.player_record_bytes(), want);
-        assert_eq!(g.inner.player_node_id(), 0xCB);
+        assert_eq!(g.game.inner.player_record_bytes(), want);
+        assert_eq!(g.game.inner.player_node_id(), 0xCB);
     }
 
     /// A save file made here with the player's record replaced by `rec`,
@@ -5190,7 +5143,7 @@ mod tests {
         let mut f = file.to_vec();
         f[0x801..0x831].copy_from_slice(rec);
         let mut rng = crate::titles::rng::LcRng::default();
-        let (sum, xor) = parsec1994::sav_check(&f, &mut rng);
+        let (sum, xor) = parsec1994::sav_check(&f, &build::SAVE, &mut rng);
         f[0x0E..0x12].copy_from_slice(&sum.to_le_bytes());
         f[0x12..0x14].copy_from_slice(&xor.to_le_bytes());
         f
@@ -5203,8 +5156,9 @@ mod tests {
         crate::titles::Runtime::set_location_via(&mut g, 1, 0x6D);
         settle_effects(&mut g);
         let file = g
+            .game
             .inner
-            .save_044e(&SaveMap::DS1, 0x0001_0000)
+            .save_044e(&build::SAVE, 0x0001_0000)
             .expect("in a location, a save is written");
         let dir = save_dir(&format!("restored-{:02x}", rec[0x0C]));
         std::fs::write(dir.join("SAVEGAME.SAV"), with_record(&file, rec)).unwrap();
@@ -5214,10 +5168,10 @@ mod tests {
         crate::titles::Runtime::set_saves(&mut g, &dir).unwrap();
         g.start_in_xp01(Start::Continue).unwrap();
         close_start_options(&mut g);
-        assert_eq!(g.inner.location(), 1);
-        assert!(g.inner.notice.is_none());
+        assert_eq!(g.game.inner.location(), 1);
+        assert!(g.game.inner.notice.is_none());
         let _ = std::fs::remove_dir_all(&dir);
-        g.inner.walker.clone()
+        g.game.inner.walker.clone()
     }
 
     /// The entry −1 snaps the figure onto `+28h` facing `+2Ch / (+15h + 1)`
@@ -5236,7 +5190,7 @@ mod tests {
         let Some(w) = restored_on_the_map(&rec) else {
             return;
         };
-        let node = g.inner.rooms[1]
+        let node = g.game.inner.rooms[1]
             .as_ref()
             .and_then(|r| r.walk())
             .and_then(|gr| gr.nodes.iter().find(|n| n.id == 0xCE).cloned())
@@ -5266,16 +5220,17 @@ mod tests {
         play_opening_answering(&mut g, 2).expect("the map is reached");
         for _ in 0..2000 {
             crate::titles::Runtime::tick(&mut g);
-            if g.inner.walker.as_ref().is_some_and(|w| !w.walking) && g.inner.player_node_id() >= 0
+            if g.game.inner.walker.as_ref().is_some_and(|w| !w.walking)
+                && g.game.inner.player_node_id() >= 0
             {
                 break;
             }
         }
         let stood = {
-            let w = g.inner.walker.as_ref().unwrap();
+            let w = g.game.inner.walker.as_ref().unwrap();
             (w.dest_id, w.facing(), w.x, w.y, w.scale, w.cel())
         };
-        let before = g.inner.player_record_bytes();
+        let before = g.game.inner.player_record_bytes();
         let dir = save_dir("map-figure");
         crate::titles::Runtime::set_saves(&mut g, &dir).unwrap();
         crate::titles::Runtime::key(&mut g, 27);
@@ -5290,13 +5245,13 @@ mod tests {
         crate::titles::Runtime::set_saves(&mut h, &dir).unwrap();
         h.start_in_xp01(Start::Continue).unwrap();
         close_start_options(&mut h);
-        assert_eq!(h.inner.location(), 1);
-        let w = h.inner.walker.as_ref().unwrap();
+        assert_eq!(h.game.inner.location(), 1);
+        let w = h.game.inner.walker.as_ref().unwrap();
         assert_eq!((w.dest_id, w.facing(), w.x, w.y, w.scale, w.cel()), stood);
-        assert_eq!(h.inner.player_record_bytes(), before);
+        assert_eq!(h.game.inner.player_record_bytes(), before);
         let _ = std::fs::remove_dir_all(&dir);
 
-        let Some(sav) = motionvm_parsec_testutil::saves_dir_named()
+        let Some(sav) = motionvm_parsec_testutil::saves_dir_named(Title::DunkleSchatten.slug())
             .and_then(|d| motionvm_parsec_formats::find_ci(&d, "SAVEGAME.SAV"))
         else {
             eprintln!(
@@ -5324,16 +5279,20 @@ mod tests {
         for _ in 0..200 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert!(g.inner.options_up());
-        assert_eq!(g.inner.status_dim & 2, 2, "the strip held by the options");
+        assert!(g.game.inner.options_up());
+        assert_eq!(
+            g.game.inner.status_dim & 2,
+            2,
+            "the strip held by the options"
+        );
         crate::titles::Runtime::set_location_via(&mut g, 4, 0x7F);
-        assert!(!g.inner.options_up());
+        assert!(!g.game.inner.options_up());
         for _ in 0..400 {
             crate::titles::Runtime::tick(&mut g);
         }
-        assert_eq!(g.inner.status_dim & 2, 0, "let go");
-        assert_ne!(g.inner.cursor.as_ref().map(|c| c.mode), Some(2));
-        assert_eq!(g.inner.location(), 4);
+        assert_eq!(g.game.inner.status_dim & 2, 0, "let go");
+        assert_ne!(g.game.inner.cursor.as_ref().map(|c| c.mode), Some(2));
+        assert_eq!(g.game.inner.location(), 4);
         // The same jump without the options having been up: the same
         // picture and the same colors, the clock's phase aside.
         let mut h = DunkleSchatten::open(&game).unwrap();
@@ -5341,8 +5300,8 @@ mod tests {
         for _ in 0..400 {
             crate::titles::Runtime::tick(&mut h);
         }
-        assert_eq!(g.inner.palette(), h.inner.palette());
-        assert_eq!(g.inner.status_dim, h.inner.status_dim);
+        assert_eq!(g.game.inner.palette(), h.game.inner.palette());
+        assert_eq!(g.game.inner.status_dim, h.game.inner.status_dim);
     }
 
     /// The title program begun the way the host begins play, with
@@ -5393,7 +5352,7 @@ mod tests {
             return;
         };
         assert_eq!(g.frame_duration().as_nanos(), 14_268_123);
-        assert!(!g.inner.options_up(), "XP01 has not started");
+        assert!(!g.game.inner.options_up(), "XP01 has not started");
         choose(&mut g, 0);
         through_xp00(&mut g);
         assert!(g.xp00.is_none());
@@ -5401,7 +5360,7 @@ mod tests {
             g.frame_duration(),
             Duration::from_nanos(parsec1994::Clock::tick_nanos())
         );
-        assert!(g.inner.options_up(), "XP01's start opens the options");
+        assert!(g.game.inner.options_up(), "XP01's start opens the options");
     }
 
     /// "Neues Spiel beginnen" deletes `SAVEGAME.SAV` (XP00 `0x625`), and
@@ -5417,9 +5376,9 @@ mod tests {
         choose(&mut g, 0);
         through_xp00(&mut g);
         assert!(!sav.exists(), "deleted");
-        assert_eq!(g.inner.word(0x1744), 0, "nothing loaded");
+        assert_eq!(g.game.inner.word(0x1744), 0, "nothing loaded");
         close_start_options(&mut g);
-        assert_eq!(g.inner.location(), 2);
+        assert_eq!(g.game.inner.location(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -5427,7 +5386,7 @@ mod tests {
     /// at its start — the original's own file, when the suite has one.
     #[test]
     fn continue_from_the_title_program_loads_the_saved_game() {
-        let Some(orig) = motionvm_parsec_testutil::saves_dir_named()
+        let Some(orig) = motionvm_parsec_testutil::saves_dir_named(Title::DunkleSchatten.slug())
             .and_then(|d| motionvm_parsec_formats::find_ci(&d, "SAVEGAME.SAV"))
         else {
             eprintln!("skipping: MOTIONVM_SAVES names no SAVEGAME.SAV");
@@ -5440,7 +5399,7 @@ mod tests {
         };
         choose(&mut g, 1);
         through_xp00(&mut g);
-        assert_eq!(g.inner.word(0x1744), 1, "loaded (0x149D3)");
+        assert_eq!(g.game.inner.word(0x1744), 1, "loaded (0x149D3)");
         assert!(dir.join("SAVEGAME.SAV").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -5457,7 +5416,7 @@ mod tests {
         choose(&mut g, 2);
         through_xp00(&mut g);
         assert!(!g.tick(), "over");
-        assert!(!g.inner.options_up());
+        assert!(!g.game.inner.options_up());
         assert!(std::fs::read_dir(&dir).unwrap().next().is_none(), "no file");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -5473,21 +5432,21 @@ mod tests {
         };
         // Settings with the slow walk (0Eh, `DS:14E6h`), written the way
         // the original writes them.
-        let map = SaveMap::DS1;
-        first.inner.set_byte(0x16A7, 0x0E);
-        first.inner.set_word(0x1ED2, 1);
-        let cfg = first.inner.cfg_0373(&map, 0x1234).expect("dirty");
+        let map = build::SAVE;
+        first.game.inner.set_byte(0x16A7, 0x0E);
+        first.game.inner.set_word(0x1ED2, 1);
+        let cfg = first.game.inner.cfg_0373(&map, 0x1234).expect("dirty");
         std::fs::write(dir.join("SAVEGAME.CFG"), cfg).unwrap();
         let Some(mut g) = title_menu(Some(&dir)) else {
             return;
         };
         g.set_location(3);
         assert!(g.xp00.is_none());
-        assert!(!g.inner.options_up());
-        assert_eq!(g.inner.location(), 3);
-        assert_eq!(g.inner.byte(0x16A7), 0x0E, "the settings were read");
+        assert!(!g.game.inner.options_up());
+        assert_eq!(g.game.inner.location(), 3);
+        assert_eq!(g.game.inner.byte(0x16A7), 0x0E, "the settings were read");
         assert_eq!(
-            g.inner.music.sent,
+            g.game.inner.music.sent,
             [
                 parsec1994::Request::Install { effects: 3 },
                 parsec1994::Request::EffectVolume(0x50),
@@ -5524,7 +5483,7 @@ mod tests {
         };
         assert!(g.xp00.is_none());
         assert!(cycles / 0x1_0000 > 0);
-        assert_eq!(u64::from(g.inner.bios.count()), cycles / 0x1_0000);
+        assert_eq!(u64::from(g.game.inner.bios.count()), cycles / 0x1_0000);
     }
 
     /// The brochure answers the question chosen, and the questions come
@@ -5547,29 +5506,32 @@ mod tests {
         let mut g = ds1!();
         crate::titles::Runtime::set_location_via(&mut g, 1, 0x6D);
         settle_effects(&mut g);
-        assert!(g.inner.carried(19), "a fresh game carries the brochure");
+        assert!(
+            g.game.inner.carried(19),
+            "a fresh game carries the brochure"
+        );
         settle(&mut g);
-        g.inner.mode = 2;
-        g.inner.verb = 1;
-        g.inner.verb_chosen = 1;
-        g.inner.object1 = 0;
-        g.inner.object2 = 0;
-        g.inner.two_object = 0;
+        g.game.inner.mode = 2;
+        g.game.inner.verb = 1;
+        g.game.inner.verb_chosen = 1;
+        g.game.inner.object1 = 0;
+        g.game.inner.object2 = 0;
+        g.game.inner.two_object = 0;
         // Slot 0, widget `11Eh`, holds the one item carried.
-        g.inner.mouse_move(0xC8 + 12, 0x92 + 12);
+        g.game.inner.mouse_move(0xC8 + 12, 0x92 + 12);
         crate::titles::Runtime::tick(&mut g);
         assert!(
-            g.inner.status().contains("Broschüre"),
+            g.game.inner.status().contains("Broschüre"),
             "{:?}",
-            g.inner.status()
+            g.game.inner.status()
         );
-        assert!(g.inner.click());
+        assert!(g.game.inner.click());
 
         let mut menus = 0;
         let mut pages = Vec::new();
         for _ in 0..6000 {
             crate::titles::Runtime::tick(&mut g);
-            let events = std::mem::take(&mut g.inner.events);
+            let events = std::mem::take(&mut g.game.inner.events);
             for e in events {
                 match e {
                     Event::MenuUp { lines } => {
@@ -5579,28 +5541,28 @@ mod tests {
                         // The first time the first question, then enough.
                         let pick = if menus == 1 { 1 } else { 5 };
                         for _ in 0..pick {
-                            g.inner.menu_key(parsec1994::MenuKey::Down);
+                            g.game.inner.menu_key(parsec1994::MenuKey::Down);
                         }
-                        g.inner.menu_key(parsec1994::MenuKey::Select);
+                        g.game.inner.menu_key(parsec1994::MenuKey::Select);
                     }
                     Event::PageUp { task: 0, text } if menus > 0 => pages.push(text),
                     _ => {}
                 }
             }
             // The answer waits for a click.
-            if text_up(&g) && g.inner.tasks.t[0].flags & 0x400 != 0 {
+            if text_up(&g) && g.game.inner.tasks.t[0].flags & 0x400 != 0 {
                 // Slot 10 is the playfield's middle with code `53h`, and
                 // its payload is the style word (`0x0D3DF`): the box
                 // centered on (160, 64), its lines flush left — where a
                 // DOSBox-X capture of the original has it, pixel for pixel.
-                let t = &g.inner.tasks.t[0];
+                let t = &g.game.inner.tasks.t[0];
                 assert_eq!((t.slot, t.point, t.style_word), (10, (160, 64), 0x53));
                 let b = t.box_.as_ref().expect("the answer's box");
                 assert_eq!((b.x, b.y, b.w, b.h, b.lines.len()), (43, 7, 235, 114, 9));
-                g.inner.mouse_move(0, 0);
-                assert!(g.inner.click());
+                g.game.inner.mouse_move(0, 0);
+                assert!(g.game.inner.click());
             }
-            if menus == 2 && g.inner.tasks.t[0].kind == 0 {
+            if menus == 2 && g.game.inner.tasks.t[0].kind == 0 {
                 break;
             }
         }
@@ -5619,7 +5581,7 @@ mod tests {
             "the answer is the whole page, got {answer:?}"
         );
         assert_eq!(
-            g.inner.tasks.t[0].kind, 0,
+            g.game.inner.tasks.t[0].kind, 0,
             "enough read, the dialogue is over"
         );
     }
@@ -5630,7 +5592,7 @@ mod tests {
         let mut out = Vec::new();
         for tick in 0..ticks {
             crate::titles::Runtime::tick(g);
-            for r in g.inner.music.sent.drain(..) {
+            for r in g.game.inner.music.sent.drain(..) {
                 out.push((tick, r));
             }
         }
@@ -5648,7 +5610,7 @@ mod tests {
         let Some(mut g) = title_menu(None) else {
             return;
         };
-        let sent = std::mem::take(&mut g.inner.music.sent);
+        let sent = std::mem::take(&mut g.game.inner.music.sent);
         assert_eq!(
             sent,
             [
@@ -5665,13 +5627,13 @@ mod tests {
         let mut after = Vec::new();
         let mut n = 0;
         while g.tick() {
-            for r in g.inner.music.sent.drain(..) {
+            for r in g.game.inner.music.sent.drain(..) {
                 after.push((n, r));
             }
             n += 1;
             assert!(n < 1000);
         }
-        for r in g.inner.music.sent.drain(..) {
+        for r in g.game.inner.music.sent.drain(..) {
             after.push((n, r));
         }
         let what: Vec<_> = after.iter().map(|&(_, r)| r).collect();
@@ -5743,13 +5705,13 @@ mod tests {
             crate::titles::Runtime::tick(&mut quiet);
             crate::titles::Runtime::tick(&mut loud);
         }
-        assert_eq!(quiet.inner.location(), 3);
+        assert_eq!(quiet.game.inner.location(), 3);
         assert_eq!(
-            format!("{:?}", quiet.inner.events),
-            format!("{:?}", loud.inner.events)
+            format!("{:?}", quiet.game.inner.events),
+            format!("{:?}", loud.game.inner.events)
         );
-        assert_eq!(quiet.inner.music.slots, loud.inner.music.slots);
-        assert_eq!(quiet.inner.music.sent, loud.inner.music.sent);
+        assert_eq!(quiet.game.inner.music.slots, loud.game.inner.music.slots);
+        assert_eq!(quiet.game.inner.music.sent, loud.game.inner.music.sent);
         assert!(heard.load(std::sync::atomic::Ordering::Relaxed) > 20);
     }
 
@@ -5762,7 +5724,7 @@ mod tests {
     fn the_zimmer_plays_module_1_and_the_kueche_module_10() {
         use parsec1994::Request;
         let mut g = ds1!();
-        let mut all: Vec<_> = g.inner.music.sent.drain(..).map(|r| (0, r)).collect();
+        let mut all: Vec<_> = g.game.inner.music.sent.drain(..).map(|r| (0, r)).collect();
         all.extend(music_over(&mut g, 4000));
         // The digital driver's side, effects aside: installed by the init,
         // each song's digital part before its play (`0x6080`), entry 21 with
@@ -5820,6 +5782,6 @@ mod tests {
         // played.
         let ticks: Vec<u32> = sent.iter().map(|s| s.0).collect();
         assert_eq!(ticks, [109, 3081, 3198, 3198, 3306]);
-        assert_eq!(g.inner.location(), 3);
+        assert_eq!(g.game.inner.location(), 3);
     }
 }

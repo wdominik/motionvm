@@ -4,55 +4,37 @@
 //! Both rows name the same handler, `04E3h:0582h` (image `0x053B2`), and
 //! the main loop does not even reach for it through the table: for a row
 //! of kind 0, and for a word past the table, it calls `0x053B2` directly
-//! (`0x04F8E`–`0x04FAB`). The routine loads no room and has no frame loop,
-//! no hook and no rules: it walks the
-//! table from the row in `[1F4Ah]` past every row of kind 0 or 4, wrapping
-//! to row 0 when it runs off the end, puts the first other row in
-//! `[1F4Ah]` with entry `7Fh` in `[1F48h]`, and returns. From row 20 that
-//! is the Schuppen, row 21, entered on `7Fh`.
+//! (`0x04F8E`–`0x04FAB`). The routine walks the table from the row in
+//! `[1F4Ah]` past every row of kind 0 or 4 and puts the first other row in
+//! `[1F4Ah]` with entry `7Fh` in `[1F48h]`. From row 20 that is the
+//! Schuppen, row 21, entered on `7Fh`.
 
+use super::build;
 use super::logic::Logic;
-use crate::titles::parsec1994::{Api, Far};
+use crate::titles::parsec1994::{self, Api, onward::Table, restore::MainLoop};
 
-/// `[1F48h]`, `[1F4Ah]`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
+/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`: see the Zimmer.
+const WORDS: MainLoop = MainLoop {
+    entry: 0x1F48,
+    location: 0x1F4A,
+    here: 0x1F4C,
+};
+
 /// `204Bh:0000h`, the location table: rows of 34h bytes, the kind a word
-/// at `+7` (`0x053BA`–`0x053C2`).
-const TABLE: u16 = 0x204B;
-const ROW: u16 = 0x34;
-const KIND: u16 = 7;
-/// `0x053D1`: the walk stops at row 3Dh, one past the last.
-const ROWS: u16 = 0x3D;
+/// at `+7` (`0x053BA`–`0x053C2`), and the walk stops at row 3Dh, one past
+/// the last (`0x053D1`). The same table the dispatch is read from; a test
+/// holds the two together.
+pub(super) const TABLE: Table = Table {
+    seg: 0x204B,
+    stride: 0x34,
+    kind: 7,
+    rows: 0x3D,
+};
 
-/// Whether row `n` is one the walk steps over: kind 0 or 4 (`0x053C7`,
-/// `0x053CB`).
-fn skipped(api: &mut dyn Api, n: u16) -> bool {
-    let kind = api.far_word(Far {
-        off: n.wrapping_mul(ROW).wrapping_add(KIND),
-        seg: TABLE,
-    });
-    kind == 0 || kind == 4
-}
-
-/// The handler, `0x053B2` to `0x05408`, whole.
+/// The handler, `0x053B2` to `0x05408`, whole: the generation's walk on
+/// ([`parsec1994::onward`]).
 pub(crate) fn enter(api: &mut dyn Api) {
-    let from = api.word(LOCATION);
-    // 0x053B2–0x053D4: onward from the row itself.
-    let mut n = from;
-    while crate::num::signed(n) < crate::num::signed(ROWS) && skipped(api, n) {
-        n = n.wrapping_add(1);
-    }
-    // 0x053D6–0x053FC: past the end, from row 0 up to the row it started
-    // at; a table of nothing but such rows leaves it there.
-    if crate::num::signed(n) >= crate::num::signed(ROWS) {
-        n = 0;
-        while crate::num::signed(n) < crate::num::signed(from) && skipped(api, n) {
-            n = n.wrapping_add(1);
-        }
-    }
-    api.set_word(LOCATION, n); // 0x053FE
-    api.set_word(ENTRY, 0x7F); // 0x05402
+    parsec1994::onward::enter(api, TABLE, &build::KINDS, WORDS);
 }
 
 /// No frame loop: the handler has returned.

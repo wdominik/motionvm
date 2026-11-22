@@ -20,12 +20,17 @@ other two cannot: that nothing has moved since.
 ### The location logic, routine by routine
 
 The location handlers of `XP01.EXE`, with their hooks, animation hooks and
-rule handlers, are held against the original routines themselves:
-**1 298 cases over 108 entry points** — 476 runs of a handler, 645 of a
-hook, 149 of a rule handler and 28 of an animation hook. They cover every
-handler the location table names but the onward walk of rows 0 and 20:
-the three later JZ rows through the JZ's own, the maze's thirty rows
-through the one they share, and location 60's restore.
+rule handlers, and the global rules read against `Api`, are held against
+the original routines themselves: **1 342 cases over 131 entry points** —
+487 runs of a handler, 645 of a hook, 182 of a rule handler and 28 of an
+animation hook. They cover every handler the location table names: the
+onward walk of rows 0 and 20, the three later JZ rows through the JZ's
+own, the maze's thirty rows through the one they share, and location 60's
+restore; and 21 of the global table's 29 handlers. The other eight are not
+traced: the four that speak the chosen hotspot's own text and the walk
+verb's and the doors' rules, which read records `Api` does not reach, and
+the options' gate, which is library code; the runtime's own tests hold
+those.
 
 A case is one entry point and one set of inputs: the location, the
 routine's address, the bytes and words of the data segment set before the

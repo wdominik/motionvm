@@ -44,7 +44,6 @@
 
 use crate::num;
 use crate::titles::panel::Panel;
-use crate::titles::subject::Subject;
 
 use super::{Adventure, Event, KEY_ESCAPE, Opened, objects};
 
@@ -54,13 +53,48 @@ pub(crate) enum Gate {
     /// Nothing installed.
     #[default]
     None,
-    /// `1586h:059Fh`, installed by a script exit (`0x15E4F`).
+    /// The script exit's, installed by a script exit.
     ScriptExit,
-    /// `1586h:0000h`, installed by the walk verb's rule (`0x15B52`).
+    /// The door's, installed by the walk verb's rule.
     Door,
-    /// `0EB9h:0489h`, installed by the sixth verb's rule (`0x0F056`) and
-    /// by Escape (`0x0FD3E`): the game options.
+    /// The game options', installed by the sixth verb's rule and by
+    /// Escape.
     Options,
+}
+
+/// Where a build links the three routines a [`Gate`] names, as the far
+/// pointer `(segment, offset)` the machine's gate word holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GateMap {
+    /// [`Gate::ScriptExit`].
+    pub script_exit: (u16, u16),
+    /// [`Gate::Door`].
+    pub door: (u16, u16),
+    /// [`Gate::Options`].
+    pub options: (u16, u16),
+}
+
+impl GateMap {
+    /// The far pointer a gate is written as; null for none.
+    pub(crate) fn far(&self, gate: Gate) -> (u16, u16) {
+        match gate {
+            Gate::None => (0, 0),
+            Gate::ScriptExit => self.script_exit,
+            Gate::Door => self.door,
+            Gate::Options => self.options,
+        }
+    }
+
+    /// The gate a far pointer names: `None` with a null segment, and no
+    /// answer for one that names none of the three.
+    pub(crate) fn gate(&self, far: (u16, u16)) -> Option<Gate> {
+        if far.0 == 0 {
+            return Some(Gate::None);
+        }
+        [Gate::ScriptExit, Gate::Door, Gate::Options]
+            .into_iter()
+            .find(|&g| self.far(g) == far)
+    }
 }
 
 /// `[28A3h]`/`[28A5h]`: what the pointer was over when the dispatcher last
@@ -382,7 +416,8 @@ impl Adventure {
     /// waits for the figure, bit `80h` (`0x158AE`), and answers 0. Else the
     /// exit table of the row decides (`0x158B8`): the eight ids at `+9`
     /// (`0x158CE`), the eight destinations at `+11h` (`0x158E7`), a
-    /// destination below 61 (`0x158FC`) and of a kind other than 0
+    /// destination inside the table (`0x158FC`, in *Dunkle Schatten* below
+    /// 61) and not a passage
     /// (`0x1590B`); the exit goes into `[1F48h]` and where it leads into
     /// `[1F4Ah]` (`0x15925`, `0x15929`).
     fn gate_door(&mut self, arg: i16) -> i16 {
@@ -407,13 +442,13 @@ impl Adventure {
             .map(|(_, dest)| i32::from(dest));
         if let Some(dest) = dest
             && dest > 0
-            && dest < 61
+            && dest < i32::try_from(self.locations.count).unwrap_or(i32::MAX)
         {
             let kind = usize::try_from(dest)
                 .ok()
                 .and_then(|d| self.locations.kind(&self.image, d))
                 .unwrap_or(0);
-            if kind == 0 {
+            if kind == self.kinds.passage {
                 // `0x15919`: a row that is not a place. The lock comes
                 // off and the pointer is reset; the visit goes on.
                 self.input_unlocked();
@@ -495,217 +530,30 @@ impl Adventure {
         -1
     }
 
-    /// The handler a rule names, by its far address: the location logic's
-    /// first, then the two of the library's that are read here.
+    /// The handler a rule names, by its far address. Which routine an
+    /// address links to is the program's own, so the title answers it
+    /// ([`Adventure::rule_hook`]); one it does not is said, and answered 1.
     fn rule_handler(&mut self, far: (u16, u16), flags: u16) -> i16 {
         if let Some(answer) = (self.rule_hook)(self, far, flags) {
             return answer;
         }
-        match far {
-            (0x1586, 0x02E9) => self.walk_rule(),
-            // `0EB9h:04BDh` (`0x0F04D`): the sixth verb's rule installs the
-            // options' gate and waits for the figure.
-            (0x0EB9, 0x04BD) => {
-                self.gate = Gate::Options;
-                9
-            }
-            (0x1586, 0x0364) => self.door_rule(),
-            (0x1586, 0x0438) => self.door_rule_8(),
-            (0x1586, 0x0125) => self.rule_look(),
-            (0x1586, 0x017C) => self.rule_talk(),
-            (0x1586, 0x01CC) => self.rule_take(),
-            (0x1586, 0x0273) => self.rule_use(),
-            (0x1586, 0x02C3) => self.rule_use_with(),
-            (0x1586, 0x00D3) => self.rule_give(),
-            (0x1586, 0x04A3) => self.rule_take_or_give(),
-            // The hover rules, phase 1: the verb a class of object means
-            // when none is picked (`0x15BB6` and on).
-            (0x1586, 0x0356) | (0x1586, 0x040E) => {
-                self.verb = if far.1 == 0x0356 { 1 } else { 10 };
-                1
-            }
-            (0x1586, 0x03CE) => {
-                self.verb = 10;
-                1
-            }
-            (0x1586, 0x041C) => {
-                self.verb = 4;
-                1
-            }
-            (0x1586, 0x042A) => {
-                self.verb = 2;
-                1
-            }
-            // The phase-2 rules of `Benutze` on the classes 5, 2 and 4
-            // (`0x15C3C`, `0x15C4A`, `0x15E80`): the verb becomes the walk
-            // verb — or 7 for an object not live, 8 for a live class 5.
-            (0x1586, 0x03DC) => {
-                self.verb = 10;
-                5
-            }
-            (0x1586, 0x03EA) => {
-                let object = num::signed(self.object1);
-                self.verb = if self.object_is_live(object) { 10 } else { 7 };
-                5
-            }
-            (0x1586, 0x0620) => {
-                let object = num::signed(self.object1);
-                self.verb = if self.object_is_live(object) { 8 } else { 7 };
-                5
-            }
-            // The item rules (`0x15D27` to `0x15DFE`): items 9 and 2 given
-            // up for item 3, and a scene by the pair.
-            (0x1586, 0x04C7) => {
-                self.take_item(9);
-                self.take_item(2);
-                self.give_item(3);
-                1
-            }
-            (0x1586, 0x04E7) => self.rule_scene(!22),
-            (0x1586, 0x04F7) => {
-                let n = if self.sav_byte(0x270E) != 0 { !33 } else { !21 };
-                self.rule_scene(n)
-            }
-            (0x1586, 0x0512) => {
-                let n = if self.carried(num::low8(self.second_object.0)) {
-                    !25
-                } else if self.second_object.1 == 2 {
-                    !24
-                } else {
-                    !23
-                };
-                self.rule_scene(n)
-            }
-            (0x1586, 0x053F) => self.rule_scene(!27),
-            (0x1586, 0x054F) => self.rule_scene(!28),
-            (0x1586, 0x055F) => self.rule_scene(!29),
-            (0x1586, 0x056F) => self.rule_scene(!30),
-            (0x1586, 0x057F) => self.rule_scene(!31),
-            (0x1586, 0x058F) => self.rule_scene(!32),
-            _ => {
-                self.events.push(Event::UnreadRule { far, flags });
-                1
-            }
-        }
+        self.events.push(Event::UnreadRule { far, flags });
+        1
     }
 
-    /// A rule that is one scene and the answer `0Ah`.
-    fn rule_scene(&mut self, n: i16) -> i16 {
-        self.scene_load(n);
-        10
+    /// `0EB9h:04BDh` in *Dunkle Schatten* (`0x0F04D`): the sixth verb's
+    /// rule installs the options' gate and waits for the figure.
+    pub(crate) fn options_rule(&mut self) -> i16 {
+        self.gate = Gate::Options;
+        9
     }
 
     /// The text slot `k` of the hotspot the object was chosen through
     /// (`[28B3h]`, its `+16h + 4k`), when it has one.
-    fn own_text(&self, k: usize) -> Option<Vec<u8>> {
+    pub(crate) fn own_text(&self, k: usize) -> Option<Vec<u8>> {
         let spot = self.room()?.hotspots.spots.get(self.hover_spot?)?;
         let text = spot.texts.get(k)?;
         (!text.is_empty()).then(|| motionvm_parsec_formats::to_cp437(text))
-    }
-
-    /// `1586h:0125h`, `Betrachte` on anything: the hotspot's `texts[3]`
-    /// (`0x15996`, `+22h`), else bank 2's place for an item
-    /// (`~(id + 4000h)`, `0x159C7`), else bank 999's place 16.
-    fn rule_look(&mut self) -> i16 {
-        if let Some(text) = self.own_text(3) {
-            self.hotspot_text(&text);
-        } else if (1..0x17).contains(&self.object1) {
-            let n = !(num::signed(self.object1) + 0x4000);
-            self.scene_load(n);
-        } else {
-            self.scene_load(!16);
-        }
-        10
-    }
-
-    /// `1586h:017Ch`, `Sprich mit`: `texts[4]` (`+26h`), else place 4 for
-    /// something carried and 3 for anything else.
-    fn rule_talk(&mut self) -> i16 {
-        if let Some(text) = self.own_text(4) {
-            self.hotspot_text(&text);
-        } else if self.carried(num::low8(self.object1)) {
-            self.scene_load(!4);
-        } else {
-            self.scene_load(!3);
-        }
-        10
-    }
-
-    /// `1586h:01CCh`, `Nimm`: `texts[5]` (`+2Ah`); else an item that is
-    /// there and live goes out of the room and into the player's hands
-    /// (`0x15A8F`, `0x15AB2`); else one of places 9, 10 and 11, rolled.
-    fn rule_take(&mut self) -> i16 {
-        if let Some(text) = self.own_text(5) {
-            self.hotspot_text(&text);
-            return 10;
-        }
-        if self.object1 < 0x17
-            && let Some(i) = self.live_object(num::low8(self.object1))
-        {
-            self.objects[i].flags &= !objects::LIVE;
-            let id = num::low8(self.object1);
-            self.events.push(Event::ObjectHidden(id));
-            self.give_item(id);
-            return 10;
-        }
-        let n = !num::signed(self.roll(9, 11));
-        self.scene_load(n);
-        10
-    }
-
-    /// `1586h:0273h`, `Benutze`: place 7 for something carried; else
-    /// `texts[2]` (`+1Eh`), else place 6.
-    fn rule_use(&mut self) -> i16 {
-        if self.carried(num::low8(self.object1)) {
-            self.scene_load(!7);
-        } else if let Some(text) = self.own_text(2) {
-            self.hotspot_text(&text);
-        } else {
-            self.scene_load(!6);
-        }
-        10
-    }
-
-    /// `1586h:02C3h`, `Benutze … mit`: place 15 when both are class 2, 12
-    /// when the second is, 8 otherwise.
-    fn rule_use_with(&mut self) -> i16 {
-        let n = if self.second_object.1 == 2 && self.object2 == 2 {
-            !15
-        } else if self.second_object.1 == 2 {
-            !12
-        } else {
-            !8
-        };
-        self.rule_scene(n)
-    }
-
-    /// `1586h:00D3h`, `Gib … an`: one of places 0 to 2 rolled when the
-    /// second object is carried; else for a class-2 second object slot 9
-    /// names it and place 14 plays; else place 5.
-    fn rule_give(&mut self) -> i16 {
-        let second = self.second_object;
-        let n = if self.carried(num::low8(second.0)) {
-            !num::signed(self.roll(0, 2))
-        } else if second.1 == 2 {
-            if let Ok(id) = u8::try_from(second.0) {
-                self.subjects.set(9, 0, Subject::Object(id));
-            }
-            !14
-        } else {
-            !5
-        };
-        self.rule_scene(n)
-    }
-
-    /// `1586h:04A3h`, the third button's rule: `Gib` for something carried,
-    /// `Nimm` otherwise (`0x15D14`, `0x15D1C`); answer 5.
-    fn rule_take_or_give(&mut self) -> i16 {
-        self.verb = if self.carried(num::low8(self.object1)) {
-            9
-        } else {
-            12
-        };
-        5
     }
 
     /// `0EB9h:0A0Dh(id, hotspot)`: an object chosen, by hover or click.
@@ -719,7 +567,7 @@ impl Adventure {
     /// 2 (`0x0F6BA`), mode 3 phase `10h`, for the second object (`0x0F796`).
     pub(crate) fn select_object(&mut self, id: i16, spot: Option<usize>) {
         let id = if id <= 0 { 0x7FFF } else { id };
-        let class = if id < 0x17 {
+        let class = if id < num::signed(self.items_end()) {
             // `DS:0527h + id`: the item classes, all zero in the image.
             0
         } else {
@@ -848,7 +696,7 @@ impl Adventure {
         }
         self.select_object(id, spot);
         // `0x0F892`: a room object needs its hotspot; an item needs none.
-        if id >= 0x17 && spot.is_none() {
+        if id >= num::signed(self.items_end()) && spot.is_none() {
             return;
         }
         match self.mode {
@@ -935,7 +783,7 @@ impl Adventure {
     fn walk_to_hotspot(&mut self, object: i16, spot: Option<usize>) -> bool {
         let Some(mask) = spot.and_then(|i| self.room()?.hotspots.spots.get(i).map(|h| h.verb_mask))
         else {
-            if object >= 0x17 {
+            if object >= num::signed(self.items_end()) {
                 if self.walk_to_object(object, -1) != 0 {
                     self.walk_target = object;
                     return true;
@@ -1151,7 +999,7 @@ impl Adventure {
     /// (`0x15C08`). Anything else asks for sample 12 (`0EB9h:1949h`,
     /// `0x15C0D`) and is made live and marked, bit 0 of `+2` (`0x15C18`), and
     /// the answer is 1.
-    fn door_rule(&mut self) -> i16 {
+    pub(crate) fn door_rule(&mut self) -> i16 {
         let Ok(id) = u8::try_from(self.object1) else {
             return 1;
         };
@@ -1172,44 +1020,10 @@ impl Adventure {
         }
     }
 
-    /// `1586h:0438h`: the eighth verb's rule — verb 8, any object, flag 4
-    /// (`0x21564`) — the seventh's mirror, which `Benutze`'s phase-2 rule
-    /// on class 5 hands an object that is live (`0x15E83`–`0x15E9D`).
-    ///
-    /// The object's record (`0BB6h:052Bh`, `0x15CA0`) of kind 4 is a door
-    /// (`0x15CB4`): it plays its animation 0 (`0883h:1F82h`, `0x15CC1`),
-    /// `[28C1h] = 3` waits for the animation's code 3 (`0x15CC9`),
-    /// and the answer is 12 (`0x15CCF`). Anything else has bit 0 of `+2`
-    /// cleared, no longer live (`0x15CE5`), between two of the drawer's
-    /// marks (`0883h:000Fh`, `0x15CDA`, `0x15CEE`; this engine draws every
-    /// frame whole), asks for sample 13 (`0EB9h:1949h`, `0x15CF8`), and the
-    /// answer is 1.
-    ///
-    /// An object without a record reads its kind from a null pointer in the
-    /// original (`0x15CAF`); this engine answers 1 for it, as the seventh's
-    /// does.
-    fn door_rule_8(&mut self) -> i16 {
-        let Ok(id) = u8::try_from(self.object1) else {
-            return 1;
-        };
-        let Some(i) = self.object_index(id) else {
-            return 1;
-        };
-        if self.objects[i].kind == 4 {
-            self.object_anim(id, 0);
-            self.anim_code_wait(3);
-            12
-        } else {
-            self.objects[i].flags &= !objects::LIVE;
-            self.effect_1949(13);
-            1
-        }
-    }
-
     /// `[28C1h] = code`: the machine waits until an animation reaches an
     /// opcode carrying `code`, which the animator reports through
     /// `0EB9h:1D97h` (`0x0109A8`, `cmp si, [28C1h]`; `0x0109AE` clears it).
-    fn anim_code_wait(&mut self, code: u16) {
+    pub(crate) fn anim_code_wait(&mut self, code: u16) {
         self.word_28c1 = code;
     }
 
@@ -1224,7 +1038,7 @@ impl Adventure {
     /// `0x15B85`), and when that walk started, input is locked
     /// (`0EB9h:188Ah`, `0x15B91`) and the walk recorded in `[289Fh]`
     /// (`0x15BA1`); the answer is 9, wait for the figure (`0x15BB1`).
-    fn walk_rule(&mut self) -> i16 {
+    pub(crate) fn walk_rule(&mut self) -> i16 {
         self.gate = Gate::Door;
         let object = num::signed(self.object1);
         if self.entry_door == object && self.player_node_id() == object {
@@ -1431,68 +1245,5 @@ impl Adventure {
         if self.player_node_id() == -1 {
             self.bits |= WAIT_FIGURE;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The eighth verb's rule in the Zimmer: a door plays its animation 0,
-    /// waits for code 3 and answers 12; anything else is made not live,
-    /// asks for sample 13 and answers 1 (`0x15C98`–`0x15CFE`).
-    #[test]
-    fn the_eighth_verb_s_rule_opens_a_door_or_plays_sample_13() {
-        let Some(mut a) = crate::titles::ds1::adventure_for_test() else {
-            return;
-        };
-        while a.effects.busy() {
-            a.interrupt();
-            a.effects_tick();
-        }
-        let door = a.objects.iter().find(|o| o.kind == 4).map(|o| o.id);
-        let other = a
-            .objects
-            .iter()
-            .find(|o| o.kind != 4 && o.id != 0)
-            .map(|o| o.id);
-        let (Some(door), Some(other)) = (door, other) else {
-            panic!("the Zimmer has a door and an object besides");
-        };
-        a.events.clear();
-        a.object1 = u16::from(door);
-        assert_eq!(a.rule_handler((0x1586, 0x0438), 4), 12);
-        assert_eq!(a.word_28c1, 3);
-        assert!(a.events.contains(&Event::ObjectAnim {
-            object: door,
-            anim: 0
-        }));
-        // The door's animation 0 reaches its code 3, and the wait is over
-        // (`0x109A8`–`0x109AE`).
-        let mut frames = 0;
-        while a.word_28c1 != 0 {
-            a.interrupt();
-            a.frame_pass();
-            frames += 1;
-            assert!(frames < 2000, "the door's animation never reports code 3");
-        }
-        assert!(
-            a.events
-                .iter()
-                .any(|e| matches!(e, Event::AnimCode { code: 3, .. }))
-        );
-        a.events.clear();
-        a.object1 = u16::from(other);
-        let i = a.object_index(other).expect("the object");
-        a.objects[i].flags |= objects::LIVE;
-        assert_eq!(a.rule_handler((0x1586, 0x0438), 4), 1);
-        assert_eq!(a.objects[i].flags & objects::LIVE, 0);
-        assert!(a.events.contains(&Event::Sample(13)));
-        assert!(
-            !a.events
-                .iter()
-                .any(|e| matches!(e, Event::UnreadRule { .. })),
-            "the rule is read"
-        );
     }
 }

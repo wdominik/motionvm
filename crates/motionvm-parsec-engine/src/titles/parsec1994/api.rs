@@ -2,11 +2,16 @@
 //!
 //! The game's logic — a location's handler, its hooks and its own rule
 //! handlers — is compiled C that talks to the engine through far calls
-//! alone. In *Dunkle Schatten* it calls 67 engine routines and nothing
-//! else, and it reads and writes globals in `DGROUP`. [`Api`] is that
-//! boundary: one method per routine, with the routine's own arguments in the
-//! original's order and its own return value, and four accessors for the
-//! data segment by address.
+//! alone, and it reads and writes globals in `DGROUP`. [`Api`] is that
+//! boundary: one method per engine routine — 64 far addresses, as the
+//! recording stand-in in `trace.rs` names them — with the routine's own
+//! arguments in the original's order and its own return value, and
+//! accessors for the data segment, the far bytes the logic reads and the
+//! handler's own locals. *Dunkle Schatten*'s program calls three engine
+//! routines more from its game code — `0CFDh:18C2h`, `0883h:000Fh` and
+//! `14DDh:074Bh` — all of them from global rules that read the hotspot or
+//! the object record a choice went through, which this trait does not
+//! reach; those rules are read over the runtime itself.
 //!
 //! The logic is written against this trait and nothing else, so the same
 //! code runs against the engine and against a recording stand-in that
@@ -359,6 +364,14 @@ pub(crate) struct DsMap {
     pub verb: u16,
     /// The mode block's first object (`[2891h]`).
     pub object: u16,
+    /// The first object's class (`[2893h]`).
+    pub object_class: u16,
+    /// The mode block's second object (`[2895h]`).
+    pub second: u16,
+    /// The second object's class (`[2897h]`).
+    pub second_class: u16,
+    /// The first of the dialogue's flag bytes, one per flag.
+    pub flags: u16,
     /// The input event record the poll fills (`DS:184Eh`): its first word.
     pub input_event: u16,
     /// The gate the mode machine asks, a far pointer: offset, then segment
@@ -373,9 +386,13 @@ pub(crate) struct DsMap {
     pub inventory: (u16, u16, u16),
     /// The segment of the far buffer a saved game is held in.
     pub save_buffer: u16,
+    /// Where the routines the gate names are linked.
+    pub gates: GateMap,
+    /// The choice menu's record, its geometry and its inks.
+    pub menu: u16,
 }
 
-use super::mode::Gate;
+use super::mode::{Gate, GateMap};
 use super::{Adventure, Event};
 use crate::titles::subject::Subject;
 
@@ -460,15 +477,16 @@ impl Api for Adventure {
             u16::from(self.verb)
         } else if addr == m.object {
             self.object1
+        } else if addr == m.object_class {
+            self.object2
+        } else if addr == m.second {
+            self.second_object.0
+        } else if addr == m.second_class {
+            self.second_object.1
         } else if addr == m.entry_door {
             num::unsigned(self.entry_door)
         } else if addr == m.gate || addr == m.gate.wrapping_add(2) {
-            let (off, seg) = match self.gate {
-                Gate::None => (0, 0),
-                Gate::ScriptExit => (0x059F, 0x1586),
-                Gate::Door => (0x0000, 0x1586),
-                Gate::Options => (0x0489, 0x0EB9),
-            };
+            let (seg, off) = m.gates.far(self.gate);
             if addr == m.gate { off } else { seg }
         } else if addr == m.room_header || addr == m.room_header.wrapping_add(2) {
             let room = Far::room();
@@ -501,6 +519,12 @@ impl Api for Adventure {
             self.verb = num::low8(v);
         } else if addr == m.object {
             self.object1 = v;
+        } else if addr == m.object_class {
+            self.object2 = v;
+        } else if addr == m.second {
+            self.second_object.0 = v;
+        } else if addr == m.second_class {
+            self.second_object.1 = v;
         } else if addr == m.entry_door {
             self.entry_door = num::signed(v);
         } else if addr == m.input_event
@@ -514,19 +538,13 @@ impl Api for Adventure {
             self.ds[usize::from(addr.wrapping_add(1))] = hi;
             let off = self.ds_word(m.gate);
             let seg = self.ds_word(m.gate.wrapping_add(2));
-            self.gate = match (seg, off) {
-                (0, _) => Gate::None,
-                (0x1586, 0x059F) => Gate::ScriptExit,
-                (0x1586, 0x0000) => Gate::Door,
-                (0x0EB9, 0x0489) => Gate::Options,
-                _ => {
-                    self.events.push(Event::Unbuilt(
-                        "gate",
-                        (u32::from(seg) << 16) | u32::from(off),
-                    ));
-                    Gate::None
-                }
-            };
+            self.gate = m.gates.gate((seg, off)).unwrap_or_else(|| {
+                self.events.push(Event::Unbuilt(
+                    "gate",
+                    (u32::from(seg) << 16) | u32::from(off),
+                ));
+                Gate::None
+            });
         } else if addr == m.ticks_taken {
             if self.effects.busy() {
                 self.ticks_after_effect = Some(v);
@@ -755,7 +773,7 @@ impl Api for Adventure {
     fn fx_reveal(&mut self) {
         // `10B8h:03BAh`: queued with the picture as it stands; it plays
         // before the frame loop goes on, from the counter at zero.
-        self.events.push(Event::Effect(0x10B8, 0x03BA));
+        self.events.push(Event::Reveal);
         let picture = self.render_scene();
         self.effects.reveal(&picture, &self.presented);
     }
@@ -963,6 +981,9 @@ impl Adventure {
             m.ticks_taken,
             m.verb,
             m.object,
+            m.object_class,
+            m.second,
+            m.second_class,
             m.input_event,
             m.gate,
             m.gate.wrapping_add(2),

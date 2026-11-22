@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-22
+
+**motionvm plays a second engine family.** PARSEC joins MOTION, with
+*Dunkle Schatten* (1994): its title program and every location, its
+music, its sound effects and its saved game — the original's own files,
+moving between motionvm and the original in both directions. The OPL3
+and the PSM 2 driver are crates of their own that both families use. The
+MOTION games play and sound as in 0.12.0, and their savegames load: no
+layout changed.
+
 ### Added
 
 - **The PARSEC engine family, with *Dunkle Schatten* (1994).**
@@ -21,22 +31,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PlayFade` (entry 7, `0x34a`), installs a driver afresh as a host's next
   program does, and clears the fade's fraction byte on play and fade-out
   and holds a fade-out's level at full at most, as the driver's bytes do;
-  every MOTION song's digest is as before. The location logic is held,
-  routine by routine, against the original's own, traced on the same
-  inputs; pictures against
+  every MOTION song's digest is as before. The location logic, the walk on
+  past the rows that are not places and the global rules that choose a
+  verb, a scene or an item are held, routine by routine, against the
+  original's own, traced on the same inputs — 1 342 cases; pictures against
   recordings of the original, the maze pixel for pixel; and the title song
-  against an OPL capture, write for write. Four crates and a front door,
-  `motionvm-parsec`; the record is the new `docs/parsec/` tree, and
+  against an OPL capture, write for write. The engine is cut the way the
+  original is linked: the `parsec1994` generation — the library, from
+  `_main`'s main loop to the saved game — carries no title's values, and
+  the game is a module of its own that hands it where its program keeps
+  what, which file is which and what its location table's kinds mean, each
+  value beside the instruction it is read from. Four crates and a front
+  door, `motionvm-parsec`; the record is the new `docs/parsec/` tree, and
   `motionvm-parsec-tools` inspects the game's files (`just tools-parsec`).
-- **Components: the OPL3 and PSM 2 are crates of their own.** `motionvm-opl`
-  holds the chip, the sample clock and the byte rules every music driver
-  shares; `motionvm-psm` holds the PSM 2 format, `MUSADL.DRV`'s sequencer and
-  the digital drivers' sample voice. Both are owned by no engine family, a
-  family may use them, and the boundary test holds what a component may
-  depend on and cite. Their record is the new `docs/psm/` tree. The PSM
-  player now answers the driver's own calls, and MOTION's music words are
-  built on them; nothing sounds different — every song's digest and the
-  music suites are as before.
 - **Dunkle Schatten plays its sound effects and its songs' digital
   voices.** `motionvm-psm` holds `DMABLAST.DRV`'s software mixer, read out of
   the shipped file (`DmaDriver`): effect channels chosen round from a cursor
@@ -56,15 +63,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   too. The mixer is held block for block against the driver's own routines
   on the game's samples and all sixteen songs, and the suite's digests of
   every effect and every song's digital voices are anchored to them. A
-  fade-out whose step runs past its end ends at 0 with the
-  carriers closed, as `MUSADL.DRV` does (`0xb96`); every song's digest is
+  fade-out whose step runs past its end ends at 0 with the carriers
+  closed, as `MUSADL.DRV` does (`0xb96`); every song's digest is
   as before.
+- **Components: the OPL3 and PSM 2 are crates of their own.** `motionvm-opl`
+  holds the chip, the sample clock and the byte rules every music driver
+  shares; `motionvm-psm` holds the PSM 2 format, `MUSADL.DRV`'s sequencer and
+  the digital drivers' sample voice. Both are owned by no engine family, a
+  family may use them, and the boundary test holds what a component may
+  depend on and cite. Their record is the new `docs/psm/` tree. The PSM
+  player now answers the driver's own calls, and MOTION's music words are
+  built on them; nothing sounds different — every song's digest and the
+  music suites are as before.
 - **`--entry E` asks for the way into a location**, beside `--loc N`. The
   contract carries a location request with an optional arrival point, and a
   game may name the location it starts at. Every MOTION game refuses an
   arrival point and says why: it has none to enter a location through.
 - **The renderer writes a run of palette registers and fills a rectangle**,
   and a palette defaults to black.
+- **The savegame tests find their saves beside the checkout.** `just`
+  passes `../saves/` — one directory per game, as the program writes
+  them — when it is there, the way it finds the games in `../games/`;
+  `SAVES=…` names another, and without either the tests skip as before.
 
 ### Changed
 
@@ -1644,7 +1664,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/wdominik/motionvm/releases/tag/v0.13.0
 [0.12.0]: https://github.com/wdominik/motionvm/releases/tag/v0.12.0
 [0.11.1]: https://github.com/wdominik/motionvm/releases/tag/v0.11.1
 [0.11.0]: https://github.com/wdominik/motionvm/releases/tag/v0.11.0

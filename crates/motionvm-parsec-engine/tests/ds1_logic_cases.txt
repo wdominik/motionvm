@@ -2,7 +2,8 @@
 # line each: `case`, the entry, the routine's segment:offset, the inputs.
 #
 # The entry is `L<location><kind>_<segment>_<offset>`, the kind `h` for a
-# handler, `k` for a hook, `a` for an animation hook, `r` for a rule handler.
+# handler, `k` for a hook, `a` for an animation hook, `r` for a rule handler;
+# the location `G` is the global rule table's, which belongs to none.
 # The inputs:
 #
 #   args=a,b,…         the routine's arguments, in hex
@@ -1314,3 +1315,47 @@ case L60h_147a_052c 147a:52c frames=2
 case L60h_147a_052c 147a:52c frames=2 wset=1744:1
 case L60h_147a_052c 147a:52c frames=2 wset=1744:1,1f4e:1
 case L60h_147a_052c 147a:52c frames=2 wset=1744:1,1f4e:80
+case LGr_1586_00d3 1586:d3 frames=2 args=1
+case LGr_1586_00d3 1586:d3 frames=2 args=1 ret=c3f:b06:1
+case LGr_1586_00d3 1586:d3 frames=2 args=1 ret=c3f:b06:1,1eb5:28:1
+case LGr_1586_00d3 1586:d3 frames=2 args=1 wset=2897:2
+case LGr_1586_00d3 1586:d3 frames=2 args=1 wset=2897:2 ret=bb6:52b:0
+case LGr_1586_02c3 1586:2c3 frames=2 args=1
+case LGr_1586_02c3 1586:2c3 frames=2 args=1 wset=2893:2,2897:2
+case LGr_1586_02c3 1586:2c3 frames=2 args=1 wset=2897:2
+case LGr_1586_0356 1586:356 frames=2 args=1
+case LGr_1586_03ce 1586:3ce frames=2 args=1
+case LGr_1586_03dc 1586:3dc frames=2 args=1
+case LGr_1586_03ea 1586:3ea frames=2 args=1
+case LGr_1586_03ea 1586:3ea frames=2 args=1 ret=14dd:7e7:1
+case LGr_1586_040e 1586:40e frames=2 args=1
+case LGr_1586_041c 1586:41c frames=2 args=1
+case LGr_1586_042a 1586:42a frames=2 args=1
+case LGr_1586_04a3 1586:4a3 frames=2 args=1
+case LGr_1586_04a3 1586:4a3 frames=2 args=1 ret=c3f:b06:1
+case LGr_1586_04c7 1586:4c7 frames=2 args=1
+case LGr_1586_04e7 1586:4e7 frames=2 args=1
+case LGr_1586_04f7 1586:4f7 frames=2 args=1
+case LGr_1586_04f7 1586:4f7 frames=2 args=1 set=270e:1
+case LGr_1586_0512 1586:512 frames=2 args=1
+case LGr_1586_0512 1586:512 frames=2 args=1 ret=c3f:b06:1
+case LGr_1586_0512 1586:512 frames=2 args=1 wset=2897:2
+case LGr_1586_053f 1586:53f frames=2 args=1
+case LGr_1586_054f 1586:54f frames=2 args=1
+case LGr_1586_055f 1586:55f frames=2 args=1
+case LGr_1586_056f 1586:56f frames=2 args=1
+case LGr_1586_057f 1586:57f frames=2 args=1
+case LGr_1586_058f 1586:58f frames=2 args=1
+case LGr_1586_0620 1586:620 frames=2 args=1
+case LGr_1586_0620 1586:620 frames=2 args=1 ret=14dd:7e7:1
+case L0h_04e3_0582 4e3:582 frames=2
+case L0h_04e3_0582 4e3:582 frames=2 wset=1f4a:1
+case L0h_04e3_0582 4e3:582 frames=2 wset=1f4a:80
+case L0h_04e3_0582 4e3:582 frames=2 wset=1f4a:ff
+case L20h_04e3_0582 4e3:582 frames=2
+case L20h_04e3_0582 4e3:582 frames=2 wset=1f4a:1
+case L20h_04e3_0582 4e3:582 frames=2 wset=1f4a:14
+case L20h_04e3_0582 4e3:582 frames=2 wset=1f4a:3c
+case L20h_04e3_0582 4e3:582 frames=2 wset=1f4a:3d
+case L20h_04e3_0582 4e3:582 frames=2 wset=1f4a:80
+case L20h_04e3_0582 4e3:582 frames=2 wset=1f4a:ff

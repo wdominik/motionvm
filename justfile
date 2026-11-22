@@ -70,13 +70,19 @@ _DATA_DS1 := if GAMEDATA_DS1 != DEFAULT_GAMEDATA_DS1 { GAMEDATA_DS1 } \
     else if path_exists(GAMEDATA_DS1 / "RESOURCE" / "DSROOM.DAT") == "true" { GAMEDATA_DS1 } \
     else { "" }
 
-# Savegames cannot be reconstructed, only played to, so there is no default that
-# could work. Set it to the directory the games' own save directories are under
-# — the `saves/` the program writes, not `saves/ds2/` — because that is what
-# the engine is pointed at and it puts the game's name on itself. With one,
-# `just SAVES=… test` runs the savegame tests; without it they skip
-# themselves and say so.
-SAVES := ""
+# Savegames cannot be reconstructed, only played to, and never enter the
+# repository. They are kept the way the games are: a directory beside this one,
+# `../saves/`, holding each game's own save directory — `ds1/`, `ds2/`, … — as
+# the program writes them, because the engine is pointed at the parent and puts
+# the game's name on itself. The default is passed only when that directory is
+# there; `just SAVES=… test` names another. Without either, the savegame tests
+# skip themselves and say so, and so does a test whose game has no save
+# directory below it.
+DEFAULT_SAVES := justfile_directory() / ".." / "saves"
+SAVES := DEFAULT_SAVES
+_SAVES := if SAVES != DEFAULT_SAVES { SAVES } \
+    else if path_exists(DEFAULT_SAVES) == "true" { DEFAULT_SAVES } \
+    else { "" }
 
 # Where every game reaches a cargo command, written once.
 #
@@ -91,7 +97,7 @@ _GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
     'MOTIONVM_GAMEDATA_EDDIEM="' + _DATA_EDDIEM + '" ' + \
     'MOTIONVM_GAMEDATA_CHECKER="' + _DATA_CHECKER + '" ' + \
     'MOTIONVM_GAMEDATA_DS1="' + _DATA_DS1 + '" ' + \
-    'MOTIONVM_SAVES="' + SAVES + '"'
+    'MOTIONVM_SAVES="' + _SAVES + '"'
 
 _default:
     @just --list

@@ -2,6 +2,7 @@
 //! the inventory, and the text a scene number resolves to.
 
 use super::{Adventure, Result, objects};
+use crate::num;
 
 impl Adventure {
     /// Installs a title's initial carried list without sorting it or
@@ -18,6 +19,16 @@ impl Adventure {
         self.items = items.to_vec();
         self.scroll = scroll;
         Ok(())
+    }
+
+    /// The first id past the items: the item row's names and one. An id
+    /// below it is an item, at or above it a room's object. The program
+    /// compares with it as an immediate wherever it tells the two apart —
+    /// in *Dunkle Schatten* `17h` for its 22 names (`0x0CD4F`, `0x0F2DC`,
+    /// `0x0F5AC`, `0x0F892`, `0x1031E`), which the title's tests hold
+    /// against the image.
+    pub(crate) fn items_end(&self) -> u16 {
+        num::word(self.item_names.len() + 1)
     }
 
     /// `0C3Fh:0B06h` (`0x0CEF6`): is `id` in the player's hands?
@@ -53,14 +64,14 @@ impl Adventure {
             // it the pointer stays null, and the routine then falls back
             // on bank 999's place `13h` — the programmers' own joke about
             // a dialogue they forgot to put in.
-            let place = usize::from(crate::num::unsigned(n));
+            let place = usize::from(num::unsigned(n));
             let Some(bank) = self.own_bank().filter(|b| place < b.len()) else {
                 return self.scene_text(!0x13);
             };
             let line = &bank.get(place)?.lines.first()?.text;
             return Some(motionvm_parsec_formats::to_cp437(line));
         }
-        let place = !crate::num::unsigned(n);
+        let place = !num::unsigned(n);
         let (bank, place) = if place >= 0x4000 {
             (
                 &self.dialogues.1,
@@ -75,7 +86,7 @@ impl Adventure {
 
     /// Where the live object with this id sits in the current location's
     /// overlay list, if there is one (`0BB6h:052Bh`, then `+2` bit 0).
-    pub(super) fn live_object(&self, id: u8) -> Option<usize> {
+    pub(crate) fn live_object(&self, id: u8) -> Option<usize> {
         self.objects
             .iter()
             .position(|o| o.id == id && o.flags & objects::LIVE != 0)

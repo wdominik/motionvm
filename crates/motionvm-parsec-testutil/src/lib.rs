@@ -171,22 +171,22 @@ fn first_ci(names: impl Iterator<Item = String>, want: &str) -> Option<String> {
     names.filter(|n| n.eq_ignore_ascii_case(want)).min()
 }
 
-/// The game's own save directory under `MOTIONVM_SAVES` — `ds1/` below
-/// the directory named — if one was named.
+/// A game's own save directory under `MOTIONVM_SAVES` — its slug below
+/// the directory named, `ds1/` for *Dunkle Schatten* — if one was named.
 ///
 /// Unlike [`gamedata_ds1`] this has no fallback and does not panic on a
 /// wrong path: a savegame is made by playing the game to a particular place, so
 /// there is no directory a checkout could be expected to have.
 /// `MOTIONVM_NO_GAMEDATA` answers `None` here too: a savegame is a game's
 /// data as much as its container is, and CI's floor has neither.
-pub fn saves_dir_named() -> Option<PathBuf> {
+pub fn saves_dir_named(slug: &str) -> Option<PathBuf> {
     if no_gamedata() {
         return None;
     }
     let set = std::env::var("MOTIONVM_SAVES")
         .ok()
         .filter(|s| !s.is_empty())?;
-    Some(PathBuf::from(set).join("ds1"))
+    Some(PathBuf::from(set).join(slug))
 }
 
 /// Whether `MOTIONVM_NO_GAMEDATA` asks for a run with no game data at all.
