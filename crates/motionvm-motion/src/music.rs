@@ -28,12 +28,12 @@ use motionvm_motion_audio::m16::Cue;
 use motionvm_motion_audio::{Player, m16, m32};
 use motionvm_motion_engine::MusicSink;
 use motionvm_motion_engine::titles;
-use motionvm_motion_formats::m16::psm::{Plx, Sample};
 use motionvm_motion_formats::m32::DriverArchive;
 use motionvm_motion_formats::m32::Wav;
 use motionvm_motion_formats::m32::bnk::Bank as InstrumentBank;
 use motionvm_motion_formats::m32::hmi::Song;
 use motionvm_playable::{AudioSource, Result};
+use motionvm_psm::{Plx, Sample};
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 

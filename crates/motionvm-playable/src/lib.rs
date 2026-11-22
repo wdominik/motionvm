@@ -331,16 +331,64 @@ pub trait Playable: Send {
     }
     /// Whether the game has run to its end.
     fn finished(&self) -> bool;
-    /// Asks the game to begin at location `n` — the game's own numbering of
-    /// its places — instead of where it would. A debug affordance behind the
-    /// window's `--loc`; a game with no such numbering ignores the request,
-    /// which is the default body.
-    fn request_location(&mut self, _n: i32) -> Result<()> {
+    /// Asks the game to begin where `at` says — a location in the game's own
+    /// numbering of its places, and optionally the way into it — instead of
+    /// where it would. A debug affordance behind the window's `--loc` and
+    /// `--entry`, called after [`Playable::start`]; a game with no such
+    /// numbering ignores the request, which is the default body. A game that
+    /// has locations and no arrival points refuses an `entry` rather than
+    /// drop it, so a request is never quietly a different one.
+    fn request_location(&mut self, _at: LocationRequest) -> Result<()> {
         Ok(())
     }
     /// The location the game itself wants to begin at, if it says.
     fn start_location(&self) -> Option<i32> {
         None
+    }
+    /// The name the game itself gives the location it is in or about to
+    /// enter, if it has one — read from the game's own data, so a window can
+    /// say where a run starts in the game's words and never in its own. The
+    /// default body has none.
+    fn location_name(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// Where a game is asked to begin: a location, and optionally how one
+/// arrives in it.
+///
+/// Both in the game's own numbering. The way in is a separate number because
+/// a location is not always entered the same way: through one door or
+/// another, a figure stands somewhere else and a different arrival runs, and
+/// the first picture differs. A game that enters every location one way has
+/// no `entry` to give.
+///
+/// `non_exhaustive` with constructors, like [`GameCard`], so a further part
+/// of a request is an addition and not a breakage for every family.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocationRequest {
+    /// The location, in the game's own numbering.
+    pub location: i32,
+    /// The arrival point, in the game's own numbering, if one was asked for.
+    pub entry: Option<i32>,
+}
+
+impl LocationRequest {
+    /// Location `location`, entered however the game enters it.
+    pub const fn at(location: i32) -> Self {
+        Self {
+            location,
+            entry: None,
+        }
+    }
+
+    /// Location `location`, entered through arrival point `entry`.
+    pub const fn via(location: i32, entry: i32) -> Self {
+        Self {
+            location,
+            entry: Some(entry),
+        }
     }
 }
 
@@ -395,7 +443,7 @@ pub struct GameCard {
 
 impl GameCard {
     /// A card from its three names.
-    pub fn new(name: &'static str, short: &'static str, needs: &'static str) -> Self {
+    pub const fn new(name: &'static str, short: &'static str, needs: &'static str) -> Self {
         Self { name, short, needs }
     }
 }
@@ -410,7 +458,9 @@ impl GameCard {
 pub trait Family: Sync {
     /// The family's name, for prose.
     fn name(&self) -> &'static str;
-    /// The games the family plays, in the order its documentation lists them.
+    /// The games the family plays, in the order its documentation lists them
+    /// — the ones it plays, and not every one it recognizes: what is listed
+    /// here is what a usage text offers.
     ///
     /// Borrowed and static: a roster is a fixed list, and it was rebuilt into
     /// a fresh `Vec` every time a usage text was printed or a directory was
@@ -422,11 +472,17 @@ pub trait Family: Sync {
     /// from file names alone, so a window may ask every family cheaply
     /// before any of them opens anything, and told by its card, so what was
     /// recognized can be said before the slow open runs.
+    ///
+    /// A family may recognize more than it plays: a game it can tell by its
+    /// files and cannot run yet is still claimed here, with its card, so the
+    /// directory is not called "not a game" — and [`Family::open`] refuses it
+    /// in a sentence that says so.
     fn detect(&self, dir: &std::path::Path) -> Option<GameCard>;
     /// Opens the game in `dir`.
     ///
     /// The error's `Display` output is the message a player reads; for a
     /// directory holding none of the family's games it lists what every one
-    /// of them would need.
+    /// of them would need; for a game the family recognizes and does not
+    /// play yet, it says that, by the game's name.
     fn open(&self, dir: &std::path::Path) -> Result<Box<dyn Playable>>;
 }

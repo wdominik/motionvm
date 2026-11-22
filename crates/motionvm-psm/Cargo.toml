@@ -1,0 +1,16 @@
+[package]
+name = "motionvm-psm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "PSM 2 music: the module format, and MUSADL.DRV's sequencer and the DMA drivers' sample voice, rebuilt over the OPL3 component"
+
+[dependencies]
+motionvm-opl.workspace = true
+
+[lints]
+workspace = true

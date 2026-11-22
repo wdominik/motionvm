@@ -29,7 +29,15 @@ Once, before the first picture:
    alone — cheap, so all of them can be asked before anything opens, and
    answered with a `GameCard` so the window can say what it recognized
    before the slow open runs. MOTION answers from the container and the
-   engine binary beside it.
+   engine binary beside it. Exactly one claim opens: a directory two
+   families claim is refused, naming both cards, rather than handed to
+   whichever is listed first.
+
+   A family may recognize a game it cannot play yet. `detect` then still
+   answers its card — so the directory is not called "not a game" — and
+   `open` refuses it with a sentence a player can read, saying the game is
+   recognized and does not play yet. `games()`, which feeds the usage text
+   and the folder dialog's complaints, lists only what plays.
 2. **`Family::open(dir)`**, which reads what a game needs and answers a
    `Box<dyn Playable>`. For a directory holding none of the family's games
    the error lists what every one of them would need; the window prints it
@@ -45,10 +53,14 @@ Once, before the first picture:
    subdirectory of your own under it, named by the game, so two games
    pointed at the same directory keep their slots apart — and know that
    slugs are a workspace-wide namespace, shared with every other family.
-6. **`request_location(n)`**, only behind the window's `--loc`; a game with
-   no such numbering ignores it.
-7. **`start`**, which runs the original's own startup and returns once the
+6. **`start`**, which runs the original's own startup and returns once the
    game is parked in its frame loop. Everything after this is `step`'s.
+7. **`request_location(at)`**, only behind the window's `--loc` (and
+   `--entry`, for the way in), and after `start`: startup assigns the game's
+   own first location, and the request goes through the game's own
+   mechanism once that has happened, rather than around it. A game with no
+   such numbering ignores it; one with no arrival points refuses an `entry`
+   by name rather than dropping it.
 
 Then the loop, until `finished` answers true or the window closes:
 `step`, `frame_duration`, `frame`, present, wait — with input arriving
@@ -104,7 +116,9 @@ display shows two hundred pictures a second, and each present here walks the
 whole physical window, so the window gathers steps until their durations add
 up to at least a hundred-and-twentieth of a second, presents once, and waits
 the sum — the fade's wall-clock pace is untouched, it just arrives in
-pictures a screen can show. Two guards stop that loop early, a step count
+pictures a screen can show. It is a threshold: a game whose steps each last
+a hair under that is shown two steps to a picture, at half its own picture
+rate and at its own pace. Two guards stop that loop early, a step count
 and a wall-clock budget, so a step that takes long — a location loading, a
 savegame written — still lets the window draw and read events. Do not batch
 on the engine's side; answer each step's own duration and let the window add

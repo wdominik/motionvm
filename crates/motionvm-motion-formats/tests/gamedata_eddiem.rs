@@ -18,8 +18,9 @@
 //! The game this file drives is Falsches Spiel mit Eddie M. (MOTION 16-bit).
 
 use motionvm_motion_formats::font::FontRefTable;
-use motionvm_motion_formats::m16::{Container, Segment, disasm, font, gfx, mz, psm, scr, text};
+use motionvm_motion_formats::m16::{Container, Segment, disasm, font, gfx, mz, scr, text};
 use motionvm_motion_testutil::{game_file, gamedata_eddiem};
+use motionvm_psm::format as psm;
 
 macro_rules! container_or_skip {
     () => {

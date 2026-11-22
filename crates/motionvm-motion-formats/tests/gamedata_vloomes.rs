@@ -16,8 +16,9 @@
 //!
 //! The game this file drives is Victor Loomes (MOTION 16-bit).
 
-use motionvm_motion_formats::m16::{Container, Framing, GfxInf, Segment, gfx, mz, psm, scr, text};
+use motionvm_motion_formats::m16::{Container, Framing, GfxInf, Segment, gfx, mz, scr, text};
 use motionvm_motion_testutil::{game_file, gamedata_vloomes};
+use motionvm_psm::format as psm;
 
 macro_rules! container_or_skip {
     () => {

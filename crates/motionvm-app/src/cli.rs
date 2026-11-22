@@ -39,6 +39,8 @@ usage: motionvm [GAMEDIR] [options]
 options:
   --loc N         start in location N — the game's own numbering of its
                   places — instead of where the game would begin.
+  --entry E       with --loc: arrive in it through the game's own arrival
+                  point E. A game whose locations have none refuses it.
   --no-sound      do not open an audio device.
   -h, --help      this text.
 "
@@ -72,6 +74,9 @@ pub(crate) struct Options {
     /// about a directory the player never named.
     pub(crate) dir: Option<PathBuf>,
     pub(crate) wanted: Option<i32>,
+    /// The way into [`Options::wanted`], which it needs: an arrival point
+    /// is a point of some location.
+    pub(crate) entry: Option<i32>,
     pub(crate) quiet: bool,
     pub(crate) help: bool,
 }
@@ -92,6 +97,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Options, String> {
     let mut opt = Options {
         dir: None,
         wanted: None,
+        entry: None,
         quiet: false,
         help: false,
     };
@@ -113,6 +119,13 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Options, String> {
                         .map_err(|_| format!("--loc wants a number, not {v:?}"))?,
                 );
             }
+            "--entry" => {
+                let v = value("--entry")?;
+                opt.entry = Some(
+                    v.parse()
+                        .map_err(|_| format!("--entry wants a number, not {v:?}"))?,
+                );
+            }
             // Rejected rather than ignored: a mistyped flag that is silently
             // dropped looks exactly like one that did nothing, and the two are
             // worth telling apart.
@@ -122,6 +135,12 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Options, String> {
             _ if positional.is_some() => return Err(format!("more than one game directory: {a}")),
             _ => positional = Some(a.clone()),
         }
+    }
+    // Refused rather than ignored, for the reason an unknown flag is: an
+    // arrival point is a way into some location, and with no location named
+    // it would be dropped without a word.
+    if opt.entry.is_some() && opt.wanted.is_none() {
+        return Err("--entry needs --loc: it names a way into a location".into());
     }
     opt.dir = positional.map(PathBuf::from);
     Ok(opt)
@@ -150,11 +169,11 @@ pub(crate) fn choose_game() -> Option<Box<dyn Playable>> {
             .set_title("Choose the game directory — the folder the game's own files are in")
             .pick_folder()?;
         let complaint = match roster::find(&dir) {
-            Some(family) => match family.open(&dir) {
+            Ok(family) => match family.open(&dir) {
                 Ok(game) => return Some(game),
                 Err(e) => e.to_string(),
             },
-            None => roster::nobodys(&dir),
+            Err(refusal) => refusal,
         };
         let again = rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
@@ -242,6 +261,32 @@ mod tests {
         // And a value that is not a number says so rather than being dropped.
         let e = parse(&["--loc", "seven"]).unwrap_err();
         assert!(e.contains("wants a number"), "{e}");
+    }
+
+    #[test]
+    fn an_entry_goes_with_a_location() {
+        let o = parse(&["--loc", "5", "--entry", "2"]).unwrap();
+        assert_eq!((o.wanted, o.entry), (Some(5), Some(2)));
+        let o = parse(&["--entry", "2", "/games/ds2", "--loc", "5"]).unwrap();
+        assert_eq!((o.wanted, o.entry), (Some(5), Some(2)), "in either order");
+        assert_eq!(o.dir, Some(PathBuf::from("/games/ds2")));
+        assert_eq!(parse(&["--loc", "5"]).unwrap().entry, None);
+    }
+
+    #[test]
+    fn an_entry_without_a_location_is_refused() {
+        let e = parse(&["--entry", "2"]).unwrap_err();
+        assert!(e.contains("--entry needs --loc"), "{e}");
+        let e = parse(&["--loc", "5", "--entry", "door"]).unwrap_err();
+        assert!(e.contains("--entry wants a number"), "{e}");
+    }
+
+    #[test]
+    fn the_usage_text_names_every_option() {
+        let text = usage();
+        for flag in ["--loc N", "--entry E", "--no-sound", "-h, --help"] {
+            assert!(text.contains(flag), "{flag} missing from:\n{text}");
+        }
     }
 
     #[test]

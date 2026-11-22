@@ -56,7 +56,7 @@
 //! backwards, and no recording can settle it, because a recording only shows
 //! which register was written. It is implemented exactly as read.
 
-use crate::chip::Write;
+use crate::Write;
 use crate::error::{Error, Result};
 use crate::m32::sequencer::{Kind, Message};
 use crate::num;

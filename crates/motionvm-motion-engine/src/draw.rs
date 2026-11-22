@@ -503,6 +503,11 @@ impl Engine {
                 Scaling::Natural if opaque => screen.buffer.blit_masked(&sprite, x, y, None),
                 Scaling::Natural => screen.buffer.blit(&sprite, x, y),
                 Scaling::PerMille(h, v) => screen.buffer.blit_scaled(&sprite, x, y, h, v),
+                // The 16-bit scaler (`ENVIRO.EXE` `18f3:0699`) builds its
+                // column table from `x · sw / w` and picks each row by
+                // `y · sh / h` into a scratch image it then blits keyed, and
+                // its drawer draws nothing for a size of zero or less
+                // (`016a:119b`): `blit_sized`'s arithmetic, exactly.
                 Scaling::Pixels(..) => screen.buffer.blit_sized(&sprite, x, y, sw, sh),
             }
         }

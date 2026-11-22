@@ -24,13 +24,14 @@
 //! Victor Loomes and Falsches Spiel mit Eddie M. (MOTION 16-bit).
 
 use motionvm_motion_formats::font::FontRefTable;
-use motionvm_motion_formats::m16::{self, Container, GfxInf, Segment, mz, psm::Plx};
+use motionvm_motion_formats::m16::{self, Container, GfxInf, Segment, mz};
 use motionvm_motion_formats::m32::{self, DriverArchive, InstrumentBank, Kind, Song, Wav, rsc};
 use motionvm_motion_formats::{find_ci, m32::rsc::Bank};
 use motionvm_motion_testutil::{
     game_file, gamedata_checker, gamedata_ds2, gamedata_eddiem, gamedata_enviro, gamedata_hfa,
     gamedata_jeffjet, gamedata_vloomes,
 };
+use motionvm_psm::Plx;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 

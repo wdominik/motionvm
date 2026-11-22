@@ -28,6 +28,9 @@ motionvm-render.workspace = true
 # song straight out of the container. The audio layer knows no game and no
 # engine — it plays a block by number — so this narrows nothing.
 motionvm-motion-audio.workspace = true
+# For `registers` and the block listing: a 16-bit song is PSM 2, and its
+# reader is the component's.
+motionvm-psm.workspace = true
 
 [dev-dependencies]
 motionvm-motion-testutil.workspace = true

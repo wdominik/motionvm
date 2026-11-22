@@ -234,10 +234,10 @@ with `[lints] workspace = true`:
   function whose `#[expect]` says which rule it applies —
   `motionvm-motion-forth`'s `cell` module for what a machine does with a
   cell's bits, the root of `motionvm-motion-formats` for what a reader does
-  with a file's, `motionvm-motion-audio`'s `num` for the drivers' byte
-  arithmetic, and a handful of the same shape in the neutral crates — and the
-  count of those attributes is the count of conversions the tree performs on
-  purpose. A widening is `From`; a reinterpretation that keeps its width is a
+  with a file's, the `num` modules of `motionvm-opl`, `motionvm-psm` and
+  `motionvm-motion-audio` for the drivers' byte arithmetic, and a handful
+  of the same shape in the neutral crates — and the count of those
+  attributes is the count of conversions the tree performs on purpose. A widening is `From`; a reinterpretation that keeps its width is a
   `to_le_bytes`/`from_le_bytes` round trip; a test narrows with
   `try_from(..).unwrap()`. A new conversion that is none of these is a new
   function in the module that owns the rule, with the address it reproduces.
@@ -336,7 +336,8 @@ only read as if it covered them.
 
 The workspace is two layers — a neutral one that knows no engine family, and
 the MOTION family's crates, marked as such by their names — with the contract
-crate between them; [`ARCHITECTURE.md`](ARCHITECTURE.md) lays the shape out.
+crate between them, and beside them two components a family may use;
+[`ARCHITECTURE.md`](ARCHITECTURE.md) lays the shape out.
 Dependencies point strictly downward:
 
 | Crate | Role |
@@ -345,7 +346,9 @@ Dependencies point strictly downward:
 | `motionvm-motion-forth` | The Forth VM: address model and kernel words |
 | `motionvm-render` | Framebuffer, palettes and blits |
 | `motionvm-playable` | The window-to-engine contract |
-| `motionvm-motion-audio` | FM driver, HMI and PSM 2 sequencers, OPL3 |
+| `motionvm-opl` | The OPL3, the sample clock, the byte rules: a component |
+| `motionvm-psm` | PSM 2: format, `MUSADL.DRV` sequencer, sample voice: a component |
+| `motionvm-motion-audio` | FM driver and HMI sequencer, and the engine's hosting of PSM 2 |
 | `motionvm-motion-engine` | The runtime that ties them into the game loop |
 | `motionvm-motion` | The family's front door: engine and audio, paired behind the contract |
 | `motionvm-workspace-tests` | The rig: tests over the tree itself |
@@ -359,6 +362,12 @@ seams between them, and why some things are shared behind a `Rules` struct
 where others are written twice — is in
 [`ARCHITECTURE.md`](ARCHITECTURE.md). Principles the layout encodes:
 
+- **A component is what no engine owns.** A piece the games ship that a
+  third party wrote — a music driver and its format — or the chip it writes
+  to is rebuilt once, from its own file, in an unprefixed crate the
+  boundary test lists as a component. It cites only those files; what an
+  engine does with it — which song a word names, how long it waits before
+  a stop — stays in the family, beside the code that does it.
 - **Readers never panic on malformed input.** A damaged install must surface
   as an error value, not a crash report about this codebase.
 - **Determinism is engineered, not hoped for.** The engine reads no wall
@@ -392,9 +401,12 @@ format — is tagged by **engine generation**: in code, sibling modules
 `m16` and `m32` inside a crate whose root keeps only what both share; in
 `docs/`, the trees `motion16/` and `motion32/`; in prose, "MOTION 16-bit
 (`ENVIRO.EXE`)" and "MOTION 32-bit (`ENGINE.EXE` V0.06.06/R109)". A format
-that exists in one generation only (`rsc`, `hmi`, `le`; `dat`, `psm`, `mz`)
+that exists in one generation only (`rsc`, `hmi`, `le`; `dat`, `mz`)
 still lives under that generation's module, so that the unqualified level
-stays honest. What belongs to **one game** — its bootstrap words and
+stays honest. A format that is no engine's at all — PSM 2, a third party's
+music system the 16-bit games ship as files of their own — is a
+component's, `motionvm-psm`, and the generation keeps only how its engine
+hosts it. What belongs to **one game** — its bootstrap words and
 module numbers, the names of its script variables, its module map and
 location scheme, its title strings, tests that drive its data — is tagged
 by **game**: code under `titles/ds2`, `titles/checker`, `titles/enviro`,
@@ -422,7 +434,8 @@ the 16-bit words in `words/m16.rs`, with their buffer words beside it in
 `words/buffers16.rs` — in files of their own; the walk, the inventory, the savegame words and the dialogue queue
 each serve both machines over `AddressSpace` and a `Rules` table. `motionvm-motion-audio` carries
 the two music stacks the same way, `m32` for the HMI sequencer and the FM
-driver and `m16` for PSM 2, with the OPL3 they both end at at its root.
+driver and `m16` for the engine's hosting of PSM 2, whose driver is the
+`motionvm-psm` component's; the OPL3 they both end at is `motionvm-opl`.
 Text drawing lives in the engine as the pair `text.rs` and `text16.rs`:
 one glyph and one measure serve both generations, and the 16-bit run
 drawer, which lays a line down by rules of its own, is the twin file —
@@ -463,7 +476,9 @@ claim is made checkable.
    address, and `docs/motion/open-questions.md` carries the same address —
    or `docs/motion/departures.md` does, where the branch is read and the stop
    is the choice. `motionvm-workspace-tests`' `ledger.rs` holds every
-   address an `Error::Unread` names to one of the two.
+   address an `Error::Unread` names to one of the two — the two of the tree
+   that owns the crate, a family's under `docs/<family>/` and a component's
+   under its own.
 7. **Which ledger.** A deliberate difference from the original is an entry in
    `docs/motion/departures.md`; what is still unread is one in
    `docs/motion/open-questions.md`; a word left unbuilt on purpose is a line
@@ -636,10 +651,10 @@ compiling:
    its front door.
 3. **One roster line.** `roster.rs` in the window is the only platform edit:
    the usage text, the folder dialog and every message follow from `games()`
-   and the openers. The roster's fallback rule — a directory nobody claims is
-   answered by the first family's refusal — stops being exact at this point;
-   give the unrecognized directory an answer built from every family before
-   the line lands.
+   and the openers. The roster asks every family: a directory nobody claims
+   is answered from every family's roster, and one two families claim is
+   refused with both cards named — so the new family's `detect` is checked
+   against every other family's files, not just its own games'.
 4. **The boundary test's list.** The family's name goes into `FAMILIES` in
    `motionvm-workspace-tests/tests/boundary.rs`, which is what makes the new
    crates family crates in the layer rule's eyes.

@@ -5,6 +5,9 @@ members = [
     "crates/motionvm-render",
     "crates/motionvm-playable",
     "crates/motionvm-app",
+    # The components: a piece the games share, owned by no family.
+    "crates/motionvm-opl",
+    "crates/motionvm-psm",
     # The MOTION family, behind its front door.
     "crates/motionvm-motion",
     "crates/motionvm-motion-formats",
@@ -39,6 +42,9 @@ publish = false
 # The neutral layer.
 motionvm-render = { path = "crates/motionvm-render" }
 motionvm-playable = { path = "crates/motionvm-playable" }
+# The components.
+motionvm-opl = { path = "crates/motionvm-opl" }
+motionvm-psm = { path = "crates/motionvm-psm" }
 # The MOTION family.
 motionvm-motion = { path = "crates/motionvm-motion" }
 motionvm-motion-formats = { path = "crates/motionvm-motion-formats" }

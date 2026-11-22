@@ -1,12 +1,12 @@
-//! The chip itself — the one piece of this project that was not read out of the
+//! The chip itself — the one piece of the music that was not read out of a
 //! game.
 //!
-//! Everything else here is rebuilt from something: the sequencer from
-//! `ENGINE.EXE`, the [FM driver](crate::m32::fm) from `fmmidi3.com`, the formats
-//! from the files. The OPL3 is hardware; there is no code in the game that says
-//! what a Yamaha YMF262 does with a register, only code that writes to it. So
-//! this layer comes from outside, and it is deliberately the thinnest possible
-//! wrapper, because it is the seam where a different core would be attached.
+//! Every driver above it is rebuilt from something: its own file, the
+//! program that hosts it, the songs it plays. The OPL3 is hardware; there is
+//! no code in a game that says what a Yamaha YMF262 does with a register,
+//! only code that writes to it. So this layer comes from outside, and it is
+//! deliberately the thinnest possible wrapper, because it is the seam where a
+//! different core would be attached.
 //!
 //! No trait: while there is exactly one implementation a trait would be
 //! ceremony. The day a second one exists it is this same single file either
@@ -34,8 +34,8 @@
 //! translated here.
 //!
 //! **Writes go through the buffered path.** The real chip needs time between
-//! two register writes, which is what the original driver's string of dummy
-//! reads is for (`0x1E60`). `write_register_buffered` models that delay instead
+//! two register writes, which is what the strings of dummy reads in the
+//! drivers of the time are for. `write_register_buffered` models that delay instead
 //! of applying everything instantly, which is what the hardware does and what
 //! the sound of a dense passage depends on.
 
@@ -45,8 +45,8 @@
 /// same as the register's ninth bit, so `reg as u16 | (bank << 8)` is the
 /// address a DRO recording stores.
 ///
-/// Both generations' drivers answer in these: the register set is the chip's,
-/// not the driver's.
+/// Every driver answers in these: the register set is the chip's, not the
+/// driver's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Write {
     /// 0 for the base port, 1 for base + 2 — the register's ninth address bit.

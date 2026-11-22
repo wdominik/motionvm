@@ -12,9 +12,13 @@ description = "Readers for the MOTION engine's resource formats"
 [dependencies]
 
 # Deliberately empty above: this crate reads the game's formats with nothing but
-# std. The dependency below is for the test suite only and does not ship.
+# std. The dependencies below are for the test suite only and do not ship: the
+# second, because the songs and samples in a 16-bit container are PSM 2, whose
+# reader is the component's, and the container suites check that every block
+# they call music reads as such.
 [dev-dependencies]
 motionvm-motion-testutil.workspace = true
+motionvm-psm.workspace = true
 
 [lints]
 workspace = true

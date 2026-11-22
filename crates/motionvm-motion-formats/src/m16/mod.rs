@@ -25,7 +25,6 @@ pub mod font;
 pub mod gfx;
 pub mod gfxinf;
 pub mod mz;
-pub mod psm;
 pub mod scr;
 pub mod text;
 

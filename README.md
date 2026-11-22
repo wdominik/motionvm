@@ -91,6 +91,7 @@ fallback — and without either, the directory goes on the command line.
 motionvm [GAMEDIR] [options]
 
   --loc N       start in location N instead of where the game would begin
+  --entry E     with --loc: arrive through the game's own arrival point E
   --no-sound    do not open an audio device
   -h, --help    the full text, with the game list built from the roster
 ```
@@ -102,6 +103,10 @@ Loomes on a full-screen competition slide, and both have to be clicked away
 first. Checker 2000 refuses it and says why: its story is a task list that
 enters each location when the step naming it comes round, so there is no
 location to ask for.
+
+`--entry E` names the way into that location, for a game whose locations
+have several. None of the games above has them: a location is asked for by
+its number alone, and each of them refuses `--entry` and says so.
 
 ## What a game needs
 
@@ -309,7 +314,7 @@ It is one Rust workspace, deliberately small at the edges: five dependencies
 to run at all — a window, a presenter, an audio device, a folder dialog and an
 OPL3 core — and no graphics API anywhere. The readers, the two
 virtual machines, the renderer, the audio and the runtime are split across
-eleven crates — two layers and a test rig over both — a neutral one holding the window and the contract
+thirteen crates — two layers, two shared components and a test rig over all of them — a neutral one holding the window and the contract
 it drives any game through, and the MOTION engine family behind that contract
 — which [`ARCHITECTURE.md`](ARCHITECTURE.md) lays out, along with how the
 family, its two engine generations, the five builds of the older one, the

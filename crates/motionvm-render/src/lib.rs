@@ -259,6 +259,29 @@ impl Framebuffer {
         self.pixels.fill(index);
     }
 
+    /// Sets every pixel of `area` to one index, clipped to the frame — what
+    /// [`fill`](Self::fill) does for the whole of it.
+    pub fn fill_rect(&mut self, area: Rect, index: u8) {
+        let cols = area.x.max(0)
+            ..area
+                .x
+                .saturating_add(i32::from(area.w))
+                .min(i32::from(self.width));
+        let rows = area.y.max(0)
+            ..area
+                .y
+                .saturating_add(i32::from(area.h))
+                .min(i32::from(self.height));
+        if cols.is_empty() {
+            return;
+        }
+        let run = at(cols.end - cols.start);
+        for row in rows {
+            let d = at(row) * usize::from(self.width) + at(cols.start);
+            self.pixels[d..d + run].fill(index);
+        }
+    }
+
     /// Copies one rectangle of another frame of the same size over this one.
     ///
     /// What keeps a rebuild inside its own rectangle: the whole screen is
@@ -326,12 +349,10 @@ impl Framebuffer {
     /// Draws a sprite at a size given in pixels, nearest neighbor.
     ///
     /// Destination pixel `(dx, dy)` takes source pixel `(dx · sw / w,
-    /// dy · sh / h)`, truncating — the 16-bit engine's scaler (`ENVIRO.EXE`
-    /// `18f3:0699`) builds its column table from `x · sw / w` and picks each
-    /// row by `y · sh / h`, so a target size is all it needs and all this
-    /// takes. A size of zero or less draws nothing, as the drawer that calls
-    /// it draws nothing (`016a:119b`). Transparent source pixels are skipped:
-    /// the original scales into a scratch image and blits that keyed.
+    /// dy · sh / h)`, truncating: a column table from `x · sw / w` and a row
+    /// picked by `y · sh / h`, so a target size is all it takes. A size of
+    /// zero or less draws nothing. Transparent source pixels are skipped, as
+    /// a scale into a scratch image blitted keyed skips them.
     pub fn blit_sized(&mut self, sprite: &Picture, x: i32, y: i32, w: i32, h: i32) {
         let (Ok(w), Ok(h)) = (usize::try_from(w), usize::try_from(h)) else {
             return;
@@ -584,6 +605,24 @@ mod tests {
         fb.blit(&sprite(4, 4, 7), 3, 3);
         assert_eq!(fb.get(3, 3), Some(7));
         assert_eq!(fb.get(0, 0), Some(0));
+    }
+
+    #[test]
+    fn a_filled_rectangle_is_clipped_to_the_frame() {
+        let mut fb = Framebuffer::new(4, 3);
+        fb.fill(1);
+        let area = |x, y, w, h| Rect { x, y, w, h };
+        fb.fill_rect(area(-1, 1, 3, 9), 5);
+        assert_eq!(fb.pixels, [1, 1, 1, 1, 5, 5, 1, 1, 5, 5, 1, 1]);
+        // Wholly off the frame, on either side: nothing moves.
+        let before = fb.pixels.clone();
+        fb.fill_rect(area(4, 0, 2, 2), 9);
+        fb.fill_rect(area(-3, 0, 3, 2), 9);
+        fb.fill_rect(area(0, -2, 4, 2), 9);
+        // At the far end of the coordinates, the edge saturates rather than
+        // overflowing.
+        fb.fill_rect(area(i32::MAX - 1, i32::MAX - 1, 10, 10), 9);
+        assert_eq!(fb.pixels, before);
     }
 
     #[test]

@@ -1,15 +1,13 @@
 //! PSM 2 music modules: the tags, and the `PLX` section the Ad Lib music is.
 //!
-//! The 16-bit engine plays PSM 2 through `MUSADL.DRV`, not the HMI middleware
-//! of the 32-bit engine. A module begins with the ASCII tag
-//! `MTCVTS PSM 2.00\0` and **nine ascending `u32` section offsets** at
-//! `+0x10`; the loader in `ENVIRO.EXE` (`1696:017e`) relocates exactly those
-//! nine in place and hands the first section to the music driver, which
-//! checks it for the tag `PLX\0` (`MUSADL.DRV` offset `0xe3b`) — so section 0
-//! is the whole of the Ad Lib song. The `MDH\0` chunk at offset 56 and the
-//! `SM8\0` sample sections belong to the digital driver, which nothing here
-//! plays; a sample also ships as a block of its own, thirteen times in
-//! Falsches Spiel mit Eddie M., and [`Sample`] reads that form's header.
+//! A module begins with the ASCII tag `MTCVTS PSM 2.00\0` and **nine
+//! ascending `u32` section offsets** at `+0x10`; a host's loader relocates
+//! exactly those nine in place and hands the first section to the music
+//! driver, which checks it for the tag `PLX\0` (`MUSADL.DRV` offset `0xe3b`)
+//! — so section 0 is the whole of the Ad Lib song. The `MDH\0` chunk at
+//! offset 56 and the `SM8\0` sample sections belong to the digital driver,
+//! which nothing here plays; a sample also ships on its own, outside any
+//! module, and [`Sample`] reads that form's header.
 //!
 //! The `PLX` section, as the driver reads it (`MUSADL.DRV` `0xcb4`):
 //!
@@ -21,13 +19,9 @@
 //! +7  9 × u16  per-channel stream offset, relative to the section; 0 = unused
 //! +25 the instrument records and the event streams
 //! ```
-//!
-//! Measured on every one of the ten songs of Die Enviro-Kids greifen ein
-//! (blocks 1–5 and 7–11).
 
 use crate::error::{Error, Result};
-use crate::u16le;
-use crate::{dwords, words};
+use crate::read::{dwords, u16le, wide, words};
 
 /// The sixteen bytes every PSM 2 module starts with.
 pub const MAGIC: &[u8; 16] = b"MTCVTS PSM 2.00\0";
@@ -44,8 +38,7 @@ pub const SAMPLE_TAG: &[u8; 4] = b"SM8\0";
 /// digital driver takes a sample's rate word the same way.
 pub const PIT_HZ: u32 = 1_193_182;
 
-/// Whether a block is a digital sample on its own — the form `PLAYSAMPLE`
-/// asks for by block number.
+/// Whether a block is a digital sample on its own, outside any module.
 pub fn is_sample(item: &[u8]) -> bool {
     item.starts_with(SAMPLE_TAG)
 }
@@ -53,27 +46,25 @@ pub fn is_sample(item: &[u8]) -> bool {
 /// A digital sample as its block stores it: ten bytes of header, then the
 /// PCM.
 ///
-/// Read off the thirteen sample blocks of Falsches Spiel mit Eddie M. —
-/// blocks 1, 9, 10, 12–15, 17, 18 and 20–23, 2305 to 31 960 bytes — and off
-/// the driver that plays them. The header is `SM8\0`, `u16 0x0100`, `u16
-/// length`, `u16 period`, and the length is the block's less ten in every
-/// one. `DMABLAST.DRV`'s play path (`0x0611`) skips the tag and the version,
+/// Read off the driver that plays it, and held to the sample blocks
+/// measured. The header is `SM8\0`, `u16 0x0100`, `u16 length`, `u16
+/// period`, and the length was the block's less ten in every one. `DMABLAST.DRV`'s play path (`0x0611`) skips the tag and the version,
 /// takes the length as the DMA count, and turns the last word into the DSP's
 /// time constant through a 256-entry table at `0x60` — `256 − round(w · 1000
 /// / 1193)`, the word in whole microseconds at 1.193 cycles each, `table[59]`
 /// being `0xcf` — so the word is the **sample period in PIT cycles**, the
 /// same unit `MUSADL.DRV`'s tempo is in, and what the DAC plays is the
-/// driver's rounding of it, which the audio crate's voice reproduces. Its
+/// driver's rounding of it, which [`Voice`](crate::Voice) reproduces. Its
 /// multi-channel mixer (`0x196b`) reads the word at `+8` out of the header
 /// the same way, as the step against the mixer's own period.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sample {
-    /// The header's second word — `0x0100` in every shipped block. The
+    /// The header's second word — `0x0100` in every block measured. The
     /// mixer path reads it as the channel's volume, taking `0x0100` as "the
-    /// default" (`0x2090`); the direct path the games run never reads it.
+    /// default" (`0x2090`); the direct path never reads it.
     pub version: u16,
-    /// The sample period in PIT cycles: 56 to 179 across the shipped blocks,
-    /// which is 21.3 kHz down to 6.7 kHz — see [`Sample::rate`].
+    /// The sample period in PIT cycles — 56 to 179 across the blocks
+    /// measured, which is 21.3 kHz down to 6.7 kHz; see [`Sample::rate`].
     pub period: u16,
     /// Unsigned 8-bit PCM, as many bytes as the header's length word says.
     pub pcm: Vec<u8>,
@@ -109,8 +100,8 @@ impl Sample {
 
     /// The sample rate the header names, in Hz: the PIT clock over the
     /// period. The DAC plays the driver's rounding of it — the period in
-    /// whole microseconds, so 8000 Hz where this says 8008 — which is the
-    /// audio crate's to reproduce; this is what the block says. A period of
+    /// whole microseconds, so 8000 Hz where this says 8008 — which is
+    /// [`Voice`](crate::Voice)'s to reproduce; this is what the block says. A period of
     /// zero, which no shipped block carries, answers the clock itself rather
     /// than dividing by nothing.
     pub fn rate(&self) -> u32 {
@@ -121,8 +112,7 @@ impl Sample {
 /// Where the tags of one module sit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tags {
-    /// Offset of `MDH\0`, if present — 56 in every song of
-    /// Die Enviro-Kids greifen ein.
+    /// Offset of `MDH\0`, if present.
     pub mdh: Option<usize>,
     /// Offset of the first `SM8\0`, if present.
     pub sm8: Option<usize>,
@@ -179,19 +169,17 @@ pub struct Plx {
 impl Plx {
     /// Cuts section 0 out of a module and reads its head.
     ///
-    /// A game in the earlier framing stores the section on its own, with no module
-    /// around it: all fourteen songs of Victor Loomes are a bare `PLX` where
-    /// the later games' ten, four and nine are the first section of an
-    /// `MTCVTS` module. Both reach the same reader.
+    /// A section may also be stored on its own, a bare `PLX` with no module
+    /// around it, and both forms reach the same reader.
     pub fn parse(item: &[u8]) -> Result<Self> {
         if item.starts_with(TAG) {
             return Self::from_section(item.to_vec());
         }
         let sections = sections(item)?;
-        let start = crate::wide(sections[0]);
+        let start = wide(sections[0]);
         let end = sections
             .iter()
-            .map(|&o| crate::wide(o))
+            .map(|&o| wide(o))
             .filter(|&o| o > start)
             .min()
             .unwrap_or(item.len())

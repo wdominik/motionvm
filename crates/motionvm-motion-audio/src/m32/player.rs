@@ -32,12 +32,12 @@
 //! (see `Fm::level`) and a track that chains events without end is stopped and
 //! recorded (see [`Sequencer::runaway`](crate::m32::Sequencer::runaway)).
 
-use crate::chip::{Chip, Write};
 use crate::error::{Error, Result};
 use crate::m32::fm::Fm;
 use crate::m32::sequencer::{ChannelVolumes, Message, Sequencer};
 use crate::m32::voice::{Sample, Voice};
 use crate::num;
+use crate::{Chip, Write};
 use motionvm_motion_formats::m32::bnk::Bank;
 use motionvm_motion_formats::m32::drv::Driver;
 use motionvm_motion_formats::m32::hmi::Song;
@@ -206,8 +206,9 @@ impl Player {
         let frames = out.len() / 2;
         let mut done = 0;
         while done < frames {
-            let step = crate::clock::frames_to_tick(self.clock, self.tick_period(), Self::PIT_HZ)
-                .min(frames - done);
+            let step =
+                motionvm_opl::clock::frames_to_tick(self.clock, self.tick_period(), Self::PIT_HZ)
+                    .min(frames - done);
             if step > 0 {
                 let frames = &mut out[done * 2..(done + step) * 2];
                 self.chip.render(frames);

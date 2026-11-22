@@ -16,8 +16,9 @@
 //! The game this file drives is Victor Loomes (MOTION 16-bit).
 
 use motionvm_motion_audio::m16::{Driver, Sequencer};
-use motionvm_motion_formats::m16::{Container, Segment, psm, psm::Plx};
+use motionvm_motion_formats::m16::{Container, Segment};
 use motionvm_motion_testutil::{Digests, digest::Digest, gamedata_vloomes};
+use motionvm_psm::{Plx, format as psm};
 
 /// The block numbers the songs sit in — every tune the game ships.
 const TUNES: std::ops::RangeInclusive<usize> = 0..=13;

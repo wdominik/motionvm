@@ -16,7 +16,7 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use motionvm_playable::{Button, Playable};
+use motionvm_playable::{Button, LocationRequest, Playable};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -28,6 +28,7 @@ pub(crate) fn run() -> Result<(), motionvm_playable::Error> {
     let Options {
         dir,
         wanted,
+        entry,
         quiet,
         help,
     } = parse_args(&args)?;
@@ -45,12 +46,7 @@ pub(crate) fn run() -> Result<(), motionvm_playable::Error> {
     // that still needs it — the music's driver files — lives behind the
     // contract.
     let mut game = match dir {
-        Some(dir) => {
-            let Some(family) = roster::find(&dir) else {
-                return Err(roster::nobodys(&dir).into());
-            };
-            family.open(&dir)?
-        }
+        Some(dir) => roster::find(&dir)?.open(&dir)?,
         None => match choose_game() {
             Some(chosen) => chosen,
             None => {
@@ -140,12 +136,19 @@ pub(crate) fn run() -> Result<(), motionvm_playable::Error> {
     // rather than around it — the game enters what was requested once no
     // location is active.
     if let Some(loc) = wanted {
-        game.request_location(loc)?;
-        // Said only when asked for: a plain start is not a diagnostic.
-        eprintln!(
-            "starting at location {}",
-            game.start_location().unwrap_or(0)
-        );
+        let at = match entry {
+            Some(entry) => LocationRequest::via(loc, entry),
+            None => LocationRequest::at(loc),
+        };
+        game.request_location(at)?;
+        // Said only when asked for: a plain start is not a diagnostic. The
+        // name is the game's own, when it has one.
+        let start = game.start_location().unwrap_or(0);
+        let via = entry.map(|e| format!(", entry {e}")).unwrap_or_default();
+        match game.location_name() {
+            Some(name) => eprintln!("starting at location {start} ({name}){via}"),
+            None => eprintln!("starting at location {start}{via}"),
+        }
     }
 
     let event_loop = EventLoop::new()?;
@@ -229,6 +232,12 @@ const FRAME: Duration = Duration::from_nanos(1_000_000_000 / 25);
 /// steps until they add up to at least this before presenting. The fade's
 /// wall-clock pace is untouched — it just arrives in pictures a screen can
 /// actually show.
+///
+/// A threshold, not a rounding: a game whose every step lasts a hair less
+/// than this is shown two steps to a picture, at half its own picture rate,
+/// with its pace unchanged. Rounding to the nearer sum instead would show
+/// such steps one by one, and would also stop pairing a curtain band a
+/// little over two thirds of this, which a shipped game has.
 const MIN_PRESENT: Duration = Duration::from_nanos(1_000_000_000 / 120);
 
 struct App {

@@ -16,8 +16,9 @@
 //! The game this file drives is Hilfe für Amajambere (MOTION 16-bit).
 
 use motionvm_motion_audio::m16::{Driver, Sequencer};
-use motionvm_motion_formats::m16::{Container, Segment, psm::Plx};
+use motionvm_motion_formats::m16::{Container, Segment};
 use motionvm_motion_testutil::{Digests, digest::Digest, gamedata_hfa};
+use motionvm_psm::Plx;
 
 /// The block numbers under a PSM tag — every tune the game ships.
 const TUNES: std::ops::RangeInclusive<usize> = 1..=4;
@@ -86,8 +87,7 @@ fn the_section_table_is_read_and_not_assumed() {
     let mut offsets = Vec::new();
     for tune in TUNES {
         let block = container.item(Segment::Blk, tune).unwrap().unwrap();
-        let sections =
-            motionvm_motion_formats::m16::psm::sections(block).expect("the section table");
+        let sections = motionvm_psm::format::sections(block).expect("the section table");
         let plx = usize::try_from(sections[0]).unwrap();
         assert!(
             plx > 0 && plx < block.len(),

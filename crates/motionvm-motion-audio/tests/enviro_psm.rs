@@ -11,9 +11,9 @@
 
 use motionvm_motion_audio::Player as _;
 use motionvm_motion_audio::m16::{Cue, Driver, Player, Sequencer};
-use motionvm_motion_formats::m16::psm::Plx;
 use motionvm_motion_formats::m16::{Container, Segment};
 use motionvm_motion_testutil::{Digests, digest::Digest, gamedata_enviro};
+use motionvm_psm::Plx;
 
 /// The block numbers under a PSM tag — every tune the game ships.
 const TUNES: [usize; 10] = [1, 2, 3, 4, 5, 7, 8, 9, 10, 11];

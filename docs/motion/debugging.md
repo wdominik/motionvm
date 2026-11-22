@@ -13,6 +13,7 @@ crate that holds it.
 | What | Where | Does |
 |---|---|---|
 | `--loc N` | the command line | Starts in location `N` through the game's own request cell, once startup is over — the intro is skipped, not faked |
+| `--entry E` | the command line | Refused, with `--loc` or without: a MOTION game is asked for a location by its number alone, so there is no arrival point to name |
 | `--no-sound` | the command line | Opens no audio device; the music sink is never installed and the game plays silent |
 | `MOTIONVM_PERF=1` | the environment | Once a second: presents per second, the engine's compose time, the window's blit-and-present time and its worst case, and the window's scale pair; also what the audio device settled on |
 | `MOTIONVM_LOG=1` or `=<path>` | the environment | Appends every line the window prints to `motionvm.log` beside `saves/`, or to the path — the lines a windowed build otherwise loses |

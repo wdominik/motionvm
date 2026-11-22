@@ -6,6 +6,52 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Components: the OPL3 and PSM 2 are crates of their own.** `motionvm-opl`
+  holds the chip, the sample clock and the byte rules every music driver
+  shares; `motionvm-psm` holds the PSM 2 format, `MUSADL.DRV`'s sequencer and
+  the digital drivers' sample voice. Both are owned by no engine family, a
+  family may use them, and the boundary test holds what a component may
+  depend on and cite. Their record is the new `docs/psm/` tree. The PSM
+  player now answers the driver's own calls, and MOTION's music words are
+  built on them; nothing sounds different — every song's digest and the
+  music suites are as before.
+- **`--entry E` asks for the way into a location**, beside `--loc N`. The
+  contract carries a location request with an optional arrival point, and a
+  game may name the location it starts at. Every MOTION game refuses an
+  arrival point and says why: it has none to enter a location through.
+- **The renderer writes a run of palette registers and fills a rectangle**,
+  and a palette defaults to black.
+
+### Changed
+
+- **A directory two families claim is refused**, naming both games, rather
+  than opened by whichever family is asked first. A directory nobody claims
+  is answered as before.
+- **The architecture page scopes its game rule to MOTION.** How a family
+  tells its games apart is the family's to decide; MOTION's answer is an
+  enum and a manifest over one interpreter.
+- **The ledger test reads the owner's ledgers**: a family's crates answer to
+  the family's tree, a component's to its own.
+- **A family may recognize a game it does not play yet.** Its detection
+  may claim the directory and its opening refuse it with a sentence that
+  says so; the list of games it names as installable holds only the ones it
+  plays.
+- **The PSM 2 driver is told by its build, not by its entry count alone.**
+  The two builds that are read open as before; a build of the same size
+  and entry count around other code is refused rather than played as the
+  read one. The fade's length is the caller's to pass; MOTION passes
+  `ENDTUNE`'s 2000 ms, as before.
+
+### Fixed
+
+- **The renderer no longer cites an engine address.** The scaler's
+  evidence is on the engine's side, where the call is; the boundary test now
+  catches an `ENVIRO.EXE` citation in the neutral layer.
+- **The family guide lists the calls in the order the window makes them**:
+  `start`, then the location request.
+
 ## [0.12.0] - 2026-11-21
 
 **Dunkle Schatten 2 is held against the original further than before.**

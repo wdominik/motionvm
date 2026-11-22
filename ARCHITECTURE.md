@@ -26,12 +26,25 @@ The tree is two layers inside one workspace:
   `Family` trait. MOTION's set is the six `motionvm-motion-*` crates plus its
   front door, `motionvm-motion`, which is the crate a roster line points at.
 
+Beside the two stand the **components** — `motionvm-opl` and
+`motionvm-psm` — which are neither: shared pieces a family may build on,
+below.
+
 The layer is written in the name, not in a directory: a crate that exists for
 one family carries the family's name — `motionvm-motion-engine` — and an
-unprefixed `motionvm-*` name belongs to the neutral layer. Unprefixed names
-that would suit genuinely shared code (`motionvm-formats`, say) stay free for
-the day two families really share some; nothing is reserved by an empty
-placeholder. The `crates/` directory itself stays flat.
+unprefixed `motionvm-*` name belongs to the neutral layer, unless the
+boundary test lists it as a **component**. A component is a rebuild of one
+piece the games ship that is no family's engine — a third party's program
+the games carry as a file of its own, or the chip such a program writes to
+— rebuilt once, from that file. `motionvm-opl` and `motionvm-psm` are the
+two: the OPL3 both of MOTION's music stacks end at, and the PSM 2 format
+and drivers, read out of `MUSADL.DRV` and the `DMA*.DRV` files rather than
+out of any engine. A family may depend on a component; a component depends
+on no family and not on the window, and cites only the files it is rebuilt
+from; the neutral layer depends on none. Unprefixed names that would suit
+genuinely shared code (`motionvm-formats`, say) stay free for the day two
+families really share some; nothing is reserved by an empty placeholder.
+The `crates/` directory itself stays flat.
 
 The two layers meet only at `motionvm-playable`, and the one sanctioned
 crossing above it is the window's roster: one manifest line and one file,
@@ -45,7 +58,7 @@ compiles with no window; only the roster ties the two together.
 
 ## The workspace
 
-Eleven crates, dependencies pointing strictly downward.
+Thirteen crates, dependencies pointing strictly downward.
 
 The neutral layer:
 
@@ -55,16 +68,23 @@ The neutral layer:
 | `motionvm-playable` | The contract between the window and whatever engine it drives | `render` |
 | `motionvm-app` | The window: winit, softbuffer, cpal, and the roster of families | `playable`, `render`, `motion` |
 
+The components:
+
+| Crate | Role | Depends on |
+|---|---|---|
+| `motionvm-opl` | The OPL3 every rebuilt music driver ends at, the sample clock a sequencer runs on, and the byte rules between a driver and a register | — |
+| `motionvm-psm` | PSM 2: the module format, `MUSADL.DRV`'s sequencer, and the `DMA*.DRV` drivers' sample voice | `opl` |
+
 The MOTION family:
 
 | Crate | Role | Depends on |
 |---|---|---|
 | `motionvm-motion-formats` | Readers for the shipped file formats; std-only, zero dependencies | — |
 | `motionvm-motion-forth` | The two Forth machines behind one trait set | `formats` |
-| `motionvm-motion-audio` | The two music stacks and the OPL3 they share | `formats` |
+| `motionvm-motion-audio` | The two music stacks: the HMI sequencer and FM driver, and the engine's hosting of PSM 2 | `formats`, `opl`, `psm` |
 | `motionvm-motion-engine` | The runtime: descriptors, drawing, text, screens, the game loop | `formats`, `forth`, `render`, `playable` |
-| `motionvm-motion` | The family's front door: the engine and its music, paired behind the contract | `playable`, `engine`, `audio`, `formats` |
-| `motionvm-motion-tools` | The CLI that reads and extracts the shipped formats | `formats`, `forth`, `render` |
+| `motionvm-motion` | The family's front door: the engine and its music, paired behind the contract | `playable`, `engine`, `audio`, `formats`, `psm` |
+| `motionvm-motion-tools` | The CLI that reads and extracts the shipped formats | `formats`, `forth`, `render`, `audio`, `psm` |
 | `motionvm-motion-testutil` | Test-data location, shared by every suite; not published | — |
 
 And outside both layers:
@@ -103,6 +123,14 @@ the whole workspace, with private items in the documentation build, because
 here the private comments carry as much of the evidence as the public ones.
 
 ## Four levels, four mechanisms
+
+The four axes are the workspace's vocabulary, and the first is the
+workspace's own mechanism, the same for every family. The other three are
+a family's: how it tells a generation, a build and a game apart is that
+family's decision, written in its own tree under `docs/`. Below the first
+section, what this page describes is MOTION's answer — one interpreter per
+generation, builds probed from the binary, a game an enum and a manifest
+over it.
 
 ### Family is a crate set and a contract
 
@@ -209,7 +237,12 @@ the words that tell its container from another's. It holds constants and no
 behavior.
 
 **No engine code branches on which game is running.** Not one arm of one match
-in `motionvm-motion-engine` names a title.
+in `motionvm-motion-engine` names a title. That is MOTION's law, and it
+follows from MOTION's shape — one interpreter, every game data on top of it.
+A family whose originals are one compiled program per title has no such
+interpreter to keep title-free: code per title over a core shared only
+where the binaries prove it identical is that family's answer, and its own
+tree is where the answer is stated.
 
 ## The seams
 
@@ -225,7 +258,7 @@ in `motionvm-motion-engine` names a title.
 | `Generation` | `titles/mod.rs` | one family-internal answer — which container, savegame layout and music stack — off the roster's total match |
 | `Resources` | `resources.rs` | the only place engine code knows which container format is open |
 | `Profile` | `profile.rs` | what a build decides when a game opens from what a frame changes; the two generations' readings are its two constructors |
-| `Player` | `motionvm-motion-audio`'s root | a song from the driver that sounds it |
+| `Player` | `motionvm-motion-audio`'s root | a song from the driver that sounds it — and, for PSM 2, the engine's hosting of the driver from the component's driver |
 | `Picture` | `motionvm-render`'s root | a decoded picture from the container it was decoded out of |
 | `LocationScheme` | `game.rs` | one location mechanism from four sets of variable names |
 | `Rules` | `order.rs`, `words/` | one algorithm from the generation-different constants it runs on |
@@ -368,9 +401,10 @@ manifest lines that let it compile (`[workspace.dependencies]` and the
 window's own) — usage text, complaints and the window's behavior follow from
 the trait — plus the
 family's line in the boundary test's list, its own test rig and data plumbing,
-and its own trees under `docs/`. The roster's fallback rule — a directory no family claims
-is answered by the first family's refusal — is exact while one family is on
-the list, and is the line to revisit with a second.
+and its own trees under `docs/`. The roster asks every family and needs no
+revisiting for a second: a directory no family claims is answered with
+what every game of every family needs, and one that two families claim is
+refused, naming both, rather than opened by whichever is listed first.
 
 ## Determinism is engineered
 

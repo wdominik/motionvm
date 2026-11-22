@@ -1,10 +1,7 @@
 //! One digital sample on the sample clock: the direct-DMA path of the
-//! `DMA*.DRV` drivers, as the games install them.
+//! `DMA*.DRV` drivers, installed with one channel.
 //!
-//! `STERN.EXE` installs its digital driver with one channel — the sixth
-//! install argument is what the sound manager's trampoline leaves in that
-//! slot, the caller's `DI`, which is 1 at the one call site (`1058:01bd`) —
-//! and with one channel the driver's play entry takes the single-sample path
+//! With one channel the driver's play entry takes the single-sample path
 //! (`DMABLAST.DRV` `0x2028` → `0x0611`): the header's length word becomes the
 //! DMA count, its period word — clamped to 255 (`0x0653`) — indexes the table
 //! at `0x60` for the DSP's time constant (`0x065b`), and the bytes go to the
@@ -30,7 +27,7 @@
 //! level DOSBox-X gives the DAC, and the same recording peaks where the
 //! rebuild does.
 
-use motionvm_motion_formats::m16::psm::Sample;
+use crate::format::Sample;
 
 /// The DSP's clock: its time constant counts microseconds.
 const MICROS_PER_SECOND: u64 = 1_000_000;
@@ -108,7 +105,7 @@ impl Voice {
 #[cfg(test)]
 mod tests {
     use super::{MICROS_PER_SECOND, Voice, time_constant};
-    use motionvm_motion_formats::m16::psm::Sample;
+    use crate::format::Sample;
 
     fn sample(period: u16, pcm: &[u8]) -> Sample {
         Sample {

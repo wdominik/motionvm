@@ -11,7 +11,7 @@ mod music;
 
 use motionvm_motion_engine::titles;
 use motionvm_motion_engine::titles::Driven;
-use motionvm_playable::{AudioSource, Family, GameCard, Playable, Result};
+use motionvm_playable::{AudioSource, Family, GameCard, LocationRequest, Playable, Result};
 use std::path::Path;
 
 /// The family, as a window's roster lists it.
@@ -154,11 +154,53 @@ impl Playable for Front {
         self.game.finished()
     }
 
-    fn request_location(&mut self, n: i32) -> Result<()> {
+    fn request_location(&mut self, at: LocationRequest) -> Result<()> {
+        let n = location_of(at, self.game.name())?;
         Ok(self.game.request_location(n)?)
     }
 
     fn start_location(&self) -> Option<i32> {
         self.game.start_location()
+    }
+}
+
+/// The location number a request comes to in this family, or the refusal of
+/// an arrival point.
+///
+/// A MOTION game that can be asked for a location is asked by writing its
+/// number into the game's own request variable, which the scripts read on
+/// the next frame — one number, so a request carries no way in, and the
+/// arrival is whatever the location's own entry runs; a game that cannot be
+/// asked has no way in either. An `entry` is refused by name rather than
+/// dropped, so a request is never quietly a different one.
+fn location_of(at: LocationRequest, game: &str) -> Result<i32> {
+    match at.entry {
+        None => Ok(at.location),
+        Some(entry) => Err(format!(
+            "{game} has no arrival points to enter a location through; \
+             there is no arrival point {entry}"
+        )
+        .into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_location_passes_through_by_its_number() {
+        assert_eq!(location_of(LocationRequest::at(5), "Game").unwrap(), 5);
+    }
+
+    /// The message is what the player reads, so it is pinned.
+    #[test]
+    fn an_arrival_point_is_refused_by_name() {
+        let e = location_of(LocationRequest::via(5, 2), "Game").unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "Game has no arrival points to enter a location through; \
+             there is no arrival point 2"
+        );
     }
 }

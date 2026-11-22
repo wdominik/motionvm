@@ -14,6 +14,7 @@ motionvm-playable.workspace = true
 motionvm-motion-engine.workspace = true
 motionvm-motion-audio.workspace = true
 motionvm-motion-formats.workspace = true
+motionvm-psm.workspace = true
 
 [dev-dependencies]
 motionvm-motion-testutil.workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "motionvm-opl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "The OPL3 a music driver writes to, the sample clock it runs on, and the byte rules between the two"
+
+[dependencies]
+nuked-opl3.workspace = true
+
+[lints]
+workspace = true

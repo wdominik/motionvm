@@ -742,6 +742,7 @@ dependencies = [
  "motionvm-motion-formats",
  "motionvm-motion-testutil",
  "motionvm-playable",
+ "motionvm-psm",
 ]
 
 [[package]]
@@ -750,7 +751,8 @@ version = "0.12.0"
 dependencies = [
  "motionvm-motion-formats",
  "motionvm-motion-testutil",
- "nuked-opl3",
+ "motionvm-opl",
+ "motionvm-psm",
 ]
 
 [[package]]
@@ -769,6 +771,7 @@ name = "motionvm-motion-formats"
 version = "0.12.0"
 dependencies = [
  "motionvm-motion-testutil",
+ "motionvm-psm",
 ]
 
 [[package]]
@@ -794,7 +797,15 @@ dependencies = [
  "motionvm-motion-formats",
  "motionvm-motion-forth",
  "motionvm-motion-testutil",
+ "motionvm-psm",
  "motionvm-render",
+]
+
+[[package]]
+name = "motionvm-opl"
+version = "0.12.0"
+dependencies = [
+ "nuked-opl3",
 ]
 
 [[package]]
@@ -802,6 +813,13 @@ name = "motionvm-playable"
 version = "0.12.0"
 dependencies = [
  "motionvm-render",
+]
+
+[[package]]
+name = "motionvm-psm"
+version = "0.12.0"
+dependencies = [
+ "motionvm-opl",
 ]
 
 [[package]]

@@ -38,6 +38,20 @@ impl Palette {
         Self { raw }
     }
 
+    /// Writes `rgb` — 6-bit triples, as a program hands them to the DAC — into
+    /// the registers from `start` onward, leaving every other register as it
+    /// was.
+    ///
+    /// A palette is not always written whole: a program may load a run of
+    /// registers and keep the rest, and this is that write. What would run
+    /// past the last register is cut, the way [`from_6bit`](Self::from_6bit)
+    /// cuts a long input, rather than refused or wrapped.
+    pub fn load(&mut self, start: u8, rgb: &[u8]) {
+        let offset = usize::from(start) * 3;
+        let n = rgb.len().min(Self::BYTES - offset);
+        self.raw[offset..offset + n].copy_from_slice(&rgb[..n]);
+    }
+
     /// The palette entry for `index`, widened from 6 to 8 bits per channel.
     pub fn rgb8(&self, index: u8) -> [u8; 3] {
         let o = usize::from(index) * 3;
@@ -67,6 +81,16 @@ impl Palette {
     }
 }
 
+/// Every register black: what a palette holds before anything is written to
+/// it, and where a picture faded in from black starts.
+impl Default for Palette {
+    fn default() -> Self {
+        Self {
+            raw: [0; Self::BYTES],
+        }
+    }
+}
+
 /// Widens a 6-bit DAC value to 8 bits so that 63 becomes 255.
 #[inline]
 fn widen(v6: u8) -> u8 {
@@ -77,6 +101,39 @@ fn widen(v6: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_palette_is_black() {
+        let p = Palette::default();
+        assert!(p.raw.iter().all(|&v| v == 0));
+        assert_eq!(p, Palette::from_6bit(&[]), "the same as an empty load");
+    }
+
+    /// A run of registers lands where it is aimed and nowhere else.
+    #[test]
+    fn a_load_writes_only_its_own_registers() {
+        let mut p = Palette::from_6bit(&[7; Palette::BYTES]);
+        p.load(2, &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(&p.raw[..6], &[7; 6], "registers 0 and 1 kept");
+        assert_eq!(
+            &p.raw[6..12],
+            &[1, 2, 3, 4, 5, 6],
+            "registers 2 and 3 written"
+        );
+        assert!(p.raw[12..].iter().all(|&v| v == 7), "the rest kept");
+    }
+
+    /// A run past the last register is cut there, not wrapped to register 0.
+    #[test]
+    fn a_load_past_the_end_is_cut() {
+        let mut p = Palette::default();
+        p.load(255, &[9; 9]);
+        assert_eq!(&p.raw[765..], &[9, 9, 9], "the last register written");
+        assert!(
+            p.raw[..765].iter().all(|&v| v == 0),
+            "nothing wrapped round"
+        );
+    }
 
     #[test]
     fn widening_covers_full_range() {

@@ -18,8 +18,9 @@
 use crate::compare::write_line;
 use motionvm_motion_audio::m32::Fm;
 use motionvm_motion_formats::Generation;
-use motionvm_motion_formats::m16::{Container, Segment, psm};
+use motionvm_motion_formats::m16::{Container, Segment};
 use motionvm_motion_formats::m32::{DriverArchive, Kind, bnk, hmi, rsc};
+use motionvm_psm::format as psm;
 use std::path::Path;
 
 /// A file of the game's, found whatever case a copy left its name in.

@@ -9,9 +9,10 @@
 //! which of the kernel words the 16-bit machine implements.
 
 use motionvm_motion_formats::m16::{
-    Container, Segment, disasm::Disassembler, font, gfx, mz, psm, scr, text,
+    Container, Segment, disasm::Disassembler, font, gfx, mz, scr, text,
 };
 use motionvm_motion_formats::{Binding, font::FontRefTable};
+use motionvm_psm::format as psm;
 use motionvm_render::Palette;
 use std::io::Write;
 use std::path::Path;

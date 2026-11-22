@@ -1,9 +1,9 @@
 //! The driver's tick: event streams in, OPL register writes out.
 //!
-//! The 16-bit game's whole music player lives in `MUSADL.DRV` — 4480 bytes
-//! behind a `MUS\0` header — and `ENVIRO.EXE` holds only a loader, a far-jump
-//! table and a timer. This is that driver's `0xa71`, read at the instruction
-//! level and rebuilt.
+//! The whole music player lives in `MUSADL.DRV` — a few thousand bytes
+//! behind a `MUS\0` header, in the two builds [`Driver`] reads — and the
+//! program hosting it holds only a loader, a far-jump table and a timer.
+//! This is that driver's `0xa71`, read at the instruction level and rebuilt.
 //!
 //! File offsets in the comments are `MUSADL.DRV`'s unless marked otherwise.
 //! The registers go through a shadow of all 256 (`0x5c4`, written through
@@ -11,10 +11,10 @@
 //! the stream carries **changes only** — which is what makes it comparable,
 //! byte for byte, against a DRO capture of the original.
 
-use crate::chip::Write;
-use crate::m16::driver::Driver;
+use crate::driver::Driver;
+use crate::format::Plx;
 use crate::num;
-use motionvm_motion_formats::m16::psm::Plx;
+use motionvm_opl::Write;
 
 /// One channel of a song, as the driver keeps it.
 #[derive(Debug, Clone, Copy, Default)]
@@ -46,8 +46,8 @@ pub struct Sequencer {
     ticks_per_row: u8,
     period: u16,
     channels: [Channel; 9],
-    /// Channel master volumes (`0x58c`), `0x100` throughout — the game
-    /// never calls the volume entry.
+    /// Channel master volumes (`0x58c`), `0x100` throughout — nothing here
+    /// calls the driver's volume entry.
     master: [u16; 9],
     /// The fade: level in `1/256`ths above the fraction byte (`0x27f:0x280`
     /// as one number) and the signed step a tick adds (`0x272`).
@@ -61,13 +61,13 @@ pub struct Sequencer {
 }
 
 impl Sequencer {
-    /// Takes a whole module — the block `STARTTUNE` names — and stands at
-    /// its first row, the shadow primed with the driver's defaults.
+    /// Takes a whole module — the song a host hands the driver — and stands
+    /// at its first row, the shadow primed with the driver's defaults.
     ///
     /// The default writes themselves belong to the driver's *init*, not to
     /// a song: [`Sequencer::install_writes`] hands them out once, and a
     /// second song starts from the shadow the first one left, exactly as
-    /// the original's driver stays installed across `STARTTUNE`s.
+    /// the original's driver stays installed from one song to the next.
     pub fn new(driver: &Driver, song: Plx, loops: i16) -> Self {
         let mut shadow = [0xFFu8; 256];
         shadow.copy_from_slice(&driver.defaults);
@@ -150,9 +150,12 @@ impl Sequencer {
         self.fade_pos = (0x100 << 8) | (self.fade_pos & 0xFF);
         self.prime();
     }
-    /// Starts the 2000 ms fade `ENDTUNE` starts (`0x3e2` with `0x7d0`).
-    pub fn fade_out(&mut self) {
-        let ticks = (0x4a9 * 0x7d0) / i32::from(self.period);
+    /// Starts the fade entry (`0x3e2`) over `ms` milliseconds, the length
+    /// its caller passes: `0x4a9` PIT cycles to a millisecond, over the
+    /// tick's period. Which length a host passes, and when, is the host's
+    /// to cite.
+    pub fn fade_out(&mut self, ms: u16) {
+        let ticks = (0x4a9 * i32::from(ms)) / i32::from(self.period);
         self.fade_step = -(0x10000 / ticks.max(1));
     }
 
@@ -295,8 +298,7 @@ impl Sequencer {
                 };
                 self.channels[ch].freq = word;
                 // The pitch scale (`0x9e7`) stays at its default of 0x100 —
-                // nothing in the game moves it — so the word goes out as it
-                // stands.
+                // nothing here moves it — so the word goes out as it stands.
                 self.write(out, 0xa0 + num::reg(ch), num::lo(word));
                 self.write(out, 0xb0 + num::reg(ch), num::hi(word));
             }
@@ -393,8 +395,8 @@ impl Sequencer {
                 return;
             }
             // A step that overshot below zero leaves the wrapped level
-            // standing, as the handler does (`0xb9e`); the game stops a
-            // fade-out long before this could be reached.
+            // standing, as the handler does (`0xb9e`); a fade-out is
+            // stopped long before this could be reached.
         }
         self.fade_pos = (i32::from(level) << 8) | (self.fade_pos & 0xFF);
         if level == 0 {
@@ -447,7 +449,7 @@ impl Sequencer {
 }
 
 /// `0xd29`: the tick period from a tempo word, at the default speed scale
-/// of `0x100` — the driver multiplies and rounds, and the game never moves
+/// of `0x100` — the driver multiplies and rounds, and nothing here moves
 /// the scale.
 fn period_of(tempo: u16) -> u16 {
     tempo.max(0x200)

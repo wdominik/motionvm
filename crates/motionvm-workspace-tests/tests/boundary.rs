@@ -9,6 +9,13 @@
 //! which names each family's front door — the crate called `motionvm-<family>`
 //! with nothing after it — and nothing deeper.
 //!
+//! Beside the two layers stand the components: a rebuild of one piece the
+//! games ship that is not any family's engine — a chip, a music driver —
+//! listed by name in [`COMPONENTS`]. A family may depend on a component; a
+//! component depends on no family and not on the window, and the neutral
+//! layer depends on none, so a component is shared without becoming either
+//! side's.
+//!
 //! Needs no game data: it asks Cargo what the workspace is and reads the
 //! sources.
 //! It lives in the rig crate — outside both layers, depending on nothing —
@@ -23,14 +30,19 @@ use std::path::{Path, PathBuf};
 /// is what lets the rules below tell its crates from the neutral ones.
 const FAMILIES: &[&str] = &["motion"];
 
+/// Every component the workspace holds: unprefixed names, told from the
+/// neutral layer's by this list alone. A component with a tree of its own
+/// also needs its line in `LEDGERS` (`tests/ledger.rs`).
+const COMPONENTS: &[&str] = &["motionvm-opl", "motionvm-psm"];
+
 /// Strings that carry a family's evidence: its name, its games, the files
 /// and words its documentation cites. None of them may appear in a neutral
-/// crate's sources — a fact argued with these belongs on the family's side
-/// of the contract.
+/// crate's or a component's sources — a fact argued with these belongs on
+/// the family's side of the contract.
 const FAMILY_EVIDENCE: &[&str] = &[
     "ENGINE.EXE",
+    "ENVIRO",
     "DATA.-1-",
-    "MUSADL",
     "HMIMDRV",
     "?KEY",
     "ICTRL",
@@ -51,6 +63,14 @@ const FAMILY_EVIDENCE: &[&str] = &[
     "R78",
 ];
 
+/// Strings that carry one component's evidence: the files it is rebuilt
+/// from. A component may cite its own and no other's, and the neutral layer
+/// cites none.
+const COMPONENT_EVIDENCE: &[(&str, &[&str])] = &[
+    ("motionvm-opl", &[]),
+    ("motionvm-psm", &["MUSADL", "MTCVTS", "DMABLAST"]),
+];
+
 /// What a crate's name says about it.
 #[derive(Debug, PartialEq)]
 enum Layer {
@@ -59,6 +79,8 @@ enum Layer {
     FrontDoor,
     /// `motionvm-<family>-<part>`: the family's own.
     Member,
+    /// One of [`COMPONENTS`]: shared by families, owned by none.
+    Component,
     /// An unprefixed `motionvm-*` name: the neutral layer's.
     Neutral,
 }
@@ -75,6 +97,9 @@ fn family_of(name: &str) -> Option<&'static str> {
 
 /// The layer a workspace crate's name puts it in.
 fn layer(name: &str) -> Layer {
+    if COMPONENTS.contains(&name) {
+        return Layer::Component;
+    }
     match family_of(name) {
         Some(family) if name == format!("motionvm-{family}") => Layer::FrontDoor,
         Some(_) => Layer::Member,
@@ -166,13 +191,26 @@ fn dependencies(name: &str) -> Vec<String> {
 fn cargo_answers_what_the_workspace_is() {
     let members = members();
     assert!(
-        members.len() >= 11,
+        members.len() >= 13,
         "cargo named {} members: {members:?}",
         members.len()
     );
     for expected in ["motionvm-app", "motionvm-playable", "motionvm-motion"] {
         assert!(members.iter().any(|m| m == expected), "no {expected}");
     }
+    // Every component listed is a member: a rule over a name nothing carries
+    // would hold for the wrong reason.
+    for component in COMPONENTS {
+        assert!(
+            members.iter().any(|m| m == component),
+            "{component} is listed as a component and is not a member"
+        );
+    }
+    assert_eq!(
+        COMPONENTS.len(),
+        COMPONENT_EVIDENCE.len(),
+        "every component has its evidence line"
+    );
     // The front door is the crate that knows both halves, so it is the one
     // whose dependencies must be visible for the rules to mean anything.
     let front = dependencies("motionvm-motion");
@@ -213,6 +251,10 @@ fn no_neutral_crate_depends_on_a_family() {
                      family only through its front door, and only from the \
                      window's roster"
                 ),
+                Layer::Component => panic!(
+                    "{name} depends on the component {dep}: what a component \
+                     rebuilds is a family's to use, not the neutral layer's"
+                ),
             }
         }
     }
@@ -226,13 +268,29 @@ fn no_family_reaches_into_another() {
         };
         for dep in dependencies(&name)
             .iter()
-            .filter(|d| layer(d) != Layer::Neutral)
+            .filter(|d| matches!(layer(d), Layer::FrontDoor | Layer::Member))
         {
             assert_eq!(
                 family_of(dep),
                 Some(family),
                 "{name} depends on {dep}, which is another family's"
             );
+        }
+    }
+}
+
+/// A component depends on no family and not on the window: what it rebuilds
+/// is shared, so it may lean on the neutral libraries and on other
+/// components, and on nothing that would make it one side's.
+#[test]
+fn no_component_depends_on_a_family_or_the_window() {
+    for name in COMPONENTS {
+        for dep in &dependencies(name) {
+            assert!(
+                family_of(dep).is_none(),
+                "{name} depends on {dep}, which is a family's"
+            );
+            assert_ne!(dep, "motionvm-app", "{name} depends on the window");
         }
     }
 }
@@ -276,23 +334,60 @@ fn the_neutral_sources_carry_no_family_evidence() {
                 continue;
             }
             let text = fs::read_to_string(&file).expect("source is readable");
-            for token in FAMILY_EVIDENCE {
-                assert!(
-                    !text.contains(token),
-                    "{} speaks of {token}: that evidence belongs with its family",
-                    file.display()
-                );
-            }
-            // The family's name itself, told apart from the product's
-            // `motionvm`/`MOTIONVM_*`: any bare `MOTION` is the family's.
-            for (i, _) in text.match_indices("MOTION") {
-                assert!(
-                    text.get(i + 6..).is_some_and(|rest| rest.starts_with("VM")),
-                    "{} names the MOTION family",
-                    file.display()
-                );
+            no_family_evidence(&file, &text);
+            for (component, tokens) in COMPONENT_EVIDENCE {
+                for token in *tokens {
+                    assert!(
+                        !text.contains(token),
+                        "{} speaks of {token}: that evidence belongs with {component}",
+                        file.display()
+                    );
+                }
             }
         }
+    }
+}
+
+/// A component cites what it is rebuilt from and nothing a family measured:
+/// no family's evidence, and no other component's.
+#[test]
+fn a_component_cites_only_its_own_evidence() {
+    for (name, own) in COMPONENT_EVIDENCE {
+        let files = sources(&crates_dir().join(name).join("src"));
+        assert!(!files.is_empty(), "{name} has no sources to scan");
+        for file in files {
+            let text = fs::read_to_string(&file).expect("source is readable");
+            no_family_evidence(&file, &text);
+            for (other, tokens) in COMPONENT_EVIDENCE.iter().filter(|(o, _)| o != name) {
+                for token in tokens.iter().filter(|t| !own.contains(t)) {
+                    assert!(
+                        !text.contains(token),
+                        "{} speaks of {token}: that evidence belongs with {other}",
+                        file.display()
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Fails on any family evidence in `text`: a token of [`FAMILY_EVIDENCE`],
+/// or the family's name itself, told apart from the product's
+/// `motionvm`/`MOTIONVM_*` — any bare `MOTION` is the family's.
+fn no_family_evidence(file: &Path, text: &str) {
+    for token in FAMILY_EVIDENCE {
+        assert!(
+            !text.contains(token),
+            "{} speaks of {token}: that evidence belongs with its family",
+            file.display()
+        );
+    }
+    for (i, _) in text.match_indices("MOTION") {
+        assert!(
+            text.get(i + 6..).is_some_and(|rest| rest.starts_with("VM")),
+            "{} names the MOTION family",
+            file.display()
+        );
     }
 }
 
@@ -317,7 +412,7 @@ fn sources(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Every game on the roster has a module of its own, named for its slug.
+/// Every MOTION game on the roster has a module of its own, named for its slug.
 ///
 /// The third roster, and the one nothing else could see: `Title::ALL` is the
 /// list, `motion16::GAMES` is what `detect` walks, and `titles/<slug>.rs` is

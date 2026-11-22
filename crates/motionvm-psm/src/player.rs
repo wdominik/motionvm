@@ -2,17 +2,17 @@
 //!
 //! File offsets in the comments are `MUSADL.DRV`'s unless marked otherwise.
 
-use crate::chip::{Chip, Write};
+use crate::driver::{Driver, PIT_HZ};
 use crate::error::{Error, Result};
-use crate::m16::driver::{Driver, PIT_HZ};
-use crate::m16::sequencer::Sequencer;
-use crate::m16::voice::Voice;
+use crate::format::{Plx, Sample};
 use crate::num;
-use motionvm_motion_formats::m16::psm::{Plx, Sample};
+use crate::sequencer::Sequencer;
+use crate::voice::Voice;
+use motionvm_opl::{Chip, Write};
 
-/// A section and how many times to play it, which is what `STARTTUNE` asks
-/// for: `-1` at every call site in the games, which the driver reads unsigned
-/// and takes as endless.
+/// A section and how many times to play it — what the driver's `SetSong`
+/// and `Play` are handed. The count is read unsigned, so `-1` plays
+/// endlessly.
 #[derive(Debug)]
 pub struct Cue {
     /// The section to play.
@@ -30,8 +30,8 @@ pub struct Cue {
 /// for its tempo word as a period in PIT cycles and the host programs timer
 /// channel 0 with it. Here a rendered frame is worth `PIT_HZ` cycles times
 /// the output rate, a tick falls due every `rate × period` of those, and the
-/// remainder carries over — the same integer scheme as [`crate::m32::Player`], so
-/// the music cannot drift against the device whatever its rate is.
+/// remainder carries over — [`motionvm_opl::clock`]'s integer scheme, so the
+/// music cannot drift against the device whatever its rate is.
 pub struct Player {
     chip: Chip,
     rate: u32,
@@ -40,10 +40,10 @@ pub struct Player {
     writes: Vec<Write>,
     /// The clock, in PIT cycles times the output rate.
     clock: u64,
-    /// Frames left until a pending stop lands — see [`crate::Player::stop`].
+    /// Frames left until a pending stop lands — see [`Player::stop_after`].
     stop_in: Option<u64>,
-    /// The sample playing, if one is: the driver as the games install it has
-    /// one channel, and `PLAYSAMPLE` stops it before it plays the next.
+    /// The sample playing, if one is: the driver installed with one channel
+    /// drops the sample on it when the next one is played.
     voice: Option<Voice>,
 }
 
@@ -95,7 +95,7 @@ impl Player {
         let frames = out.len() / 2;
         let mut done = 0;
         while done < frames {
-            let step = crate::clock::frames_to_tick(self.clock, self.tick_period(), PIT_HZ)
+            let step = motionvm_opl::clock::frames_to_tick(self.clock, self.tick_period(), PIT_HZ)
                 .min(frames - done);
             if step > 0 {
                 let frames = &mut out[done * 2..(done + step) * 2];
@@ -156,44 +156,24 @@ impl Player {
     }
 }
 
-impl crate::Player for Player {
-    type Song = Cue;
-    type Sample = Sample;
-
-    fn rate(&self) -> u32 {
+impl Player {
+    /// The sample rate it was made with.
+    pub fn rate(&self) -> u32 {
         self.rate
     }
 
-    /// A fade-out still counts as playing; the silence after it does not. A
-    /// sample still running counts too.
-    fn playing(&self) -> bool {
+    /// Whether anything still sounds. A fade-out still counts as playing;
+    /// the silence after it does not. A sample still running counts too.
+    pub fn playing(&self) -> bool {
         self.seq.as_ref().is_some_and(Sequencer::playing) || self.voice.is_some()
     }
 
-    /// `PLAYSAMPLE`'s hand-over (`STERN.EXE` `15e5:0425`), after the
-    /// manager's `StopAll`: the driver's one channel takes the new sample and
-    /// whatever was playing on it stops where it stands.
-    fn sample(&mut self, sample: Sample) {
-        self.voice = Some(Voice::new(sample, self.rate));
-    }
-
-    /// The driver's `StopAll` on its one channel. No 16-bit word reaches it
-    /// for a sample alone — `PLAYSAMPLE` replaces, and nothing stops — so
-    /// this answers the trait and no game.
-    fn stop_sample(&mut self, _handle: i32) {
-        self.voice = None;
-    }
-
-    /// `MUSADL.DRV` has no master volume among the entries the games
-    /// install, and no 16-bit word asks for one: the call changes nothing.
-    fn music_volume(&mut self, _volume: u16) {}
-
-    /// `STARTTUNE`'s path, `SetSong` then `Play`. The first song builds the
+    /// The driver's `SetSong` then `Play`. The first song builds the
     /// sequencer; every later one goes through [`Sequencer::play`], keeping
     /// the register shadow, exactly as the resident driver keeps its state
     /// from tune to tune. The clock starts over — `Play` re-registers the host
     /// timer (`0xcb4`).
-    fn start(&mut self, cue: Cue) {
+    pub fn start(&mut self, cue: Cue) {
         self.stop_in = None;
         self.writes.clear();
         match &mut self.seq {
@@ -206,32 +186,44 @@ impl crate::Player for Player {
         self.clock = 0;
     }
 
-    /// The way `ENDTUNE` does it — the games' one stop site (`ENVIRO.EXE`
-    /// `1696:02fd`): the 2000 ms fade-out begins at once and the hard stop
-    /// (`0xde2`: key-offs and both operators' release rate opened to `0x0F`)
-    /// lands 500 ms in, so what still sounds dies away under the fade's last
-    /// level.
-    fn stop(&mut self) {
+    /// Begins the driver's fade-out over `ms` milliseconds
+    /// ([`Sequencer::fade_out`]) if a song is playing, and leaves it sounding
+    /// while the level falls.
+    pub fn fade_out(&mut self, ms: u16) {
         let Some(seq) = &mut self.seq else { return };
         if !seq.playing() {
             return;
         }
-        seq.fade_out();
-        self.stop_in = Some(u64::from(self.rate) / 2);
+        seq.fade_out(ms);
     }
 
-    /// `PLAYSAMPLE`'s way (`STERN.EXE` `15e5:035d`): no fade — the tune
-    /// plays on at full volume through the half second the script waits —
-    /// and the same hard stop lands when it is up.
-    fn cut(&mut self) {
-        let Some(seq) = &mut self.seq else { return };
+    /// Lands the driver's hard stop (`0xde2`: key-offs and both operators'
+    /// release rate opened to `0x0F`) once `frames` more have been rendered,
+    /// if a song is playing — so what still sounds dies away from wherever
+    /// its level stands then. How long a host waits before it stops is the
+    /// host's.
+    pub fn stop_after(&mut self, frames: u64) {
+        let Some(seq) = &self.seq else { return };
         if !seq.playing() {
             return;
         }
-        self.stop_in = Some(u64::from(self.rate) / 2);
+        self.stop_in = Some(frames);
     }
 
-    fn fill(&mut self, out: &mut [i16]) {
+    /// Plays `sample` on the digital driver's one channel: whatever was
+    /// playing on it stops where it stands.
+    pub fn play_sample(&mut self, sample: Sample) {
+        self.voice = Some(Voice::new(sample, self.rate));
+    }
+
+    /// The digital driver's `StopAll` on its one channel.
+    pub fn stop_sample(&mut self) {
+        self.voice = None;
+    }
+
+    /// Renders the next frames, interleaved stereo, running the sequencer as
+    /// their time passes.
+    pub fn fill(&mut self, out: &mut [i16]) {
         self.render(out);
     }
 }
