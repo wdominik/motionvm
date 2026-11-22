@@ -43,6 +43,7 @@ fn sources(dir: &Path) -> Vec<PathBuf> {
 /// well.
 const LEDGERS: &[(&str, &str)] = &[
     ("motionvm-motion", "docs/motion"),
+    ("motionvm-parsec", "docs/parsec"),
     ("motionvm-psm", "docs/psm"),
 ];
 
@@ -176,6 +177,8 @@ fn every_unread_address_is_on_a_ledger() {
 fn a_crate_answers_to_its_owners_ledgers() {
     assert_eq!(tree_of("motionvm-motion-engine"), Some("docs/motion"));
     assert_eq!(tree_of("motionvm-motion"), Some("docs/motion"));
+    assert_eq!(tree_of("motionvm-parsec-engine"), Some("docs/parsec"));
+    assert_eq!(tree_of("motionvm-parsec"), Some("docs/parsec"));
     assert_eq!(tree_of("motionvm-psm"), Some("docs/psm"));
     assert_eq!(tree_of("motionvm-render"), None);
     assert_eq!(

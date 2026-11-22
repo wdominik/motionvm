@@ -1,0 +1,23 @@
+# Reference digests for ds1, written by `just digests`.
+#
+# One line per scene or tune: its name, and an FNV-1a 64 of what it
+# composed or wrote. A digest reconstructs nothing and is not a
+# fixture derived from the game's data, which is why it may live here
+# where a rendered frame may not. See motionvm-parsec-testutil's
+# `digest` module for what each one covers.
+module_00  0xf28db9d88405cd40
+module_01  0x838877a6ef6d7e77
+module_02  0x5da924b587c33821
+module_03  0xaea4e1a8e9808520
+module_04  0x85f411fab5fee7c8
+module_05  0xa663ecaa9a19ecd2
+module_06  0x6c343fb06432a97e
+module_07  0xcdd5b1f4dc11cbf3
+module_08  0x2126580f97edd00c
+module_09  0x942ef73543935cc6
+module_10  0xf7beea4d34d9d830
+module_11  0xd5b0e8a52258da04
+module_12  0xf828317078988743
+module_13  0x431d6162da4bc8d8
+module_14  0x3efa9926c6ca57a3
+module_15  0x59677263ea5b31bf

@@ -8,6 +8,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The PARSEC engine family, with *Dunkle Schatten* (1994).**
+  motionvm plays Norbert Schmidt's adventure engine beside MOTION, through
+  the same window: `just run ds1`, or the game directory on the command
+  line, with `GAMEDATA_DS1` for the test suite. Dunkle Schatten plays from
+  its title program — the logos, the menu, the backstory — through the
+  game: its rooms, the forest and the maze, the dialogue, the game options,
+  and the saved game, which is the original's own `SAVEGAME.SAV` and
+  `SAVEGAME.CFG` and moves between motionvm and the original in both
+  directions. Its music plays through the game's own `MUSADL.DRV` on
+  `motionvm-psm`, which for it plays the driver's fade-in entry,
+  `PlayFade` (entry 7, `0x34a`), installs a driver afresh as a host's next
+  program does, and clears the fade's fraction byte on play and fade-out
+  and holds a fade-out's level at full at most, as the driver's bytes do;
+  every MOTION song's digest is as before. The location logic is held,
+  routine by routine, against the original's own, traced on the same
+  inputs; pictures against
+  recordings of the original, the maze pixel for pixel; and the title song
+  against an OPL capture, write for write. Four crates and a front door,
+  `motionvm-parsec`; the record is the new `docs/parsec/` tree, and
+  `motionvm-parsec-tools` inspects the game's files (`just tools-parsec`).
 - **Components: the OPL3 and PSM 2 are crates of their own.** `motionvm-opl`
   holds the chip, the sample clock and the byte rules every music driver
   shares; `motionvm-psm` holds the PSM 2 format, `MUSADL.DRV`'s sequencer and

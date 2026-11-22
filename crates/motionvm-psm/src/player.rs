@@ -186,6 +186,50 @@ impl Player {
         self.clock = 0;
     }
 
+    /// The driver's `SetSong` then its fade-in entry: the song starts at
+    /// volume 0 and rises to full over `ms` milliseconds
+    /// ([`Sequencer::play_fade`]). The first song builds the sequencer
+    /// silent and fades it in from there; the clock starts over as it does
+    /// for [`Player::start`], the same `0xcb4` re-registering the timer.
+    pub fn start_fade(&mut self, cue: Cue, ms: u16) {
+        self.stop_in = None;
+        self.writes.clear();
+        match &mut self.seq {
+            Some(seq) => seq.play_fade(cue.song, cue.loops, ms, &mut self.writes),
+            None => self.seq = Some(Sequencer::new_fade(&self.driver, cue.song, cue.loops, ms)),
+        }
+        for w in self.writes.drain(..) {
+            self.chip.write(w);
+        }
+        self.clock = 0;
+    }
+
+    /// The driver loaded and installed afresh, as a host's next program does
+    /// when it brings its own copy up: the sequencer gone with its register
+    /// shadow, and the init's register pass (`0x1062`) written again — every
+    /// default the file carries, to the chip whatever it holds, because a
+    /// fresh copy's shadow is the file's and says nothing of what the last
+    /// program left on the card. A sample still playing is the digital
+    /// driver's and stays.
+    ///
+    /// A stop still pending lands first: the old copy goes down after
+    /// what its host last asked of it.
+    pub fn reinstall(&mut self) {
+        if self.stop_in.take().is_some()
+            && let Some(seq) = &mut self.seq
+        {
+            seq.silence(&mut self.writes);
+            for w in self.writes.drain(..) {
+                self.chip.write(w);
+            }
+        }
+        self.seq = None;
+        for w in Sequencer::install_writes(&self.driver) {
+            self.chip.write(w);
+        }
+        self.clock = 0;
+    }
+
     /// Begins the driver's fade-out over `ms` milliseconds
     /// ([`Sequencer::fade_out`]) if a song is playing, and leaves it sounding
     /// while the level falls.
@@ -225,5 +269,81 @@ impl Player {
     /// their time passes.
     pub fn fill(&mut self, out: &mut [i16]) {
         self.render(out);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sequencer::tests::{driver, song};
+
+    /// A player over the test driver: the defaults of
+    /// `sequencer::tests::driver` written back out as a file the player
+    /// reads.
+    fn player() -> Player {
+        let d = driver();
+        let mut f = vec![0u8; 4480];
+        f[..4].copy_from_slice(b"MUS\0");
+        f[4..10].copy_from_slice(&[0x00, 0x01, 15, 0x00, 0x07, 0x00]);
+        f[0x0a..0x0c].copy_from_slice(&0x1165u16.to_le_bytes());
+        f[0x1165..0x1167].copy_from_slice(b"NS");
+        f[0x5c4..0x6c4].copy_from_slice(&d.defaults);
+        f[0x6c4..0x6cd].copy_from_slice(&d.mod_ops);
+        f[0x6cd..0x6d6].copy_from_slice(&d.car_ops);
+        for (i, n) in d.notes.iter().enumerate() {
+            f[0x6d6 + 2 * i..0x6d8 + 2 * i].copy_from_slice(&n.to_le_bytes());
+        }
+        Player::new(8_000, &f).expect("the driver comes up")
+    }
+
+    fn peak(p: &mut Player, frames: usize) -> u16 {
+        let mut buf = vec![0i16; frames * 2];
+        p.fill(&mut buf);
+        buf.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0)
+    }
+
+    /// A fade-in is quieter in its first half second than a play.
+    #[test]
+    fn a_fade_in_starts_quiet() {
+        let mut played = player();
+        played.start(Cue {
+            song: song(),
+            loops: -1,
+        });
+        let mut faded = player();
+        faded.start_fade(
+            Cue {
+                song: song(),
+                loops: -1,
+            },
+            2000,
+        );
+        let (loud, quiet) = (peak(&mut played, 4000), peak(&mut faded, 4000));
+        assert!(loud > 0 && quiet < loud / 2, "play {loud}, fade-in {quiet}");
+    }
+
+    /// A stop asked for and a reinstall in one breath: the stop lands
+    /// before the copy goes, keying the note off with its release opened,
+    /// so a second later it is fainter than under a reinstall alone, which
+    /// leaves it keyed under the defaults' closed levels.
+    #[test]
+    fn a_reinstall_lands_a_pending_stop_first() {
+        let after = |stop: bool| {
+            let mut p = player();
+            p.start(Cue {
+                song: song(),
+                loops: -1,
+            });
+            assert!(peak(&mut p, 4000) > 0);
+            if stop {
+                p.stop_after(0);
+            }
+            p.reinstall();
+            assert!(!p.playing());
+            peak(&mut p, 8000);
+            peak(&mut p, 4000)
+        };
+        let (stopped, left) = (after(true), after(false));
+        assert!(stopped < left, "stopped {stopped}, left keyed {left}");
     }
 }

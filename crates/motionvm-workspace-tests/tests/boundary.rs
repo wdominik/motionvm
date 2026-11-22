@@ -20,15 +20,14 @@
 //! sources.
 //! It lives in the rig crate — outside both layers, depending on nothing —
 //! because no crate inside a layer can judge the layers impartially, and
-//! because the evidence list below may one day carry several families'
-//! strings.
+//! because the evidence list below carries every family's strings.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Every family the workspace holds. A new family adds its name here, which
 /// is what lets the rules below tell its crates from the neutral ones.
-const FAMILIES: &[&str] = &["motion"];
+const FAMILIES: &[&str] = &["motion", "parsec"];
 
 /// Every component the workspace holds: unprefixed names, told from the
 /// neutral layer's by this list alone. A component with a tree of its own
@@ -61,6 +60,13 @@ const FAMILY_EVIDENCE: &[&str] = &[
     "LL.EXE",
     "R109",
     "R78",
+    "PARSEC",
+    "XP00",
+    "XP01",
+    "DSROOM",
+    "PRSC",
+    "RDV1.00",
+    "FGROUP",
 ];
 
 /// Strings that carry one component's evidence: the files it is rebuilt
@@ -191,11 +197,16 @@ fn dependencies(name: &str) -> Vec<String> {
 fn cargo_answers_what_the_workspace_is() {
     let members = members();
     assert!(
-        members.len() >= 13,
+        members.len() >= 18,
         "cargo named {} members: {members:?}",
         members.len()
     );
-    for expected in ["motionvm-app", "motionvm-playable", "motionvm-motion"] {
+    for expected in [
+        "motionvm-app",
+        "motionvm-playable",
+        "motionvm-motion",
+        "motionvm-parsec",
+    ] {
         assert!(members.iter().any(|m| m == expected), "no {expected}");
     }
     // Every component listed is a member: a rule over a name nothing carries
@@ -220,6 +231,11 @@ fn cargo_answers_what_the_workspace_is() {
             "motionvm-motion should depend on {expected}, got {front:?}"
         );
     }
+    let front = dependencies("motionvm-parsec");
+    assert!(
+        front.iter().any(|d| d == "motionvm-parsec-engine"),
+        "motionvm-parsec should depend on motionvm-parsec-engine, got {front:?}"
+    );
     // And a dev-dependency is seen, which is the table a hand-written scanner
     // is likeliest to miss.
     assert!(
@@ -456,5 +472,45 @@ fn every_game_has_a_module_of_its_own() {
         extra,
         ["mod", "motion16", "motion32"],
         "an unexpected module sits among the games'"
+    );
+}
+
+/// Every PARSEC game on the roster has a module of its own, named for its
+/// slug.
+///
+/// A PARSEC game is a compiled program rather than data on a shared
+/// interpreter, so its module is a directory — its address map, its room
+/// handlers, its puzzle logic — under `titles/`, beside the directory of
+/// the `parsec1994` generation, the library the program is built on. The
+/// slugs are spelled out for the reason the MOTION test above gives.
+#[test]
+fn every_parsec_game_has_a_module_of_its_own() {
+    let dir = crates_dir()
+        .join("motionvm-parsec-engine")
+        .join("src")
+        .join("titles");
+    let games = ["ds1"];
+    for slug in games {
+        let path = dir.join(slug).join("mod.rs");
+        assert!(
+            path.is_file(),
+            "{} is on the roster and has no module",
+            path.display()
+        );
+    }
+    // What else is a directory there is the generation a game's program is
+    // built on, not a game.
+    let mut extra: Vec<String> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{} cannot be read: {e}", dir.display()))
+        .map(|e| e.expect("a directory entry").path())
+        .filter(|p| p.is_dir())
+        .filter_map(|p| p.file_name()?.to_str().map(str::to_owned))
+        .filter(|n| !games.contains(&n.as_str()))
+        .collect();
+    extra.sort();
+    assert_eq!(
+        extra,
+        ["parsec1994"],
+        "an unexpected directory sits among the games'"
     );
 }

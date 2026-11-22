@@ -10,7 +10,7 @@ use motionvm_playable::Family;
 use std::path::Path;
 
 /// Every family this build knows, in the order their games are listed.
-pub(crate) static FAMILIES: &[&dyn Family] = &[&motionvm_motion::MOTION];
+pub(crate) static FAMILIES: &[&dyn Family] = &[&motionvm_motion::MOTION, &motionvm_parsec::PARSEC];
 
 /// The family for `dir`, or the sentence that says why there is none.
 ///

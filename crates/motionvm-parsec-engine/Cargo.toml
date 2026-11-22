@@ -1,0 +1,21 @@
+[package]
+name = "motionvm-parsec-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "The PARSEC runtime: rooms, verbs, inventory and the game loop"
+
+[dependencies]
+motionvm-parsec-formats.workspace = true
+motionvm-render.workspace = true
+motionvm-playable.workspace = true
+
+[dev-dependencies]
+motionvm-parsec-testutil.workspace = true
+
+[lints]
+workspace = true

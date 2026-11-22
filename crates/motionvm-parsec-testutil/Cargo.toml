@@ -1,0 +1,15 @@
+[package]
+name = "motionvm-parsec-testutil"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "Where the test suites find the game's files, and the digests they hold the game's music and its location logic to. A development dependency; nothing ships with it"
+
+[dependencies]
+
+[lints]
+workspace = true

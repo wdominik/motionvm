@@ -727,6 +727,7 @@ version = "0.12.0"
 dependencies = [
  "cpal",
  "motionvm-motion",
+ "motionvm-parsec",
  "motionvm-playable",
  "rfd",
  "softbuffer",
@@ -806,6 +807,47 @@ name = "motionvm-opl"
 version = "0.12.0"
 dependencies = [
  "nuked-opl3",
+]
+
+[[package]]
+name = "motionvm-parsec"
+version = "0.12.0"
+dependencies = [
+ "motionvm-parsec-engine",
+ "motionvm-parsec-formats",
+ "motionvm-parsec-testutil",
+ "motionvm-playable",
+ "motionvm-psm",
+]
+
+[[package]]
+name = "motionvm-parsec-engine"
+version = "0.12.0"
+dependencies = [
+ "motionvm-parsec-formats",
+ "motionvm-parsec-testutil",
+ "motionvm-playable",
+ "motionvm-render",
+]
+
+[[package]]
+name = "motionvm-parsec-formats"
+version = "0.12.0"
+dependencies = [
+ "motionvm-parsec-testutil",
+]
+
+[[package]]
+name = "motionvm-parsec-testutil"
+version = "0.12.0"
+
+[[package]]
+name = "motionvm-parsec-tools"
+version = "0.12.0"
+dependencies = [
+ "motionvm-parsec-formats",
+ "motionvm-psm",
+ "motionvm-render",
 ]
 
 [[package]]

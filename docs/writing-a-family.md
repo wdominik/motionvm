@@ -2,7 +2,7 @@
 
 # Writing an engine family
 
-*For whoever brings a second engine to this program: what the window asks of a game, in the order it asks, and what each answer has to hold — the contract read from the engine's side of it. The procedure that gets a family into the tree (crates, the roster line, the boundary test's list) is in [`CONTRIBUTING.md`](../CONTRIBUTING.md) under *Adding an engine family*, and the shape it follows is in [`ARCHITECTURE.md`](../ARCHITECTURE.md). The MOTION family under [`motion/`](motion/README.md) is the worked example every section below points at.*
+*For whoever brings a further engine to this program: what the window asks of a game, in the order it asks, and what each answer has to hold — the contract read from the engine's side of it. The procedure that gets a family into the tree (crates, the roster line, the boundary test's list) is in [`CONTRIBUTING.md`](../CONTRIBUTING.md) under *Adding an engine family*, and the shape it follows is in [`ARCHITECTURE.md`](../ARCHITECTURE.md). The MOTION family under [`motion/`](motion/README.md) is the worked example every section below points at.*
 
 ## The shape of the deal
 

@@ -1,0 +1,22 @@
+[package]
+name = "motionvm-parsec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "The PARSEC family's front door: the game a window can open, behind the contract"
+
+[dependencies]
+motionvm-playable.workspace = true
+motionvm-parsec-engine.workspace = true
+motionvm-parsec-formats.workspace = true
+motionvm-psm.workspace = true
+
+[dev-dependencies]
+motionvm-parsec-testutil.workspace = true
+
+[lints]
+workspace = true

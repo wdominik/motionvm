@@ -1,8 +1,8 @@
 # Contributing to motionvm
 
-motionvm is a from-scratch Rust reimplementation of MOTION, the DOS adventure
-authoring system. MOTION made a series of German advergames; seven of them are
-in this tree: *Im Netzwerk gefangen – Dunkle Schatten 2* (on the 32-bit
+motionvm is a from-scratch Rust reimplementation of two DOS adventure
+engines. The first is MOTION, the adventure authoring system. MOTION made a
+series of German advergames; seven of them are in this tree: *Im Netzwerk gefangen – Dunkle Schatten 2* (on the 32-bit
 engine `ENGINE.EXE` V0.06.06/R109, 1996-10-22), *Checker 2000* (1996, on
 its earlier build, V0.04.15/R78), *Die Enviro-Kids greifen ein* (on the
 16-bit engine `ENVIRO.EXE`, 1996-08-27), *Jeff Jet - Abenteuer InfoHighway*
@@ -10,18 +10,25 @@ its earlier build, V0.04.15/R78), *Die Enviro-Kids greifen ein* (on the
 *Falsches Spiel mit Eddie M.* (1994, on `STERN.EXE`) and *Victor Loomes – Das
 Spiel* (on `LL.EXE`, 1993-05-20) — the last four on older builds of that
 same 16-bit engine, the last of them three years older than the first and in
-an earlier framing of the container. It runs the originals' compiled Forth
-bytecode natively, and its single hard constraint shapes every convention in
-this document: **the original binary a game ships with is the authority on
-what that engine does.** Code here is not merely correct or incorrect; it is
+an earlier framing of the container. The second is PARSEC, Norbert
+Schmidt's adventure engine, with *Dunkle Schatten* (1994, `XP00.EXE` and
+`XP01.EXE`), a game that is a compiled C program rather than data on an
+interpreter. motionvm runs the MOTION originals' compiled Forth bytecode
+natively and carries the PARSEC original's location logic re-expressed from
+its program, and one hard constraint shapes every convention in this
+document: **the original binary a game ships with is the authority on what
+that engine does.** Code here is not merely correct or incorrect; it is
 faithful or unfaithful, and fidelity is established by evidence, not by
-plausibility. The code runs all seven today: Dunkle Schatten 2 end to end on
+plausibility. The code runs these today: Dunkle Schatten 2 end to end on
 the 32-bit engine, Checker 2000's boards and story on its earlier build, and
 Die Enviro-Kids greifen ein — intro, locations, walk, conversations, music,
 saves — with Jeff Jet, Hilfe für Amajambere, Victor Loomes and Falsches Spiel
-mit Eddie M. on the 16-bit one. It is written for the engine rather than for
-those seven: what a further MOTION game would need is its own file under
-`titles/`, and the naming rules below are what keeps that cost down.
+mit Eddie M. on the 16-bit one; and Dunkle Schatten from its title program
+through the game, its rooms, the forest and the maze, its dialogue, options
+and saved game, and its music. The MOTION side is written for the engine
+rather than for those games: what a further MOTION game would need is its
+own file under `titles/`, and the naming rules below are what keeps that
+cost down.
 
 This document describes how to set up a working tree, what "done" means, and
 the conventions the codebase holds itself to. The conventions are not
@@ -53,7 +60,7 @@ RUSTUP_TOOLCHAIN=1.88.0 cargo check --workspace --all-targets
 ```
 
 **Game data.** The games' files are not in the repository and cannot be; they
-are copyrighted. The `justfile` reads seven locations and one switch:
+are copyrighted. The `justfile` reads eight locations and one switch:
 
 - `GAMEDATA_DS2` — a copy of Dunkle Schatten 2's game directory (`001.RSC`
   and friends); `GAMEDATA_CHECKER` — a copy of Checker 2000's (`001.RSC`,
@@ -63,10 +70,11 @@ are copyrighted. The `justfile` reads seven locations and one switch:
   `GAMEDATA_HFA` — a copy of Hilfe für Amajambere's (`DATA.-1-`, `DATA.-2-`,
   `BMZ.EXE`); `GAMEDATA_VLOOMES` — a copy of Victor Loomes' (`DATA.-1-`,
   `LL.EXE`); `GAMEDATA_EDDIEM` — a copy of Falsches Spiel mit Eddie M.'s
-  (`DATA.-1-`, `DATA.-2-`, `DATA.-3-`, `STERN.EXE`). Each defaults to a
-  sibling directory of this checkout (`../games/DS2`, `../games/CHECKER`,
-  `../games/ENVIRO`, `../games/JEFFJET`, `../games/HFA`, `../games/VLOOMES`,
-  `../games/EDDIEM`), and that default is only passed on when the data is
+  (`DATA.-1-`, `DATA.-2-`, `DATA.-3-`, `STERN.EXE`); `GAMEDATA_DS1` — a copy
+  of Dunkle Schatten's (`XP00.EXE`, `XP01.EXE` and `RESOURCE/`). Each
+  defaults to a sibling directory of this checkout (`../games/DS2`,
+  `../games/CHECKER`, `../games/ENVIRO`, `../games/JEFFJET`, `../games/HFA`,
+  `../games/VLOOMES`, `../games/EDDIEM`, `../games/DS1`), and that default is only passed on when the data is
   really there — so `just check` is green on a machine with no copy of a
   game, with that game's data-dependent tests skipping. A path you name
   yourself is always passed on, so a typo panics instead of quietly skipping
@@ -74,9 +82,14 @@ are copyrighted. The `justfile` reads seven locations and one switch:
   by their container: they all ship a `DATA.-1-`. The two 32-bit games both
   ship `001.RSC` and `ENGINE.EXE`, so each is probed for the file the other
   lacks — Dunkle Schatten 2's loose `000.PAL`, Checker 2000's `ENGINE.RSC`.
+  Dunkle Schatten is probed for its room container,
+  `RESOURCE/DSROOM.DAT`, which no other game ships. Each reaches the suite
+  as `MOTIONVM_GAMEDATA_<SLUG>`.
 - `SAVES` — the directory the games' own save directories are under, for the
   savegame tests: the `saves/` the program writes, not `saves/ds2/`, because
   that is what the engine is pointed at and it puts the game's name on itself.
+  Dunkle Schatten's tests take a `SAVEGAME.SAV` and `SAVEGAME.CFG` the
+  original wrote from `ds1/` below it.
   Savegames cannot be reconstructed, only played to, so there is no default
   that could work; without one those tests skip.
 - `MOTIONVM_NO_GAMEDATA=1` — the opposite: no data at all, whatever this
@@ -93,7 +106,7 @@ from a run that passes everything, so a mistyped path would otherwise report
 green without executing a line.
 
 **Running.** `just run ds2`, and the same for `checker`, `enviro`, `jeffjet`,
-`hfa`, `vloomes` and `eddiem`. The slug is required: no game is the one you
+`hfa`, `vloomes`, `eddiem` and `ds1`. The slug is required: no game is the one you
 get for saying `just run`. This builds in release mode, and that is not
 optional ceremony: the frontend is a software renderer that walks every
 physical window pixel on the CPU, and at opt-level 0 the result is a
@@ -162,8 +175,8 @@ picture is right, where the digest only says whether it changed.
 says what each group and lint that is *not* switched on would cost, counted on
 this tree with a command it gives. That is there so the absence is evidence
 rather than assertion — and because the shape of the counts is the useful part:
-half of `pedantic`'s 500 is a `#[must_use]` pass, `nursery`'s 1281 is 895
-sites of `use_self` and two more lints, and the restriction lints that look
+almost half of `pedantic`'s 707 is a `#[must_use]` pass, `nursery`'s 1991 is
+1061 sites of `use_self` and two more lints, and the restriction lints that look
 alarming over `--all-targets` are almost entirely test code, where `unwrap`
 and indexing are the right thing to write.
 
@@ -173,7 +186,7 @@ nobody re-measured is worse than none.
 ### Measurement
 
 `just bench` runs the two rigs, in release and otherwise `#[ignore]`d: where a
-frame's time goes in Dunkle Schatten 2, and how fast each of the seven games'
+frame's time goes in Dunkle Schatten 2, and how fast each of the MOTION games'
 machines runs — cells per second, host words per second, and the two halves of
 a frame in microseconds. Neither asserts anything, because a wall-clock number
 is a property of the machine it ran on. They exist so that a figure quoted
@@ -235,15 +248,18 @@ with `[lints] workspace = true`:
   `motionvm-motion-forth`'s `cell` module for what a machine does with a
   cell's bits, the root of `motionvm-motion-formats` for what a reader does
   with a file's, the `num` modules of `motionvm-opl`, `motionvm-psm` and
-  `motionvm-motion-audio` for the drivers' byte arithmetic, and a handful
-  of the same shape in the neutral crates — and the count of those
+  `motionvm-motion-audio` for the drivers' byte arithmetic, the root of
+  `motionvm-parsec-formats` and the `num` module of `motionvm-parsec-engine`
+  for the PARSEC side's, and a handful of the same shape in the neutral
+  crates — and the count of those
   attributes is the count of conversions the tree performs on purpose. A widening is `From`; a reinterpretation that keeps its width is a
   `to_le_bytes`/`from_le_bytes` round trip; a test narrows with
   `try_from(..).unwrap()`. A new conversion that is none of these is a new
   function in the module that owns the rule, with the address it reproduces.
 - `clippy::indexing_slicing` and `clippy::arithmetic_side_effects`, denied
-  in the readers — `motionvm-motion-formats` as a crate and the engine's
-  `save/` as a module, under `cfg_attr(not(test))` because the tests index
+  in the readers — `motionvm-motion-formats` and `motionvm-parsec-formats` as
+  crates, and the savegame readers of the two engines, `save/` and
+  `titles/parsec1994/savegame.rs`, as modules, under `cfg_attr(not(test))` because the tests index
   what they built. A damaged file is refused, never crashed on, and these
   two hold that by construction rather than by corpus: an index has been
   bounds-checked or is a constant, and a sum says what it does at the edge.
@@ -298,7 +314,11 @@ Concretely:
   address in the relocated image as a backticked literal in the sentence:
   "the jump table at `0x98967`"; facts read out of `ENVIRO.EXE` cite the
   file offset ("the core table at file `0x2064e`"), with the load image's
-  `segment:offset` where a far pointer is meant. Do **not** extract these
+  `segment:offset` where a far pointer is meant; facts read out of Dunkle
+  Schatten's `XP01.EXE` cite the linear offset into its unpacked load image
+  ("the main loop at `0x4FC0`"), with `segment:offset` of that image where
+  a far address is meant (`0BB6h:027Ah`), and `XP00.EXE`'s say so. Do
+  **not** extract these
   addresses into named constants — a literal sitting next to its citation
   is the house style, because the address *is* the evidence and belongs
   where the claim is made.
@@ -323,8 +343,9 @@ Concretely:
   what folding them would cost.
 - **No TODO markers.** There are no `TODO`, `FIXME`, `XXX`, or `HACK`
   comments in this tree, and none may be added. Open state lives in a named
-  document: unknowns about the original go to `docs/motion/open-questions.md`,
-  where they are tracked rather than scattered.
+  document: unknowns about the original go to the family's
+  `open-questions.md` — `docs/motion/` or `docs/parsec/` — where they are
+  tracked rather than scattered.
 
 **The rustdoc gate.** `just doc` treats broken intra-doc links as errors and
 documents private items, because in this project the private comments carry
@@ -335,8 +356,9 @@ only read as if it covered them.
 ## Architecture
 
 The workspace is two layers — a neutral one that knows no engine family, and
-the MOTION family's crates, marked as such by their names — with the contract
-crate between them, and beside them two components a family may use;
+the families' crates, MOTION's and PARSEC's, marked as such by their names —
+with the contract crate between them, and beside them two components a
+family may use;
 [`ARCHITECTURE.md`](ARCHITECTURE.md) lays the shape out.
 Dependencies point strictly downward:
 
@@ -355,15 +377,20 @@ Dependencies point strictly downward:
 | `motionvm-app` | The window: winit/softbuffer frontend |
 | `motionvm-motion-tools` | CLI for reading and extracting the shipped formats |
 | `motionvm-motion-testutil` | Test-data location, shared by every suite |
+| `motionvm-parsec-formats` | PARSEC's readers for the shipped resource formats and program images; std-only, zero dependencies |
+| `motionvm-parsec-engine` | The PARSEC runtime: the game's program over the library it is linked against |
+| `motionvm-parsec` | PARSEC's front door: engine and music, paired behind the contract |
+| `motionvm-parsec-tools` | CLI for reading and extracting Dunkle Schatten's resources |
+| `motionvm-parsec-testutil` | PARSEC's test-data location and reference digests |
 
-The same crates carry both generations; the rule for how they share is in the
+The same MOTION crates carry both generations; the rule for how they share is in the
 next section, and what the whole shape is — the two layers, the four levels of variance, the
 seams between them, and why some things are shared behind a `Rules` struct
 where others are written twice — is in
 [`ARCHITECTURE.md`](ARCHITECTURE.md). Principles the layout encodes:
 
-- **A component is what no engine owns.** A piece the games ship that a
-  third party wrote — a music driver and its format — or the chip it writes
+- **A component is what no engine owns.** A piece the games ship as a file
+  of its own — a music driver and its format — or the chip it writes
   to is rebuilt once, from its own file, in an unprefixed crate the
   boundary test lists as a component. It cites only those files; what an
   engine does with it — which song a word names, how long it waits before
@@ -387,9 +414,9 @@ Above everything in this section sits the layer boundary: what is **the
 window's** — winit, cpal, the scaling, the roster — lives in the neutral
 crates, names no family and cites no family's evidence, and the boundary test
 in `motionvm-workspace-tests` holds that line. Everything below is placement *within*
-the family's crates.
+a family's crates: MOTION's first, then PARSEC's.
 
-Three kinds of things live in a family's crates, and each is named by a
+Three kinds of things live in MOTION's crates, and each is named by a
 different rule. What is **shared by the engine family** — the `Host` boundary, the
 branch arithmetic, the descriptor scene graph, the framebuffer, the palette
 and font-reference readers, the curtain, the clock, the CLI skeleton —
@@ -403,8 +430,8 @@ format — is tagged by **engine generation**: in code, sibling modules
 (`ENVIRO.EXE`)" and "MOTION 32-bit (`ENGINE.EXE` V0.06.06/R109)". A format
 that exists in one generation only (`rsc`, `hmi`, `le`; `dat`, `mz`)
 still lives under that generation's module, so that the unqualified level
-stays honest. A format that is no engine's at all — PSM 2, a third party's
-music system the 16-bit games ship as files of their own — is a
+stays honest. A format that is no engine's at all — PSM 2, a music system
+the 16-bit games and Dunkle Schatten ship as files of their own — is a
 component's, `motionvm-psm`, and the generation keeps only how its engine
 hosts it. What belongs to **one game** — its bootstrap words and
 module numbers, the names of its script variables, its module map and
@@ -443,6 +470,34 @@ while `motionvm-render` underneath knows only the surface and the blits.
 The window serves every game through the contract and never
 learns which generation it is looking at: the music, the keys and the pacing
 are all the family's answers, made behind `motionvm-motion`.
+
+### PARSEC's placement
+
+PARSEC has one generation, `parsec1994`, so its rule has two kinds rather
+than three: with one generation read, there is no level above it whose
+claims would have to hold for another. What belongs to **the game** is
+code under `titles/ds1/` in `motionvm-parsec-engine` — where its program
+keeps a fresh game's start and the status-line templates, a module per
+location named as the location table names it, the puzzle logic — and
+documentation under `docs/parsec/games/ds1/`. What the game's program is
+linked against belongs to **the generation**: its runtime — the mode
+machine, the animator, the tasks, the dialogue, the options and the
+savegame — under `titles/parsec1994/`, each part with the map of where a
+build keeps what it reads (`OptionsMap`, `SaveMap`, `PointerMap`,
+`MusicMap`) and that map's `DS1` beside it, the readings of its tables in
+`titles/xp1994.rs` and `titles/palette1994.rs`, and the walk, the movers,
+the subjects, the caption, the strip's widgets and the generator in modules
+of their own beside them; the scaler and the rest of the drawing sit in
+`draw/` below, and the formats in `motionvm-parsec-formats`. Its pages are
+`docs/parsec/formats/` and `docs/parsec/engine/`. A name that marks the
+generation carries `1994`, the way MOTION's `dialogue16` carries `16` —
+`xp1994`, `RoomFile::from_1994_slot`, a test's `every_1994_room` — and an
+unmarked name in the engine or the readers is the generation's too. Where
+the game's own data or a figure of its program is what is meant, the
+sentence names *Dunkle Schatten* or `XP01.EXE`. The location logic reaches
+the generation through one trait, `Api`, so that the same logic runs
+against the engine and against the stand-in that holds it to the
+original's traces.
 
 ## Adding or correcting a kernel word
 
@@ -660,19 +715,21 @@ compiling:
    crates family crates in the layer rule's eyes.
 5. **Its games, its data, its rig.** Each game then follows *Adding a game*
    inside the new family: lookup functions, justfile plumbing, suites, and
-   `docs/motion/games/` trees. A family whose originals need different rig rules
-   brings its own testutil crate rather than growing MOTION's. **Slugs are a
-   workspace-wide namespace**: `saves/<slug>/`, `MOTIONVM_GAMEDATA_<SLUG>`
-   and `docs/motion/games/<slug>/` are shared with every family, so a new game's
+   `docs/<family>/games/` trees. A family whose originals need different rig
+   rules brings its own testutil crate rather than growing MOTION's, as
+   PARSEC's does. **Slugs are a workspace-wide namespace**: `saves/<slug>/`,
+   `MOTIONVM_GAMEDATA_<SLUG>` and `docs/<family>/games/<slug>/` are shared
+   with every family, so a new game's
    slug is checked against every roster, not just its own — a collision puts
    two games' savegames in one directory.
 6. **Its own documentation trees.** A family's pages live under
-   `docs/<family>/…` — MOTION's under `docs/motion/`, ledgers included —
+   `docs/<family>/…` — MOTION's under `docs/motion/`, PARSEC's under
+   `docs/parsec/`, ledgers included —
    with an index of their own, and `docs/README.md` at the root is the map
    that carries a row per family. Every page's scope line names what it
    covers, the way the generation trees' pages do.
 7. **The stale-count grep.** Sentences that count families are wrong the
-   moment there is a second one:
+   moment there is a further one:
 
    ```sh
    grep -rniE '\bone (engine )?\*?family\*?\b' .
@@ -690,16 +747,19 @@ compiling:
 Behavior is matched to the original binary of the generation in question —
 `ENGINE.EXE` V0.06.06/R109 and its earlier build V0.04.15/R78 for the 32-bit
 engine, `ENVIRO.EXE` and its older
-builds `BMZ.EXE`, `HPPLAY.EXE`, `STERN.EXE` and `LL.EXE` for the 16-bit one. When motionvm and the original
-disagree, motionvm is wrong —
+builds `BMZ.EXE`, `HPPLAY.EXE`, `STERN.EXE` and `LL.EXE` for the 16-bit one,
+and Dunkle Schatten's `XP00.EXE` and `XP01.EXE` for PARSEC. When motionvm and
+the original disagree, motionvm is wrong —
 unless the divergence is recorded, which is what stops anyone "fixing" a
-deliberate decision. **The record is [`docs/motion/departures.md`](docs/motion/departures.md)
-and only that** — every divergence is written there, where the code lives, in
-the section of the generation it concerns. The nine below are the ones worth
-knowing before reading any of this code; they are a summary of that page, not
-a second list, and a divergence that is here and not there is a mistake. Every
-one of them concerns the 32-bit engine as it runs its two games unless it
-names the 16-bit engine:
+deliberate decision. **The record is the family's `departures.md` —
+[`docs/motion/departures.md`](docs/motion/departures.md) and
+[`docs/parsec/departures.md`](docs/parsec/departures.md) — and only that**:
+every divergence is written there, where the code lives, in the section it
+concerns. The nine below are MOTION's that are worth knowing before reading
+any of its code; they are a summary of that page, not a second list, and a
+divergence that is here and not there is a mistake. Every one of them
+concerns the 32-bit engine as it runs its two games unless it names the
+16-bit engine:
 
 1. **Savegame formats are motionvm's own.** The original stores raw DOS4GW
    heap pointers; matching that is structurally impossible.
@@ -732,7 +792,8 @@ names the 16-bit engine:
 
 Adding a divergence is a deliberate act: document it where the code lives,
 state why matching the original is impossible or undesirable, record it in
-`docs/motion/departures.md`, and point at that entry from the page it concerns. This
+the family's `departures.md`, and point at that entry from the page it
+concerns. This
 summary grows only when the new one belongs among the first things a reader
 should know.
 
@@ -744,22 +805,24 @@ should know.
   test's doc comment carries it.
 - **Every test file documents what it verifies and against which evidence** —
   the same evidence discipline as the code.
-- **Fixtures come from your own game install**, located through
-  `motionvm-motion-testutil`, never checked in. Remember the rule from setup:
+- **Fixtures come from your own game install**, located through the
+  family's testutil crate, never checked in. Remember the rule from setup:
   missing data skips loudly, a wrong path panics.
 - **A test that needs a game's files says which game.** It asks
   `motionvm-motion-testutil` for that game — `gamedata_ds2()`,
   `gamedata_checker()`, `gamedata_enviro()`, `gamedata_jeffjet()`,
-  `gamedata_hfa()`, `gamedata_vloomes()` or `gamedata_eddiem()` — and closes
-  its `//!` with the one line every such file carries: *The game this file
-  drives is `<title>` (MOTION 16-bit).* The title is the game's short form,
-  the one prose uses.
+  `gamedata_hfa()`, `gamedata_vloomes()` or `gamedata_eddiem()`, or
+  `motionvm-parsec-testutil` for `gamedata_ds1()` — and closes its `//!`
+  with the one line every such file carries: *The game this file drives is
+  `<title>` (MOTION 16-bit),* or *(PARSEC).* The title is the game's short
+  form, the one prose uses.
   It is spelled out because the module numbers, word names and ids the file
   asserts are that game's and would be nonsense against another.
 - **A test save directory carries its game's slug.** `saves_dir` wipes what it
   hands back and one directory under `target/` serves the whole suite, so two
   files asking for the same bare name would delete each other's slots mid-run.
-  `ds2-`, `checker-`, `enviro-`, `jeffjet-`, `hfa-`, `vloomes-`, `eddiem-` —
+  `ds2-`, `checker-`, `enviro-`, `jeffjet-`, `hfa-`, `vloomes-`, `eddiem-`,
+  `ds1-` —
   the prefix is what makes that impossible rather than merely unlikely.
 - **There are no golden frames; there are digests of them.** A pinned
   rendered scene is the one kind of check that catches a change nobody
@@ -797,7 +860,9 @@ change. Conventions:
   `docs/motion/motion32/`
   and `docs/motion/motion16/` hold the format, VM and engine pages of the two
   generations, `docs/motion/games/<game>/` the pages about
-  one game's own data and script library. Every generation page carries a
+  one game's own data and script library; `docs/parsec/formats/` and
+  `docs/parsec/engine/` hold PARSEC's format and engine pages, and
+  `docs/parsec/games/ds1/` the game's. Every generation page carries a
   one-line scope note under its title naming its engine and the game it
   was measured on; every game page names its game the same way.
 - Every page opens with a breadcrumb back to the documentation index and ends
@@ -809,18 +874,21 @@ change. Conventions:
   little-endian, text is CP437, a cell is 32 bits under `motion32/` and 16
   under `motion16/`, stack effects use Forth's `( a b -- c )` notation, and
   engine addresses refer to `ENGINE.EXE`'s *relocated* image for the 32-bit
-  engine and to file offsets in `ENVIRO.EXE` for the 16-bit one.
+  engine and to file offsets in `ENVIRO.EXE` for the 16-bit one;
+  `docs/parsec/README.md` does the same for PARSEC, whose addresses are
+  offsets into the unpacked `XP01.EXE`.
 - **File sizes are decimal KB and MB**, everywhere a round figure is given —
   845 KB for a file of 845 467 bytes, 7.6 MB for one of 7 609 296. Exact byte
   counts are written out in full and grouped with thin spaces. Two
   conventions in one column is the kind of drift nothing catches — the
   README's file tables carried both for a release before anyone
   measured them.
-- Unresolved questions about the original belong in
-  `docs/motion/open-questions.md`, the single ledger of what is not yet known, in
-  the section of the generation they concern.
-- Deliberate differences from the original belong in `docs/motion/departures.md`,
-  the single ledger of where the code knowingly does something else. The
+- Unresolved questions about the original belong in the family's
+  `open-questions.md`, the single ledger of what is not yet known, in the
+  section they concern.
+- Deliberate differences from the original belong in the family's
+  `departures.md`, the single ledger of where the code knowingly does
+  something else. The
   subsystem pages describe the original engine; a departure is recorded there
   and pointed at from the page it concerns.
 - The documentation contains nothing derived from a game's copyrighted
@@ -868,8 +936,8 @@ past decisions.
   not finished until it is green.
 - For changes that touch fidelity — anything the original engine also does —
   state the evidence: the address read, the measurement taken, or the
-  hypothesis being made, and update `docs/`, `docs/motion/open-questions.md` and
-  `docs/motion/departures.md` accordingly.
+  hypothesis being made, and update `docs/` and the family's
+  `open-questions.md` and `departures.md` accordingly.
 
 ## Releasing
 

@@ -1,0 +1,22 @@
+[package]
+name = "motionvm-parsec-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "Command line tools for inspecting and extracting Dunkle Schatten's resources"
+
+[[bin]]
+name = "motionvm-parsec-tools"
+path = "src/main.rs"
+
+[dependencies]
+motionvm-parsec-formats.workspace = true
+motionvm-render.workspace = true
+motionvm-psm.workspace = true
+
+[lints]
+workspace = true

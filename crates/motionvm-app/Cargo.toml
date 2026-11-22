@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 motionvm-motion.workspace = true
+motionvm-parsec.workspace = true
 motionvm-playable.workspace = true
 cpal.workspace = true
 winit.workspace = true

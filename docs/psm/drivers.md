@@ -39,15 +39,35 @@ ascending register order (`0xf9e` → `0x1062`).
 Every write goes through that 256-byte shadow (`0x7df`/`0x7ec`): a value
 the shadow already holds is not sent again, so the register stream carries
 **changes only** — across tunes too, because the shadow lives as long as
-the driver.
+the driver. A copy loaded and installed afresh starts from the file's own
+shadow, so its install sends every default again, whatever an earlier copy
+left on the chip.
 
-**The entries a song goes through.** SetSong (`0x2f9`) checks the tag and
-stores the pointer. Play (`0x470`) stops the notes if something still
-plays, stores the loop count, sets the volume full, primes the streams and
-registers the host timer with the period (`0xcb4`). The loop count is
-compared unsigned against a pass counter that starts at 1, so `-1` means
-forever. FadeOut (`0x3e2`) takes a length in milliseconds; Stop (`0x4c9`)
+**The entries a song goes through.** SetSong (entry 5, `0x2f9`) stops a
+song that still plays (`0x319`), checks the tag and stores the pointer.
+Play (entry 10, `0x470`) stops the notes if something still plays, stores
+the loop count, sets the volume full with its fraction byte cleared
+(`0x4a5`, `0x4b6`), primes the streams and registers the host timer with
+the period (`0xcb4`). The loop count is compared unsigned against a pass
+counter that starts at 1, so `-1` means forever. PlayFade (entry 7,
+`0x34a`) is Play with a fade-in: it starts a song only when none is
+playing (`0x35f`), puts the level and its fraction byte at 0 (`0x378`,
+`0x389`) and works out a rising step from a length in milliseconds
+(`0x378`–`0x3d8`). FadeOut (entry 8, `0x3e2`) takes a length in
+milliseconds the same way; at level 0 it does nothing (`0x3fe`), and
+otherwise it clears the fraction byte and holds the level at full at most
+(`0x405`–`0x412`) before the step is worked out. Stop (entry 11, `0x4c9`)
 is the hard stop below.
+
+**A fade's length in ticks** is worked out alike by both fade entries
+(`0x398`–`0x3c1`, `0x419`–`0x444`): the milliseconds times `0x4a9`, 1193
+PIT cycles to the millisecond, into a double word, divided by the tick's
+period — after a test (`cmp cx, dx` / `jae`) that the high word stands
+below the period, since the division would overflow otherwise. No length,
+or one of two ticks or less, ends the fade at once: PlayFade starts at
+full (`0x3ca`), FadeOut is silent (`0x44d`). A quotient past the word, or
+past `0x8000` ticks, takes the smallest step there is, `±1` (`0x3c1`,
+`0x444`). Any other count gives the step `±0x10000 / ticks`.
 
 **The tick** (`0xa71`), on the host timer at the period: every `speed`th
 tick is a row. Channels run 8 down to 0, each draining its due events; a
@@ -61,11 +81,11 @@ register is set from its loudness and its channel master (0x100 = full,
 the file's value for all nine): full master passes the loudness through,
 anything lower scales it byte-wise; the result is inverted back
 (`^ 0x3F`) with the KSL bits on top. A fade (`0xb77`) instead runs **every
-tick**: a Q8.8 level moves by `±0x10000 / ticks` for the asked-for
-milliseconds — `0x4a9`, 1193 PIT cycles, to the millisecond — each live
-carrier follows `master × level × loudness` with every product truncated
-to a byte, reaching zero closes all carriers (`0x3F` + KSL), and reaching
-0x100 ends the fade with a full pass.
+tick**, falling or rising alike: a Q8.8 level moves by the step the fade
+entry worked out, each live carrier follows `master × level × loudness`
+with every product truncated to a byte, level zero closes all carriers
+(`0x3F` + KSL) and opens them again as a fade-in climbs, and reaching
+0x100 ends the fade with a full pass (`0xb96`).
 
 **Stop** (`0xde2`): channel 8 down to 0 — key off where a key is on, then
 the release rate of both operators opened to `0x0F`, so what still sounds

@@ -1,10 +1,11 @@
 # The architecture of motionvm
 
-motionvm virtualizes game engines. It ships one engine *family* today —
+motionvm virtualizes game engines. It ships two engine *families* today —
 MOTION, in a 16-bit and a 32-bit generation, the 16-bit one in five distinct
-builds and the 32-bit one in two, with the games on top — and holds the
-family apart from the window
-that plays it the same way it holds the generations apart from each other.
+builds and the 32-bit one in two, and PARSEC, in one generation,
+`parsec1994`, with the games on top of each — and holds each family apart
+from the window that plays it, and from the other family, the same way it
+holds the generations apart from each other.
 Family, generation, build and game are four different axes, and almost every
 decision in this tree is about keeping them apart.
 
@@ -24,7 +25,8 @@ The tree is two layers inside one workspace:
   for whatever engine sits behind the contract, and none of it names one.
 - **A family** is a set of crates behind one implementation of the contract's
   `Family` trait. MOTION's set is the six `motionvm-motion-*` crates plus its
-  front door, `motionvm-motion`, which is the crate a roster line points at.
+  front door, `motionvm-motion`, which is the crate a roster line points at;
+  PARSEC's is the four `motionvm-parsec-*` crates plus `motionvm-parsec`.
 
 Beside the two stand the **components** — `motionvm-opl` and
 `motionvm-psm` — which are neither: shared pieces a family may build on,
@@ -34,12 +36,12 @@ The layer is written in the name, not in a directory: a crate that exists for
 one family carries the family's name — `motionvm-motion-engine` — and an
 unprefixed `motionvm-*` name belongs to the neutral layer, unless the
 boundary test lists it as a **component**. A component is a rebuild of one
-piece the games ship that is no family's engine — a third party's program
-the games carry as a file of its own, or the chip such a program writes to
+piece the games ship that is no family's engine — a program the games
+carry as a file of its own, or the chip such a program writes to
 — rebuilt once, from that file. `motionvm-opl` and `motionvm-psm` are the
-two: the OPL3 both of MOTION's music stacks end at, and the PSM 2 format
-and drivers, read out of `MUSADL.DRV` and the `DMA*.DRV` files rather than
-out of any engine. A family may depend on a component; a component depends
+two: the OPL3 every music stack here ends at, and the PSM 2 format and
+drivers, read out of `MUSADL.DRV` and the `DMA*.DRV` files rather than out
+of any engine — the one music system both families' games ship. A family may depend on a component; a component depends
 on no family and not on the window, and cites only the files it is rebuilt
 from; the neutral layer depends on none. Unprefixed names that would suit
 genuinely shared code (`motionvm-formats`, say) stay free for the day two
@@ -53,12 +55,13 @@ deeper. That is not a convention: the rig's boundary test
 (`motionvm-workspace-tests`) reads the workspace's manifests and sources and
 fails on a dependency or a piece of family evidence on the wrong side of the
 line. `motionvm-render` and
-`motionvm-playable` compile with no family present, and the whole family
-compiles with no window; only the roster ties the two together.
+`motionvm-playable` compile with no family present, and each family
+compiles with no window and without the other; only the roster ties them
+together.
 
 ## The workspace
 
-Thirteen crates, dependencies pointing strictly downward.
+Eighteen crates, dependencies pointing strictly downward.
 
 The neutral layer:
 
@@ -66,7 +69,7 @@ The neutral layer:
 |---|---|---|
 | `motionvm-render` | Indexed framebuffer, palettes and blits; a PNG reader that only the tools' `compare` uses | — |
 | `motionvm-playable` | The contract between the window and whatever engine it drives | `render` |
-| `motionvm-app` | The window: winit, softbuffer, cpal, and the roster of families | `playable`, `render`, `motion` |
+| `motionvm-app` | The window: winit, softbuffer, cpal, and the roster of families | `playable`, `render`, `motion`, `parsec` |
 
 The components:
 
@@ -87,13 +90,23 @@ The MOTION family:
 | `motionvm-motion-tools` | The CLI that reads and extracts the shipped formats | `formats`, `forth`, `render`, `audio`, `psm` |
 | `motionvm-motion-testutil` | Test-data location, shared by every suite; not published | — |
 
+The PARSEC family:
+
+| Crate | Role | Depends on |
+|---|---|---|
+| `motionvm-parsec-formats` | Readers for the shipped resource formats and the packed program images; std-only, zero dependencies | — |
+| `motionvm-parsec-engine` | The runtime: the game's program — its location handlers and puzzle logic over the library they are linked against, the `parsec1994` generation — drawing, text, the game loop | `formats`, `render`, `playable` |
+| `motionvm-parsec` | The family's front door: the engine and its music, paired behind the contract | `playable`, `engine`, `formats`, `psm` |
+| `motionvm-parsec-tools` | The CLI that reads and extracts the shipped formats | `formats`, `render`, `psm` |
+| `motionvm-parsec-testutil` | Test-data location and the reference digests, shared by every suite; not published | — |
+
 And outside both layers:
 
 | Crate | Role | Depends on |
 |---|---|---|
 | `motionvm-workspace-tests` | The rig: tests over the tree itself, the layer law above all; not published | — |
 
-Three absences in those tables are load-bearing:
+Four absences in those tables are load-bearing:
 
 - **`motionvm-motion-engine` does not depend on `motionvm-motion-audio`.** The
   seam is the engine's own `MusicSink`, two methods wide: the engine hands
@@ -101,6 +114,11 @@ Three absences in those tables are load-bearing:
   file to its MIDI layer, and never learns the codec. Only `motionvm-motion`
   knows both worlds: its front door opens the music and installs the sink,
   which is that crate's whole job.
+- **`motionvm-parsec-engine` does not depend on `motionvm-psm`.** Its own
+  `MusicSink` is the driver's entries — `Play`, `PlayFade`, `FadeOut`,
+  `Stop`, and the driver installed afresh between the two programs — with
+  a song as the bytes the program hands the driver. `motionvm-parsec` pairs
+  it with the component's player of the game's own `MUSADL.DRV`.
 - **`motionvm-app` does not depend on `motionvm-motion-engine`.** The window
   drives a `Box<dyn Playable>` and holds a list of families; the only family
   crate it names is a front door, and only in `roster.rs`.
@@ -130,7 +148,7 @@ a family's: how it tells a generation, a build and a game apart is that
 family's decision, written in its own tree under `docs/`. Below the first
 section, what this page describes is MOTION's answer — one interpreter per
 generation, builds probed from the binary, a game an enum and a manifest
-over it.
+over it — and PARSEC's, where it is another, is said beside it.
 
 ### Family is a crate set and a contract
 
@@ -239,10 +257,23 @@ behavior.
 **No engine code branches on which game is running.** Not one arm of one match
 in `motionvm-motion-engine` names a title. That is MOTION's law, and it
 follows from MOTION's shape — one interpreter, every game data on top of it.
-A family whose originals are one compiled program per title has no such
-interpreter to keep title-free: code per title over a core shared only
-where the binaries prove it identical is that family's answer, and its own
-tree is where the answer is stated.
+
+PARSEC's original is a compiled program, so it has no such interpreter to
+keep title-free, and its answer is the other way round: the game is a
+module of its own, `titles/ds1/` — its address map, its location
+handlers and its puzzle logic, each re-expressed from the program with the
+addresses it was read from — beside the library that program is linked
+against, which is the `parsec1994` generation: its runtime in
+`titles/parsec1994/` (the mode machine, the animator, the tasks, the
+dialogue) and the modules beside it (the walk, the location dispatch, the
+panel colors). The handlers reach the generation through one trait,
+`Api`, and through nothing else, which is what lets the location logic run
+against a recording stand-in and be held, case by case, against the
+original routines traced on the same inputs. The program's tables and
+texts are read out of the unpacked image when the game opens, never
+transcribed. The boundary test holds the layout: the game's directory
+under `titles/` is named for its slug, and the only other directory there
+is the generation's.
 
 ## The seams
 
@@ -253,7 +284,9 @@ tree is where the answer is stated.
 | `KeyPress` | `motionvm-playable` | a key transition as a keyboard reports it — presses and releases both, the typed stream and the wheel beside them — from whatever an engine's scripts read out of one; the translation is the engine's |
 | `AudioSource` | `motionvm-playable` | the platform's device from the family's synthesis; samples come back over `Playable::open_music`, nothing else crosses |
 | `Driven` | `titles/mod.rs` | the front door from the engine: the family's own side of the contract, with `set_music` where the contract has `open_music` |
-| `MusicSink` | `motionvm-motion-engine`'s root | the engine from the audio stack; bytes go over it, never a parsed song — family-internal, paired in the front door |
+| `MusicSink` | `motionvm-motion-engine`'s and `motionvm-parsec-engine`'s roots | the engine from the audio stack; bytes go over it, never a parsed song — family-internal, paired in the front door |
+| `Runtime` | `motionvm-parsec-engine`'s root | the PARSEC front door from the engine: the contract's shape, method for method, in the family's own trait |
+| `Api` | `motionvm-parsec-engine`'s `titles/` | a game's location logic from the engine routines it calls — the engine on one side, the logic traces' stand-in on the other |
 | `Machine` / `Host<M>` / `AddressSpace` | `motionvm-motion-forth`'s root | the engine from either machine |
 | `Generation` | `titles/mod.rs` | one family-internal answer — which container, savegame layout and music stack — off the roster's total match |
 | `Resources` | `resources.rs` | the only place engine code knows which container format is open |
@@ -389,8 +422,8 @@ the shape they follow.
 whose total matches then refuse to compile until every answer about the game
 is given — plus a manifest module under `titles/`, a lookup function in the
 family's testutil crate with its justfile and CI plumbing, its suites, and its
-documentation tree under `docs/motion/games/<slug>/`. No engine code changes, which
-is the point of the manifests.
+documentation tree under its family's `docs/<family>/games/<slug>/`. In MOTION
+no engine code changes, which is the point of the manifests.
 
 **A further engine family** is a crate set of its own, named
 `motionvm-<family>-*`, behind one `Family` implementation in its front door
@@ -402,7 +435,7 @@ window's own) — usage text, complaints and the window's behavior follow from
 the trait — plus the
 family's line in the boundary test's list, its own test rig and data plumbing,
 and its own trees under `docs/`. The roster asks every family and needs no
-revisiting for a second: a directory no family claims is answered with
+revisiting for a further one: a directory no family claims is answered with
 what every game of every family needs, and one that two families claim is
 refused, naming both, rather than opened by whichever is listed first.
 
@@ -421,5 +454,6 @@ drawing code.
   and how to add a game, an engine build, or an engine family
 - [`docs/README.md`](docs/README.md) — the map of the original engines'
   documentation, one tree per family, written as a specification
-- [`docs/motion/departures.md`](docs/motion/departures.md) — every place this code knowingly
-  does something else, and why
+- [`docs/motion/departures.md`](docs/motion/departures.md) and
+  [`docs/parsec/departures.md`](docs/parsec/departures.md) — every place
+  this code knowingly does something else, and why

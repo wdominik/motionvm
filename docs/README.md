@@ -7,6 +7,7 @@ below it names the game or the generation it speaks for.
 | Family | Tree | What it covers |
 |---|---|---|
 | MOTION (DigiTales, 1996) | [motion/](motion/README.md) | Both generations of the engine, the two 32-bit and five 16-bit builds, the seven games, their formats, and the family's ledgers — departures, open questions, verification, savegames, the inspection CLI |
+| PARSEC (Norbert Schmidt, 1994) | [parsec/](parsec/README.md) | Dunkle Schatten's programs and the engine they are built on, its formats, the game, and the family's ledgers — departures, open questions, verification, the inspection CLI |
 
 Beside the families stand the components — a piece the games ship that is
 no family's engine, rebuilt once and used by every family whose games play

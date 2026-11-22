@@ -135,28 +135,100 @@ impl Sequencer {
     }
 
     /// `SetSong` and the play entry (`0x2f9`, `0x470`): notes stopped where
-    /// they still ring, the new song in, the volume full, the first row
-    /// `speed` ticks away. The register shadow stays — the driver keeps its
-    /// chip state across songs, so whatever a song shares with the last one
-    /// goes out only where it differs.
+    /// they still ring, the new song in, the volume full with its fraction
+    /// byte cleared (`0x4a5`, `0x4b6`), the first row `speed` ticks away.
+    /// The register shadow stays — the driver keeps its chip state across
+    /// songs, so whatever a song shares with the last one goes out only
+    /// where it differs.
     pub fn play(&mut self, song: Plx, loops: i16, out: &mut Vec<Write>) {
+        self.set_song(song, out);
+        self.pass = 1;
+        self.last_pass = num::passes(loops);
+        self.fade_step = 0;
+        self.fade_pos = 0x100 << 8;
+        self.prime();
+    }
+
+    /// `SetSong` and the fade-in entry (`0x2f9`, `0x34a`): notes stopped
+    /// where they still ring, the new song in at volume 0 with its fraction
+    /// byte cleared (`0x378`, `0x389`), and the level rising to full over
+    /// `ms` milliseconds — the fade-out's arithmetic with the step's sign
+    /// turned round, so the same tick that closes the carriers at level 0
+    /// opens them as the level climbs, and the full volume pass runs once
+    /// it reaches `0x100` (`0xb96`).
+    ///
+    /// The entry starts a song only when none is playing (`0x35f`); `SetSong`
+    /// has just stopped any, so here it always does.
+    pub fn play_fade(&mut self, song: Plx, loops: i16, ms: u16, out: &mut Vec<Write>) {
+        self.set_song(song, out);
+        self.pass = 1;
+        self.last_pass = num::passes(loops);
+        self.prime();
+        self.fade_in(ms);
+    }
+
+    /// [`Sequencer::new`] by the fade-in entry rather than the play entry:
+    /// the first song a freshly installed driver is handed, starting at
+    /// volume 0 and rising over `ms` milliseconds as
+    /// [`Sequencer::play_fade`] has it.
+    pub fn new_fade(driver: &Driver, song: Plx, loops: i16, ms: u16) -> Self {
+        let mut seq = Self::new(driver, song, loops);
+        seq.fade_in(ms);
+        seq
+    }
+
+    /// The fade-in entry's own part, past the start (`0x378`–`0x3d8`): the
+    /// level and its fraction at 0, and the step to full.
+    fn fade_in(&mut self, ms: u16) {
+        self.fade_pos = 0;
+        self.fade_step = match fade_ticks(ms, self.period) {
+            // `0x3ca`: no length, or one of two ticks or less, is full at
+            // once.
+            Ticks::Instant => {
+                self.fade_pos = 0x100 << 8;
+                0
+            }
+            // `0x3c1`: a quotient past the word, or past `0x8000` ticks,
+            // climbs by the smallest step there is.
+            Ticks::Endless => 1,
+            Ticks::Some(ticks) => 0x10000 / ticks,
+        };
+    }
+
+    /// `SetSong` (`0x2f9`): a song still playing is stopped first (`0x319`).
+    fn set_song(&mut self, song: Plx, out: &mut Vec<Write>) {
         if self.pass != 0 {
             self.silence(out);
         }
         self.song = song;
-        self.pass = 1;
-        self.last_pass = num::passes(loops);
-        self.fade_step = 0;
-        self.fade_pos = (0x100 << 8) | (self.fade_pos & 0xFF);
-        self.prime();
     }
+
     /// Starts the fade entry (`0x3e2`) over `ms` milliseconds, the length
     /// its caller passes: `0x4a9` PIT cycles to a millisecond, over the
     /// tick's period. Which length a host passes, and when, is the host's
     /// to cite.
+    ///
+    /// The entry does nothing at level 0 (`0x3fe`); otherwise it clears the
+    /// fraction byte and holds the level at most at full (`0x405`–`0x412`)
+    /// before the step is worked out.
     pub fn fade_out(&mut self, ms: u16) {
-        let ticks = (0x4a9 * i32::from(ms)) / i32::from(self.period);
-        self.fade_step = -(0x10000 / ticks.max(1));
+        let level = num::word((self.fade_pos >> 8) & 0xFFFF);
+        if level == 0 {
+            return;
+        }
+        self.fade_pos = i32::from(level.min(0x100)) << 8;
+        self.fade_step = match fade_ticks(ms, self.period) {
+            // `0x44d`: no length, or one of two ticks or less, is silent at
+            // once — the level 0, and a step no tick climbs back from.
+            Ticks::Instant => {
+                self.fade_pos = 0;
+                -0x8000
+            }
+            // `0x444`: a quotient past the word, or past `0x8000` ticks,
+            // falls by the smallest step there is.
+            Ticks::Endless => -1,
+            Ticks::Some(ticks) => -(0x10000 / ticks),
+        };
     }
 
     /// The stop entry (`0x4c9` → `0xde2`): from channel 8 down, the key
@@ -448,9 +520,205 @@ impl Sequencer {
     }
 }
 
+/// How many ticks a fade of some length lasts, as both fade entries decide
+/// it (`0x398`–`0x3c1`, `0x419`–`0x444`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ticks {
+    /// No length, or two ticks or less: the fade is over at once.
+    Instant,
+    /// Longer than the step arithmetic can follow: the smallest step.
+    Endless,
+    /// This many.
+    Some(i32),
+}
+
+/// `ms` milliseconds in ticks of `period` PIT cycles: `0x4a9` cycles to a
+/// millisecond, multiplied into a double word and divided by the period —
+/// where a high word at or past the period would overflow the division,
+/// which the entries test for first (`cmp cx, dx` / `jae`).
+fn fade_ticks(ms: u16, period: u16) -> Ticks {
+    if ms == 0 {
+        return Ticks::Instant;
+    }
+    let cycles = 0x4a9 * u32::from(ms);
+    if cycles >> 16 >= u32::from(period) {
+        return Ticks::Endless;
+    }
+    match u16::try_from(cycles / u32::from(period)) {
+        Ok(0..=2) => Ticks::Instant,
+        Ok(ticks @ 3..=0x8000) => Ticks::Some(i32::from(ticks)),
+        _ => Ticks::Endless,
+    }
+}
+
 /// `0xd29`: the tick period from a tempo word, at the default speed scale
 /// of `0x100` — the driver multiplies and rounds, and nothing here moves
 /// the scale.
 fn period_of(tempo: u16) -> u16 {
     tempo.max(0x200)
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// The standard two-operator layout: modulator and carrier slot per
+    /// channel, as the shipped driver's tables hold them.
+    const MOD_OPS: [u8; 9] = [0x00, 0x01, 0x02, 0x08, 0x09, 0x0a, 0x10, 0x11, 0x12];
+    const CAR_OPS: [u8; 9] = [0x03, 0x04, 0x05, 0x0b, 0x0c, 0x0d, 0x13, 0x14, 0x15];
+
+    /// A driver file of the fifteen-entry build whose defaults touch only
+    /// the operators' level registers — `0x3F`, as the shipped file has
+    /// them — with the standard operator layout and a rising note table.
+    pub(crate) fn driver() -> Driver {
+        let mut f = vec![0u8; 4480];
+        f[..4].copy_from_slice(b"MUS\0");
+        f[4..10].copy_from_slice(&[0x00, 0x01, 15, 0x00, 0x07, 0x00]);
+        f[0x0a..0x0c].copy_from_slice(&0x1165u16.to_le_bytes());
+        f[0x1165..0x1167].copy_from_slice(b"NS");
+        f[0x5c4..0x6c4].fill(0xFF);
+        for op in MOD_OPS.iter().chain(&CAR_OPS) {
+            f[0x5c4 + 0x40 + usize::from(*op)] = 0x3F;
+        }
+        f[0x6c4..0x6cd].copy_from_slice(&MOD_OPS);
+        f[0x6cd..0x6d6].copy_from_slice(&CAR_OPS);
+        for i in 0..96u16 {
+            let at = 0x6d6 + 2 * usize::from(i);
+            f[at..at + 2].copy_from_slice(&(0x157 + i).to_le_bytes());
+        }
+        Driver::parse(&f).expect("a driver of the build that is read")
+    }
+
+    /// One channel at tempo `0x1662`, speed 1: an instrument whose carrier
+    /// level byte is 0 (full loudness), keyed on a note, then held for 510
+    /// rows before the stream ends.
+    pub(crate) fn song() -> Plx {
+        let mut b = Vec::new();
+        b.extend_from_slice(b"PLX\0");
+        b.push(1);
+        b.extend_from_slice(&0x1662u16.to_le_bytes());
+        let mut channels = [0u16; 9];
+        channels[0] = 0x19 + 12;
+        for c in channels {
+            b.extend_from_slice(&c.to_le_bytes());
+        }
+        // `+0x19`: the instrument, eleven register values a byte in.
+        b.extend_from_slice(&[
+            0, 0x01, 0x21, 0x10, 0xf0, 0x77, 0x00, 0x21, 0x00, 0xf0, 0x77, 0x00,
+        ]);
+        // Instrument, note and key; then a held row; then the end.
+        b.extend_from_slice(&[0x01 | 0x08 | 0x20, 0x19, 0x00, 0x30, 0xff]);
+        b.extend_from_slice(&[0x80, 0xff, 0x00]);
+        Plx::from_section(b).expect("a PLX section")
+    }
+
+    /// The carrier level register of channel 0, as the writes leave it.
+    fn carrier_level(writes: &[Write]) -> Option<u8> {
+        writes
+            .iter()
+            .rev()
+            .find(|w| w.reg == 0x40 + CAR_OPS[0])
+            .map(|w| w.value)
+    }
+
+    #[test]
+    fn a_fade_lasts_its_milliseconds_in_ticks_of_the_period() {
+        assert_eq!(fade_ticks(0, 0x1662), Ticks::Instant);
+        // 1193 cycles over 512 are two ticks: over at once.
+        assert_eq!(fade_ticks(1, 0x200), Ticks::Instant);
+        // 0x4a9 × 2000 / 0x1662 = 416.4.
+        assert_eq!(fade_ticks(2000, 0x1662), Ticks::Some(416));
+        assert_eq!(fade_ticks(1500, 0x1662), Ticks::Some(312));
+        // The high word of 0x4a9 × 65535 is 1192, past a period of 0x200.
+        assert_eq!(fade_ticks(u16::MAX, 0x200), Ticks::Endless);
+    }
+
+    /// The fade-in: silent through its first ticks, rising row by row, and
+    /// at full volume once the level reaches `0x100` — about
+    /// `0x10000 / 157` ticks for 2000 ms at `0x1662`.
+    #[test]
+    fn a_fade_in_rises_from_silence_to_full() {
+        let d = driver();
+        let mut seq = Sequencer::new_fade(&d, song(), -1, 2000);
+        let mut out = Vec::new();
+        seq.tick(&mut out);
+        assert_eq!(carrier_level(&out), Some(0xFF), "the first tick is silent");
+        let mut levels = Vec::new();
+        let mut full_at = None;
+        for t in 2..=440 {
+            out.clear();
+            seq.tick(&mut out);
+            if let Some(v) = carrier_level(&out) {
+                levels.push(v);
+                if v == 0x00 && full_at.is_none() {
+                    full_at = Some(t);
+                }
+            }
+        }
+        assert!(
+            levels.windows(2).all(|w| w[1] <= w[0]),
+            "the attenuation only falls: {levels:x?}"
+        );
+        let full_at = full_at.expect("the fade reaches full");
+        assert!(
+            (410..=420).contains(&full_at),
+            "full after {full_at} ticks, not 0x10000 / 157"
+        );
+    }
+
+    /// The play entry by contrast: full at the first row.
+    #[test]
+    fn a_play_is_full_at_once() {
+        let d = driver();
+        let mut seq = Sequencer::new(&d, song(), -1);
+        let mut out = Vec::new();
+        seq.tick(&mut out);
+        assert_eq!(carrier_level(&out), Some(0x00));
+    }
+
+    /// `SetSong` then the fade-in over a song that plays: the old song is
+    /// stopped first, then the new one comes up silent.
+    #[test]
+    fn a_fade_in_over_a_playing_song_stops_it_first() {
+        let d = driver();
+        let mut seq = Sequencer::new(&d, song(), -1);
+        let mut out = Vec::new();
+        for _ in 0..10 {
+            seq.tick(&mut out);
+        }
+        out.clear();
+        seq.play_fade(song(), -1, 2000, &mut out);
+        let b0 = out.iter().find(|w| w.reg == 0xb0).expect("the key off");
+        assert_eq!(b0.value & 0x20, 0, "the old note is keyed off");
+        out.clear();
+        seq.tick(&mut out);
+        assert_eq!(carrier_level(&out), Some(0xFF));
+    }
+
+    /// The fade-out entry does nothing at level 0 and starts from whole
+    /// levels: its fraction byte is cleared, so two fades from one level
+    /// fall alike whatever the level's fraction was.
+    #[test]
+    fn a_fade_out_clears_the_fraction_and_needs_a_level() {
+        let d = driver();
+        let mut seq = Sequencer::new(&d, song(), -1);
+        seq.fade_pos = (0x80 << 8) | 0x7f;
+        seq.fade_out(2000);
+        assert_eq!(seq.fade_pos, 0x80 << 8);
+        assert_eq!(seq.fade_step, -(0x10000 / 416));
+        seq.fade_pos = 0x7f;
+        seq.fade_step = 0;
+        seq.fade_out(2000);
+        assert_eq!(seq.fade_step, 0, "level 0 has nothing to fade");
+    }
+
+    /// The play entry clears the fraction a fade left.
+    #[test]
+    fn a_play_starts_from_a_whole_level() {
+        let d = driver();
+        let mut seq = Sequencer::new(&d, song(), -1);
+        seq.fade_pos = (0x40 << 8) | 0x33;
+        seq.play(song(), -1, &mut Vec::new());
+        assert_eq!(seq.fade_pos, 0x100 << 8);
+    }
 }
