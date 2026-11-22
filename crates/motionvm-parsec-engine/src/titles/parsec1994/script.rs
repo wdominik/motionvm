@@ -24,7 +24,7 @@ impl Adventure {
             return;
         };
         let _ = graph;
-        self.events.push(Event::Sample(2));
+        self.effect_1949(2);
         self.stop_player_anim();
         if let Some(w) = &mut self.walker {
             w.face(dir);
@@ -56,7 +56,7 @@ impl Adventure {
             2 | 3 => 1,
             _ => 0,
         };
-        self.events.push(Event::Sample(2));
+        self.effect_1949(2);
         self.anim_player(anim);
         1
     }

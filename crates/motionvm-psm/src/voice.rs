@@ -109,7 +109,7 @@ mod tests {
 
     fn sample(period: u16, pcm: &[u8]) -> Sample {
         Sample {
-            version: 0x0100,
+            volume: 0x0100,
             period,
             pcm: pcm.to_vec(),
         }

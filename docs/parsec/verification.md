@@ -84,6 +84,46 @@ where the room's exit fade begins, which the original starts sooner than
 the engine ([open questions](open-questions.md)); past that point the
 two are not compared.
 
+### The sound effects and the digital voices
+
+**The mixer, block for block.** `DMABLAST.DRV`'s own routines — the block,
+the channel routine, the clip, play, `StopAll`, entry 21 and the callbacks
+that step a song's digital voices — run in an 8086 sandbox outside this
+repository on the game's own samples and modules, and every 128-byte block
+and every channel's state is held against `motionvm-psm`'s mixer after
+every step. The suite's digests of every effect played alone and of every
+song's digital voices over one pass of their stream are those of the
+driver's blocks on the same plays: those 37 lines of the table carry
+`anchored: the driver's own mixer, run on the same plays`.
+
+**The Zimmer's opening, heard.** A DOSBox-X capture of the original with
+the Sound Blaster's DAC and its OPL on separate tracks, `XP01` from a new
+game into the Zimmer and on into the Küche, held against the engine's own
+calls rendered through the same drivers — the songs' digital voices alone
+(the rebuild without effects less its OPL-only output) and the effects
+alone (the full output less the one without effects, held against the DAC
+track less the aligned voices) — aligned once on the OPL track:
+
+- the Zimmer's digital voices agree window for window: half a second at a
+  time over 25 seconds, the waveforms correlate at 0.91 to 0.995, within
+  half a DMA block (±3.1 ms) of the original's;
+- in the Küche seven of its nine effects correlate at 0.96 to 0.98 and
+  its song's voices at 0.77 to 0.999 in nine of twelve windows (about 0.5
+  in the other three), the original's 28 to 35 ms later than the
+  engine's;
+- the Zimmer's ten effects are matched less well — 0.41 to 0.79 for nine
+  of them, the original's 21 to 27 ms earlier than the engine's, and the
+  first turn's not found (0.29).
+
+Where the effects match, they match at the rebuild's level within 10 %,
+and the voices within 5 %. The two offsets lie on either side of the
+Zimmer's exit, whose timing is open ([open questions](open-questions.md)).
+
+Over the music the DAC track against the OPL track has an RMS ratio of
+1.26 in the capture and 1.93 here: the rebuild's OPL stands quieter
+against its DAC than DOSBox-X's. Neither balance is the card's
+([departures](departures.md)), and the rebuild is not set by the capture.
+
 ### The saved game
 
 **The original's files are read, and written back as it wrote them.** A
@@ -123,7 +163,9 @@ For every song the game ships and every case of the location logic the
 suite keeps a **digest** — an FNV-1a 64 of the register stream in the order
 the chip would have seen it, or of what the logic did — and holds each run
 against the table. The sixteen songs are each played endlessly for 20 000
-driver ticks through the game's own `MUSADL.DRV`.
+driver ticks through the game's own `MUSADL.DRV`; the 21 effects and the
+sixteen songs' digital voices are mixed through its `DMABLAST.DRV`, and
+their DMA bytes digested.
 
 A digest says nothing about whether a stream is *right*. What it says is
 that nothing moved, which a comparison made once by hand cannot say
@@ -140,8 +182,8 @@ the 60 slots of `DSROOM.DAT` with their six optional resources, every
 room's playfield and hotspot table composed, every map cell naming a tile
 in its layer's table, every `AN` block parsed, every dialogue bank read and
 every text measured against the room the program copies it into, the
-music library's sixteen songs and their module heads, the Ad Lib driver
-inside the driver file, the font inside the pointer file. The location
+music library's sixteen songs, their module heads and the 21 effects, the
+Ad Lib driver and the digital driver inside the driver file, the font inside the pointer file. The location
 table is read out of the program and its 61 rows listed; the program's
 data segment is found in each of the three programs. And the readers are
 handed the shipped files damaged — cut short and flipped — with the
@@ -156,9 +198,8 @@ up are what pictures cover. Walking, the verb strip,
 the options' pages and the dialogue menus are held to the logic traces and
 to the program's code, not to a capture; so is every song but the title
 program's and, up to its exit fade, the Zimmer's, which only the digests
-hold still. The sound effects are not
-heard at all: the engine plays the game as the sound setup's Ad Lib answer,
-with no digital channel ([departures](departures.md)).
+hold still. The sound effects are held in the Zimmer and the Küche alone,
+and never in a room without music.
 
 That is not a gap being hidden. It is the edge of what a reimplementation
 can claim without the original running beside it, and it is why the lists
@@ -169,4 +210,4 @@ above are kept apart.
 - [Departures](departures.md) — every place motionvm knowingly does something else, and why
 - [Open questions](open-questions.md) — what is unknown about the original
 - [motionvm-parsec-tools](tools.md) — the inspector, and the register stream a music comparison is made from
-- [PSM 2](../psm/README.md) — the driver the music runs through
+- [PSM 2](../psm/README.md) — the drivers the sound runs through

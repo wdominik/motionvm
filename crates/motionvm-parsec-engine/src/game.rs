@@ -253,6 +253,10 @@ impl crate::Runtime for Game {
         self.inner.music_driver()
     }
 
+    fn dac_driver(&self) -> Result<Option<Vec<u8>>> {
+        self.inner.dac_driver()
+    }
+
     /// The saves go into a directory of the game's own under `dir`, named
     /// for its slug — `saves/ds1/SAVEGAME.SAV` — with the original's file names inside it. Refused when `dir`
     /// resolves inside the game directory: the install is treated as

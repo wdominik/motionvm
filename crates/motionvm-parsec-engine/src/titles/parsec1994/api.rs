@@ -589,7 +589,7 @@ impl Api for Adventure {
         Adventure::input_locked(self);
     }
     fn play_sample(&mut self, k: u16) {
-        self.events.push(Event::Sample(num::low8(k)));
+        self.effect_1949(num::low8(k));
     }
 
     fn input_poll(&mut self) {

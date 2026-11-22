@@ -76,7 +76,7 @@ The components:
 | Crate | Role | Depends on |
 |---|---|---|
 | `motionvm-opl` | The OPL3 every rebuilt music driver ends at, the sample clock a sequencer runs on, and the byte rules between a driver and a register | — |
-| `motionvm-psm` | PSM 2: the module format, `MUSADL.DRV`'s sequencer, and the `DMA*.DRV` drivers' sample voice | `opl` |
+| `motionvm-psm` | PSM 2: the module format, `MUSADL.DRV`'s sequencer, the `DMA*.DRV` drivers' sample voice, and `DMABLAST.DRV`'s mixer with a song's digital voices | `opl` |
 
 The MOTION family:
 

@@ -405,8 +405,11 @@ obligation it carries, are recorded in `NOTICE`.
 five 16-bit games shipped a `SOUND.EXE` that let a player pick a digital
 renderer instead — the `DMA*.DRV` drivers, which play the same tunes out of the
 modules' `SM8` sample sections rather than synthesizing them, and a
-digital-only configuration still has music. Their internals are unread, so
-motionvm plays the FM rendition for every game and every setting. The one
+digital-only configuration still has music. motionvm plays the FM
+rendition for every game and every setting: `DMABLAST.DRV`'s mixer and its
+half of a song's digital voices are read and rebuilt in `motionvm-psm`
+([PSM 2 drivers](../psm/drivers.md)), but no MOTION game is played through
+them, and the other `DMA*.DRV` drivers' mixers are unread. The one
 word that reaches those drivers for a *sample* rather than a tune,
 `PLAYSAMPLE`, is another matter: its path through the driver is read and
 rebuilt ([the 16-bit machine](#the-16-bit-machine)). The 32-bit engine's
@@ -676,8 +679,8 @@ the rebuild does — and a player who remembers the card's mix may remember
 another balance.
 And the driver's *other* path — a software mixer of up to eight channels with
 per-channel volume (`0x196b`), which `PLAYSAMPLE` never reaches with one
-channel installed — is read and not rebuilt: nothing in shipped play would
-sound through it. `ENVIRO.EXE` carries
+channel installed — is read and rebuilt in `motionvm-psm`, and no MOTION game
+plays through it: nothing in shipped play would sound through it. `ENVIRO.EXE` carries
 the first half alone (`1696:0357`), and no game of that build calls the word.
 ([PSM 2 music](motion16/formats/psm-music.md),
 [open questions](open-questions.md#motion-16-bit))

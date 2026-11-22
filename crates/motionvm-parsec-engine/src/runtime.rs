@@ -63,6 +63,10 @@ pub trait Runtime: Send {
     /// The bytes of the music driver the game installs, as the game ships
     /// it — the file the sink plays through — or why sound is off.
     fn music_driver(&self) -> Result<Vec<u8>>;
+    /// The bytes of the digital driver the game installs beside it, as the
+    /// game ships it — the file its effects and a song's digital voices play
+    /// through — or `None` for a game without one.
+    fn dac_driver(&self) -> Result<Option<Vec<u8>>>;
     /// Points saving and loading at a directory; the game keeps its files
     /// in a directory of its own under it, named for its slug.
     fn set_saves(&mut self, dir: &Path) -> Result<()>;

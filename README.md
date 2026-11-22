@@ -335,16 +335,16 @@ covers and what it does not;
 [`docs/parsec/departures.md`](docs/parsec/departures.md) list every place
 motionvm knowingly does something else.
 
-One of those a player may notice: every game plays its Ad Lib rendition of
-its music, whatever its sound setup said. The 16-bit games shipped a
-`SOUND.EXE` that could pick a sampled renderer instead, and that renderer is
-not ported — so a player who remembers the Sound Blaster mix of a 16-bit tune
-hears the FM one. The 32-bit engine's digital layer is another matter: it
-plays Checker 2000's speech and effects over the music as the original's
-mixer does, read out of it; Dunkle Schatten 2 ships no WAV file, so its
-scripts' speech path is never reached. Dunkle Schatten plays as its sound
-setup's Ad Lib answer: the music is the Ad Lib rendition, and its sound
-effects, which need a Sound Blaster's digital channel, are silent.
+One of those a player may notice: every MOTION game plays its Ad Lib
+rendition of its music, whatever its sound setup said. The 16-bit games
+shipped a `SOUND.EXE` that could pick a sampled renderer instead, and they
+are not played through it — so a player who remembers the Sound Blaster mix
+of a 16-bit tune hears the FM one. The 32-bit engine's digital layer is
+another matter: it plays Checker 2000's speech and effects over the music as
+the original's mixer does, read out of it; Dunkle Schatten 2 ships no WAV
+file, so its scripts' speech path is never reached. Dunkle Schatten plays
+music and sound effects: its songs on the OPL with their digital voices,
+and its effects, through the game's own `MUSADL.DRV` and `DMABLAST.DRV`.
 
 ## How it works
 

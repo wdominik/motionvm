@@ -43,12 +43,16 @@
 //! endlessly once the menu has faded in (`0072h:0658h(…, −1)` at `0x3854`,
 //! after the fade's call at `0x3846`), faded over 2 000 ms when a line is
 //! chosen (`0072h:0858h(7D0h)`, `0x3AA2`, which returns at once) and
-//! stopped once the menu has faded out (`0072h:08A9h` at `0x3B07`). The
+//! stopped once the menu has faded out (`0072h:08A9h` at `0x3B07`), the
+//! digital driver's `StopAll` behind it (`0072h:08F7h` at `0x3B0C`). The
 //! library is `XP01`'s, with its switch `[0A8h]` at 1 in the image and no
-//! options to change it, so each call is the driver's entry; they leave
-//! the program as [`Request`]s for the game to hand on. Every one of them
-//! is a no-op without a sound card (`[0A2h]` clear, `0x0D80`, `0x0F85`),
-//! and the pictures and timing do not depend on them.
+//! options to change it, so each call is the driver's entry — with a DAC
+//! (`[0A6h]`) the song's digital part goes to the digital driver before
+//! the play (`0x0E4F`) — and they leave the program as [`Request`]s for
+//! the game to hand on. Every one of them is a no-op without a sound card
+//! (`[0A2h]` clear, `0x0D80`, `0x0F85`), and the pictures and timing do not
+//! depend on them. No call of the program plays an effect: its play
+//! routine (`0072h:08CBh`) has no caller.
 
 use crate::num;
 use std::collections::VecDeque;
@@ -618,8 +622,8 @@ impl Xp00 {
         }
     }
 
-    /// `0x3AB2`–`0x3B07`: the menu faded out a level a retrace, then the
-    /// music stopped (`0x3B07`), and line 1 goes on to the backstory
+    /// `0x3AB2`–`0x3B0C`: the menu faded out a level a retrace, then the
+    /// music stopped (`0x3B07`, `0x3B0C`), and line 1 goes on to the backstory
     /// (`0x3B42`).
     fn menu_out(&mut self, f: Fade, choice: Choice) -> Flow {
         let flow = self.fade(f, move |_, f| match f {
@@ -628,7 +632,9 @@ impl Xp00 {
             None => Stage::Done(choice),
         });
         if !matches!(self.stage, Stage::MenuOut(..)) {
+            // 0x3B0C: the digital driver's `StopAll` after the stop.
             self.music.push(Request::Stop);
+            self.music.push(Request::StopEffects);
         }
         flow
     }

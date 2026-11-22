@@ -5,9 +5,10 @@
 //! exactly those nine in place and hands the first section to the music
 //! driver, which checks it for the tag `PLX\0` (`MUSADL.DRV` offset `0xe3b`)
 //! — so section 0 is the whole of the Ad Lib song. The `MDH\0` chunk at
-//! offset 56 and the `SM8\0` sample sections belong to the digital driver,
-//! which nothing here plays; a sample also ships on its own, outside any
-//! module, and [`Sample`] reads that form's header.
+//! offset 56 and the `SM8\0` sample sections belong to the digital driver:
+//! [`Mdh`] reads the chunk, the digital voices of the song, and [`Sample`]
+//! a sample's header — a sample also ships on its own, outside any module,
+//! with the same header.
 //!
 //! The `PLX` section, as the driver reads it (`MUSADL.DRV` `0xcb4`):
 //!
@@ -47,22 +48,29 @@ pub fn is_sample(item: &[u8]) -> bool {
 /// PCM.
 ///
 /// Read off the driver that plays it, and held to the sample blocks
-/// measured. The header is `SM8\0`, `u16 0x0100`, `u16 length`, `u16
-/// period`, and the length was the block's less ten in every one. `DMABLAST.DRV`'s play path (`0x0611`) skips the tag and the version,
+/// measured. The header is `SM8\0`, `u16 volume`, `u16 length`, `u16
+/// period`, and the length was the block's less ten in every one.
+/// `DMABLAST.DRV`'s direct path (`0x0611`) skips the tag and the volume,
 /// takes the length as the DMA count, and turns the last word into the DSP's
 /// time constant through a 256-entry table at `0x60` — `256 − round(w · 1000
 /// / 1193)`, the word in whole microseconds at 1.193 cycles each, `table[59]`
 /// being `0xcf` — so the word is the **sample period in PIT cycles**, the
 /// same unit `MUSADL.DRV`'s tempo is in, and what the DAC plays is the
 /// driver's rounding of it, which [`Voice`](crate::Voice) reproduces. Its
-/// multi-channel mixer (`0x196b`) reads the word at `+8` out of the header
-/// the same way, as the step against the mixer's own period.
+/// mixer (`0x196b`) reads the word at `+8` out of the header the same way,
+/// as the step against the mixer's own period, and the word at `+4` to
+/// choose the channel's volume ([`Mixer`](crate::Mixer)).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sample {
-    /// The header's second word — `0x0100` in every block measured. The
-    /// mixer path reads it as the channel's volume, taking `0x0100` as "the
-    /// default" (`0x2090`); the direct path never reads it.
-    pub version: u16,
+    /// The header's second word, the volume — `0x0100` in every block
+    /// measured. The play entry reads it signed: at zero or below it takes
+    /// the direct path (`0x2012`), which plays at full scale and reads it no
+    /// further. On the mixer path `0x0100` gives the channel the default the
+    /// host set with entry 22, and **every other value gives it `0x0100`**:
+    /// the entry loads `0x100` (`0x2090`), replaces it with the default
+    /// only where the word equals it (`0x2093`–`0x2098`), and stores that
+    /// (`0x209d`) — the word itself never becomes a channel's volume.
+    pub volume: u16,
     /// The sample period in PIT cycles — 56 to 179 across the blocks
     /// measured, which is 21.3 kHz down to 6.7 kHz; see [`Sample::rate`].
     pub period: u16,
@@ -80,7 +88,7 @@ impl Sample {
                 detail: "the SM8 tag is missing".into(),
             });
         }
-        let [version, length, period] = words::<3>(item, 4)?;
+        let [volume, length, period] = words::<3>(item, 4)?;
         let start = 10;
         let end = start + usize::from(length);
         let pcm = item
@@ -92,7 +100,7 @@ impl Sample {
             })?
             .to_vec();
         Ok(Self {
-            version,
+            volume,
             period,
             pcm,
         })
@@ -107,6 +115,135 @@ impl Sample {
     pub fn rate(&self) -> u32 {
         PIT_HZ.checked_div(u32::from(self.period)).unwrap_or(PIT_HZ)
     }
+}
+
+/// The tag of a song's digital part.
+pub const MDH_TAG: &[u8; 4] = b"MDH\0";
+
+/// The most digital voices a song has: `DMABLAST.DRV`'s entry 21 refuses a
+/// count outside 1 to 8 (`0x2612`–`0x2619`), and its voice tables hold eight.
+pub const MDH_VOICES: usize = 8;
+
+/// One digital voice of a song, as its eight-byte record holds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MdhVoice {
+    /// The channel's priority (`+1`, stored at `0x2555`). The driver reads it
+    /// only where a mixer that fell behind gives up a channel (`0x1b58`),
+    /// which the rebuild never reaches.
+    pub priority: u8,
+    /// Which entry of the song's sample table the voice plays (`+2`, read at
+    /// `0x2579`).
+    pub sample: u16,
+    /// The four levels an event chooses among (`+4`, copied at
+    /// `0x255d`/`0x2565`).
+    pub levels: [u8; 4],
+}
+
+/// A song's digital part: the `MDH\0` chunk, as `DMABLAST.DRV`'s entry 21
+/// (`0x25ea`) checks it and its start callback (`0x2506`) reads it.
+///
+/// ```text
+/// +00  "MDH\0"           compared as "MD" and "H\0" (0x2606, 0x260c)
+/// +04  u16                not read
+/// +06  u16                offset of the event stream from the tag (0x25bb)
+/// +08  u16   nv           the voice count, 1 to 8 (0x2612)
+/// +0A  8-byte records, one per voice:
+///        +0  u8   not read
+///        +1  u8   priority
+///        +2  u16  index into the song's sample table
+///        +4  4×u8 levels
+/// ```
+///
+/// The event stream, one byte at a time (`0x2342`–`0x2402`):
+///
+/// | Byte | What it is |
+/// |---|---|
+/// | `000vvvll` | voice `v`'s volume from its level `l`, then its sample from the start |
+/// | `20 00` | the end of the stream |
+/// | `01xxxxxx` | a pause of one row, then the event `xxxxxx` |
+/// | `10dddddd` | a pause of `2·d` rows |
+/// | `11dddddd e` | a pause of `(d << 8) + e` rows |
+///
+/// Any other byte where an event is due — `20` followed by anything but `00`,
+/// or `21` to `3F` — runs the end of the stream (`0x2402` → `0x2500`) from a
+/// stack the end does not return through, so the driver does not survive it;
+/// a stream that reaches one, or runs past its block without reaching `20
+/// 00`, is refused here. So is a voice record past the block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mdh {
+    /// The voices, as many as the count says.
+    pub voices: Vec<MdhVoice>,
+    /// The event stream, from its offset to the end of the block.
+    pub events: Vec<u8>,
+}
+
+impl Mdh {
+    /// Reads the chunk at the start of `block`, which runs to the end of
+    /// what the song's digital part may read.
+    pub fn parse(block: &[u8]) -> Result<Self> {
+        let corrupt = |detail: &str| Error::Corrupt {
+            what: "PSM 2 MDH",
+            detail: detail.into(),
+        };
+        if !block.starts_with(MDH_TAG) {
+            return Err(corrupt("the MDH tag is missing"));
+        }
+        let [_, events, count] = words::<3>(block, 4)?;
+        let count = usize::from(count);
+        if !(1..=MDH_VOICES).contains(&count) {
+            return Err(corrupt("the voice count is outside 1 to 8"));
+        }
+        let mut voices = Vec::with_capacity(count);
+        for v in 0..count {
+            let at = 0x0a + 8 * v;
+            let rec = block.get(at..at + 8).ok_or(Error::Truncated {
+                off: at,
+                need: 8,
+                have: block.len(),
+            })?;
+            voices.push(MdhVoice {
+                priority: rec[1],
+                sample: u16::from_le_bytes([rec[2], rec[3]]),
+                levels: [rec[4], rec[5], rec[6], rec[7]],
+            });
+        }
+        let events = block
+            .get(usize::from(events)..)
+            .ok_or_else(|| corrupt("the event stream starts past the block"))?
+            .to_vec();
+        if !stream_ends(&events) {
+            return Err(corrupt(
+                "the event stream does not reach 20 00 through events the driver reads",
+            ));
+        }
+        Ok(Self { voices, events })
+    }
+}
+
+/// Whether a stream, read the way the driver reads it, reaches `20 00`
+/// through bytes the driver comes back from.
+fn stream_ends(events: &[u8]) -> bool {
+    let mut at = 0;
+    while let Some(&b) = events.get(at) {
+        at += 1;
+        // A pause byte; the one-row pause hands its low six bits on as the
+        // event after it.
+        let event = match b {
+            0x80..=0xbf => continue,
+            0xc0..=0xff => {
+                at += 1;
+                continue;
+            }
+            0x40..=0x7f => b & 0x3f,
+            _ => b,
+        };
+        match event {
+            0x00..=0x1f => {}
+            0x20 => return events.get(at) == Some(&0),
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Where the tags of one module sit.
@@ -224,7 +361,7 @@ impl Plx {
 
 #[cfg(test)]
 mod tests {
-    use super::{Sample, is_sample};
+    use super::{Mdh, MdhVoice, Sample, is_sample};
 
     /// The header as the shipped blocks have it, over four bytes of PCM.
     #[test]
@@ -234,7 +371,7 @@ mod tests {
         ];
         assert!(is_sample(&block));
         let s = Sample::parse(&block).expect("a sample");
-        assert_eq!(s.version, 0x0100);
+        assert_eq!(s.volume, 0x0100);
         assert_eq!(s.period, 59);
         assert_eq!(s.pcm, [0x80, 0x84, 0x7f, 0x7a]);
         assert_eq!(s.rate(), 20223, "1 193 182 / 59");
@@ -248,5 +385,56 @@ mod tests {
         let plx = [b'P', b'L', b'X', 0, 13, 0, 0, 0, 0, 0, 0];
         assert!(!is_sample(&plx));
         assert!(Sample::parse(&plx).is_err());
+    }
+
+    /// A chunk of two voices whose stream holds every kind of byte the
+    /// driver reads before its end.
+    fn mdh(stream: &[u8]) -> Vec<u8> {
+        let mut b = b"MDH\0".to_vec();
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.extend_from_slice(&0x1au16.to_le_bytes());
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&[0, 0x40, 0, 0, 0x10, 0x20, 0x30, 0x40]);
+        b.extend_from_slice(&[0, 0x80, 1, 0, 0x50, 0x60, 0x70, 0x80]);
+        b.extend_from_slice(stream);
+        b
+    }
+
+    #[test]
+    fn an_mdh_reads_its_voices_and_its_stream() {
+        let stream = [0x00, 0x86, 0x45, 0xc1, 0x02, 0x07, 0x20, 0x00];
+        let m = Mdh::parse(&mdh(&stream)).expect("an MDH");
+        assert_eq!(
+            m.voices,
+            [
+                MdhVoice {
+                    priority: 0x40,
+                    sample: 0,
+                    levels: [0x10, 0x20, 0x30, 0x40],
+                },
+                MdhVoice {
+                    priority: 0x80,
+                    sample: 1,
+                    levels: [0x50, 0x60, 0x70, 0x80],
+                },
+            ]
+        );
+        assert_eq!(m.events, stream);
+        // A one-row pause can carry the end as its event.
+        assert!(Mdh::parse(&mdh(&[0x60, 0x00])).is_ok());
+    }
+
+    /// A stream the driver does not come back from, or one without its end,
+    /// is refused; so is a count outside 1 to 8.
+    #[test]
+    fn an_mdh_the_driver_does_not_survive_is_refused() {
+        for stream in [&[0x20, 0x01][..], &[0x21], &[0x61], &[0x00, 0x04], &[0xc0]] {
+            assert!(Mdh::parse(&mdh(stream)).is_err(), "{stream:x?}");
+        }
+        let mut b = mdh(&[0x20, 0x00]);
+        b[8] = 9;
+        assert!(Mdh::parse(&b).is_err());
+        b[8] = 0;
+        assert!(Mdh::parse(&b).is_err());
     }
 }

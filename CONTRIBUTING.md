@@ -369,7 +369,7 @@ Dependencies point strictly downward:
 | `motionvm-render` | Framebuffer, palettes and blits |
 | `motionvm-playable` | The window-to-engine contract |
 | `motionvm-opl` | The OPL3, the sample clock, the byte rules: a component |
-| `motionvm-psm` | PSM 2: format, `MUSADL.DRV` sequencer, sample voice: a component |
+| `motionvm-psm` | PSM 2: format, `MUSADL.DRV` sequencer, sample voice, `DMABLAST.DRV` mixer: a component |
 | `motionvm-motion-audio` | FM driver and HMI sequencer, and the engine's hosting of PSM 2 |
 | `motionvm-motion-engine` | The runtime that ties them into the game loop |
 | `motionvm-motion` | The family's front door: engine and audio, paired behind the contract |
@@ -767,9 +767,10 @@ concerns the 32-bit engine as it runs its two games unless it names the
    module is built at runtime and cannot be reconstructed.
 3. **The OPL3 is `nuked-opl3`**, bit-identical to the reference emulator;
    nothing in the game defines what the chip does with a register.
-4. **The digital music renderer is not ported.** The `DMA*.DRV` drivers can
-   play the 16-bit games' tunes sampled; their internals are unread, and
-   every game plays the FM rendition. What is built is each digital path a
+4. **The MOTION games play the FM rendition.** The `DMA*.DRV` drivers can
+   play the 16-bit games' tunes sampled; `DMABLAST.DRV`'s mixer and a song's
+   digital voices are rebuilt in `motionvm-psm`, where Dunkle Schatten plays
+   them, but every MOTION game plays the FM rendition. What is built is each digital path a
    game takes for a *sample*: Falsches Spiel mit Eddie M.'s `PLAYSAMPLE`,
    read through the driver to the DAC — a playing tune is cut, and the
    sample plays once at full scale, which is the level the files do not

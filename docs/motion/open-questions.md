@@ -294,10 +294,12 @@ something the others do not. What is open:
 - **The digital music renderer** — the `DMA*.DRV` drivers play the same
   tunes from the modules' `SM8` sample sections (measured: digital-only
   configuration still plays the music, sampled), picked by index and
-  installed at IRQ 7/DMA 1 (`10d8:0110`, `10d8:01f5`); their internals
-  are unread and motionvm plays the Ad Lib rendition only. `MUSADL.DRV`'s
-  callback protocol and the Volume entry's negative selectors are present
-  and unexercised by the game.
+  installed at IRQ 7/DMA 1 (`10d8:0110`, `10d8:01f5`). `DMABLAST.DRV`'s
+  mixer and `MUSADL.DRV`'s callback protocol that steps a song's digital
+  voices are read and rebuilt ([PSM 2 drivers](../psm/drivers.md)); the
+  other drivers' mixers are unread, and the MOTION games play the Ad Lib
+  rendition only. The Volume entry's negative selectors are present and
+  unexercised by the game.
 - **The DAC against the OPL.** How loud the Sound Blaster's eight-bit DAC
   stood against its OPL on the card's analog mixer, at the mixer settings
   `SOUND.EXE` leaves, is not in any file; the rebuild gives the DAC full

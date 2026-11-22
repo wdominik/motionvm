@@ -5,6 +5,27 @@
 # fixture derived from the game's data, which is why it may live here
 # where a rendered frame may not. See motionvm-parsec-testutil's
 # `digest` module for what each one covers.
+effect_00  0x79f07c2e0f55c7e2  anchored: the driver's own mixer, run on the same plays
+effect_01  0xee8629a0f12453bd  anchored: the driver's own mixer, run on the same plays
+effect_02  0xb3f02521f684411a  anchored: the driver's own mixer, run on the same plays
+effect_03  0xa42f086ca06f147a  anchored: the driver's own mixer, run on the same plays
+effect_04  0x537a1b5110091760  anchored: the driver's own mixer, run on the same plays
+effect_05  0x5aab9e4948989677  anchored: the driver's own mixer, run on the same plays
+effect_06  0xbea0d461c2b5aff6  anchored: the driver's own mixer, run on the same plays
+effect_07  0x022a847c7aeedf86  anchored: the driver's own mixer, run on the same plays
+effect_08  0x47e5aef490bb0fb4  anchored: the driver's own mixer, run on the same plays
+effect_09  0x6dd338f67fbb4d93  anchored: the driver's own mixer, run on the same plays
+effect_10  0x2744ae6cae262773  anchored: the driver's own mixer, run on the same plays
+effect_11  0x8ec3effd7c9f5d4f  anchored: the driver's own mixer, run on the same plays
+effect_12  0xf41e4d237d34b9b8  anchored: the driver's own mixer, run on the same plays
+effect_13  0x2433366673354b9f  anchored: the driver's own mixer, run on the same plays
+effect_14  0x09401c1b89ddee48  anchored: the driver's own mixer, run on the same plays
+effect_15  0x02df1b8ddfc4a513  anchored: the driver's own mixer, run on the same plays
+effect_16  0x903b309473069ab2  anchored: the driver's own mixer, run on the same plays
+effect_17  0x8359df0e046bdeea  anchored: the driver's own mixer, run on the same plays
+effect_18  0x4230237fccd4222e  anchored: the driver's own mixer, run on the same plays
+effect_19  0xd941fe14a317e156  anchored: the driver's own mixer, run on the same plays
+effect_20  0x1bac28212967ddb1  anchored: the driver's own mixer, run on the same plays
 module_00  0xf28db9d88405cd40
 module_01  0x838877a6ef6d7e77
 module_02  0x5da924b587c33821
@@ -21,3 +42,19 @@ module_12  0xf828317078988743
 module_13  0x431d6162da4bc8d8
 module_14  0x3efa9926c6ca57a3
 module_15  0x59677263ea5b31bf
+voices_00  0xea142d5878bb12d0  anchored: the driver's own mixer, run on the same plays
+voices_01  0x8c906091b9f0da7a  anchored: the driver's own mixer, run on the same plays
+voices_02  0xb8f351bec9132933  anchored: the driver's own mixer, run on the same plays
+voices_03  0xde27ce939ae95dc1  anchored: the driver's own mixer, run on the same plays
+voices_04  0x204534c9d4b41a32  anchored: the driver's own mixer, run on the same plays
+voices_05  0x85321937c4b1998c  anchored: the driver's own mixer, run on the same plays
+voices_06  0x58c9224dfa0c19c1  anchored: the driver's own mixer, run on the same plays
+voices_07  0xa8d8559f326f2b2c  anchored: the driver's own mixer, run on the same plays
+voices_08  0x61489db3680d6b31  anchored: the driver's own mixer, run on the same plays
+voices_09  0x2ee145dcb51e9193  anchored: the driver's own mixer, run on the same plays
+voices_10  0xe10fe66f674cbdab  anchored: the driver's own mixer, run on the same plays
+voices_11  0x53e348e1e7c618e1  anchored: the driver's own mixer, run on the same plays
+voices_12  0xe2dac084e3d526e5  anchored: the driver's own mixer, run on the same plays
+voices_13  0x6ac4422a45a36b0b  anchored: the driver's own mixer, run on the same plays
+voices_14  0x9617904e528f2270  anchored: the driver's own mixer, run on the same plays
+voices_15  0x2d98733adaf48287  anchored: the driver's own mixer, run on the same plays

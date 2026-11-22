@@ -8,10 +8,10 @@
 //! roster of families and nothing else, and this family is one line of it:
 //! [`PARSEC`].
 //!
-//! Music: the engine leaves its driver calls as bytes over its own
+//! Sound: the engine leaves its driver calls as bytes over its own
 //! `MusicSink`, and never learns the codec; [`Playable::open_music`] pairs
-//! it here with `motionvm_psm`'s player of the game's own `MUSADL.DRV`,
-//! which the engine hands over as bytes.
+//! it here with `motionvm_psm`'s player of the game's own `MUSADL.DRV` and
+//! its `DMABLAST.DRV` — both handed over by the engine as bytes.
 
 mod music;
 
@@ -124,13 +124,14 @@ impl Playable for Front {
         self.game.frame_duration()
     }
 
-    /// The game's driver, from its own files, and the sink on the game —
+    /// The game's drivers, from its own files, and the sink on the game —
     /// before `start`, because the title program's first song comes before
-    /// any input. A copy whose library or driver will not read answers why
-    /// sound is off.
+    /// any input. A copy whose library or drivers will not read
+    /// answers why sound is off.
     fn open_music(&mut self, rate: u32) -> Result<Option<Box<dyn AudioSource>>> {
         let driver = self.game.music_driver()?;
-        let (source, sink) = music::open_music(&driver, rate)?;
+        let dac = self.game.dac_driver()?;
+        let (source, sink) = music::open_music(&driver, dac, rate)?;
         self.game.set_music(sink);
         Ok(Some(source))
     }

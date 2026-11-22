@@ -2,7 +2,7 @@
 
 # The PSM 2 format
 
-*The PSM 2 component — the module, the `PLX` song and the `SM8` sample, as `MUSADL.DRV` and `DMABLAST.DRV` read them. File offsets are `MUSADL.DRV`'s unless marked otherwise. Which blocks of which game are music, and how many, is the hosting family's to say.*
+*The PSM 2 component — the module, the `PLX` song, the `MDH` digital part and the `SM8` sample, as `MUSADL.DRV` and `DMABLAST.DRV` read them. File offsets are `MUSADL.DRV`'s unless marked otherwise. Which blocks of which game are music, and how many, is the hosting family's to say.*
 
 ## The module
 
@@ -11,8 +11,8 @@ section offsets at +0x10, ascending, ending at the first zero. A host's
 loader converts them to far pointers in place and hands the driver the
 first section — the `PLX\0` song. Every later section is an `SM8\0` sample
 for the digital-sample driver a host can install beside the Ad Lib one, and
-an `MDH\0` block sits between table and sections at +0x38; the FM path
-reads neither.
+an `MDH\0` block — the song's digital voices — sits between table and
+sections at +0x38; the FM path reads neither.
 
 A song may also be stored without a module: a bare `PLX` section with no
 tag, no section table and no samples. Both forms reach the same reader,
@@ -64,6 +64,44 @@ The note table (`0x6d6`) is 96 words of `block << 10 | fnum`, C-0 to B-7:
 twelve F-numbers 343 363 385 408 432 458 485 514 544 577 611 647, the
 block the octave.
 
+## The digital part — the `MDH` chunk
+
+What `DMABLAST.DRV` plays of a song beside the Ad Lib part: up to eight
+voices, each striking one sample at one of four levels. Entry 21 (`0x25ea`)
+checks the chunk and the start callback (`0x2506`) reads it, offsets from
+the tag:
+
+```
+char tag[4]     ; "MDH\0" — compared as "MD" and "H\0" (0x2606, 0x260c)
+u16  unread
+u16  events     ; offset of the event stream (0x25bb)
+u16  voices     ; 1 to 8 (0x2612)
+struct {        ; one per voice, from +0x0a
+  u8  unread
+  u8  priority  ; the channel's, read only by the mixer's overload handling
+  u16 sample    ; index into the song's sample table (0x2579)
+  u8  level[4]  ; the four levels an event picks from (0x255d, 0x2565)
+} voice[voices]
+```
+
+The sample table is the host's: a module's sample sections, as far
+pointers. The stream is read a byte at a time (`0x2342`–`0x2402`):
+
+| Byte | What it is |
+|---|---|
+| `000vvvll` | voice `v`'s volume from level `l` times the song's scale, and its sample struck from the start |
+| `20 00` | the end of the stream |
+| `01xxxxxx` | a pause of one row, then the event `xxxxxx` (`0x2365`, the byte read again) |
+| `10dddddd` | a pause of `2·d` rows (`0x2378`) |
+| `11dddddd e` | a pause of `(d << 8) + e` rows (`0x237d`) |
+
+There is no note-off and no pitch: a sample runs to its end or until its
+voice strikes it again, at the period its header names. Any other byte
+where an event is due — `20` before anything but `00`, `21` to `3f` — runs
+the end (`0x2402` → `0x2500`) from a stack it does not return through, and
+the reader refuses a stream that reaches one, or that runs out before its
+`20 00`.
+
 ## The sample — an `SM8` block
 
 A sample is a section of a module or a block on its own, and the header is
@@ -71,7 +109,7 @@ the same either way:
 
 ```
 char tag[4]     ; "SM8\0"
-u16  version    ; 0x0100 in every block measured
+u16  volume     ; 0x0100 in every block measured — read signed by the play entry
 u16  length     ; bytes of PCM to follow — the block's length less ten
 u16  period     ; one sample's length in PIT cycles
 u8   pcm[]      ; unsigned, mid-point 0x80
@@ -80,8 +118,13 @@ u8   pcm[]      ; unsigned, mid-point 0x80
 The period is read the way `MUSADL.DRV` reads its tempo, in PIT cycles,
 and the digital driver says so twice — see
 [the drivers](drivers.md#the-sample-path-of-the-dma-drivers) for the table
-that turns it into the DSP's clock, and for the mixer that reads the
-second word as a volume.
+that turns it into the DSP's clock, and for the mixer that steps through
+it. The second word is the volume, and the play entry reads it signed: at
+zero or below it takes the direct path, which plays at full scale; on the
+mixer path `0x0100` stands for the default volume a host sets with entry
+22, and every other value gives the channel `0x0100` — the entry loads
+`0x100` (`0x2090`) and replaces it only with the default (`0x2093`–`0x2098`),
+never with the word ([the mixer](drivers.md#the-mixer-of-dmablastdrv)).
 
 ## See also
 

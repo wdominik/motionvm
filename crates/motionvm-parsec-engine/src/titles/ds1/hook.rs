@@ -272,10 +272,8 @@ fn script_event(adv: &mut Adventure, n: i16, task: usize) {
     }
 }
 
-/// `0EB9h:1949h(k)`: sample `k` of the ones the room preloaded, through
-/// `0590h:091Ch`, which plays only with a digital driver installed
-/// (`[210h]`, `0x6226`). The engine runs with the Ad Lib card alone, so
-/// the sample plays nothing; the call is kept as an event.
+/// `0EB9h:1949h(k)`: the effect in slot `k`, through `0590h:091Ch`
+/// ([`Adventure::effect_1949`]).
 pub(super) fn sample(adv: &mut Adventure, k: u8) {
-    adv.events.push(crate::titles::parsec1994::Event::Sample(k));
+    adv.effect_1949(k);
 }

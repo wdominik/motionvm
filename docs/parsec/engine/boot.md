@@ -59,11 +59,14 @@ The title plays module 0 of `PSMP2L.DAT` from the menu on: loaded as the
 menu is built (XP00 `0x37A1`), started endlessly once the menu has faded
 in (XP00 `0x3854`), faded over 2 000 ms when a line is chosen (XP00
 `0x3AA2`, which returns at once) and stopped once the menu has faded out
-(XP00 `0x3B07`), some retraces after the fade began. The music library is
+(XP00 `0x3B07`), some retraces after the fade began, the digital
+driver's `StopAll` behind the stop (XP00 `0x3B0C`). The music library is
 `XP01`'s, its switch at 1 in the image and no options to change it, so
-each call reaches the driver; without a sound card each is a no-op (XP00
+each call reaches the drivers — the song's digital part goes to the
+digital driver, installed with three channels (XP00 `0x9A2`), before the
+play (XP00 `0x0E4F`); without a sound card each is a no-op (XP00
 `0x0D80`, `0x0F85`), and the pictures and their timing do not depend on
-them. The driver goes with the program, and `XP01` loads and installs its
+them. The drivers go with the program, and `XP01` loads and installs its
 own ([music](music.md)).
 
 ## How `XP01` begins

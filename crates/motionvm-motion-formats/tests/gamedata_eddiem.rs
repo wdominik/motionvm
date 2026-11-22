@@ -373,7 +373,7 @@ fn three_blocks_are_music_thirteen_are_samples_and_nothing_else_carries_a_tag() 
             _ if samples.contains(&id) => {
                 assert!(psm::is_sample(item), "block {id}");
                 let s = psm::Sample::parse(item).unwrap_or_else(|e| panic!("block {id}: {e}"));
-                assert_eq!(s.version, 0x0100, "block {id}");
+                assert_eq!(s.volume, 0x0100, "block {id}");
                 assert_eq!(
                     s.pcm.len() + 10,
                     item.len(),

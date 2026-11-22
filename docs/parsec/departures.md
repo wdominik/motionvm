@@ -105,29 +105,34 @@ order are the same.
 
 ## Sound
 
-**The sound setup is fixed: an Ad Lib card, no digital channel.** The
-program installs `MUSADL.DRV` when the setup's `PSMCFG4.DAT` names an Ad
-Lib card (`0x5B7B`, which sets `[20Ch]`), and a digital driver beside it
-when the file names a DAC (`0x5BEC`, `[210h]`). `PSMCFG4.DAT` is not read
-here: the engine runs as that file's Ad Lib answer, with a card whenever
-the music library could be read and never a digital channel, which is
-what `INFO.DOK` asks of the machine for the music. So every music call
-takes its Ad Lib path ([music](engine/music.md)), the digital driver's
-entries are the stubs of a driver that is not installed, and what follows
-from that follows as it does on such a machine:
+**An effect is heard from the audio buffer after the step that asked for
+it.** In the original the call reaches `DMABLAST.DRV` at once, and the
+driver's double buffer makes it heard from the first byte of the block
+after the next — or at once, into a standing mixer
+([music](engine/music.md#when-an-effect-is-heard)). Here the game asks on
+its own thread and the audio thread takes the request when it starts its
+next buffer; from there the mixer's blocks decide as they do there. So an
+effect, a `StopAll` and a song's start land up to one platform audio
+buffer later than the step that made them, and on the block grid from
+there. Nothing in the game waits on the sound, so nothing else moves.
 
-- **The sound effects are silent.** `0590h:091Ch` plays only with a
-  digital driver installed (`[210h]`, `0x6226`); the effects a handler
-  asks for are kept as events.
-- **No sample is preloaded.** An object map's bit 2 keeps a forest row
-  from loading samples of its own (`0x8355`) and the slot unload keeps
-  the picture's (`0x85D4`); with no digital channel there is nothing to
-  keep.
+**The digital side and the OPL are added at one fixed level.** The card
+mixed its DAC and its OPL in analog, and no file records the balance; the
+rebuild adds each DMA byte as `(byte − 80h) << 8` onto the frames the OPL
+filled ([PSM 2 drivers](../psm/drivers.md)).
 
-**A music library that will not read plays no music.** The original ends
+**An object without a record answers 1 to the seventh and eighth verbs'
+rules.** `1586h:0364h` and `1586h:0438h` read the kind of the object's
+record unchecked (`0x15BDB`, `0x15CAF`); for an object the lookup finds no
+record of, that is a read through a null pointer, and what follows depends
+on the machine's interrupt table. Here both rules answer 1 for such an
+object and play no sample.
+
+**A music library that will not read plays no sound.** The original ends
 at its init when `PSMP2L.DAT` cannot be opened or does not carry its
 signature (`0x13F00`, `0x13F3D`). Here the game opens without music and
-says why, because everything but the music is there to play.
+without effects — `[20Ch]` and `[210h]` clear, no slot filled — and says
+why, because everything but the sound is there to play.
 
 **A song number the library does not hold is no song.** The loader
 `1197h:000Dh(n)` answers null without a card (`0x1199F`); for a number past

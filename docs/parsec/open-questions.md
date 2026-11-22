@@ -18,7 +18,11 @@ the engine's 120 Hz ticks, the fade comes 2 972 ticks after the room's
 song starts and the stop 117 ticks after the fade. A capture of the
 original under DOSBox-X has 119 ticks between the fade and the stop, the
 stop where the engine has it and the fade two ticks sooner, counted from
-the song's start. Where the two ticks come from is not found.
+the song's start. Where the two ticks come from is not found. The fade
+does not reach its end before the stop, so the driver's end of a fade-out
+does not bear on it. A capture with the Sound Blaster has the Zimmer's
+effects 21 to 27 ms sooner in the original than here, and the Küche's song
+and effects 28 to 35 ms later ([verification](verification.md)).
 
 ## The forest and the maze
 

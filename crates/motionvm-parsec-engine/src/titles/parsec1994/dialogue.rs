@@ -88,8 +88,9 @@ pub(crate) enum Event {
     Unbuilt(&'static str, u32),
     /// `0C3Fh:095Ch(id)`: an item given.
     ItemGiven(u8),
-    /// `0EB9h:1949h(k)`: sample `k` asked for. With the Ad Lib card alone
-    /// there is no digital driver to play it (`0x6226`); noted.
+    /// `0EB9h:1949h(k)`: the effect in slot `k` asked for; with the switch
+    /// on, a digital driver and the slot filled, it plays
+    /// ([`Adventure::effect_1949`](super::Adventure::effect_1949)).
     Sample(u8),
     /// An animation's `17` opcode reported `code` for the object, through
     /// `0EB9h:1D97h` — and on to the location's own hook at `[1E60h]`.

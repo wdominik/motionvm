@@ -33,10 +33,11 @@
 //! `MTCVTS PSM 2.00\0`, then at `+10h` its own length — the offset section
 //! 0 will have — eight words at `+14h` naming rows of A (`FFFFFFFFh` for
 //! none), and at `+34h` the row of B that is its song. [`P2l::module`]
-//! assembles one as the loader `13ECh:028Fh` (`0x1414F`) does for a card
-//! with a digital channel; [`P2l::song`] is what the same loader answers
-//! with for an Ad Lib card alone (`0x1435A`): the song's bare `PLX`
-//! section, which is all the FM driver plays.
+//! assembles one as the loader `13ECh:028Fh` (`0x1414F`) does with the
+//! digital driver installed; [`P2l::song`] is what the same loader answers
+//! with without it (`0x1435A`): the song's bare `PLX` section, which is all
+//! the FM driver plays — the same bytes the assembled module carries behind
+//! its head.
 
 use crate::error::{Error, Result};
 use crate::{Record, Rib, bytes, long, lz, records, slice};
@@ -133,15 +134,34 @@ impl P2l {
         })
     }
 
-    /// Module `n`'s song as an Ad Lib card alone is handed it (`0x1435A`):
-    /// `n` held to C's bound (`0x14364`), the head read (`0x14398`), its
-    /// word at `+34h` taken as the row of B (`0x143A8`), and that row read
-    /// and unpacked (`0x14424`) — a bare `PLX` section.
+    /// Module `n`'s song as the loader hands it without the digital driver
+    /// (`0x1435A`): `n` held to C's bound (`0x14364`), the head read
+    /// (`0x14398`), its word at `+34h` taken as the row of B (`0x143A8`), and
+    /// that row read and unpacked (`0x14424`) — a bare `PLX` section.
     pub fn song(&self, n: usize) -> Result<Vec<u8>> {
         let head = self.head(n)?;
         let row = Record(bytes::<0x38>(&head, 0)?).u32at::<0x34>();
         let song = self.song_row(row)?;
         self.read(song)
+    }
+
+    /// Row `n` of table A as a card with a digital channel fetches one
+    /// sample (`13ECh:0210h`, `0x140D0`): `n` held to A's bound
+    /// (`0x140E6`, the program's message for one past it is "P2L:
+    /// Ungültiger Index!"), and the row read (`0x14147`) — an `SM8` block.
+    /// The program fetches the effects this way, rows 0 to 20 in Dunkle
+    /// Schatten's file.
+    pub fn sample(&self, n: usize) -> Result<Vec<u8>> {
+        let entry = self
+            .samples
+            .get(n)
+            .filter(|_| n < self.bounds[0])
+            .ok_or_else(|| Error::OutOfRange {
+                field: "P2L sample index",
+                value: long(n),
+                allowed: "below the header's bound for table A",
+            })?;
+        self.read(entry)
     }
 
     /// Module `n` assembled as the loader does with a digital channel
@@ -230,10 +250,25 @@ impl P2l {
 /// as the music driver (`0x5B7B`) — itself a RIB holding the one file,
 /// 4480 bytes once unpacked in Dunkle Schatten's copy.
 pub fn ad_lib_driver(psmdrv: &[u8]) -> Result<Vec<u8>> {
+    driver(psmdrv, AD_LIB)
+}
+
+/// The resource of `PSMDRV.DAT` that is `MUSADL.DRV` (`0x5B6B`, `push 5`).
+pub const AD_LIB: usize = 5;
+
+/// The resource of `PSMDRV.DAT` that is `DMABLAST.DRV`, the digital driver
+/// (`0x5BB3`, `si = 1`); 9840 bytes once unpacked in Dunkle Schatten's
+/// copy.
+pub const DMABLAST: usize = 1;
+
+/// Resource `n` of `PSMDRV.DAT`, one driver file: the outer RIB's entry,
+/// itself a RIB holding the one file (`0x5B73`, `0x5BE4`, the same loader
+/// for both drivers).
+pub fn driver(psmdrv: &[u8], n: usize) -> Result<Vec<u8>> {
     let outer = Rib::parse(psmdrv)?;
-    let inner = outer.get(5).ok_or_else(|| Error::Corrupt {
+    let inner = outer.get(n).ok_or_else(|| Error::Corrupt {
         what: "PSMDRV",
-        detail: "no resource 5, the Ad Lib driver".into(),
+        detail: format!("no resource {n}"),
     })?;
     Ok(Rib::parse(inner)?.decoded)
 }
@@ -345,6 +380,13 @@ mod tests {
         assert_eq!(word(0x14), 0, "an empty slot is 0");
         assert_eq!(word(0x1c), 0x38 + 8, "the sample's offset");
         assert_eq!(&m[0x40..0x44], b"SM8\0");
+    }
+
+    #[test]
+    fn a_sample_is_fetched_within_its_bound() {
+        let p = P2l::parse(library()).unwrap();
+        assert_eq!(p.sample(0).unwrap(), b"SM8\0pcm");
+        assert!(matches!(p.sample(1), Err(Error::OutOfRange { .. })));
     }
 
     #[test]

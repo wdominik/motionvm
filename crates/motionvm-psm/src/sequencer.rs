@@ -16,6 +16,35 @@ use crate::format::Plx;
 use crate::num;
 use motionvm_opl::Write;
 
+/// A call the driver makes through its callback cell (`[27Ah]`), which a
+/// digital driver installed beside it fills with its table (`DMABLAST.DRV`
+/// `0x2318`). The calls are made where the driver makes them; what the
+/// digital side answers is [`Player`](crate::Player)'s to deliver, and the
+/// row count the answers set (`[278h]`) goes with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Call {
+    /// `bx = 0`: the song is over (`0xb66`) or stopped (`0xe2f`).
+    Stop,
+    /// `bx = 2` at the end of the priming (`0xda3`): a song starts at the
+    /// level word `[280h]` as it stands.
+    Start {
+        /// The level, `0x100` from the play entry and 0 from the fade-in
+        /// entry.
+        level: u16,
+    },
+    /// The tick where the countdown reaches 0 (`0xa89`), and the tick a
+    /// song loops (`0xb4b`): the row count down by one, and `bx = 4` when
+    /// it reaches 0.
+    Step,
+    /// `bx = 6` with `ax = −1` from a fade tick: the level for every voice
+    /// (`0xbae`, `0xc1e`, `0xc51`).
+    Volume {
+        /// The level: `0x100` at a fade's full end, 0 at its silent one,
+        /// the fade's level word in between.
+        level: u16,
+    },
+}
+
 /// One channel of a song, as the driver keeps it.
 #[derive(Debug, Clone, Copy, Default)]
 struct Channel {
@@ -58,6 +87,10 @@ pub struct Sequencer {
     mod_ops: [u8; 9],
     car_ops: [u8; 9],
     notes: [u16; 96],
+    /// The callbacks made since they were last taken — `None` while the
+    /// cell holds the file's own stub (`0x57e`, a bare `retf`), which a
+    /// digital driver has not replaced.
+    calls: Option<Vec<Call>>,
 }
 
 impl Sequencer {
@@ -69,6 +102,13 @@ impl Sequencer {
     /// second song starts from the shadow the first one left, exactly as
     /// the original's driver stays installed from one song to the next.
     pub fn new(driver: &Driver, song: Plx, loops: i16) -> Self {
+        Self::build(driver, song, loops, 0x100, false)
+    }
+
+    /// The first song of a freshly installed driver at `level` — `0x100` by
+    /// the play entry, 0 by the fade-in entry, which sets it before priming
+    /// (`0x4a5`, `0x378`) — with the callbacks recorded when `linked`.
+    fn build(driver: &Driver, song: Plx, loops: i16, level: u16, linked: bool) -> Self {
         let mut shadow = [0xFFu8; 256];
         shadow.copy_from_slice(&driver.defaults);
         let mut seq = Self {
@@ -81,15 +121,53 @@ impl Sequencer {
             period: 0x200,
             channels: [Channel::default(); 9],
             master: [0x100; 9],
-            fade_pos: 0x100 << 8,
+            fade_pos: i32::from(level) << 8,
             fade_step: 0,
             shadow,
             mod_ops: driver.mod_ops,
             car_ops: driver.car_ops,
             notes: driver.notes,
+            calls: linked.then(Vec::new),
         };
         seq.prime();
         seq
+    }
+
+    /// [`Sequencer::new`] with its callbacks recorded from the start, as a
+    /// driver whose cell a digital driver filled makes them.
+    pub(crate) fn new_linked(driver: &Driver, song: Plx, loops: i16) -> Self {
+        Self::build(driver, song, loops, 0x100, true)
+    }
+
+    /// [`Sequencer::new_fade`] with its callbacks recorded from the start.
+    pub(crate) fn new_fade_linked(driver: &Driver, song: Plx, loops: i16, ms: u16) -> Self {
+        let mut seq = Self::build(driver, song, loops, 0, true);
+        seq.fade_in(ms);
+        seq
+    }
+
+    /// The callback cell from here on holds a digital driver's table: the
+    /// calls are recorded for [`Sequencer::take_calls`].
+    pub(crate) fn link(&mut self) {
+        self.calls.get_or_insert_with(Vec::new);
+    }
+
+    /// The callback cell back on the file's stub: no call is recorded from
+    /// here on.
+    pub(crate) fn unlink(&mut self) {
+        self.calls = None;
+    }
+
+    /// The callbacks made since the last take, in order.
+    pub(crate) fn take_calls(&mut self) -> Vec<Call> {
+        self.calls.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /// One callback, where the cell holds a table to make it through.
+    fn call(&mut self, call: Call) {
+        if let Some(calls) = &mut self.calls {
+            calls.push(call);
+        }
     }
 
     /// The init's register pass (`0xf9e` path at `0x105e`): every register
@@ -111,7 +189,8 @@ impl Sequencer {
 
     /// `0xcb4`: the song's head into the driver state, the streams at their
     /// starts. The countdown comes out one under the speed, so the first
-    /// row falls on the `speed`th tick.
+    /// row falls on the `speed`th tick. Its last act is the start callback
+    /// with the level word as it stands (`0xda3`).
     fn prime(&mut self) {
         self.ticks_per_row = self.song.speed;
         self.period = period_of(self.song.tempo);
@@ -121,6 +200,8 @@ impl Sequencer {
             chan.at = usize::from(self.song.channels[ch]);
             chan.next_row = 0;
         }
+        let level = num::word((self.fade_pos >> 8) & 0xFFFF);
+        self.call(Call::Start { level });
     }
 
     /// The tick period this sequencer currently runs at, in PIT cycles.
@@ -163,6 +244,7 @@ impl Sequencer {
         self.set_song(song, out);
         self.pass = 1;
         self.last_pass = num::passes(loops);
+        self.fade_pos = 0;
         self.prime();
         self.fade_in(ms);
     }
@@ -172,7 +254,7 @@ impl Sequencer {
     /// volume 0 and rising over `ms` milliseconds as
     /// [`Sequencer::play_fade`] has it.
     pub fn new_fade(driver: &Driver, song: Plx, loops: i16, ms: u16) -> Self {
-        let mut seq = Self::new(driver, song, loops);
+        let mut seq = Self::build(driver, song, loops, 0, false);
         seq.fade_in(ms);
         seq
     }
@@ -233,8 +315,10 @@ impl Sequencer {
 
     /// The stop entry (`0x4c9` → `0xde2`): from channel 8 down, the key
     /// off where it is on and the release rate of both operators opened to
-    /// its fastest, so what still sounds dies away.
+    /// its fastest, so what still sounds dies away; then the stop callback
+    /// (`0xe2f`), which the driver reaches only from a song that plays.
     pub fn silence(&mut self, out: &mut Vec<Write>) {
+        let playing = self.pass != 0;
         for ch in (0..9).rev() {
             let b0 = 0xb0 + num::reg(ch);
             let val = self.shadow[usize::from(b0)];
@@ -246,6 +330,9 @@ impl Sequencer {
         }
         self.pass = 0;
         self.fade_step = 0;
+        if playing {
+            self.call(Call::Stop);
+        }
     }
 
     /// One driver tick (`0xa71`): a row when the countdown runs out, the
@@ -256,6 +343,9 @@ impl Sequencer {
         }
         self.countdown -= 1;
         if self.countdown >= 0 {
+            if self.countdown == 0 {
+                self.call(Call::Step);
+            }
             if self.fade_step != 0 {
                 self.fade_tick(out);
             }
@@ -287,12 +377,15 @@ impl Sequencer {
             // first row runs in this same tick (`0xb63` jumps back up).
             if self.pass > self.last_pass {
                 self.pass = 0;
+                self.call(Call::Stop);
                 return;
             }
             // The pass counter holds at the endless mark rather than
             // wrapping past it, as the handler's compare-and-skip does.
             self.pass = self.pass.saturating_add(1);
             self.prime();
+            // `0xb4b`: the fresh start's row count is stepped in this tick.
+            self.call(Call::Step);
         }
         if self.fade_step != 0 {
             self.fade_tick(out);
@@ -456,20 +549,29 @@ impl Sequencer {
     /// pass runs, at zero the carriers close, in between every live channel
     /// follows the level — the handler's byte arithmetic kept as it is,
     /// truncations and all.
+    ///
+    /// Past `0x100` the fade ends (`0xb96`): at full where the level less
+    /// `0x100` reads non-negative (`0xba8`), with the full pass and the
+    /// callback at `0x100`; and where it reads negative — a fade-out whose
+    /// step went below zero — at 0, because `0xb96` clears the level before
+    /// the sign of that comparison sends it to the store (`0xb9e` →
+    /// `0xbc0`): the zero level is kept, the carriers close and the one
+    /// callback goes out at 0 (`0xc26`, `0xc49`), and the rows after it run
+    /// no volume pass, so the carriers stay closed.
     fn fade_tick(&mut self, out: &mut Vec<Write>) {
         self.fade_pos += self.fade_step;
-        let level = num::word((self.fade_pos >> 8) & 0xFFFF);
+        let mut level = num::word((self.fade_pos >> 8) & 0xFFFF);
         if level >= 0x100 {
             self.fade_step = 0;
-            if num::signed(level) >= 0 {
+            if num::signed(level.wrapping_sub(0x100)) >= 0 {
+                self.call(Call::Volume { level: 0x100 });
                 self.fade_pos = 0x100 << 8;
                 self.volume_pass(out);
                 return;
             }
-            // A step that overshot below zero leaves the wrapped level
-            // standing, as the handler does (`0xb9e`); a fade-out is
-            // stopped long before this could be reached.
+            level = 0;
         }
+        let ended = self.fade_step == 0;
         self.fade_pos = (i32::from(level) << 8) | (self.fade_pos & 0xFF);
         if level == 0 {
             // `0xc26`: every carrier closed, channel 8 down to 0.
@@ -477,6 +579,7 @@ impl Sequencer {
                 let reg = 0x40 + self.car_ops[ch];
                 self.write(out, reg, 0xFF);
             }
+            self.call(Call::Volume { level: 0 });
             return;
         }
         for ch in (0..9).rev() {
@@ -489,6 +592,9 @@ impl Sequencer {
             let reg = 0x40 + self.car_ops[ch];
             let val = (v | num::hi(self.channels[ch].volume)) ^ 0x3F;
             self.write(out, reg, val);
+        }
+        if !ended {
+            self.call(Call::Volume { level });
         }
     }
 
@@ -720,5 +826,138 @@ pub(crate) mod tests {
         seq.fade_pos = (0x40 << 8) | 0x33;
         seq.play(song(), -1, &mut Vec::new());
         assert_eq!(seq.fade_pos, 0x100 << 8);
+    }
+
+    /// The callbacks fall where the driver makes them: the start at the
+    /// priming, a step in the tick the countdown reaches 0 — the tick before
+    /// the row — a start and a step in the tick a song loops, the stop when
+    /// its passes are spent; and the register stream is the same with them
+    /// as without.
+    #[test]
+    fn the_callbacks_come_where_the_driver_makes_them() {
+        let d = driver();
+        let mut slow = song();
+        slow.speed = 3;
+        let mut linked = Sequencer::new_linked(&d, slow.clone(), 1);
+        let mut plain = Sequencer::new(&d, slow, 1);
+        assert_eq!(linked.take_calls(), [Call::Start { level: 0x100 }]);
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        let mut calls = Vec::new();
+        for t in 1..=3100 {
+            linked.tick(&mut a);
+            plain.tick(&mut b);
+            calls.extend(linked.take_calls().into_iter().map(|c| (t, c)));
+        }
+        assert_eq!(a, b, "the register stream is untouched");
+        assert!(plain.take_calls().is_empty());
+        // Rows 0 to 510 at ticks 3, 6, …, 1533, the steps a tick before
+        // each; row 510 ends the stream, so the loop is in tick 1533 and its
+        // fresh row 0 with it; the second pass ends in tick 3063.
+        assert_eq!(calls[0], (2, Call::Step));
+        assert_eq!(calls[1], (5, Call::Step));
+        let at = |c: Call| {
+            calls
+                .iter()
+                .filter(|(_, k)| *k == c)
+                .map(|(t, _)| *t)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(at(Call::Start { level: 0x100 }), [1533]);
+        assert_eq!(at(Call::Stop), [3063]);
+        let loop_tick: Vec<_> = calls
+            .iter()
+            .filter(|(t, _)| *t == 1533)
+            .map(|(_, c)| *c)
+            .collect();
+        assert_eq!(loop_tick, [Call::Start { level: 0x100 }, Call::Step]);
+        assert_eq!(at(Call::Step).len(), 511 + 1 + 510);
+    }
+
+    /// A fade-out calls the volume every tick with the falling level, and its
+    /// end with 0; a fade-in starts its song at level 0.
+    #[test]
+    fn a_fade_calls_the_volume_every_tick() {
+        let d = driver();
+        let mut seq = Sequencer::new_linked(&d, song(), -1);
+        seq.take_calls();
+        let mut out = Vec::new();
+        seq.tick(&mut out);
+        seq.fade_out(100);
+        let mut levels = Vec::new();
+        for _ in 0..40 {
+            seq.tick(&mut out);
+            for c in seq.take_calls() {
+                if let Call::Volume { level } = c {
+                    levels.push(level);
+                }
+            }
+        }
+        // Falling to 0, and once more 0 from the tick that falls past it
+        // (`0xb96`–`0xb9e`); then the fade is over.
+        assert!(levels.len() > 3, "{levels:x?}");
+        assert!(
+            levels.windows(2).all(|w| w[1] < w[0] || w[1] == 0),
+            "{levels:x?}"
+        );
+        assert_eq!(levels[levels.len() - 2..], [0, 0]);
+        let mut fade = Sequencer::new_fade_linked(&d, song(), -1, 2000);
+        assert_eq!(fade.take_calls(), [Call::Start { level: 0 }]);
+        fade.play_fade(song(), -1, 2000, &mut out);
+        assert_eq!(fade.take_calls(), [Call::Stop, Call::Start { level: 0 }]);
+    }
+
+    /// A fade-out run past its end leaves the handler's level word at 0,
+    /// and the next loop starts the digital part at that level.
+    #[test]
+    fn a_loop_after_a_spent_fade_starts_at_zero() {
+        let d = driver();
+        let mut seq = Sequencer::new_linked(&d, song(), -1);
+        seq.take_calls();
+        let mut out = Vec::new();
+        seq.tick(&mut out);
+        seq.fade_out(100);
+        let mut starts = Vec::new();
+        for _ in 0..600 {
+            seq.tick(&mut out);
+            starts.extend(
+                seq.take_calls()
+                    .into_iter()
+                    .filter(|c| matches!(c, Call::Start { .. })),
+            );
+        }
+        assert_eq!(starts, [Call::Start { level: 0 }], "the loop at row 510");
+    }
+
+    /// A fade-out whose step goes below zero ends at 0 (`0xb96` → `0xbc0`
+    /// → `0xc26`): every carrier closed, and no row after it writes a
+    /// carrier level again — the rows run no volume pass at level 0.
+    #[test]
+    fn a_fade_out_past_its_end_keeps_the_carriers_closed() {
+        let d = driver();
+        let mut seq = Sequencer::new(&d, song(), -1);
+        let mut out = Vec::new();
+        seq.tick(&mut out);
+        seq.fade_out(100);
+        let carriers: Vec<u8> = d.car_ops.iter().map(|op| 0x40 + op).collect();
+        let mut closed_at = None;
+        for t in 0..600 {
+            out.clear();
+            seq.tick(&mut out);
+            if closed_at.is_none() {
+                if out
+                    .iter()
+                    .any(|w| carriers.contains(&w.reg) && w.value == 0xFF)
+                {
+                    closed_at = Some(t);
+                }
+                continue;
+            }
+            assert!(
+                !out.iter().any(|w| carriers.contains(&w.reg)),
+                "tick {t} reopened a carrier: {out:x?}"
+            );
+        }
+        assert!(closed_at.is_some(), "the fade never closed the carriers");
+        assert!(seq.playing(), "level 0 does not stop the song");
     }
 }

@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true
-description = "PSM 2 music: the module format, and MUSADL.DRV's sequencer and the DMA drivers' sample voice, rebuilt over the OPL3 component"
+description = "PSM 2 music: the module format, MUSADL.DRV's sequencer, the DMA drivers' sample voice and DMABLAST.DRV's mixer, rebuilt over the OPL3 component"
 
 [dependencies]
 motionvm-opl.workspace = true

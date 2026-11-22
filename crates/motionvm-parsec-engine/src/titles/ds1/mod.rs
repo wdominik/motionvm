@@ -3,8 +3,8 @@
 //! The game this engine opens. It loads the install and runs walking,
 //! interaction, animation and dialogue machinery, and every row of the
 //! location table has its handler's logic, one module per location. The
-//! sound effects are recorded as events; the music goes to the Ad Lib
-//! driver.
+//! music goes to the Ad Lib driver, the sound effects and the songs'
+//! digital voices to the digital driver's mixer.
 //!
 //! What is read, with the address it came from ([`xp01data`] carries the
 //! sites):
@@ -196,6 +196,17 @@ impl DunkleSchatten {
         Ok(())
     }
 
+    /// Resource `n` of `RESOURCE\PSMDRV.DAT`, a driver file.
+    fn sound_driver(&self, n: usize) -> Result<Vec<u8>> {
+        let res = resource_dir(&self.game_dir);
+        let path = motionvm_parsec_formats::find_ci(&res, "PSMDRV.DAT")
+            .ok_or("RESOURCE/PSMDRV.DAT: not found")?;
+        Ok(motionvm_parsec_formats::p2l::driver(
+            &std::fs::read(path)?,
+            n,
+        )?)
+    }
+
     /// The title program begun: `XP00.EXE` read, `SAVEGAME.SAV` looked
     /// for in the save directory the way `_main` probes it (`0x5EC`).
     fn begin_xp00(&mut self) -> Result<()> {
@@ -203,6 +214,8 @@ impl DunkleSchatten {
         let saved = self
             .save_path(SaveMap::DS1.sav_name)
             .is_some_and(|p| p.is_file());
+        // XP00 `0x9A2`–`0x9E4`: its digital driver with three channels.
+        self.inner.music.install(3);
         x.begin(saved);
         self.xp00 = Some(Box::new(x));
         self.started = true;
@@ -254,13 +267,20 @@ impl DunkleSchatten {
         }
     }
 
-    /// `_main` from `0x4F19` to the options (`0x4F87`): the main loop's
-    /// words, the start's load (`147Ah:0072h`), a fresh game when nothing
-    /// was loaded (`0x4F2A`), then the options, unconditionally.
+    /// `_main` from `0x4F19` to the options (`0x4F87`), after the sound of
+    /// its init: the main loop's words, the start's load (`147Ah:0072h`), a
+    /// fresh game when nothing was loaded (`0x4F2A`), then the options,
+    /// unconditionally.
     fn boot(&mut self, how: Start) {
         self.started = true;
         let map = SaveMap::DS1;
         let a = &mut self.inner;
+        // The init before it: the digital driver with six channels
+        // (`0x5BD3`–`0x5C15`), the effects' volume set again (`0x4E85`),
+        // and the twelve effects every room keeps (`0x053AB`).
+        a.music.install(6);
+        a.music.send(parsec1994::Request::EffectVolume(0x3C));
+        a.effects_preload();
         a.here_word = 0xFFFF; // 0x4F19
         a.entry_word = 0; // 0x4F1F
         a.save_buffer_clear(); // 0x14821
@@ -611,12 +631,18 @@ impl crate::titles::Runtime for DunkleSchatten {
         if let Some(why) = self.inner.music.missing() {
             return Err(Error::Unexpected(why.to_string()));
         }
-        let res = resource_dir(&self.game_dir);
-        let path = motionvm_parsec_formats::find_ci(&res, "PSMDRV.DAT")
-            .ok_or("RESOURCE/PSMDRV.DAT: not found")?;
-        Ok(motionvm_parsec_formats::p2l::ad_lib_driver(
-            &std::fs::read(path)?,
-        )?)
+        self.sound_driver(motionvm_parsec_formats::p2l::AD_LIB)
+    }
+
+    /// The digital driver beside it: resource 1 of `PSMDRV.DAT`,
+    /// `DMABLAST.DRV` (`0x5BB3`, installed at `0x5BEC`), the same RIB in a
+    /// RIB.
+    fn dac_driver(&self) -> Result<Option<Vec<u8>>> {
+        if !self.inner.music.dac() {
+            return Ok(None);
+        }
+        self.sound_driver(motionvm_parsec_formats::p2l::DMABLAST)
+            .map(Some)
     }
 }
 
@@ -1182,7 +1208,18 @@ mod tests {
         g.inner.music.sent.clear();
         assert_eq!(click_exit(&mut g, 101), 31);
         settle_in_forest(&mut g);
-        assert_eq!(g.inner.music.sent, [], "and plays on");
+        // Footsteps play on the way; nothing else reaches either driver —
+        // the map's bit 2 keeps the effects as bit 3 keeps the song
+        // (`0x85D4`).
+        assert!(
+            g.inner
+                .music
+                .sent
+                .iter()
+                .all(|r| matches!(r, parsec1994::Request::Effect { row: 0 | 1 })),
+            "and plays on: {:?}",
+            g.inner.music.sent
+        );
     }
 
     /// The Ruine on the day its two figures talk in the background: the
@@ -5452,14 +5489,21 @@ mod tests {
         assert_eq!(
             g.inner.music.sent,
             [
+                parsec1994::Request::Install { effects: 3 },
+                parsec1994::Request::EffectVolume(0x50),
+                parsec1994::Request::Digital(Some(0)),
                 parsec1994::Request::Play {
                     piece: 0,
                     loops: -1
                 },
                 parsec1994::Request::Stop,
-                parsec1994::Request::Reinstall
+                parsec1994::Request::Digital(None),
+                parsec1994::Request::Reinstall,
+                parsec1994::Request::Install { effects: 6 },
+                parsec1994::Request::EffectVolume(0x50),
+                parsec1994::Request::EffectVolume(0x3C),
             ],
-            "the menu's song stopped with the title program"
+            "the menu's song stopped with the title program, and XP01's drivers installed"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -5607,10 +5651,15 @@ mod tests {
         let sent = std::mem::take(&mut g.inner.music.sent);
         assert_eq!(
             sent,
-            [parsec1994::Request::Play {
-                piece: 0,
-                loops: -1
-            }]
+            [
+                parsec1994::Request::Install { effects: 3 },
+                parsec1994::Request::EffectVolume(0x50),
+                parsec1994::Request::Digital(Some(0)),
+                parsec1994::Request::Play {
+                    piece: 0,
+                    loops: -1
+                }
+            ]
         );
         choose(&mut g, 2);
         let mut after = Vec::new();
@@ -5627,10 +5676,12 @@ mod tests {
         }
         let what: Vec<_> = after.iter().map(|&(_, r)| r).collect();
         assert_eq!(
-            what,
+            what[..5],
             [
                 parsec1994::Request::FadeOut(2000),
                 parsec1994::Request::Stop,
+                parsec1994::Request::Digital(None),
+                parsec1994::Request::StopEffects,
                 parsec1994::Request::Reinstall
             ]
         );
@@ -5638,6 +5689,68 @@ mod tests {
             after[1].0 > after[0].0,
             "the stop waits for the menu's fade"
         );
+    }
+
+    /// The setup decides the sound, not whether a host listens: a game
+    /// with a sink and one without run the Zimmer's opening into the Küche
+    /// alike — every event, every effect slot, every request to the
+    /// drivers.
+    #[test]
+    fn the_game_runs_the_same_with_sound_and_without() {
+        struct Heard(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+        impl Heard {
+            fn one(&self) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        impl crate::MusicSink for Heard {
+            fn play(&mut self, _: &[u8], _: i16) {
+                self.one();
+            }
+            fn play_fade(&mut self, _: &[u8], _: i16, _: u16) {
+                self.one();
+            }
+            fn fade_out(&mut self, _: u16) {
+                self.one();
+            }
+            fn stop(&mut self) {
+                self.one();
+            }
+            fn reinstall(&mut self) {
+                self.one();
+            }
+            fn install_digital(&mut self, _: u16) {
+                self.one();
+            }
+            fn effect_volume(&mut self, _: u16) {
+                self.one();
+            }
+            fn play_effect(&mut self, _: u16, _: &[u8]) {
+                self.one();
+            }
+            fn stop_effects(&mut self) {
+                self.one();
+            }
+            fn set_digital(&mut self, _: Option<(u16, &[u8])>) {
+                self.one();
+            }
+        }
+        let heard = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut quiet = ds1!();
+        let mut loud = ds1!();
+        crate::titles::Runtime::set_music(&mut loud, Box::new(Heard(heard.clone())));
+        for _ in 0..4000 {
+            crate::titles::Runtime::tick(&mut quiet);
+            crate::titles::Runtime::tick(&mut loud);
+        }
+        assert_eq!(quiet.inner.location(), 3);
+        assert_eq!(
+            format!("{:?}", quiet.inner.events),
+            format!("{:?}", loud.inner.events)
+        );
+        assert_eq!(quiet.inner.music.slots, loud.inner.music.slots);
+        assert_eq!(quiet.inner.music.sent, loud.inner.music.sent);
+        assert!(heard.load(std::sync::atomic::Ordering::Relaxed) > 20);
     }
 
     /// The Zimmer's song is module 1 (`13E8h[2]`), played endlessly once the
@@ -5649,8 +5762,42 @@ mod tests {
     fn the_zimmer_plays_module_1_and_the_kueche_module_10() {
         use parsec1994::Request;
         let mut g = ds1!();
-        let mut sent: Vec<_> = g.inner.music.sent.drain(..).map(|r| (0, r)).collect();
-        sent.extend(music_over(&mut g, 4000));
+        let mut all: Vec<_> = g.inner.music.sent.drain(..).map(|r| (0, r)).collect();
+        all.extend(music_over(&mut g, 4000));
+        // The digital driver's side, effects aside: installed by the init,
+        // each song's digital part before its play (`0x6080`), entry 21 with
+        // nothing after each stop (`0x6207`), and the slot unload's
+        // `StopAll` before its stop (`0x85DA`).
+        let digital: Vec<_> = all
+            .iter()
+            .map(|&(_, r)| r)
+            .filter(|r| !matches!(r, Request::Effect { .. }))
+            .collect();
+        assert_eq!(
+            digital,
+            [
+                Request::Install { effects: 6 },
+                Request::EffectVolume(0x50),
+                Request::EffectVolume(0x3C),
+                Request::Digital(Some(1)),
+                Request::Play {
+                    piece: 1,
+                    loops: -1
+                },
+                Request::FadeOut(1500),
+                Request::Stop,
+                Request::Digital(None),
+                Request::StopEffects,
+                Request::Stop,
+                Request::Digital(None),
+                Request::Digital(Some(10)),
+                Request::Play {
+                    piece: 10,
+                    loops: -1
+                },
+            ]
+        );
+        let sent: Vec<_> = all.into_iter().filter(|(_, r)| r.is_fm()).collect();
         let what: Vec<_> = sent.iter().map(|&(_, r)| r).collect();
         assert_eq!(
             what,

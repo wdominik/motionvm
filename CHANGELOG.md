@@ -37,6 +37,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   player now answers the driver's own calls, and MOTION's music words are
   built on them; nothing sounds different — every song's digest and the
   music suites are as before.
+- **Dunkle Schatten plays its sound effects and its songs' digital
+  voices.** `motionvm-psm` holds `DMABLAST.DRV`'s software mixer, read out of
+  the shipped file (`DmaDriver`): effect channels chosen round from a cursor
+  and taken from the cursor's when all are busy, the sample routine's held
+  and fast steps, the 128-byte blocks and their clip, the double buffer on
+  the DSP's clock — and a song's digital voices in the same mixer, read from
+  its `MDH` part and stepped by `MUSADL.DRV`'s callbacks, so one `Player`
+  drives the OPL and the mixer together. The `SM8` header's second word is
+  the volume field (`Sample::volume`), read by the play entry only as a
+  choice. Dunkle Schatten installs both drivers as `XP01` does — six
+  channels, the default volume `50h` then `3Ch` — and plays through them:
+  the 21 effect slots, twelve fetched at the start and the room's by its
+  mask, freed with a `StopAll` as the room goes but between two forest
+  rows; every place the game asks for an effect, among them the eighth
+  verb's rule (`1586h:0438h`), which is read; each song's digital part
+  handed over before its play and let go at its stop, the title program's
+  too. The mixer is held block for block against the driver's own routines
+  on the game's samples and all sixteen songs, and the suite's digests of
+  every effect and every song's digital voices are anchored to them. A
+  fade-out whose step runs past its end ends at 0 with the
+  carriers closed, as `MUSADL.DRV` does (`0xb96`); every song's digest is
+  as before.
 - **`--entry E` asks for the way into a location**, beside `--loc N`. The
   contract carries a location request with an optional arrival point, and a
   game may name the location it starts at. Every MOTION game refuses an

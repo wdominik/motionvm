@@ -346,7 +346,7 @@ impl Adventure {
                     }
                 } else if walking && let Some(w) = &mut self.walker {
                     for k in w.animate_walk(delta) {
-                        self.events.push(Event::Sample(k));
+                        self.effect_1949(k);
                     }
                 }
             }
@@ -355,7 +355,7 @@ impl Adventure {
                     && m.flags() & LIVE != 0
                 {
                     for k in m.walker.animate_walk(delta) {
-                        self.events.push(Event::Sample(k));
+                        self.effect_1949(k);
                     }
                 }
             }
@@ -1747,8 +1747,8 @@ impl Adventure {
     /// through `[1EE2h]` (`0x09E37`).
     ///
     /// Twelve arms through a jump table (`0x10938`): 1 lets the held page go
-    /// (`0CFDh:1BA2h`, `0x10951`); 3 asks for sample 4 (`0x10961`) and 8 for
-    /// sample 3 (`0x10975`); 5 arms task 0 (`0CFDh:1A2Eh`, `0x1093D`) and 6
+    /// (`0CFDh:1BA2h`, `0x10951`); 3 asks for sample 4 (`0x10975`) and 8 for
+    /// sample 3 (`0x10961`); 5 arms task 0 (`0CFDh:1A2Eh`, `0x1093D`) and 6
     /// starts it (`0CFDh:1A3Fh`, `0x10947`); 11 and 12 take the pending figure
     /// animation in `[1E50h]` (`0x10988`). The code the machine waits for,
     /// `[28C1h]`, is compared (`0x109A8`), and the location's own hook
@@ -1766,10 +1766,10 @@ impl Adventure {
                     t.countdown = 0;
                 }
             }
-            3 => self.events.push(Event::Sample(4)),
+            3 => self.effect_1949(4),
             5 => self.task_arm(0),
             6 => self.task_start(0),
-            8 => self.events.push(Event::Sample(3)),
+            8 => self.effect_1949(3),
             11 | 12 => {
                 self.script.g1e52 = self.script.g1e50;
                 if self.script.g1e52 >= 0 {

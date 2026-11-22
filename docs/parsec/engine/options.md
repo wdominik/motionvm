@@ -42,7 +42,7 @@ to its next text (`0x12482`–`0x1258F`):
 
 | Row | What it sets |
 |---|---|
-| Music | the switch `[212h]`, toggled (`0x12304`); the driver is told at once, the kept song stopped or started again |
+| Music | the switch `[212h]`, toggled (`0x12304`); the drivers are told at once, the kept song stopped with its digital voices or started again; off, it silences the sound effects too (`0x621F`) |
 | Mouse | `[16F3h]`; `147Ah:05DCh` (`0x14D7C`) sets the two mickey divisors `[3DCh]` and `[3DAh]` from it, through a table at `cs:062Dh`; a setting past 4 becomes 1 |
 | Text speed | three rows of four words, slow to fast, copied to `[167Dh]` on the close — the base, per-line, per-character and ceiling weights a caption page is timed by |
 | Walk speed | four bytes, slow to `****`, copied to `[16A7h]`; the walk row skips `****` unless the command line's `#SpeedHigh` set bit 4 of `[1EDCh]` (`0x1236F`) |

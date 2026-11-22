@@ -160,6 +160,12 @@ pub(crate) trait Runtime: Send {
         )))
     }
 
+    /// The bytes of the digital driver the title installs beside the music
+    /// driver, if it installs one. The default is none.
+    fn dac_driver(&self) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
     /// What the run noticed about itself and could not act on. The
     /// default collects nothing.
     fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic> {

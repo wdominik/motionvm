@@ -91,7 +91,7 @@ conversations, one table per dialogue.
 | 200+N | 15 | Per-location item tables, 1120 bytes = `A_LDITEM × S_LDITEM` (35 × 32) |
 | 400+N, 600+N, 800+N | 45 | Walk routes (452 bytes), extended routes (300), click areas (182) |
 
-The samples' header is `SM8\0`, a version word `0x0100`, a length word — the
+The samples' header is `SM8\0`, a volume word `0x0100`, a length word — the
 block's length less ten in every one — and a period in PIT cycles from 56 to
 179: 21.3 kHz down to 6.7 kHz as the header names them, unsigned 8-bit, played
 once through the digital driver's direct path on the DSP's clock — the period

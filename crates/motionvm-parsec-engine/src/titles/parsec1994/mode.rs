@@ -510,6 +510,7 @@ impl Adventure {
                 9
             }
             (0x1586, 0x0364) => self.door_rule(),
+            (0x1586, 0x0438) => self.door_rule_8(),
             (0x1586, 0x0125) => self.rule_look(),
             (0x1586, 0x017C) => self.rule_talk(),
             (0x1586, 0x01CC) => self.rule_take(),
@@ -1165,8 +1166,42 @@ impl Adventure {
             self.anim_code_wait(2);
             12
         } else {
-            self.events.push(Event::Sample(12));
+            self.effect_1949(12);
             self.objects[i].flags |= objects::LIVE;
+            1
+        }
+    }
+
+    /// `1586h:0438h`: the eighth verb's rule — verb 8, any object, flag 4
+    /// (`0x21564`) — the seventh's mirror, which `Benutze`'s phase-2 rule
+    /// on class 5 hands an object that is live (`0x15E83`–`0x15E9D`).
+    ///
+    /// The object's record (`0BB6h:052Bh`, `0x15CA0`) of kind 4 is a door
+    /// (`0x15CB4`): it plays its animation 0 (`0883h:1F82h`, `0x15CC1`),
+    /// `[28C1h] = 3` waits for the animation's code 3 (`0x15CC9`),
+    /// and the answer is 12 (`0x15CCF`). Anything else has bit 0 of `+2`
+    /// cleared, no longer live (`0x15CE5`), between two of the drawer's
+    /// marks (`0883h:000Fh`, `0x15CDA`, `0x15CEE`; this engine draws every
+    /// frame whole), asks for sample 13 (`0EB9h:1949h`, `0x15CF8`), and the
+    /// answer is 1.
+    ///
+    /// An object without a record reads its kind from a null pointer in the
+    /// original (`0x15CAF`); this engine answers 1 for it, as the seventh's
+    /// does.
+    fn door_rule_8(&mut self) -> i16 {
+        let Ok(id) = u8::try_from(self.object1) else {
+            return 1;
+        };
+        let Some(i) = self.object_index(id) else {
+            return 1;
+        };
+        if self.objects[i].kind == 4 {
+            self.object_anim(id, 0);
+            self.anim_code_wait(3);
+            12
+        } else {
+            self.objects[i].flags &= !objects::LIVE;
+            self.effect_1949(13);
             1
         }
     }
@@ -1396,5 +1431,68 @@ impl Adventure {
         if self.player_node_id() == -1 {
             self.bits |= WAIT_FIGURE;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The eighth verb's rule in the Zimmer: a door plays its animation 0,
+    /// waits for code 3 and answers 12; anything else is made not live,
+    /// asks for sample 13 and answers 1 (`0x15C98`–`0x15CFE`).
+    #[test]
+    fn the_eighth_verb_s_rule_opens_a_door_or_plays_sample_13() {
+        let Some(mut a) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        while a.effects.busy() {
+            a.interrupt();
+            a.effects_tick();
+        }
+        let door = a.objects.iter().find(|o| o.kind == 4).map(|o| o.id);
+        let other = a
+            .objects
+            .iter()
+            .find(|o| o.kind != 4 && o.id != 0)
+            .map(|o| o.id);
+        let (Some(door), Some(other)) = (door, other) else {
+            panic!("the Zimmer has a door and an object besides");
+        };
+        a.events.clear();
+        a.object1 = u16::from(door);
+        assert_eq!(a.rule_handler((0x1586, 0x0438), 4), 12);
+        assert_eq!(a.word_28c1, 3);
+        assert!(a.events.contains(&Event::ObjectAnim {
+            object: door,
+            anim: 0
+        }));
+        // The door's animation 0 reaches its code 3, and the wait is over
+        // (`0x109A8`–`0x109AE`).
+        let mut frames = 0;
+        while a.word_28c1 != 0 {
+            a.interrupt();
+            a.frame_pass();
+            frames += 1;
+            assert!(frames < 2000, "the door's animation never reports code 3");
+        }
+        assert!(
+            a.events
+                .iter()
+                .any(|e| matches!(e, Event::AnimCode { code: 3, .. }))
+        );
+        a.events.clear();
+        a.object1 = u16::from(other);
+        let i = a.object_index(other).expect("the object");
+        a.objects[i].flags |= objects::LIVE;
+        assert_eq!(a.rule_handler((0x1586, 0x0438), 4), 1);
+        assert_eq!(a.objects[i].flags & objects::LIVE, 0);
+        assert!(a.events.contains(&Event::Sample(13)));
+        assert!(
+            !a.events
+                .iter()
+                .any(|e| matches!(e, Event::UnreadRule { .. })),
+            "the rule is read"
+        );
     }
 }

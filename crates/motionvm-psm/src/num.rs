@@ -26,6 +26,20 @@ pub(crate) fn word(v: i32) -> u16 {
     u16::from_le_bytes([a, b])
 }
 
+/// The low sixteen bits of a double word: a quotient the driver's `div`
+/// leaves in `ax`, a product's middle word.
+pub(crate) fn low(v: u32) -> u16 {
+    let [a, b, ..] = v.to_le_bytes();
+    u16::from_le_bytes([a, b])
+}
+
+/// A 16.16 double word as the driver holds it in two words: the fraction
+/// first, then the whole part.
+pub(crate) fn split(v: u32) -> [u16; 2] {
+    let [a, b, c, d] = v.to_le_bytes();
+    [u16::from_le_bytes([a, b]), u16::from_le_bytes([c, d])]
+}
+
 /// A driver word read signed, the way a `js` after a `cmp` reads it.
 pub(crate) fn signed(w: u16) -> i16 {
     i16::from_le_bytes(w.to_le_bytes())

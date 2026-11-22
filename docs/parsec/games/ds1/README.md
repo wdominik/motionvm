@@ -84,7 +84,7 @@ angemacht wirst! Gewalt ist ist niemals eine Lösung."*
 | Page | Covers |
 |---|---|
 | [Game structure](game-structure.md) | The sixty-one rows, the opening, the map and the days, the forest and the maze, saving |
-| [Other files](other-files.md) | The batch files, the sound setup, the `.DOK` viewer, the end sequence's file and the rest |
+| [Other files](other-files.md) | The batch files, the `.DOK` viewer, the end sequence's file and the rest |
 
 The programs and their files are documented in the family's tree:
 [the engine pages](../../README.md#the-engine) and

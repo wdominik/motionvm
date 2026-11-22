@@ -37,8 +37,8 @@ its tables and its strings — and what it does is what its code says.
 | Containers | `RESOURCE/*.DAT`: FGROUP tables of RIB bundles, packed with a backwards LZ codec |
 | Rooms | One FGROUP, `DSROOM.DAT`, a slot per location, each slot six resources around an `RDV1.00` tiled playfield |
 | Video | 320×200×256, palettes as DAC banks |
-| Music | PSM 2 through `MUSADL.DRV`, out of the `PSMP2L.DAT` library |
-| Boot | `SCHATTEN.BAT` runs the sound setup until `PSMCFG4.DAT` exists, then `XP00`, and `XP01` when `XP00` leaves errorlevel 0 |
+| Sound | PSM 2 through `MUSADL.DRV` on the OPL and `DMABLAST.DRV`'s mixer on the DAC — the music with its digital voices, and the sound effects — out of the `PSMP2L.DAT` library |
+| Boot | `SCHATTEN.BAT` runs `XP00`, and `XP01` when `XP00` leaves errorlevel 0 |
 
 ## Global conventions
 
@@ -101,7 +101,7 @@ its tables and its strings — and what it does is what its code says.
 |---|---|
 | [The game](games/ds1/README.md) | What it is about, who made it, and why it exists |
 | [Game structure](games/ds1/game-structure.md) | The sixty-one rows, the opening, the map, the days, the forest and the maze, saving |
-| [Other files](games/ds1/other-files.md) | The batch files, the sound setup, the `.DOK` viewer, the end sequence's file and the rest |
+| [Other files](games/ds1/other-files.md) | The batch files, the `.DOK` viewer, the end sequence's file and the rest |
 
 ### Reference
 
@@ -126,4 +126,4 @@ its tables and its strings — and what it does is what its code says.
 | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | [Audio](formats/audio.md) — the music library and the sound drivers |
 | `RESOURCE/PRGVER.DAT` | Named by both programs ([other files](games/ds1/other-files.md)) |
 | `SCHATTEN.BAT`, `DS1.BAT`, `DS1.ICO` | Launchers and icon ([other files](games/ds1/other-files.md)) |
-| `PSMCFG4.EXE`, `CONFIG.DAT` | The sound setup and the installer's output ([other files](games/ds1/other-files.md)) |
+| `PSMCFG4.EXE`, `CONFIG.DAT` | Shipped beside the programs ([other files](games/ds1/other-files.md)) |
