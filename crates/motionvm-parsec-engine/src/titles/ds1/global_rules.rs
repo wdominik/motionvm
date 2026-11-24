@@ -7,17 +7,16 @@
 //! re-expressed here against [`Api`], so that they run against the same
 //! recording stand-in as the locations and are held to the original's
 //! traces ([`api_rule`]). Four of them speak the text the chosen hotspot
-//! carries, which [`Api`] does not reach; they are read here over the
-//! runtime itself, in [`super::hotspot_rules`], and so is the eighth
-//! verb's rule, which reads the object's record and which only this
-//! program has. The rest are the generation's own machinery — the walk
+//! carries ([`super::hotspot_rules`]). The eighth verb's rule, which reads
+//! the object's record and which only this program has, is read over the
+//! runtime itself. The rest are the generation's own machinery — the walk
 //! verb's rule, the seventh verb's door, the options' gate — and are the
 //! runtime's methods; this module only says under which address this
 //! program links them ([`rule`]).
 
 use super::hotspot_rules as hotspot;
 use crate::num;
-use crate::titles::parsec1994::{Adventure, Api, OBJECT_LIVE};
+use crate::titles::parsec1994::{Adventure, Api, Gate, OBJECT_LIVE, TWIN};
 
 /// `[288Dh]`, the mode block's verb.
 const VERB: u16 = 0x288D;
@@ -43,6 +42,11 @@ pub(crate) fn api_rule(api: &mut dyn Api, far: (u16, u16), _flags: u16) -> Optio
         return None;
     }
     Some(match far.1 {
+        // The four that speak the chosen hotspot's own line.
+        0x0125 => hotspot::look(api),
+        0x017C => hotspot::talk(api),
+        0x01CC => hotspot::take(api),
+        0x0273 => hotspot::use_(api),
         // 0x15933: `Gib … an`. A carried second object rolls one of places
         // 0 to 2 (0x15948); a class-2 one is named in slot 9 (0x1596C) and
         // place 14 plays; anything else place 5.
@@ -186,14 +190,10 @@ pub(crate) fn rule(adv: &mut Adventure, far: (u16, u16), flags: u16) -> Option<i
         return Some(answer);
     }
     Some(match far {
-        (RULES, 0x0125) => hotspot::look(adv),
-        (RULES, 0x017C) => hotspot::talk(adv),
-        (RULES, 0x01CC) => hotspot::take(adv),
-        (RULES, 0x0273) => hotspot::use_(adv),
         // 0x15B49: the walk verb's rule.
-        (RULES, 0x02E9) => adv.walk_rule(),
+        (RULES, 0x02E9) => walk_rule(adv),
         // 0x15BC4: the seventh verb's rule, a door.
-        (RULES, 0x0364) => adv.door_rule(),
+        (RULES, 0x0364) => door_rule(adv),
         // 0x15C98: the eighth verb's rule.
         (RULES, 0x0438) => eighth_verb(adv),
         // `0EB9h:04BDh` (0x0F04D): the sixth verb's rule installs the
@@ -201,6 +201,68 @@ pub(crate) fn rule(adv: &mut Adventure, far: (u16, u16), flags: u16) -> Option<i
         (0x0EB9, 0x04BD) => adv.options_rule(),
         _ => return None,
     })
+}
+
+/// `1586h:02E9h`: the walk verb's rule — verb `0Ah`, any object, flag 4
+/// (`0x215CA`).
+///
+/// The door's gate `1586h:0000h` is installed (`0x15B4C`). The door come
+/// through, `[1EDEh]` (`0x15B58`), or one stood on, `[16BBh]`
+/// (`0x15B61`), equal to the object answers verb 7, −1; so does an object
+/// that is not live (`14DDh:07E7h`, `0x15B6E`). Else the figure walks to
+/// the object's twin, its id plus `7D0h` (`0x15B7D`, `0A9Fh:0617h` at
+/// `0x15B85`), and when that walk started, input is locked
+/// (`0EB9h:188Ah`, `0x15B91`) and the walk recorded in `[289Fh]`
+/// (`0x15BA1`); the answer is 9, wait for the figure (`0x15BB1`).
+fn walk_rule(adv: &mut Adventure) -> i16 {
+    adv.gate = Gate::Door;
+    let object = num::signed(adv.object1);
+    if adv.entry_door == object && adv.player_node_id() == object {
+        adv.verb = 7;
+        return -1;
+    }
+    if !adv.object_is_live(object) {
+        adv.verb = 7;
+        return -1;
+    }
+    if adv.walk_to_object(object + TWIN, -1) != 0 {
+        adv.input_locked();
+        adv.hover_forgotten();
+        adv.walk_target = object + TWIN;
+    }
+    9
+}
+
+/// `1586h:0364h`: the seventh verb's rule — verb 7, any object, flag 4
+/// (`0x2155A`) — which the walk verb's rule hands a door to.
+///
+/// The object's record (`0BB6h:052Bh`, `0x15BCC`) of kind 4 is a door
+/// (`0x15BE0`): it plays its animation 1 and opens, thirty ticks to code 2
+/// (`0883h:1F82h`, `0x15BED`); with no door remembered (`0x15BF5`) it
+/// becomes the door to close later, `[1EDEh]` (`0x15BFF`); `[28C1h] = 2`
+/// waits for the animation's code 2 (`0x15C02`), and the answer is 12
+/// (`0x15C08`). Anything else asks for sample 12 (`0EB9h:1949h`,
+/// `0x15C0D`) and is made live and marked, bit 0 of `+2` (`0x15C18`), and
+/// the answer is 1.
+fn door_rule(adv: &mut Adventure) -> i16 {
+    let Ok(id) = u8::try_from(adv.object1) else {
+        return 1;
+    };
+    let Some(i) = adv.object_index(id) else {
+        return 1;
+    };
+    if adv.objects[i].kind == 4 {
+        adv.object_anim(id, 1);
+        if adv.entry_door == 0 {
+            adv.entry_door = i16::from(id);
+        }
+        adv.anim_code_wait(2);
+        12
+    } else {
+        adv.effect_1949(12);
+        adv.objects[i].flags |= OBJECT_LIVE;
+        1
+    }
 }
 
 #[cfg(test)]
@@ -424,7 +486,7 @@ mod tests {
         a.events.clear();
         a.object1 = u16::from(door);
         assert_eq!(ask(&mut a, 0x0438), 12);
-        assert_eq!(a.word_28c1, 3);
+        assert_eq!(a.anim_wait, 3);
         assert!(a.events.contains(&Event::ObjectAnim {
             object: door,
             anim: 0
@@ -432,7 +494,7 @@ mod tests {
         // The door's animation 0 reaches its code 3, and the wait is over
         // (`0x109A8`–`0x109AE`).
         let mut frames = 0;
-        while a.word_28c1 != 0 {
+        while a.anim_wait != 0 {
             a.interrupt();
             a.frame_pass();
             frames += 1;

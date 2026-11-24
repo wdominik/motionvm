@@ -19,12 +19,10 @@ use crate::exe::Image;
 use crate::titles::xp1994::Locations;
 
 use crate::error::Result;
-
-/// `mov bx, [imm16]` — the read of the verb before a status line is set.
 #[cfg(test)]
-const MOV_BX_MEM: [u8; 2] = [0x8B, 0x1E];
-/// `push word [bx+imm16]` — the verb-template row, indexed.
-const PUSH_BX_MEM: [u8; 2] = [0xFF, 0xB7];
+use crate::exe::op::MOV_BX_MEM;
+use crate::exe::op::PUSH_BX_MEM;
+
 /// `mov word [imm16], imm16` — a store of a constant into a global.
 const MOV_MEM_IMM: [u8; 2] = [0xC7, 0x06];
 
@@ -84,10 +82,9 @@ pub(crate) struct ExeText {
     /// The global holding the entry id (`1F48h`).
     #[cfg(test)]
     pub entry: u16,
-    /// Location a fresh game opens in.
-    pub start_location: i32,
-    /// Entry id it opens with.
-    pub start_entry: i16,
+    /// Where a fresh game starts: the location and the entry id it opens
+    /// with.
+    pub start: (u16, u16),
     /// The carried list shipped at `DS:1602h`, counted by `DS:15FEh`.
     pub initial_items: Vec<u8>,
     /// The initial first visible inventory position (`DS:15FFh`).
@@ -120,9 +117,9 @@ impl ExeText {
         let xp01 = Image::open(dir, "XP01.EXE", 150_096)?;
         let locations = Locations::read(&xp01)?;
 
-        let start_location = i32::from(store(&xp01, START_LOC, locations.location)?);
+        let start_location = store(&xp01, START_LOC, locations.location)?;
         let entry = xp01.imm16(START_ENTRY, &MOV_MEM_IMM, "`mov word [imm16], imm16`")?;
-        let start_entry = i16::try_from(xp01.word(START_ENTRY + 4)?)?;
+        let start_entry = xp01.word(START_ENTRY + 4)?;
         // The three globals sit together, and the pair beside the start is
         // what says which is which. A build that put them elsewhere would
         // fail here rather than start somewhere plausible.
@@ -169,8 +166,7 @@ impl ExeText {
             gray_ramp: gray_ramp(&xp01)?,
             #[cfg(test)]
             entry,
-            start_location,
-            start_entry,
+            start: (start_location, start_entry),
             initial_items,
             initial_scroll,
             inventory_at: (count_at, scroll_at, list_at),

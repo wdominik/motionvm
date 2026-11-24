@@ -2,7 +2,7 @@
 
 # Open Questions
 
-*PARSEC, and Dunkle Schatten, the game motionvm plays on it — the one ledger of what is not yet known about the original. Deliberate divergences are a different record and live in [departures](departures.md).*
+*PARSEC, and the games motionvm plays on it, Dunkle Schatten and Captain Zins — the one ledger of what is not yet known about the original. Deliberate divergences are a different record and live in [departures](departures.md).*
 
 What is documented as unknown, unverified or not yet read about the
 original programs, in one place. A topic page that has something open
@@ -42,6 +42,44 @@ against a dump of it.
 out of the BIOS's ring one call at a time; how many of them its frame pass
 takes in one pass when more are waiting is not read
 ([departures](departures.md)).
+
+## Captain Zins
+
+**The title program's open readings.** Captain Zins's `XP00` is built
+from its listing ([boot](engine/boot.md)); two things in it are not
+settled:
+
+- Whether a click during its animation, which polls nothing
+  (`0323h:01FFh`), is still latched when the intro's first check polls:
+  the buttons are latched in `[268h]` and cleared by the poll (`0x9799`),
+  and whether `0970h:0AAAh`/`08DDh` (`0x36CB`, `0x36D0`) clear them first
+  is not read. The runtime keeps a press latched until a poll takes it,
+  and the title programs' hide and thaw, which stop and restart the
+  mouse's sampling in `XP01`, are not mapped onto the runtime in either
+  title program: there it samples throughout.
+- What becomes of a key sent to it: in a capture, a space injected under
+  DOSBox-X during the credits does not end them, where the
+  poll (`0970h:00F0h`, `0x9810`) reads a key as an event — unless the
+  mouse's word it tests first (`0x9803`–`0x980E`) stands at a value that
+  passes the keys by, which is not read. A click does end them. The
+  runtime ends them on either.
+
+## The way out of `XP01`
+
+The sequences after the main loop ([the way out](engine/ending.md)) are
+held against recordings that set the location word as the main loop
+begins, out of the start's options, and end each part with a click. Not
+held against the original:
+
+- The music: what each sequence asks of the driver is read off the
+  program, not compared with a recording of the original's.
+- The way in through the game: Dunkle Schatten's −1 from the JZ's last
+  state or the F1's event, Captain Zins's from Money's third scene, and
+  with it the last picture the parade fades out of.
+- A key: the sequences end on any event the poll reports, a key among
+  them as the program reads it; only clicks were recorded, and a key
+  injected the same way did not end the credits of Captain Zins's title
+  program.
 
 ## See also
 

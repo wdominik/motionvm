@@ -39,9 +39,10 @@ menu on Escape or on the small monitor symbol, tips, and the hotline.
 ## The rest
 
 - **`RESOURCE/EXTROS.DAT`**, an FGROUP of four slots
-  ([containers](../../formats/containers.md)). `XP01` opens it only on the
-  way out of a game that ends on location −1, for the end sequence
-  ([departures](../../departures.md)).
+  ([containers](../../formats/containers.md)). `XP01` opens it on the way
+  out: for the end sequence of a game that ends on location −1, and for
+  the sequence it plays when the player quits
+  ([the way out](../../engine/ending.md)).
 - **`RESOURCE/PRGVER.DAT`**, 212 bytes that no reader here takes for a
   format. Both programs name it, `RESOURCE\PRGVER.DAT`.
 - **`CONFIG.DAT`**, nine bytes: seven ASCII zeros and a line end. None of

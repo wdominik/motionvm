@@ -2,8 +2,9 @@
 //! and digested.
 //!
 //! A case is one entry point of the original logic and one set of inputs:
-//! the location, the kind of entry (`h` handler, `k` hook, `a` animation
-//! hook, `r` rule handler), the routine's address, and what the data
+//! the location (`G` a rule of the global table, `H` the shared hook,
+//! neither of them a location's), the kind of entry (`h` handler, `k`
+//! hook, `a` animation hook, `r` rule handler), the routine's address, and what the data
 //! segment and the engine hold when it runs. A title keeps its cases in
 //! the crate's `tests/`, one head line each; they are inputs, not data of
 //! the game. For each, [`Recording`] runs the logic against an
@@ -59,7 +60,8 @@ pub(crate) struct Routines {
     pub slot_set_object: &'static str,
     pub slot_set_figure: &'static str,
     pub obj_find: &'static str,
-    pub obj_wake: &'static str,
+    /// `None` for a program whose library has no such routine.
+    pub obj_wake: Option<&'static str>,
     pub obj_show: &'static str,
     pub obj_anim: &'static str,
     pub obj_anim_id: &'static str,
@@ -105,6 +107,21 @@ pub(crate) struct Routines {
     pub inv_give: &'static str,
     pub panel_refresh: &'static str,
     pub fx_reveal: &'static str,
+    pub obj_invalidate: &'static str,
+    pub figure_anim: &'static str,
+    pub say_text: &'static str,
+    pub hotspot_follow: &'static str,
+    pub figure_face: &'static str,
+    pub figure_turn: &'static str,
+    pub task_stop: &'static str,
+    pub page_release: &'static str,
+    pub band_hold: &'static str,
+    pub node_block: &'static str,
+    pub node_open: &'static str,
+    pub interaction: &'static str,
+    /// The word that points at the hotspot the object was chosen
+    /// through, whose lines [`Api::hotspot_own_text`] reads.
+    pub chosen_hotspot: u16,
     /// The routines that answer with a record in `DX:AX`. The stand-in
     /// answers a lookup of id `n` with `(4000h + 4n):0000`, so a record's
     /// fields land in a window of their own; `ret=…:0` makes it null.
@@ -112,6 +129,14 @@ pub(crate) struct Routines {
     /// The main loop's entry word, which the stand-in sets to `FFh` when
     /// it asks for an exit, as the engine does after `frames` pictures.
     pub exit_word: u16,
+    /// The far pointer the shared hook hands its calls on through
+    /// ([`Api::location_hook`]): the stand-in names the call by the
+    /// pointer's two words, as the case set them.
+    pub location_hook: u16,
+    /// The far pointer the visit's callback is called through
+    /// ([`Api::callback`]), named the same way; `None` for a program that
+    /// keeps none.
+    pub callback: Option<u16>,
 }
 
 /// What the runner needs of a title: its routines' addresses, which
@@ -120,6 +145,8 @@ pub(crate) struct TraceTitle {
     pub routines: &'static Routines,
     pub logic: fn(u16) -> Option<Logic>,
     pub global_rule: fn(&mut dyn Api, (u16, u16), u16) -> Option<i16>,
+    /// The shared hook, `(code, arg, task)`, read against [`Api`].
+    pub hook: fn(&mut dyn Api, u16, u16, u16),
 }
 
 /// One case: its entry and its inputs.
@@ -220,6 +247,8 @@ pub(crate) struct Recording {
     frames: u32,
     frame: u32,
     pokes: Vec<(u32, u16, u16)>,
+    /// `absent=seg:off:id`: that record routine answers null for that id.
+    absent: Vec<(String, u16)>,
 }
 
 impl Recording {
@@ -246,6 +275,7 @@ impl Recording {
                 .map_or(2, |v| v.parse().unwrap_or(2)),
             frame: 0,
             pokes: Vec::new(),
+            absent: Vec::new(),
         };
         for (k, v) in &case.params {
             for p in v.split(',') {
@@ -256,6 +286,19 @@ impl Recording {
                     "ret" if q.len() == 3 => {
                         let name = format!("{:04x}:{:04x}", hex(q[0]), hex(q[1]));
                         r.rets.insert(name, hex(q[2]));
+                    }
+                    // A record field as the oracle presets it, in the
+                    // window of its id at physical 40000h + 64 id.
+                    "rset" | "rwset" if q.len() == 3 => {
+                        let at = 0x40000 + usize::from(hex(q[0])) * 64 + usize::from(hex(q[1]));
+                        let n = if k == "rset" { 1 } else { 2 };
+                        for (i, b) in hex(q[2]).to_le_bytes().into_iter().take(n).enumerate() {
+                            r.far.insert(at + i, (b, b));
+                        }
+                    }
+                    "absent" if q.len() == 3 => {
+                        let name = format!("{:04x}:{:04x}", hex(q[0]), hex(q[1]));
+                        r.absent.push((name, hex(q[2])));
                     }
                     "poke" if q.len() == 3 => {
                         r.pokes
@@ -300,6 +343,7 @@ impl Recording {
         self.call(name, args);
         match self.rets.get(name) {
             Some(&v) => Far { off: v, seg: 0 },
+            None if self.absent.iter().any(|(n, i)| n == name && *i == id) => Far::NULL,
             None if self.routines.record_returns.contains(&name) => Far {
                 off: 0,
                 seg: 0x4000u16.wrapping_add(id.wrapping_mul(4)),
@@ -453,7 +497,10 @@ impl Api for Recording {
         self.record(self.routines.obj_find, id, &[id])
     }
     fn obj_wake(&mut self, id: u16) -> Far {
-        self.record(self.routines.obj_wake, id, &[id])
+        // A program without the routine names none, and no trace of it
+        // has the call.
+        let name = self.routines.obj_wake.unwrap_or("none");
+        self.record(name, id, &[id])
     }
     fn obj_show(&mut self, id: u16) -> Far {
         self.record(self.routines.obj_show, id, &[id])
@@ -677,6 +724,95 @@ impl Api for Recording {
     fn script_exit(&mut self, k: u16) {
         self.call(self.routines.script_exit, &[k]);
     }
+    fn obj_invalidate(&mut self, rec: Far) {
+        self.call(self.routines.obj_invalidate, &[rec.off, rec.seg]);
+    }
+    fn figure_anim(&mut self, rec: Far, k: i16) -> i16 {
+        num::signed(self.call(
+            self.routines.figure_anim,
+            &[rec.off, rec.seg, num::unsigned(k)],
+        ))
+    }
+    fn say_text(&mut self, text: Far) {
+        self.call(self.routines.say_text, &[text.off, text.seg]);
+    }
+    fn hotspot_own_text(&mut self, k: u16) -> Far {
+        // The logic reads the record pointer and the line's far pointer
+        // itself; nothing is called.
+        let at = self.routines.chosen_hotspot;
+        let rec = Far {
+            off: self.word(at),
+            seg: self.word(at.wrapping_add(2)),
+        };
+        if rec == Far::NULL {
+            return Far::NULL;
+        }
+        let field = |me: &mut Self, d: u16| {
+            me.far_word(Far {
+                off: rec.off.wrapping_add(0x16 + 4 * k + d),
+                seg: rec.seg,
+            })
+        };
+        let off = field(self, 0);
+        let seg = field(self, 2);
+        Far { off, seg }
+    }
+    fn hotspot_follow(&mut self, rec: Far) {
+        self.call(self.routines.hotspot_follow, &[rec.off, rec.seg]);
+    }
+    fn figure_face(&mut self, rec: Far, dir: i16) {
+        self.call(
+            self.routines.figure_face,
+            &[rec.off, rec.seg, num::unsigned(dir)],
+        );
+    }
+    fn figure_turn(&mut self, k: i16) -> i16 {
+        num::signed(self.call(self.routines.figure_turn, &[num::unsigned(k)]))
+    }
+    fn location_hook(&mut self, code: u16, arg: u16, task: u16) {
+        let at = self.routines.location_hook;
+        let target = format!(
+            "{:04x}:{:04x}",
+            self.word(at.wrapping_add(2)),
+            self.word(at)
+        );
+        self.call(&target, &[code, arg, task]);
+    }
+    fn callback(&mut self, id: u16) -> i16 {
+        // Named by the pointer's two words as the case set them, the way
+        // the location's hook is; a program that keeps no callback has no
+        // such call.
+        let Some(at) = self.routines.callback else {
+            return num::signed(self.call("none", &[id]));
+        };
+        let target = format!(
+            "{:04x}:{:04x}",
+            self.word(at.wrapping_add(2)),
+            self.word(at)
+        );
+        num::signed(self.call(&target, &[id]))
+    }
+    fn task_stop(&mut self, i: u16) {
+        self.call(self.routines.task_stop, &[i]);
+    }
+    fn page_release(&mut self, k: u16) {
+        self.call(self.routines.page_release, &[k]);
+    }
+    fn band_hold(&mut self, owner: u16) {
+        self.call(self.routines.band_hold, &[owner]);
+    }
+    fn node_block(&mut self, rec: Far, node: u16) {
+        self.call(self.routines.node_block, &[rec.off, rec.seg, node]);
+    }
+    fn node_open(&mut self, rec: Far, node: u16) {
+        self.call(self.routines.node_open, &[rec.off, rec.seg, node]);
+    }
+    fn interaction(&mut self, id: u16, facing: i16, scene: i16) {
+        self.call(
+            self.routines.interaction,
+            &[id, num::unsigned(facing), num::unsigned(scene)],
+        );
+    }
     fn inv_give(&mut self, id: u16) -> i16 {
         num::signed(self.call(self.routines.inv_give, &[id]))
     }
@@ -713,6 +849,15 @@ pub(crate) fn run_case(
             diff: api.diff(),
             calls: api.calls,
             end: format!("returned ax={:04x} frames={}", num::unsigned(ax), api.frame),
+        });
+    }
+    // `H`: the shared hook, which belongs to no location either.
+    if loc == "H" {
+        (title.hook)(&mut api, arg(0), arg(1), arg(2));
+        return Some(Outcome {
+            diff: api.diff(),
+            calls: api.calls,
+            end: format!("returned frames={}", api.frame),
         });
     }
     let logic = (title.logic)(loc.parse().ok()?)?;

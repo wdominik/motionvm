@@ -13,6 +13,7 @@
 
 use super::logic::Logic;
 use super::logic::WALKER;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::titles::parsec1994::Api;
 
 /// The bed with Karsten in it, object 200.
@@ -38,14 +39,6 @@ const OPENING_CLOCK: u16 = 0x1C82;
 const TICKS_TAKEN: u16 = 0x1C76;
 /// `[16BBh]`: the walker record's flag word (`DS:1693h + 28h`).
 const WALKER_FLAGS: u16 = 0x16BB;
-/// `[1F48h]`: the entry id, and non-zero once an exit is asked for.
-const ENTRY: u16 = 0x1F48;
-/// `[1F4Ah]`: the location.
-const LOCATION: u16 = 0x1F4A;
-/// `[1F4Ch]`: the location this handler runs for.
-const HERE: u16 = 0x1F4C;
-/// `DS:1F56h`: 32 bytes of object states per location.
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x909` to `0x9C2`.
 pub(crate) fn enter(api: &mut dyn Api) {

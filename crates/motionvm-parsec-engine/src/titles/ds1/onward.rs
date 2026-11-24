@@ -10,15 +10,8 @@
 //! Schuppen, row 21, entered on `7Fh`.
 
 use super::build;
-use super::logic::Logic;
-use crate::titles::parsec1994::{self, Api, onward::Table, restore::MainLoop};
-
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`: see the Zimmer.
-const WORDS: MainLoop = MainLoop {
-    entry: 0x1F48,
-    location: 0x1F4A,
-    here: 0x1F4C,
-};
+use super::logic::{Logic, WORDS};
+use crate::titles::parsec1994::{self, Api, onward::Table};
 
 /// `204Bh:0000h`, the location table: rows of 34h bytes, the kind a word
 /// at `+7` (`0x053BA`–`0x053C2`), and the walk stops at row 3Dh, one past

@@ -73,22 +73,6 @@ const FADE_HUNDREDTHS: u16 = 100;
 /// `0x1208C`: `push 5000h ; push 0`, the draw, and `0x120AB` its mirror
 /// `A000h − 1 − n`.
 const FADE_SPAN: u16 = 0x5000;
-/// The dissolve's draws on the reference machine, DOSBox-X with `core =
-/// normal` and `cycles = fixed 25000`: 158 213 passes of the loop, each one
-/// draw from the game's generator.
-///
-/// The loop draws until `[1C82h]` reaches 100 (`0x1208C`–`0x120D3`), so the
-/// number is how many passes the machine fits into a second and is not in
-/// the program. It is measured on the original on that machine: the
-/// generator's seed (`1EB5h:0006h`) stands at `0000:0000` before the loop
-/// of the options `XP01` opens at its start (`11A0h:0686h`) and at
-/// `7698h:E605h` after it (`11A0h:06D5h`), which is 158 213 steps of the
-/// generator. Every
-/// dissolve takes that many here, the one at the start and the ones in
-/// game; on the original a dissolve's count varies with the machine and
-/// with where the timer stands when it begins.
-pub(crate) const REFERENCE_DISSOLVE_DRAWS: u32 = 158_213;
-
 /// The confirmation's box (`0x11B3E`–`0x11B58`): text width plus 16, 60
 /// rows, centered on the playfield; its rows 20 apart.
 const BOX_H: i32 = 60;
@@ -770,13 +754,22 @@ impl Adventure {
             );
             if b != self.byte(save.speed) {
                 self.set_byte(save.speed, b);
-                self.set_word(save.cfg_dirty, 1);
+                if save.cfg_speed {
+                    self.set_word(save.cfg_dirty, 1);
+                }
             }
         }
         self.pointer_poll();
         self.gray_ramp();
         self.panel_release(2);
         self.pointer_mode(o.old_mode);
+        // The close draws nothing: `10B8h:0136h` puts the draw target's
+        // headers back and `1BBDh:1FC4h` only marks every cell of the
+        // presenter's grid for the next present (0x1264E, 0x12656). So the
+        // screen keeps what the menu drew; whatever comes next — the first
+        // room's entry effect at the start — draws over it, in the colors
+        // the gray ramp just put back.
+        self.presented = o.screen.clone();
     }
 
     /// `0590h:18EFh`: the game's gray ramp written again.

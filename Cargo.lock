@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-app"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "cpal",
  "motionvm-motion",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-motion"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-motion-audio",
  "motionvm-motion-engine",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-motion-audio"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-motion-formats",
  "motionvm-motion-testutil",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-motion-engine"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-motion-formats",
  "motionvm-motion-forth",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-motion-formats"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-motion-testutil",
  "motionvm-psm",
@@ -777,7 +777,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-motion-forth"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-motion-formats",
  "motionvm-motion-testutil",
@@ -785,14 +785,14 @@ dependencies = [
 
 [[package]]
 name = "motionvm-motion-testutil"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-render",
 ]
 
 [[package]]
 name = "motionvm-motion-tools"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-motion-audio",
  "motionvm-motion-formats",
@@ -804,14 +804,14 @@ dependencies = [
 
 [[package]]
 name = "motionvm-opl"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "nuked-opl3",
 ]
 
 [[package]]
 name = "motionvm-parsec"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-parsec-engine",
  "motionvm-parsec-formats",
@@ -822,7 +822,7 @@ dependencies = [
 
 [[package]]
 name = "motionvm-parsec-engine"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-parsec-formats",
  "motionvm-parsec-testutil",
@@ -832,18 +832,18 @@ dependencies = [
 
 [[package]]
 name = "motionvm-parsec-formats"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-parsec-testutil",
 ]
 
 [[package]]
 name = "motionvm-parsec-testutil"
-version = "0.13.0"
+version = "0.14.0"
 
 [[package]]
 name = "motionvm-parsec-tools"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-parsec-formats",
  "motionvm-psm",
@@ -852,25 +852,25 @@ dependencies = [
 
 [[package]]
 name = "motionvm-playable"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-render",
 ]
 
 [[package]]
 name = "motionvm-psm"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "motionvm-opl",
 ]
 
 [[package]]
 name = "motionvm-render"
-version = "0.13.0"
+version = "0.14.0"
 
 [[package]]
 name = "motionvm-workspace-tests"
-version = "0.13.0"
+version = "0.14.0"
 
 [[package]]
 name = "ndk"

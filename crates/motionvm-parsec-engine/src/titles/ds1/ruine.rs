@@ -7,6 +7,7 @@
 //! alone. The location has no hook and no animation hook.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::titles::parsec1994::Api;
 
 /// Objects 103, 201 and 200, there unless `[271Dh]` is 1 or above 2.
@@ -16,11 +17,6 @@ const OBJECT_200: u16 = 0xC8;
 
 /// `[271Dh]`: the ruin's state.
 const RUIN_STATE: u16 = 0x271D;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x3BCE` to `0x3C43`.
 pub(crate) fn enter(api: &mut dyn Api) {

@@ -8,28 +8,27 @@ use super::{
 use crate::num;
 
 impl Adventure {
-    /// Where slot `n` is drawn.
-    ///
-    /// `0x0C566` divides the slot number by four: the remainder is the
-    /// column, at twenty-seven pixels apart from `0C8h`, and the quotient
-    /// is the row, `92h` or `0ADh`.
-    pub(crate) fn slot_origin(n: usize) -> (i32, i32) {
-        (
-            num::count(n % 4) * 0x1B + 0xC8,
-            if n < 4 { 0x92 } else { 0xAD },
-        )
-    }
-
-    /// The eight slots, each with whatever it holds.
+    /// The strip's slots, each with whatever it holds, where the program
+    /// draws them ([`crate::titles::panel::Grid`]).
+    /// Before the first room is bound they go nowhere that is shown
+    /// ([`Adventure::items_drawn`]).
     pub(super) fn draw_items(&self, fb: &mut Framebuffer) {
-        for n in 0..8 {
+        if !self.items_drawn {
+            return;
+        }
+        let grid = self.panel_widgets.grid;
+        for n in 0..grid.len() {
             let Some(id) = self.item_in_slot(n) else {
                 continue;
             };
-            let Some(cel) = self.item_cels.get(usize::from(id).wrapping_sub(1)) else {
+            let Some(cel) = self
+                .item_cels
+                .get(usize::from(id).wrapping_sub(1))
+                .and_then(Option::as_ref)
+            else {
                 continue;
             };
-            let (x, y) = Self::slot_origin(n);
+            let (x, y) = grid.origin(n);
             crate::draw::blit_masked(fb, cel, x, y, Some(0));
         }
     }

@@ -45,6 +45,7 @@ mod dialogue;
 mod effects;
 mod frame;
 mod input;
+pub(crate) mod install;
 pub(crate) mod logic;
 mod menu;
 mod mode;
@@ -54,6 +55,7 @@ mod objects;
 pub(crate) mod onward;
 mod options;
 mod player;
+pub(crate) mod profile;
 pub(crate) mod program;
 mod render;
 pub(crate) mod restore;
@@ -61,6 +63,7 @@ mod rules;
 mod savegame;
 mod script;
 mod tasks;
+pub(crate) mod title;
 #[cfg(test)]
 pub(crate) mod trace;
 
@@ -69,16 +72,16 @@ pub(crate) use clock::{BiosTick, Clock};
 pub(crate) use cursor::PointerMap;
 pub(crate) use dialogue::Event;
 pub(crate) use effects::{RETRACE_DEN, RETRACE_NUM};
+use logic::LogicTable;
 #[cfg(test)]
 pub(crate) use menu::prepare_menu_text;
 pub(crate) use menu::{MenuKey, MenuShape};
-pub(crate) use mode::{Gate, GateMap};
+pub(crate) use mode::{Gate, GateMap, TWIN};
 pub(crate) use movers::MoverRt;
 pub(crate) use music::{MusicMap, Request};
 pub(crate) use objects::{HotspotRt, LIVE as OBJECT_LIVE, ObjectRt};
-pub(crate) use options::{
-    Input as OptionsInput, KEY_ESCAPE, KEY_TAB, Opened, OptionsMap, REFERENCE_DISSOLVE_DRAWS,
-};
+pub(crate) use options::{Input as OptionsInput, KEY_ESCAPE, KEY_TAB, Opened, OptionsMap};
+pub(crate) use profile::{LibraryMap, Profile};
 #[cfg(test)]
 pub(crate) use savegame::sav_check;
 pub(crate) use savegame::{Block, Cfg, SaveMap, cfg_read, sav_valid};
@@ -88,30 +91,69 @@ use std::collections::BTreeMap;
 
 use tasks::Tasks;
 
-/// The far hook the game's logic installs at `[1E32h]`: `(code, arg, task)`.
-pub(crate) type Hook = fn(&mut Adventure, u16, i16, usize);
-/// A location's animation hook: the object record and the code an `17`
-/// opcode signalled (`call far [1E60h]`, `0x109BB`).
-pub(crate) type AnimHook = fn(&mut Adventure, Far, u16);
+/// A routine of the title's a callback can be bent to, by its far
+/// address: what it answers for an object id.
+pub(crate) type Callback = ((u16, u16), fn(&mut dyn Api, u16) -> i16);
 
-/// The script globals the location hook works with, `[1E50h]` to `[1E5Ah]`
-/// and `[1ED0h]`, cleared by its code-0 arm (`0x10515`).
+/// The far hook the game's logic installs at `[1E32h]`: `(code, arg, task)`,
+/// read against [`Api`] as the location logic is.
+pub(crate) type Hook = fn(&mut dyn Api, u16, u16, u16);
+
+/// The script globals the location hook works with — Dunkle Schatten's
+/// `[1E50h]` to `[1E5Ah]` and `[1ED0h]`, each title's where its
+/// [`DsMap::script`] says — cleared by its code-0 arm (`0x10515`). The logic reaches
+/// them through [`Api::word`] at the addresses [`DsMap::script`] and
+/// [`DsMap::script_start`] name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Script {
-    /// `[1E50h]`.
-    pub g1e50: i16,
+    /// `[1E50h]`: the figure's animation an animation code 11 or 12 takes
+    /// up next (`0x10988`), −1 none.
+    pub pending_animation: i16,
     /// `[1E52h]`: an animation for the figure, -1 none, -2 pending.
-    pub g1e52: i16,
+    pub figure_animation: i16,
     /// `[1E54h]`: a node to walk to once a text ends, -1 none.
-    pub g1e54: i16,
-    /// `[1E56h]`.
-    pub g1e56: i16,
+    pub walk_after_text: i16,
+    /// `[1E56h]`: cleared with the others; what reads it is not read.
+    pub unread_word: i16,
     /// `[1E58h]`: the node last walked to.
-    pub g1e58: i16,
+    pub last_walk_node: i16,
     /// `[1E5Ah]`: a turn pending, 1 or 2.
-    pub g1e5a: i16,
-    /// `[1ED0h]`.
-    pub g1ed0: u16,
+    pub turn_pending: i16,
+    /// `[1ED0h]`: event 111 armed task 0 and asked for it to start once
+    /// the figure is linked (`0x0FB69`).
+    pub start_task_asked: u16,
+}
+
+impl Script {
+    /// The index [`Self::word`] takes for `start_task_asked`; 0 to 5 are
+    /// `pending_animation` to `turn_pending`.
+    const START: usize = 6;
+
+    /// Word `i`, as the data segment holds it.
+    fn word(&self, i: usize) -> u16 {
+        match i {
+            0 => num::unsigned(self.pending_animation),
+            1 => num::unsigned(self.figure_animation),
+            2 => num::unsigned(self.walk_after_text),
+            3 => num::unsigned(self.unread_word),
+            4 => num::unsigned(self.last_walk_node),
+            5 => num::unsigned(self.turn_pending),
+            _ => self.start_task_asked,
+        }
+    }
+
+    /// Word `i`, written.
+    fn set_word(&mut self, i: usize, v: u16) {
+        match i {
+            0 => self.pending_animation = num::signed(v),
+            1 => self.figure_animation = num::signed(v),
+            2 => self.walk_after_text = num::signed(v),
+            3 => self.unread_word = num::signed(v),
+            4 => self.last_walk_node = num::signed(v),
+            5 => self.turn_pending = num::signed(v),
+            _ => self.start_task_asked = v,
+        }
+    }
 }
 
 pub(crate) use api::{Api, DsMap, Far};
@@ -159,12 +201,6 @@ const FALLBACK_NODE: i32 = 0x7F;
 /// the two are written out separately (`0x0D3B7`).
 const WALKER_ALIGN: u8 = 2;
 
-/// The slot the entry function's last write fills, and the code and point
-/// it fills it with (`0x0EE58`).
-const SCREEN_SLOT: usize = 10;
-/// The code beside it: kind 0, payload `53h`.
-const SCREEN_CODE: u16 = 0x53;
-
 /// Which shipped files the game keeps its rooms and its strip in.
 ///
 /// There is no rule to derive the names from — `DSROOM`, `PANELS`,
@@ -196,17 +232,8 @@ pub(crate) struct Kinds {
     /// A row that is not a place: the main loop does not dispatch it but
     /// walks on past it, and a door does not lead to it.
     pub passage: u16,
-    /// A forest row: the room loader takes the shared forest picture for
-    /// it, and between two of them the picture, the music and the effect
-    /// stay.
-    pub forest: u16,
-    /// A row the entry reveals into from another of its kind, as it does
-    /// between two forest rows.
-    pub reveal: u16,
     /// The restore row's kind, which the walk on steps over too.
     pub restore: u16,
-    /// The room slot a forest row's picture is taken from.
-    pub forest_slot: u16,
 }
 
 /// One loaded install of a parsec1994 game: the program, its locations,
@@ -280,13 +307,29 @@ pub(crate) struct Adventure {
     /// What every item is called, by id, counting from one.
     item_names: Vec<String>,
     /// One cel per item id, resolved through the executable's mapping.
-    /// Several ids can refer to the same panel resource.
-    item_cels: Vec<Picture>,
+    /// Several ids can refer to the same panel resource. `None` for an id
+    /// the current strip file has no cel for, in a build with several.
+    item_cels: Vec<Option<Picture>>,
+    /// Every set of strip and figure files the build can load, by digit.
+    figure_sets: Vec<(u16, FigureFiles)>,
+    /// The set loaded now.
+    pub(crate) figure_digit: u16,
+    /// `[1600h]`, `[1601h]`: the carried list's range the strip shows and
+    /// takes clicks in, from `inv_lo` up to but not including `inv_hi`.
+    pub(crate) inv_lo: usize,
+    /// See [`Self::inv_lo`].
+    pub(crate) inv_hi: usize,
     /// What the player is carrying, in the order the strip shows it.
     /// `DS:1602h`, one byte an item.
     pub(crate) items: Vec<u8>,
     /// How far the strip is scrolled — `DS:15FFh`.
     scroll: usize,
+    /// Whether the item cels reach the picture: from the first room's
+    /// binding pass on ([`Adventure::set_location`]).
+    pub(crate) items_drawn: bool,
+    /// The event of the click being taken, `[184Eh]`:
+    /// [`input::BUTTON_FIRST`] or [`input::BUTTON_SECOND`].
+    pub(crate) button: u16,
     /// What the scenes of this location are about: the program's own
     /// array of subject slots at `DS:1D56h`, filled by the entry function.
     pub subjects: Subjects,
@@ -310,15 +353,11 @@ pub(crate) struct Adventure {
     pub object1: u16,
     /// See [`Adventure::object1`].
     pub object2: u16,
-    /// The handler a rule names, as the game's logic reads it: given the
-    /// handler's far address and the phase flags the search runs with, it
-    /// does what the handler does and answers what it answers, or `None`
-    /// for a handler that is not read.
-    ///
-    /// A plain function rather than a trait, because it is the one place
-    /// this runtime asks the location logic something; the default answers
-    /// `None` for every handler.
-    pub rule_hook: fn(&mut Adventure, (u16, u16), u16) -> Option<i16>,
+    /// The title's location logic, which the runtime asks for the
+    /// location's own hooks and for the handler a rule names
+    /// ([`LogicTable`]). Without one no hook does anything and no handler
+    /// is read.
+    pub logic_table: Option<LogicTable>,
     /// Each location's own dialogue bank, by slot.
     ///
     /// It is resource **3** of the slot: the room loader takes the far
@@ -334,6 +373,12 @@ pub(crate) struct Adventure {
     /// The current row's object map as the loader bound it, while the row
     /// is a forest row — see [`objects::BoundMap`].
     pub(crate) bound_map: Option<objects::BoundMap>,
+    /// The loaded slot's file with the walk graphs as the logic edited
+    /// them this visit ([`Api::node_block`], [`Api::node_open`]): the
+    /// original writes the edges in the room's memory, and the next load
+    /// of the slot brings the file's again. `None` while nothing was
+    /// edited, which is what the rooms read at the start then answer.
+    edited_room: Option<RoomFile>,
     /// Whether the slot unload kept the forest picture for the next row,
     /// two forest rows in a row (`0x83A3`–`0x83FB`): the loader then loads
     /// only the next row's own slot and binds its map onto the records as
@@ -362,8 +407,9 @@ pub(crate) struct Adventure {
     /// `DIALOG.DAT`'s resource 2, the block the figure animates from
     /// (`[1ED4h]`, `0x0525F`).
     pub global_animations: Option<Arc<Animations>>,
-    /// `[1E48h]`: the code that let a held page go (`0CFDh:1BA2h`).
-    pub word_1e48: u16,
+    /// The code that let a held page go (`0CFDh:1BA2h`; Dunkle Schatten's
+    /// `[1E48h]`).
+    pub page_release_code: u16,
     /// The sixty-one 32-byte records at `DS:1F56h`, one per location row:
     /// what a visit leaves of the objects' state for the next
     /// (`14DDh:068Ah`, `14DDh:0293h`). Zero in the image.
@@ -373,7 +419,8 @@ pub(crate) struct Adventure {
     rng: LcRng,
     /// How many draws the options' dissolve takes from that generator each
     /// time it plays. A property of the machine the program runs on, not
-    /// of the game: [`REFERENCE_DISSOLVE_DRAWS`] unless set otherwise.
+    /// of the game: the title's [`program::Build::dissolve_draws`] unless set
+    /// otherwise.
     pub(crate) dissolve_draws: u32,
     /// The two 74-byte task records and the globals around them.
     pub tasks: Tasks,
@@ -388,11 +435,6 @@ pub(crate) struct Adventure {
     pub events: Vec<Event>,
     /// The far hook at `[1E32h]`. The default does nothing.
     pub hook: Hook,
-    /// The location's own hook, its record's `+2Fh` (`call far [1E5Ch]`,
-    /// `0x1085E`): what the shared hook hands every call on to, at once.
-    pub location_hook: Hook,
-    /// The location's animation hook, its record's `+33h`.
-    pub anim_hook: AnimHook,
     /// The runtime's copy of the program's `DGROUP`, taken from the image:
     /// every global the location logic owns lives here at its address.
     pub ds: Vec<u8>,
@@ -470,10 +512,14 @@ pub(crate) struct Adventure {
     /// `[1EDEh]`: the door the player came in through, until the figure
     /// has left its node (`0x0EF22`, `0x0F573`).
     pub entry_door: i16,
-    /// `[28BFh]` and `[28C1h]`: two words the step tests when a rule
-    /// answered 11 or 12 (`0x0F53A`, `0x0F549`). Nothing read writes them.
-    pub word_28bf: u16,
-    pub word_28c1: u16,
+    /// Dunkle Schatten's `[28BFh]`: ticks a rule asked the step to wait
+    /// (bit `20h`), counted down by the frame pass (`0x0F53A`).
+    pub wait_ticks: u16,
+    /// Dunkle Schatten's `[28C1h]`, Captain Zins's `[1E8Ch]`
+    /// ([`DsMap::anim_wait`]): the animation code the step waits for (bit
+    /// `100h`, `0x0F549`), cleared when an animation signals it
+    /// (`0x109A8`).
+    pub anim_wait: u16,
     /// `[1F48h]` and `[1F4Ah]` as the door's gate leaves them: the exit
     /// taken and the location it leads to, applied when the frame is over.
     pub leave: Option<(u8, i32)>,
@@ -488,6 +534,14 @@ pub(crate) struct Adventure {
     pub hover_enabled: bool,
     /// `[28A3h]`/`[28A5h]`: what the pointer was over last frame.
     pub last_hover: mode::Hover,
+    /// What the library build the program is linked against does
+    /// differently, read off its routines before the runtime opens.
+    pub profile: Profile,
+    /// The callback's far pointer as the program last wrote it, when the
+    /// build keeps one ([`Profile::callback`]).
+    pub callback: Far,
+    /// The title's own routines a callback may be bent to, by far address.
+    pub callbacks: &'static [Callback],
     /// The choice menu, `DS:04F8h`.
     pub menu: menu::Menu,
     /// `[1E4Eh]`: the choice taken, 1-based, 0 for none yet.
@@ -530,6 +584,7 @@ impl Adventure {
         kinds: Kinds,
         ds_map: DsMap,
         files: Files,
+        profile: Profile,
     ) -> Result<Self> {
         let rooms = load_rooms(res, files.rooms)?;
         let own_banks = load_own_banks(res, files.rooms)?;
@@ -558,12 +613,33 @@ impl Adventure {
             }
         }
 
-        let panels = rib(res, files.panel)?;
-        let panel = Picture::parse(
-            panels
-                .get(0)
-                .ok_or_else(|| format!("{} has no resource 0, the verb strip", files.panel))?,
-        )?;
+        // The strip's and the figure's files, every set the build can
+        // load ([`Profile::figure_set`]); the first is the one a visit
+        // starts from.
+        if let profile::FigureSet::AfterLocation { word, .. } = profile.figure_set
+            && word != ds_map.location
+        {
+            return Err(format!(
+                "the setup picks the figure by [{word:04X}h], not by the main loop's location"
+            )
+            .into());
+        }
+        let item_count = crate::titles::xp1994::item_names(&image)?.len();
+        let digits = profile.figure_set.digits();
+        let figure_sets = digits
+            .iter()
+            .map(|&d| {
+                Ok((
+                    d,
+                    FigureFiles::load(res, &image, &files, item_count, d, digits.len() > 1)?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let (figure_digit, first) = figure_sets
+            .first()
+            .cloned()
+            .ok_or("the build loads no strip and figure files")?;
+        let panel = first.panel.clone();
         // The picture goes on the area's first row: `PANELS.DAT`'s
         // resource 0 is the area's 72 rows, band and strip.
         let (panel_y, _) = panel_area(&image)?;
@@ -576,23 +652,13 @@ impl Adventure {
                 files.pointers
             )
         })?)?;
-        let player_rib = rib(res, files.player)?;
         let player = crate::titles::mover::movers(&image)?.0;
         let gait = Gait {
             speed: i32::from(player.interval),
             phases: player.phases,
             reach: crate::titles::mover::leg_dividend(&image)?,
         };
-        // Bundle 1 is the figure file from resource 1 on: the loader
-        // stores the whole file and then advances the slot by four bytes,
-        // one far pointer, which is the palette these files open with
-        // (`0x10AD0`).
-        let figure_cels = player_rib
-            .resources
-            .iter()
-            .skip(1)
-            .filter_map(|b| Picture::parse(b).ok())
-            .collect();
+        let figure_cels = first.figure_cels.clone();
         // The first resource that reads as a cel. Resource 0 is a palette
         // bank, and which of the cels after it the program actually shows
         // is not read.
@@ -609,9 +675,9 @@ impl Adventure {
             .map(|b| Picture::parse(b).ok())
             .collect();
         let banks = [
-            panels.get(1).map(<[u8]>::to_vec),
+            first.panel_bank.clone(),
             pointers.get(0).map(<[u8]>::to_vec),
-            player_rib.get(0).map(<[u8]>::to_vec),
+            first.player_bank.clone(),
         ]
         .into_iter()
         .flatten()
@@ -646,22 +712,7 @@ impl Adventure {
         let flatten = Flatten::read(&image)?;
         let timing = Timing::read(&image)?;
         let item_names = crate::titles::xp1994::item_names(&image)?;
-        // `0x0C283`: ids
-        // address a byte mapping, not consecutive panel resources.
-        // Preserve every id, including aliases, and reject unreadable cels.
-        let item_cels: Vec<Picture> =
-            crate::titles::xp1994::item_resources(&image, item_names.len())?
-                .into_iter()
-                .enumerate()
-                .map(|(id, resource)| -> Result<Picture> {
-                    let data = panels.get(resource).ok_or_else(|| {
-                        format!("item {}: missing panel resource {resource}", id + 1)
-                    })?;
-                    Picture::parse_prefix(data).map_err(|e| {
-                        format!("item {}: panel resource {resource}: {e}", id + 1).into()
-                    })
-                })
-                .collect::<Result<_>>()?;
+        let item_cels = first.item_cels;
 
         let mut tasks = Tasks::new();
         tasks.cue_guard = crate::titles::xp1994::cursor_cue_guard(&image)?;
@@ -706,13 +757,20 @@ impl Adventure {
             timing,
             item_names,
             item_cels,
+            figure_sets,
+            figure_digit,
             items: Vec::new(),
+            inv_lo: 0,
+            inv_hi: 0,
             scroll: 0,
+            items_drawn: false,
+            button: input::BUTTON_FIRST,
             subjects: Subjects::default(),
-            rule_hook: |_, _, _| None,
+            logic_table: None,
             own_banks,
             object_maps,
             bound_map: None,
+            edited_room: None,
             slot_kept: false,
             picture_kept: false,
             objects: Vec::new(),
@@ -720,10 +778,10 @@ impl Adventure {
             anis: Vec::new(),
             room_animations: None,
             global_animations,
-            word_1e48: 0,
+            page_release_code: 0,
             location_records: vec![[0; 32]; rows],
             rng: LcRng::default(),
-            dissolve_draws: REFERENCE_DISSOLVE_DRAWS,
+            dissolve_draws: 1,
             mode: 0,
             two_object: 0,
             object1: 0,
@@ -733,14 +791,12 @@ impl Adventure {
             substitutions: Vec::new(),
             events: Vec::new(),
             hook: |_, _, _, _| {},
-            location_hook: |_, _, _, _| {},
-            anim_hook: |_, _, _| {},
             ds,
             dgroup,
             ds_map,
             effects: effects::Effects::default(),
             presented: crate::draw::display(),
-            music: music::Music::new(library, files.music.1),
+            music: music::Music::new(library, files.music.1, profile.effects.slots),
             entry_music: false,
             entry_tail: false,
             ticks_after_effect: None,
@@ -762,8 +818,8 @@ impl Adventure {
             status_refresh_age: 0,
             status_line: Vec::new(),
             entry_door: 0,
-            word_28bf: 0,
-            word_28c1: 0,
+            wait_ticks: 0,
+            anim_wait: 0,
             leave: None,
             menu: menu::Menu::default(),
             choice_taken: 0,
@@ -771,6 +827,9 @@ impl Adventure {
             second_spot: None,
             hover_enabled: false,
             last_hover: mode::Hover::None,
+            profile,
+            callback: Far::NULL,
+            callbacks: &[],
             mouse: (0, 0),
             options: None,
             options_map: None,
@@ -956,7 +1015,10 @@ impl Adventure {
             let kept = std::mem::take(&mut self.slot_kept)
                 && self.bound_map.is_some()
                 && u16::try_from(n).is_ok_and(|n| self.forest_row(n))
-                && self.place_pair_kind() == self.kinds.forest;
+                && self
+                    .profile
+                    .forest
+                    .is_some_and(|f| self.place_pair_kind() == f.kind);
             self.picture_kept = kept;
             self.loc = n;
             self.clear_mode_block();
@@ -967,6 +1029,7 @@ impl Adventure {
             // visit's setup `0EB9h:0001h`).
             if !kept {
                 self.bound_map = None;
+                self.edited_room = None;
                 self.rebuild_objects();
             }
             self.bind_object_map();
@@ -984,6 +1047,13 @@ impl Adventure {
             } else {
                 self.rebuild_dac();
             }
+            // The same pass points the item cels' blitter at the back
+            // buffer (`1601h:10A4h` at `0x153C7`, its one caller). Until a
+            // room has been bound, the blitter draws on the screen the
+            // image names, `A000h:0000h`, and the next present copies the
+            // back buffer over what it drew: the start's options show the
+            // strip without its items.
+            self.items_drawn = true;
             // A jump is not an arrival: the original only ever enters a
             // location through an entry id, and only that puts the player
             // anywhere. `--loc` alone leaves the figure's record out of
@@ -1010,7 +1080,7 @@ impl Adventure {
         self.bits = 0;
         self.verb_chosen = 0;
         self.walk_target = 0;
-        self.gate = Gate::None;
+        self.gate_clear();
         self.status_refresh_age = 0x0A;
         self.entry_door = 0;
         self.hover_spot = None;
@@ -1068,8 +1138,8 @@ impl Adventure {
         // transition (0x0ED4F), and the music stopped once it has played
         // (0x0ED55) — a second into the fade, so what still sounds dies
         // away from the level the fade has reached.
-        if self.place_pair_kind() != self.kinds.forest {
-            self.music_call(music::Call::Fade(0x05DC));
+        if Some(self.place_pair_kind()) != self.profile.leave_spares_kind {
+            self.music_call(music::Call::Fade(num::signed(self.profile.leave_fade)));
             let effect = num::low8(self.roll(1, 6));
             self.events.push(Event::Transition(effect));
             let picture = self.render_scene();
@@ -1086,7 +1156,62 @@ impl Adventure {
     /// word names is loaded, afresh on every visit but between two forest
     /// rows — the leaving released the slot (`0766h:0D34h`). Answers
     /// whether that location could be loaded.
+    /// The callback asked about object `id`: the library's own answer
+    /// when it points where the visit's setup put it, else the title's
+    /// routine at that address. One the title does not have is reported
+    /// and answers −1, the answer for an object that is not there.
+    pub(crate) fn callback(&mut self, id: u16) -> i16 {
+        let Some(cb) = self.profile.callback else {
+            return -1;
+        };
+        let at = (self.callback.seg, self.callback.off);
+        if at == cb.default {
+            return self.callback_default(id);
+        }
+        if let Some(&(_, f)) = self.callbacks.iter().find(|(a, _)| *a == at) {
+            return f(self, id);
+        }
+        self.events.push(Event::Unbuilt(
+            "callback",
+            (u32::from(at.0) << 16) | u32::from(at.1),
+        ));
+        -1
+    }
+
+    /// The library's own callback (the routine the visit's setup installs):
+    /// −1 for an object that is not there or not live, 1 for one whose
+    /// frame is below 6, 0 otherwise — `obj_find`, `test byte [+2], 1`,
+    /// `cmp byte [+9], 6`.
+    fn callback_default(&self, id: u16) -> i16 {
+        let Some(o) = self
+            .object_index(num::low8(id))
+            .and_then(|i| self.objects.get(i))
+        else {
+            return -1;
+        };
+        if o.flags & objects::LIVE == 0 {
+            -1
+        } else {
+            i16::from(o.frame < 6)
+        }
+    }
+
     pub(super) fn visit_setup_impl(&mut self) -> bool {
+        // A build that keeps a callback puts it back to the library's own
+        // answer first, on every visit.
+        if let Some(cb) = self.profile.callback {
+            self.callback = Far {
+                off: cb.default.1,
+                seg: cb.default.0,
+            };
+        }
+        // The strip and the figure for this visit (`0BE1h:0000h(1, n)` in
+        // a build with several sets): a different digit swaps them.
+        let digit = self
+            .profile
+            .figure_set
+            .digit_for(num::signed(self.location_word));
+        self.figure_set_load(digit);
         let n = i32::from(num::signed(self.location_word));
         self.set_location(n);
         if self.loc == n {
@@ -1134,6 +1259,19 @@ impl Adventure {
         self.tasks.enabled = false;
         // `0x0EEF0` acquires owner 4.
         self.panel_tint(4);
+        // A build that keeps a callback asks it about a run of objects
+        // last, but for one location: an answer of 0 or 1 is the animation
+        // each starts on (`03E8h`-style `obj_anim_id`), anything else leaves
+        // the object as it is.
+        if let Some(cb) = self.profile.callback
+            && loc != i32::from(cb.skips_location)
+        {
+            for id in cb.ids.0..=cb.ids.1 {
+                if let k @ (0 | 1) = self.callback(id) {
+                    Api::obj_anim_id(self, id, k);
+                }
+            }
+        }
     }
 
     /// `0EB9h:00B8h`, the entry finished: `0x0ECF4` releases owner 4 (the
@@ -1157,8 +1295,9 @@ impl Adventure {
         // (`0x0EC74`).
         let picture = self.render_scene();
         let pair = self.place_pair_kind();
-        self.entry_music = pair != self.kinds.forest;
-        if pair == self.kinds.forest || pair == self.kinds.reveal {
+        let reveals = self.profile.entry_reveals;
+        self.entry_music = reveals.is_none_or(|(silent, _)| pair != silent);
+        if reveals.is_some_and(|(silent, also)| pair == silent || pair == also) {
             self.effects.reveal(&picture, &self.presented);
         } else {
             self.effects.entry(&picture, &self.presented);
@@ -1207,7 +1346,14 @@ impl Adventure {
                 off: self.word(at),
                 seg: self.word(at.wrapping_add(2)),
             };
-            self.music_call(music::Call::Play { song, loops: -1 });
+            self.music_call(match self.profile.entry_fade_in {
+                Some(ms) => music::Call::PlayFade {
+                    song,
+                    loops: -1,
+                    ms,
+                },
+                None => music::Call::Play { song, loops: -1 },
+            });
         }
         // `0x0ECFA`: the ticks the entry waited out are dropped.
         self.clock.ticks = 0;
@@ -1232,7 +1378,12 @@ impl Adventure {
                 .unwrap_or(0)
         };
         let k = kind(b);
-        if kind(a) == k && (k == self.kinds.forest || k == self.kinds.reveal) {
+        if kind(a) == k
+            && self
+                .profile
+                .forest
+                .is_some_and(|f| k == f.kind || k == f.reveal)
+        {
             k
         } else {
             0
@@ -1261,6 +1412,12 @@ impl Adventure {
 
     pub(crate) fn roll(&mut self, lo: u16, hi: u16) -> u16 {
         self.rng.inclusive(lo, hi)
+    }
+
+    /// The first visible item, for a test.
+    #[cfg(test)]
+    pub(crate) fn scroll_for_test(&self) -> usize {
+        self.scroll
     }
 
     /// The generator's seed, `cs:[6]` and `cs:[8]`, for a test to count
@@ -1390,12 +1547,15 @@ impl Adventure {
         let Ok(id) = u8::try_from(entry) else {
             return;
         };
+        let door = self.profile.entry_door;
         if self
             .object_index(id)
-            .is_some_and(|i| self.objects[i].kind == 4)
+            .is_some_and(|i| self.objects[i].kind == u16::from(door.kind))
         {
-            self.entry_door = entry;
-            self.object_show_frame(id, 1);
+            if door.remembered {
+                self.entry_door = entry;
+            }
+            self.object_show_frame(id, door.frame);
         }
     }
 
@@ -1439,7 +1599,8 @@ impl Adventure {
     /// Whether row `loc` is a forest row: in *Dunkle Schatten* the Wald
     /// and the maze.
     pub(crate) fn forest_row(&self, loc: u16) -> bool {
-        self.locations.kind(&self.image, usize::from(loc)) == Some(self.kinds.forest)
+        let kind = self.locations.kind(&self.image, usize::from(loc));
+        self.profile.forest.is_some_and(|f| kind == Some(f.kind))
     }
 
     /// The `DSROOM.DAT` slot the room loader (`0766h:010Ah`) takes for row
@@ -1450,8 +1611,8 @@ impl Adventure {
     /// graph, the animations and the row's dialogue bank all come out of
     /// that slot.
     pub(crate) fn room_slot(&self, loc: u16) -> u16 {
-        if self.forest_row(loc) {
-            self.kinds.forest_slot
+        if let Some(f) = self.profile.forest.filter(|_| self.forest_row(loc)) {
+            f.slot
         } else {
             loc
         }
@@ -1468,7 +1629,12 @@ impl Adventure {
     /// forest row the picture with the row's map bound to it, for any
     /// other the slot's file.
     pub(crate) fn room(&self) -> Option<&RoomFile> {
-        loaded_room(self.bound_map.as_ref(), &self.rooms, self.slot())
+        loaded_room(
+            self.bound_map.as_ref(),
+            self.edited_room.as_ref(),
+            &self.rooms,
+            self.slot(),
+        )
     }
 
     /// `0766h:0D34h`, the slot of the location just left released. Between
@@ -1502,29 +1668,38 @@ impl Adventure {
     /// `+10h`, and the alignment at `+3`. The walker record carries
     /// alignment 2, so a figure resolves to the middle of its
     /// feet lifted by its own height: the top of its head.
-    pub(crate) fn player_point(&self) -> Option<(i32, i32)> {
+    ///
+    /// Answers the point and the cel's scaled width and height.
+    pub(crate) fn player_box(&self) -> Option<(i32, i32, i32, i32)> {
         let p = self.walker.as_ref()?;
         let (cel, _) = render::figure_cel(p);
         let cel = self.figure_cels.get(cel)?;
         let scale = num::small(p.scale);
         let w = scaled(i32::from(cel.width), scale);
         let h = scaled(i32::from(cel.height), scale);
-        Some(align_point(WALKER_ALIGN, p.x, p.y, w, h))
+        let (x, y) = align_point(WALKER_ALIGN, p.x, p.y, w, h);
+        Some((x, y, w, h))
     }
 
     /// The same for an object of this location, found by the id it carries
     /// at `+13h` — which is how the two record setters name one.
     pub(crate) fn object_point(&self, id: u8) -> Option<(i32, i32)> {
+        self.slot_object_box(id).map(|(x, y, _, _)| (x, y))
+    }
+
+    /// The same with the cel's scaled width and height beside it.
+    pub(crate) fn slot_object_box(&self, id: u8) -> Option<(i32, i32, i32, i32)> {
         let o = self.objects.get(self.object_index(id)?)?;
         // An object whose cel this engine cannot find answers with the
         // bare point rather than one aligned against a cel it did not
         // find.
         let Some((w, h)) = self.object_cel_size(o.bundle, o.cel) else {
-            return Some((o.x, o.y));
+            return Some((o.x, o.y, 0, 0));
         };
         let w = scaled(w, o.scale.0);
         let h = scaled(h, o.scale.1);
-        Some(align_point(o.align, o.x, o.y, w, h))
+        let (x, y) = align_point(o.align, o.x, o.y, w, h);
+        Some((x, y, w, h))
     }
 
     /// What the entry function makes of a location's own object list
@@ -1576,7 +1751,14 @@ impl Adventure {
                 self.subjects.clear(slot, 0);
             }
         }
-        self.subjects.set_point(SCREEN_SLOT, SCREEN_CODE, 160, 64);
+        if let Some(s) = self.profile.screen_slot {
+            self.subjects.set_point(
+                usize::from(s.slot),
+                s.code,
+                num::signed(s.x),
+                num::signed(s.y),
+            );
+        }
     }
 
     /// Installs the panel color curves and the entry ramp. Dunkle Schatten
@@ -1596,7 +1778,7 @@ impl Adventure {
     }
 
     /// `0x0C971`: normal dialogue/input ownership uses variant zero.
-    fn panel_tint(&mut self, mask: u16) {
+    pub(super) fn panel_tint(&mut self, mask: u16) {
         if let Some(p) = &mut self.panel_colors {
             p.tint(mask);
         } else {
@@ -1624,6 +1806,44 @@ impl Adventure {
     }
 
     /// `0x0ED82`: called once after movement/animation, before task painting.
+    /// The figure's loader with kind 1 (`0BE1h:0000h(1, n)`, Dunkle
+    /// Schatten's `109Dh:000Eh`): nothing when `n` is the set already
+    /// loaded (Dunkle Schatten's `0x10A01`); otherwise the strip and the
+    /// figure of set `n`, `n` kept in the player's record `+1Eh`
+    /// (`0x10A68`) — which the save carries — and the strip's loader on the
+    /// new file (`0x10A79`), which splits the carried list anew.
+    pub(crate) fn figure_set_load(&mut self, n: u16) {
+        if n == self.figure_digit {
+            return;
+        }
+        let Some((_, set)) = self.figure_sets.iter().find(|(d, _)| *d == n) else {
+            return;
+        };
+        self.panel = set.panel.clone();
+        self.item_cels = set.item_cels.clone();
+        self.figure_cels = set.figure_cels.clone();
+        self.figure_digit = n;
+        let [lo, hi] = n.to_le_bytes();
+        self.set_player_record_byte(player::FIGURE_SET, lo);
+        self.set_player_record_byte(player::FIGURE_SET + 1, hi);
+        self.strip_range();
+    }
+
+    /// The start's call of the figure's loader with `n = −1` (`0x0072D`,
+    /// Dunkle Schatten's `0x04F7A`), before the options: the set the
+    /// player's record remembers (Dunkle Schatten's `0x10A58`) — 0 as the
+    /// image ships it,
+    /// or what a saved game restored at the start carried. Then the strip
+    /// has its range.
+    pub(crate) fn figure_set_at_start(&mut self) {
+        let n = u16::from_le_bytes([
+            self.player_record_byte(player::FIGURE_SET),
+            self.player_record_byte(player::FIGURE_SET + 1),
+        ]);
+        self.figure_set_load(n);
+        self.strip_range();
+    }
+
     fn panel_frame(&mut self) {
         if let Some(p) = &mut self.panel_colors {
             p.frame();
@@ -1751,12 +1971,14 @@ fn push_at(b: &[u8], i: usize) -> Option<(i32, usize)> {
 /// alone, for a caller that writes the records beside it while it reads.
 fn loaded_room<'a>(
     bound: Option<&'a objects::BoundMap>,
+    edited: Option<&'a RoomFile>,
     rooms: &'a [Option<RoomFile>],
     slot: Option<usize>,
 ) -> Option<&'a RoomFile> {
-    match bound {
-        Some(m) => Some(&m.room),
-        None => slot.and_then(|n| rooms.get(n)).and_then(Option::as_ref),
+    match (bound, edited) {
+        (Some(m), _) => Some(&m.room),
+        (None, Some(r)) => Some(r),
+        (None, None) => slot.and_then(|n| rooms.get(n)).and_then(Option::as_ref),
     }
 }
 
@@ -1842,6 +2064,86 @@ fn load_own_banks(res: &Path, name: &str) -> Result<Vec<Option<Bank>>> {
 }
 
 /// One `RESOURCE/*.DAT` opened as a RIB.
+/// One set of strip and figure files: the strip's picture and bank, the
+/// carried items' cels, the figure's cels and bank.
+#[derive(Debug, Clone)]
+pub(crate) struct FigureFiles {
+    panel: Picture,
+    panel_bank: Option<Vec<u8>>,
+    item_cels: Vec<Option<Picture>>,
+    figure_cels: Vec<Picture>,
+    player_bank: Option<Vec<u8>>,
+}
+
+impl FigureFiles {
+    /// The set with digit `d`: the names' `%` replaced by it (a name
+    /// without one is the only set). With `several` sets an item whose
+    /// resource is not a cel in this strip file has none here; with one,
+    /// that is an error.
+    fn load(
+        res: &Path,
+        image: &Image,
+        files: &Files,
+        items: usize,
+        d: u16,
+        several: bool,
+    ) -> Result<Self> {
+        let digit = char::from_digit(u32::from(d), 10).unwrap_or('0');
+        let named = |n: &str| n.replace('%', &digit.to_string());
+        let panel_name = named(files.panel);
+        let panels = rib(res, &panel_name)?;
+        let panel = Picture::parse(
+            panels
+                .get(0)
+                .ok_or_else(|| format!("{panel_name} has no resource 0, the verb strip"))?,
+        )?;
+        // `0x0C283`: ids address a byte mapping, not consecutive panel
+        // resources. Every id is kept, aliases too.
+        let item_cels = crate::titles::xp1994::item_resources(image, items)?
+            .into_iter()
+            .enumerate()
+            .map(|(id, resource)| -> Result<Option<Picture>> {
+                let cel = panels
+                    .get(resource)
+                    .ok_or_else(|| {
+                        format!("item {}: missing panel resource {resource}", id + 1).into()
+                    })
+                    .and_then(|data| {
+                        Picture::parse_prefix(data).map_err(|e| {
+                            crate::error::Error::from(format!(
+                                "item {}: panel resource {resource}: {e}",
+                                id + 1
+                            ))
+                        })
+                    });
+                match cel {
+                    Ok(c) => Ok(Some(c)),
+                    Err(_) if several => Ok(None),
+                    Err(e) => Err(e),
+                }
+            })
+            .collect::<Result<_>>()?;
+        let player = rib(res, &named(files.player))?;
+        // Bundle 1 is the figure file from resource 1 on: the loader
+        // stores the whole file and then advances the slot by four bytes,
+        // one far pointer, which is the palette these files open with
+        // (`0x10AD0`).
+        let figure_cels = player
+            .resources
+            .iter()
+            .skip(1)
+            .filter_map(|b| Picture::parse(b).ok())
+            .collect();
+        Ok(FigureFiles {
+            panel,
+            panel_bank: panels.get(1).map(<[u8]>::to_vec),
+            item_cels,
+            figure_cels,
+            player_bank: player.get(0).map(<[u8]>::to_vec),
+        })
+    }
+}
+
 fn rib(res: &Path, name: &str) -> Result<Rib> {
     let path = find_ci(res, name).ok_or_else(|| format!("{name} not found"))?;
     Ok(Rib::parse(&std::fs::read(path)?)?)

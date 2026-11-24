@@ -27,6 +27,7 @@ use motionvm_parsec_formats::Title;
 use motionvm_render::{Framebuffer, Palette};
 
 pub(crate) mod caption;
+pub(crate) mod capzins;
 pub(crate) mod ds1;
 pub(crate) mod mover;
 pub(crate) mod palette1994;
@@ -184,6 +185,7 @@ mod tests {
     #[test]
     fn every_runtime_and_the_game_may_move_to_another_thread() {
         send::<super::ds1::DunkleSchatten>();
+        send::<super::capzins::CaptainZins>();
         send::<Box<dyn super::Runtime>>();
         send::<crate::Game>();
     }

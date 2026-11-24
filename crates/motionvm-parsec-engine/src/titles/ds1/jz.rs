@@ -11,6 +11,7 @@
 //! prologue is the standard one.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use super::story;
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
@@ -37,11 +38,6 @@ const PLAYING_200: u16 = 0x18CA;
 const SPEAKS_207: u16 = 0x18C6;
 const NEXT_207: u16 = 0x18C2;
 const PLAYING_207: u16 = 0x18C4;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x1ADF` to `0x1DBB`.
 pub(crate) fn enter(api: &mut dyn Api) {

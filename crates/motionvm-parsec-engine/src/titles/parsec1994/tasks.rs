@@ -109,13 +109,6 @@ pub(crate) struct Task {
 
 /// Bit 15 of `+1Ah`: armed, waiting to be started (`0x0EA1B`).
 pub(crate) const ARMED: u16 = 0x8000;
-/// Bit 10 of `+1Ah`, from a `03 05` control in the text (`0x0D243`).
-pub(crate) const FLAG_400: u16 = 0x400;
-/// Bit 9 of `+1Ah`, from a `03 02` control (`0x0D22E`).
-pub(crate) const FLAG_200: u16 = 0x200;
-/// Bit 8 of `+1Ah`: hold the page until a click, from a `03 01` control
-/// (`0x0D222`); the tick then parks the countdown at `7FFFh` (`0x0E2CD`).
-pub(crate) const HOLD: u16 = 0x100;
 /// Bit 1 of `+1Ah`: no dialogue may interrupt this one. `0x0D0F9` tests
 /// it and jumps **to the reset** when it is clear, so a task with the bit
 /// set refuses the scene instead.

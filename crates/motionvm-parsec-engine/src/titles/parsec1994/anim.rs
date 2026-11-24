@@ -51,7 +51,7 @@ use motionvm_parsec_formats::Animations;
 use super::objects::{
     HIDDEN, LIVE, MIRROR, STATE_FIGURE_ANIM, STATE_HEAD, STATE_NPC_ANIM, STATE_PART, STATE_SINGLE,
 };
-use super::{Adventure, Event, Far, scaled, tasks};
+use super::{Adventure, Event, Far, scaled};
 
 /// What an entry is bound to: the record the interpreter reads its frame
 /// into and counts its waits on (`+70h` of the entry).
@@ -1561,19 +1561,31 @@ impl Adventure {
         ) {
             return;
         }
+        // A build without the checks reads whatever the record points at;
+        // here an object without a block, or a number past its count, is
+        // still not started, but its state is left as it was.
+        let checks = self.profile.anim_checks_count;
         let Some(ai) = self.objects[i].ani else {
-            self.objects[i].state = 0;
+            if checks {
+                self.objects[i].state = 0;
+            }
             return;
         };
         if k >= self.anis[ai].count {
-            self.objects[i].state = 0;
+            if checks {
+                self.objects[i].state = 0;
+            }
             return;
         }
         let Some(block) = self.anim_block(self.anis[ai].global) else {
             return;
         };
         if self.objects[i].flags & LIVE == 0 {
-            if self.objects[i].kind != 4 {
+            if self
+                .profile
+                .anim_wakes_only_kind
+                .is_some_and(|k| self.objects[i].kind != u16::from(k))
+            {
                 return;
             }
             self.objects[i].flags |= LIVE | HIDDEN;
@@ -1736,11 +1748,17 @@ impl Adventure {
         }
     }
 
-    /// `[16A5h] == 0Ah`: an animation is running on the figure.
-    pub(crate) fn player_animating(&self) -> bool {
-        self.walker
-            .as_ref()
-            .is_some_and(|w| w.state == STATE_FIGURE_ANIM)
+    /// `0CFDh:1BA2h(k)`: a page task 0 holds for a click let go —
+    /// `k` kept as the code that let it go (`[1E48h]`), the hold bit
+    /// cleared and the countdown run out.
+    pub(crate) fn page_release(&mut self, k: u16) {
+        self.page_release_code = k;
+        let hold = self.profile.text_flags.hold;
+        let t = &mut self.tasks.t[0];
+        if t.flags & hold != 0 {
+            t.flags &= !hold;
+            t.countdown = 0;
+        }
     }
 
     /// `0EB9h:1D97h(obj, code)`, the callback an `17` opcode reaches
@@ -1757,35 +1775,28 @@ impl Adventure {
         let object = self.body_id(body);
         self.events.push(Event::AnimCode { object, code });
         match code {
-            1 => {
-                // `0CFDh:1BA2h(1)`: a page held for a click let go.
-                self.word_1e48 = 1;
-                let t = &mut self.tasks.t[0];
-                if t.flags & tasks::HOLD != 0 {
-                    t.flags &= !tasks::HOLD;
-                    t.countdown = 0;
-                }
-            }
+            1 => self.page_release(1),
             3 => self.effect_1949(4),
             5 => self.task_arm(0),
             6 => self.task_start(0),
             8 => self.effect_1949(3),
             11 | 12 => {
-                self.script.g1e52 = self.script.g1e50;
-                if self.script.g1e52 >= 0 {
-                    let k = self.script.g1e52;
+                self.script.figure_animation = self.script.pending_animation;
+                if self.script.figure_animation >= 0 {
+                    let k = self.script.figure_animation;
                     self.anim_player(k);
                 }
-                self.script.g1e50 = -1;
+                self.script.pending_animation = -1;
             }
             _ => {}
         }
-        if code == self.word_28c1 {
-            self.word_28c1 = 0;
+        if code == self.anim_wait {
+            self.anim_wait = 0;
         }
         // `0x109BB`: and the location's own hook at `[1E60h]`, at once.
-        let hook = self.anim_hook;
-        hook(self, Far::object(u16::from(object)), code);
+        if let Some(table) = self.logic_table {
+            table.anim_hook(self, Far::object(u16::from(object)), code);
+        }
     }
 }
 
@@ -2003,10 +2014,10 @@ mod tests {
         let Some(mut g) = rig(&[0x17, 0x02, 0x00, 0x80, 0x01, 0x00]) else {
             return;
         };
-        g.word_28c1 = 2;
+        g.anim_wait = 2;
         g.object_anim(1, 0);
         g.animator_tick(1);
-        assert_eq!(g.word_28c1, 0, "the machine's wait is over");
+        assert_eq!(g.anim_wait, 0, "the machine's wait is over");
         assert!(g.events.contains(&Event::AnimCode { object: 1, code: 2 }));
     }
 

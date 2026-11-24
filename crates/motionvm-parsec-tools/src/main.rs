@@ -1,4 +1,6 @@
-//! `motionvm-parsec-tools` — inspect and extract the resources of *Dunkle Schatten*.
+//! `motionvm-parsec-tools` — inspect and extract the resources of a PARSEC
+//! game: *Dunkle Schatten* or *Captain Zins*, told apart by the room
+//! container the install ships.
 //!
 //! ```text
 //! motionvm-parsec-tools info    <gamedata>                 summary of every DAT file
@@ -28,17 +30,18 @@ const USAGE: &str = "\
 usage: motionvm-parsec-tools <command> [arguments]
 
   info    <gamedata>                 every DAT file, with RIB counts and sizes
-  extract <gamedata> [--out DIR]     every room playfield of DSROOM.DAT as a
+  extract <gamedata> [--out DIR]     every room playfield of the room
+                                     container (DSROOM.DAT, CZROOM.DAT) as a
                                      PNG with its sizes and hotspot list
-                                     beside it, and the pictures of
-                                     PANELS.DAT and CMBMOU.DAT
+                                     beside it, and the pictures of the
+                                     strip files (PANEL*.DAT) and CMBMOU.DAT
                                      (--out defaults to ./out)
   picture <gamedata> <file> [n] [--out F]
                                      one RIB resource as an indexed PNG
                                      (n defaults to 0; --out defaults to picture.png)
   dialogues <gamedata>               every dialogue bank: the two global ones
                                      in DIALOG.DAT and each location's own in
-                                     DSROOM.DAT, with its texts
+                                     the room container, with its texts
   rib     <gamedata> <file>          every resource of one DAT: index, size and
                                      what the readers make of it
   room    <gamedata> <id>            one RDV room's trailer and hotspot table
@@ -184,8 +187,8 @@ fn room_dac(room: &Room) -> Palette {
     p
 }
 
-/// The game directory a command names, refused with a sentence when it is
-/// not Dunkle Schatten's. Without the room container a command would reach
+/// The game directory a command names, refused with a sentence when it
+/// holds no game this crate reads. Without the room container a command would reach
 /// whichever reader opens a file first and fail on that file's name — or,
 /// for `info` and `dialogues`, list nothing and exit 0 as if it had read a
 /// game.
@@ -197,13 +200,25 @@ fn game(rest: &[String]) -> Result<&Path, Box<dyn std::error::Error>> {
     }
 }
 
-/// What [`game`] says about a directory that holds no game.
+/// What [`game`] says about a directory that holds no game: every game it
+/// looked for, and the file that would have told it.
 fn refusal(dir: &Path) -> String {
+    let looked: Vec<String> = Title::ALL
+        .iter()
+        .map(|t| format!("{} ({})", t.name(), t.needs()))
+        .collect();
     format!(
-        "{}: not Dunkle Schatten (no {})",
+        "{}: no PARSEC game here — {}",
         dir.display(),
-        Title::DunkleSchatten.needs()
+        looked.join(", ")
     )
+}
+
+/// The room container of the game at `dir`.
+fn room_container(dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let title = identify(dir).ok_or_else(|| refusal(dir))?;
+    find_ci(&resource_dir(dir), title.room_file())
+        .ok_or_else(|| format!("no {}", title.room_file()).into())
 }
 
 fn flag(args: &[String], name: &str) -> Option<String> {
@@ -301,7 +316,16 @@ fn extract_rooms(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error
 fn extract_stills(res: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let pics = out.join("pictures");
     std::fs::create_dir_all(&pics)?;
-    for name in ["PANELS.DAT", "CMBMOU.DAT"] {
+    // The strip's files — Dunkle Schatten's one `PANELS.DAT`, Captain
+    // Zins's `PANEL0.DAT` and `PANEL1.DAT` — and the pointers'.
+    let mut names: Vec<String> = std::fs::read_dir(res)?
+        .flatten()
+        .filter_map(|e| e.file_name().to_str().map(str::to_uppercase))
+        .filter(|n| n.starts_with("PANEL") && n.ends_with(".DAT"))
+        .collect();
+    names.sort();
+    names.push("CMBMOU.DAT".to_owned());
+    for name in &names {
         let Some(path) = find_ci(res, name) else {
             continue;
         };
@@ -442,7 +466,7 @@ fn dialogues(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
         show_bank(label, &Bank::parse(blob)?);
         printed = true;
     }
-    if let Some(path) = find_ci(&resource_dir(dir), "DSROOM.DAT") {
+    if let Ok(path) = room_container(dir) {
         let bytes = std::fs::read(path)?;
         if let Dat::Fgroup(group) = open_dat(&bytes)? {
             for (i, slot) in group.slots.iter().enumerate() {
@@ -585,12 +609,11 @@ fn describe(blob: &[u8]) -> String {
     format!("? {} |{text}|", head.join(" "))
 }
 
-/// Every room the install holds: the slots of `DSROOM.DAT` that carry
-/// one, each a six-resource RIB.
+/// Every room the install holds: the slots of the room container that
+/// carry one, each a six-resource RIB.
 fn rooms_of(dir: &Path) -> Result<Vec<(String, RoomFile)>, Box<dyn std::error::Error>> {
-    let res = resource_dir(dir);
     let mut out = Vec::new();
-    let path = find_ci(&res, "DSROOM.DAT").ok_or("no DSROOM.DAT")?;
+    let path = room_container(dir)?;
     let bytes = std::fs::read(path)?;
     if let Dat::Fgroup(group) = open_dat(&bytes)? {
         for (i, slot) in group.slots.iter().enumerate() {
@@ -686,7 +709,8 @@ mod tests {
     fn a_directory_without_the_game_is_refused_by_name() {
         assert_eq!(
             refusal(Path::new("/games/DS2")),
-            "/games/DS2: not Dunkle Schatten (no RESOURCE/DSROOM.DAT beside XP01.EXE)"
+            "/games/DS2: no PARSEC game here — Dunkle Schatten (RESOURCE/DSROOM.DAT beside \
+             XP01.EXE), Captain Zins (RESOURCE/CZROOM.DAT beside XP01.EXE)"
         );
     }
 }

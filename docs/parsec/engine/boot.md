@@ -69,6 +69,40 @@ play (XP00 `0x0E4F`); without a sound card each is a no-op (XP00
 them. The drivers go with the program, and `XP01` loads and installs its
 own ([music](music.md)).
 
+### Captain Zins's title program
+
+`ZINS.BAT` runs `XP00` the same way, and its `_main` is Dunkle Schatten's
+instruction for instruction, but for its answers: the title routine
+`0323h:1169h` (`0x4399`) answers 3 for a new game, 4 for the saved one
+and 5 for quitting (`0x614`–`0x623`). The library under it is the same —
+256 functions byte for byte, 94 more but for their addresses — and so are
+its clock and its fades, so both programs are played on one rebuilt
+machine. What the routine runs is its own:
+
+1. an animation, `INTROS.DAT` slot 0 (`0323h:0459h`, `0x3689`): a palette
+   of 256 colors without a header and 39 frames of deltas — after a
+   width and a height, an offset on the screen and runs of a gap and a
+   count of bytes (`0221h:00A0h`, `0x22B0`) — ten hundredths each; it
+   polls nothing, and nothing skips it;
+2. Dunkle Schatten's intro, the wave in slot 13 (`push 0Dh`, `0x43FC`);
+3. the credits (`0323h:0EDCh`, `0x410C`): 88 lines at `DS:0826h` laid out
+   by their first character — `c`, `n` and `p` centered in three inks,
+   the others gaps — and rolled a line each three hundredths through the
+   window (9, 7)–(`0CAh`, `0A8h`) over slot 10, slot 12's frame over them,
+   round and round until an event; module 0;
+4. the menu (`0323h:088Ah`, `0x3ABA`), Dunkle Schatten's routine with
+   five lines from `82h`, a fade in by 8, and between the fade and the
+   lines a wait of up to 500 hundredths and a dim of the picture to `80h`;
+   module 2. Lines 1 and 2 open a viewer (`0323h:0520h`, `0x3750`) on the
+   guide's ten pages or the five about GriPS — slot 1's font, a character
+   each 6 pixels with a shadow, three boxes to page on, back and out —
+   with module 1, and come back to the menu.
+
+There is no backstory. The clock of a rolling or animating step is set to
+0 the moment the last wait ended, so each step is its hundredths to the
+count, wherever the retrace falls: a capture of the original rolls the
+credits 33⅓ lines a second.
+
 ## How `XP01` begins
 
 `_main` runs from `0x4F19` to the options (`0x4F87`):

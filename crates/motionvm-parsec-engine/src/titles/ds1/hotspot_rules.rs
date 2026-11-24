@@ -3,85 +3,110 @@
 //!
 //! Each first asks the hotspot the object was chosen through for its line
 //! (`[28B3h]`, the hotspot's `+16h + 4k`) and plays it with `0CFDh:18C2h`;
-//! only without one does it fall back on a scene. A hotspot is not
-//! reachable through [`Api`](crate::titles::parsec1994::Api), so these are
-//! read over the runtime itself, as [`super::hook`] is; what is the game's
-//! is the choice of the text slot, the scenes and the item bound.
+//! only without one does it fall back on a scene. What is the game's is
+//! the choice of the text slot, the scenes and the item bound; they run
+//! against [`Api`] like every other rule of the program.
 
 use crate::num;
-use crate::titles::parsec1994::{Adventure, Event, OBJECT_LIVE};
+use crate::titles::parsec1994::{Api, Far};
+
+/// `[2891h]`, the first object.
+const OBJECT: u16 = 0x2891;
 
 /// The first id past the items, `17h` (`0x15A5D`, `cmp word [2891h], 17h`).
 const ITEMS_END: u16 = 0x17;
 
-/// `1586h:0125h`, `Betrachte` on anything: the hotspot's `texts[3]`
-/// (`0x15996`, `+22h`), else bank 2's place for an item
-/// (`~(id + 4000h)`, `0x159C7`), else bank 999's place 16.
-pub(crate) fn look(adv: &mut Adventure) -> i16 {
-    if let Some(text) = adv.own_text(3) {
-        adv.hotspot_text(&text);
-    } else if (1..ITEMS_END).contains(&adv.object1) {
-        let n = !(num::signed(adv.object1) + 0x4000);
-        adv.scene_load(n);
-    } else {
-        adv.scene_load(!16);
+/// The chosen hotspot's line in slot `k`, played when there is one
+/// (`les bx, [28B3h]`, the far pointer at `+16h + 4k` tested for null, then
+/// `0CFDh:18C2h`).
+fn own_line(api: &mut dyn Api, k: u16) -> bool {
+    let text = api.hotspot_own_text(k);
+    if text == Far::NULL {
+        return false;
     }
-    10
+    api.say_text(text);
+    true
 }
 
-/// `1586h:017Ch`, `Sprich mit`: `texts[4]` (`+26h`), else place 4 for
-/// something carried and 3 for anything else.
-pub(crate) fn talk(adv: &mut Adventure) -> i16 {
-    if let Some(text) = adv.own_text(4) {
-        adv.hotspot_text(&text);
-    } else if adv.carried(num::low8(adv.object1)) {
-        adv.scene_load(!4);
-    } else {
-        adv.scene_load(!3);
+/// `1586h:0125h`, `Betrachte` on anything: the hotspot's line 3 (`+22h`,
+/// `0x15996`); else for an item, `0 < id < 17h`, bank 2's place
+/// `~(id + 4000h)` (`0x159C7`); else place 16 (`push -11h`, `0x159CF`).
+pub(crate) fn look(api: &mut dyn Api) -> i16 {
+    if !own_line(api, 3) {
+        let id = api.word(OBJECT);
+        let n = if (1..ITEMS_END).contains(&id) {
+            !(num::signed(id).wrapping_add(0x4000))
+        } else {
+            !16
+        };
+        api.scene_play(n); // 0x159D1
     }
-    10
+    0x0A
 }
 
-/// `1586h:01CCh`, `Nimm`: `texts[5]` (`+2Ah`); else an item that is
-/// there and live goes out of the room — its live bit cleared (`0x15A8F`),
-/// its hotspot following it (`14DDh:074Bh`, `0x15A98`) — and into the
-/// player's hands (`0x15AB2`); else one of places 9, 10 and 11, rolled.
-pub(crate) fn take(adv: &mut Adventure) -> i16 {
-    if let Some(text) = adv.own_text(5) {
-        adv.hotspot_text(&text);
-        return 10;
+/// `1586h:017Ch`, `Sprich mit`: line 4 (`+26h`, `0x159ED`); else place 4
+/// for something carried (`0C3Fh:0B06h`, `0x15A11`) and 3 for anything
+/// else.
+pub(crate) fn talk(api: &mut dyn Api) -> i16 {
+    if !own_line(api, 4) {
+        let n = if api.inv_has(api.word(OBJECT)) != 0 {
+            !4
+        } else {
+            !3
+        };
+        api.scene_play(n); // 0x15A21
     }
-    if adv.object1 < ITEMS_END
-        && let Some(i) = adv.live_object(num::low8(adv.object1))
-    {
-        adv.objects[i].flags &= !OBJECT_LIVE;
-        let id = num::low8(adv.object1);
-        adv.events.push(Event::ObjectHidden(id));
-        adv.hotspot_follows(i);
-        adv.give_item(id);
-        return 10;
-    }
-    let n = !num::signed(adv.roll(9, 11));
-    adv.scene_load(n);
-    10
+    0x0A
 }
 
-/// `1586h:0273h`, `Benutze`: place 7 for something carried; else
-/// `texts[2]` (`+1Eh`), else place 6.
-pub(crate) fn use_(adv: &mut Adventure) -> i16 {
-    if adv.carried(num::low8(adv.object1)) {
-        adv.scene_load(!7);
-    } else if let Some(text) = adv.own_text(2) {
-        adv.hotspot_text(&text);
-    } else {
-        adv.scene_load(!6);
+/// `1586h:01CCh`, `Nimm`: line 5 (`+2Ah`, `0x15A3D`); else an item below
+/// `17h` that has a record and is live (`0BB6h:052Bh`, `0x15A68`; bit 0 of
+/// `+2`, `0x15A7B`) leaves the room — the live bit cleared between two of
+/// the drawer's marks (`0883h:000Fh`, `0x15A84`, `0x15AA6`), its hotspot
+/// following it (`14DDh:074Bh`, `0x15A98`) — and goes into the player's
+/// hands (`0C3Fh:095Ch`, `0x15AB2`); else one of places 9 to 11, rolled
+/// (`1EB5h:0028h`, `0x15ABD`).
+pub(crate) fn take(api: &mut dyn Api) -> i16 {
+    if own_line(api, 5) {
+        return 0x0A;
     }
-    10
+    let id = api.word(OBJECT);
+    if num::signed(id) < num::signed(ITEMS_END) {
+        let rec = api.obj_find(id);
+        let flags = Far {
+            off: rec.off.wrapping_add(2),
+            seg: rec.seg,
+        };
+        if rec != Far::NULL && api.far_byte(flags) & 1 != 0 {
+            api.obj_invalidate(rec);
+            let b = api.far_byte(flags);
+            api.set_far_byte(flags, b & 0xFE);
+            api.hotspot_follow(rec);
+            api.obj_invalidate(rec);
+            api.inv_give(id);
+            return 0x0A;
+        }
+    }
+    let n = !num::signed(api.random(9, 0x0B));
+    api.scene_play(n); // 0x15AC8
+    0x0A
+}
+
+/// `1586h:0273h`, `Benutze`: place 7 for something carried (`0C3Fh:0B06h`,
+/// `0x15ADB`); else line 2 (`+1Eh`, `0x15AF6`), else place 6.
+pub(crate) fn use_(api: &mut dyn Api) -> i16 {
+    if api.inv_has(api.word(OBJECT)) != 0 {
+        api.scene_play(!7);
+    } else if !own_line(api, 2) {
+        api.scene_play(!6); // 0x15B18
+    }
+    0x0A
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::titles::parsec1994::{Adventure, Event, OBJECT_LIVE};
 
     /// The game started and in its first location, the Zimmer, with no
     /// hotspot under the pointer.

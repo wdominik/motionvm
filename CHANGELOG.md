@@ -6,6 +6,140 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-24
+
+**Captain Zins plays from its title program to its end.** The second
+PARSEC title runs on the same `parsec1994` generation as Dunkle Schatten:
+its title program, all eighteen locations, its music and its saved game,
+and the parade after the last scene. Dunkle Schatten gains what its game
+program shows after its main loop. The MOTION games are unchanged, and
+Dunkle Schatten's saved games load as before: no layout changed.
+
+### Added
+
+- **Captain Zins (1994), the second PARSEC title.** A directory holding
+  `RESOURCE/CZROOM.DAT` is recognized (slug `capzins`; `just run capzins`,
+  `GAMEDATA_CAPZINS`, saves in `saves/capzins/`), its `XP01.EXE` opens on
+  the `parsec1994` generation with the library build read off its own
+  routines, and a new game starts in the Wohnung, location 1, on entry
+  `7Fh`, as the walk on from row 0 leads there. All eighteen locations,
+  the twenty-one global rules and the shared hook are re-expressed from
+  the program and held against the original routines: 1 159 anchored
+  cases over 124 entry points. What the second build of the library does
+  differently is read from the program, not assumed: the item classes the
+  choice of a carried item takes (Captain Zins gives its Bits one of their
+  own), the second set of figure and strip files, kept in the player's
+  record so a save carries it and checked for by the data check, the
+  flags a page's controls set, and the options dissolve's own count of
+  draws, measured on the original (157 491), with which its first scenes
+  match a DOSBox-X capture pixel for pixel. `just playthrough` plays
+  Captain Zins from its first scene to its end through the host's input.
+- **Captain Zins's title program.** `XP00.EXE` plays as `ZINS.BAT` runs
+  it: the animation, the intro with its wave, the credits rolled through
+  their window until an event, and the menu of five lines — the guide and
+  the pages about GriPS in their viewers, a new game, the saved one, or
+  quitting — before `XP01` begins. What the two title programs share —
+  the machine, the fades, the intro and the menu routine — is the
+  generation's; Dunkle Schatten's title program is built on it as well.
+- **The way out of `XP01`.** What the game program shows after its main
+  loop is played: Dunkle Schatten's end — the campaign's banner, the
+  credits rolled over it until an event, the campaign's picture — and the
+  two pictures it shows when the player quits; Captain Zins's parade of
+  portraits riding across the water until an event. The credits' roll is
+  the one Captain Zins's title program plays, and the parade's columns are
+  the intro's wave, both the generation's. Both are held against
+  recordings of the original.
+- **`motionvm-parsec-tools` reads Captain Zins.** The inspector tells the
+  game by its room container and extracts Captain Zins's rooms, dialogues
+  and strip files as it does Dunkle Schatten's.
+- **The location logic's boundary names the routines the second title's
+  logic calls.** `Api` gains the visit's callback through its far pointer,
+  a task stopped, a held page let go, the band held, a walk-graph node's
+  edges blocked and opened again — the edit goes into a copy of the
+  loaded room that the next load of the slot drops — and the script's own
+  interaction.
+
+### Changed
+
+- **What every title on the generation does alike is the generation's
+  once.** The install a title plays from — its title program, then
+  `XP01` — the dispatch of the location's hooks and of a rule's handler
+  by its segment, and the opening of the sequences after the main loop
+  are written once in `parsec1994`; a title names its build, its title
+  program, its logic and the segments its rules live in, and the
+  segments are held against the location table's handlers. Dunkle
+  Schatten's door and walk rules, which are its program's own, are its
+  title's.
+
+### Fixed
+
+- **Dunkle Schatten forgets what the pointer was over when a script takes
+  the input and when it gives it back.** The input lock and its lifting
+  (`0EB9h:188Ah`, `0EB9h:18A4h`) write `FFFFh` to both hover words after
+  the lock bit; motionvm set the bit only, so after a script the
+  dispatcher could find the hotspot under the pointer unchanged and not
+  lay its text again.
+- **Dunkle Schatten's shared hook does what its listing does in four
+  places it did not.** `0EB9h:1968h` leaves code 8 alone for a task other
+  than 0 (`0x10591`); copies `[1E52h]` into `[1E50h]` for events 94–97
+  only, not 98 and 99 (`0x10700`, `0x1073C`); turns the figure for events
+  94–99 only while it stands or animates (`0x10706`, `0x1073C`); and leaves
+  the animation as it was for event 105 when the direction is past 3
+  (`0x107DB`). The hook now reads the script's words and the figure's
+  record through the same boundary as the location logic and is held to
+  the original's traces like it.
+- **Dunkle Schatten's strip scrolls as the original's does when an item
+  comes and goes.** Giving one outside the eight visible slots now scrolls
+  to it (`0C3Fh:095Ch`, `0x0CDA9`), and taking one steps the strip back by
+  one or by a whole window as `0C3Fh:09E1h` does (`0x0CE48`–`0x0CE7C`);
+  motionvm kept the strip still on giving and clamped it to the list's end
+  on taking. The carried list's visible range, `[1600h]`/`[1601h]`, is now
+  kept and read by the logic as the program keeps it.
+- **Dunkle Schatten's logic places an object where it writes its point.**
+  The Laden puts object 202 at (153, 47) through the record's `+4`/`+6`
+  (`0x221C`, `0x2222`), and F1 sets object 200's `x` to 100 (`0x4062`);
+  motionvm dropped such writes. The fields of an object's record the logic
+  writes — the point, the frame, the cel words and the block's count — now
+  reach the object.
+- **A click cuts a text short while a script holds the input.** The
+  original asks what task 0 is doing before it looks at the lock, and a
+  text that is up takes the click there; the runtime looked at the lock
+  first and dropped the click, so a scene's page ran its full time. A
+  choice menu takes its click the same way.
+- **No unbuilt gate reported on every exit.** A gate's far pointer
+  written word by word was looked up after each word, and the half-written
+  pair reported as a gate the engine lacks; it is looked up when the gate
+  is asked, and an uninstalled gate's pointer is 0:0 as in the original.
+- **The start's options show the strip without its items.** Until the
+  first room is entered, the original draws the carried items onto the
+  screen, where the next picture covers them, so the options at the start
+  show an empty strip and the items appear with the first room; Dunkle
+  Schatten's newspaper showed from the start.
+- **The strip's arrows scroll.** A click on an arrow beside the slots now
+  moves the carried items one on or back, and a click with the second
+  button a whole row, held inside the items in range, as the original's
+  strip does; before, the arrows did nothing and items past the visible
+  slots could not be reached. The second button is a click everywhere
+  else too, as in the original.
+- **A script's lock stops the hover text in Dunkle Schatten.** On each
+  frame under the lock, its dispatcher stops task 0 when that is the text at
+  the pointer; the runtime left it standing. Captain Zins's dispatcher does
+  not, and the capability is read from the program.
+- **The first room comes in over the options screen, as in the
+  original.** Closing the start's options left the screen as it was before
+  them, so the room's entry effect dissolved in over an empty screen —
+  black in Dunkle Schatten, green in a game whose color 0 is green — and
+  the strip was gone until the effect ended. Now the effect draws over the
+  menu the options left, darkened by the gray ramp put back, with the strip
+  standing, as a DOSBox-X capture of the original shows.
+- **The title programs see the mouse's buttons as the original does.** The
+  library takes a press as a flag the poll reports and clears, not as one
+  event a click (`0x184FC`, `0x17B39`): two clicks before a poll are one,
+  a button comes before a waiting key, and flushing the keys leaves the
+  buttons as they are. In the sequences after `XP01`'s main loop the
+  pointer's hide stops the sampling too, so a click during a fade nobody
+  polls is not seen.
+
 ## [0.13.0] - 2026-11-22
 
 **motionvm plays a second engine family.** PARSEC joins MOTION, with
@@ -1664,7 +1798,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/wdominik/motionvm/releases/tag/v0.14.0
 [0.13.0]: https://github.com/wdominik/motionvm/releases/tag/v0.13.0
 [0.12.0]: https://github.com/wdominik/motionvm/releases/tag/v0.12.0
 [0.11.1]: https://github.com/wdominik/motionvm/releases/tag/v0.11.1

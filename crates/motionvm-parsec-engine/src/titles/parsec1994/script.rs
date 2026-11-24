@@ -20,10 +20,9 @@ impl Adventure {
     /// direction, and `02CFh` on the figure's record is `01B9h`, which
     /// picks the block of cels by it.
     pub(crate) fn face_player(&mut self, dir: i16) {
-        let Some(graph) = self.room().and_then(|r| r.walk()) else {
+        if self.room().and_then(|r| r.walk()).is_none() {
             return;
-        };
-        let _ = graph;
+        }
         self.effect_1949(2);
         self.stop_player_anim();
         if let Some(w) = &mut self.walker {

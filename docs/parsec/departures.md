@@ -2,7 +2,7 @@
 
 # Departures from the Original
 
-*PARSEC, and Dunkle Schatten, the game motionvm plays on it — the one ledger of where motionvm knowingly does something else, and why. What is not yet known about the original is a different record and lives in [open questions](open-questions.md).*
+*PARSEC, and the games motionvm plays on it, Dunkle Schatten and Captain Zins — the one ledger of where motionvm knowingly does something else, and why. What is not yet known about the original is a different record and lives in [open questions](open-questions.md).*
 
 The rest of this documentation describes the original programs. This page
 is the single ledger of the places where **motionvm knowingly does
@@ -81,15 +81,18 @@ on everything that ran before. Here they start a full period away when
 the game is opened. The arithmetic of each countdown is the original's, down to
 its unsigned borrow when one lands on zero (`0x19F40`).
 
-**The dissolve takes a fixed 158 213 draws.** The options' dissolve draws
+**The dissolve takes a fixed count of draws.** The options' dissolve draws
 from the game's generator until the hundredths word `[1C82h]` reaches 100
 (`0x1208C`–`0x120D3`), so how many draws it makes is how many passes the
 machine fits into a second, and the program does not say. The count is
 measured on the original: on DOSBox-X with `core = normal` and `cycles =
 fixed 25000`, the generator's seed (`1EB5h:0006h`) stands at `0000:0000`
 before the dissolve of the options `XP01` opens at its start and at
-`7698h:E605h` after it, which is 158 213 steps. Every dissolve here takes
-that many, the one at the start and the ones in game. The pattern is the
+`7698h:E605h` after it in Dunkle Schatten, which is 158 213 steps, and at
+`815Ch:96FFh` in Captain Zins (its seed at `1D77h:0004h`), 157 491 steps:
+its loop costs more per pass.
+Every dissolve here takes its title's count, the one at the start and the
+ones in game. The pattern is the
 reference machine's; what the generator rolls after it — every random
 choice the game makes later — follows from it as it does there.
 
@@ -256,16 +259,26 @@ original's ([the pointer](engine/cursors.md)). What is not:
   event record is built from (`0x17B24`); the buttons come from the host
   here, and no event record is built.
 
-## The end of the game
+## The way out of `XP01`
 
-**The end sequence is not played.** The main loop runs while `[1F4Ah]` is
-not below zero (`0x4FE9`); after it, the settings are written
-(`147Ah:0373h`), and a location of −1 (`0x4FFD`) — the JZ's last state
-sets it (`0x1D7D`), and so does the F1's hook event 28h (`0x463E`) — goes
-on to `12D3h:0636h` (`0x13366`), which opens `RESOURCE\EXTROS.DAT`
-through `0x1309E`–`0x130A6` and plays what it holds. Here the game ends
-where that sequence would begin, the settings written, as it ends on
-quitting.
+What the program shows after its main loop is played as the original
+plays it ([the way out](engine/ending.md)), with two differences of the
+machine's, the first of which Captain Zins's title program shares:
+
+- **No load time.** The original reads each picture out of
+  `RESOURCE\EXTROS.DAT` as it goes on — a few retraces of black between
+  Dunkle Schatten's banner and its picture, and before Captain Zins's
+  water. Here the slots are read when the sequence begins. Captain Zins's
+  title program ([boot](engine/boot.md#captain-zinss-title-program)) is
+  played the same way: the original spends its own load times on the
+  reference machine, before its first picture and before each part, and
+  the runtime does not, so against a capture under DOSBox-X its pictures
+  come 0.4 s sooner from the start, and 0.1–0.2 s more by the credits.
+- **Captain Zins's ride is drawn once a retrace.** The original draws it
+  as often as the machine lets it, waiting for no retrace, and the
+  screen can show parts of several of its pictures at once; where the
+  portrait stands is the hundredths since the pass began either way.
+  The clock the pass sets to 0 is taken as starting on a hundredth.
 
 ## See also
 

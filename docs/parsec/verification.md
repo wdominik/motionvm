@@ -2,7 +2,7 @@
 
 # Verification
 
-*What motionvm has been held against for Dunkle Schatten, the game it plays on PARSEC. Deliberate divergences are a different record and live in [departures](departures.md).*
+*What motionvm has been held against for the games it plays on PARSEC, Dunkle Schatten and Captain Zins. Deliberate divergences are a different record and live in [departures](departures.md).*
 
 There are three kinds of check here, as there are for every family in this
 project, and the distinctions matter enough to be written down rather than
@@ -20,7 +20,7 @@ other two cannot: that nothing has moved since.
 ### The location logic, routine by routine
 
 The location handlers of `XP01.EXE`, with their hooks, animation hooks and
-rule handlers, and the global rules read against `Api`, are held against
+rule handlers, and the global rules, are held against
 the original routines themselves: **1 342 cases over 131 entry points** —
 487 runs of a handler, 645 of a hook, 182 of a rule handler and 28 of an
 animation hook. They cover every handler the location table names: the
@@ -28,7 +28,8 @@ onward walk of rows 0 and 20, the three later JZ rows through the JZ's
 own, the maze's thirty rows through the one they share, and location 60's
 restore; and 21 of the global table's 29 handlers. The other eight are not
 traced: the four that speak the chosen hotspot's own text and the walk
-verb's and the doors' rules, which read records `Api` does not reach, and
+verb's and the doors' rules, which read records outside what the traced
+logic is handed, and
 the options' gate, which is library code; the runtime's own tests hold
 those.
 
@@ -45,6 +46,17 @@ the same way, and its digest has to be the original's. Each line of the
 table says so: *anchored: the original routine, traced on the same
 inputs*. The cases are inputs, not data of the game, and live in the
 repository with the digests beside them.
+
+Captain Zins's logic is held the same way, against its own program's
+routines: **1 159 cases over 124 entry points** — 223 runs of a handler,
+571 of a hook, 251 of a rule handler and 114 of an animation hook — over
+all eighteen locations, the twenty-one handlers of the global table and the
+shared hook. They are the original's traces of generated and hand-made
+cases, reduced to one to three per path through the code. Left out are the
+cases whose inputs hand the logic a null record it then writes through, and
+the options' gate, which is library code. The tracer takes the argument
+counts of the script's interaction (three words, `0x0B764`–`0x0B861`) and
+of the callback (one, `0x0A015`) from their listings.
 
 What this settles is the logic: which engine routine a location calls, in
 which order, with what, and what it leaves in memory. It does not settle
@@ -70,6 +82,31 @@ Against lossless recordings of the original under DOSBox-X:
   retraces in the capture, as it does here.
 - **The pointer** with the choice menu up, and the shape it takes once a
   choice is made, as a recording shows them.
+- **Captain Zins's title program**
+  ([boot](engine/boot.md#captain-zinss-title-program)), from its start: the
+  animation and the intro agree pixel for pixel, and so does the menu after
+  a click has ended the credits. The credits roll 33⅓ lines a second, as
+  the capture's do. The pictures come sooner than the capture's by the
+  original's load times, which the runtime does not spend
+  ([departures](departures.md)).
+- **Captain Zins's first scenes**, `XP01` from a new game on: the
+  sampled frames agree but for six pixels, the pointer's; the telephone
+  call's pages agree in their text, and every text page of the capture —
+  41 of them over 109 s — stands as long as the original's, within 0.1 s.
+- **The way out of `XP01`** ([the way out](engine/ending.md)), reached by
+  setting the location word as the main loop begins, under the DOSBox-X
+  debugger. Dunkle Schatten's quit agrees frame for frame: every level of
+  its four fades, the black between its two pictures, both waits. Its end:
+  the credits agree pixel for pixel at every position the capture shows
+  whole (2 170 frames); every row of the other 459 is the same row at a
+  position at most two before or three after — the window caught while
+  it was being copied, in eight of them in the middle of a row. They roll
+  33⅓ lines a second; the campaign's picture is the same in all 865
+  frames it stands. Captain Zins's parade: 909 frames agree whole, and
+  every pixel of the others is one a neighboring picture of the ride
+  has, the screen showing several of them at once because the ride waits
+  for no retrace; it goes 100 columns a second, and each fade takes its
+  129 retraces.
 
 ### The music
 
@@ -196,10 +233,13 @@ assertion that a reader answers rather than crashes.
 
 ## What has not been compared
 
-Most of the game's rooms have never been held against a recording of the
-original: the maze's row 30, the Wald's row 23, an answer's box in the
-Küche, the title program's first logo and the pointer with the choice menu
-up are what pictures cover. Walking, the verb strip,
+Most of the games' rooms have never been held against a recording of the
+original: in Dunkle Schatten the maze's row 30, the Wald's row 23, an
+answer's box in the Küche, the title program's first logo and the pointer
+with the choice menu up, in Captain Zins its title program and the first
+scenes of a new game, and in both the way out of `XP01` are what pictures
+cover. Captain Zins's rooms past those scenes are held to the logic traces
+alone. Walking, the verb strip,
 the options' pages and the dialogue menus are held to the logic traces and
 to the program's code, not to a capture; so is every song but the title
 program's and, up to its exit fade, the Zimmer's, which only the digests

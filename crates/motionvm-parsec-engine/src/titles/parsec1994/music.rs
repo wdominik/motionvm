@@ -96,15 +96,6 @@ pub(crate) struct MusicMap {
     pub effect_masks: u16,
 }
 
-/// The effect slots at `DS:1EF4h`: as many as table A's bound lets the
-/// fetch take (`[1EA6h]`, 21), the count the free loops run to (`mov si,
-/// 15h`, `0x146FD`).
-pub(crate) const EFFECT_SLOTS: usize = 21;
-
-/// The first of the room's effect slots: the loader and the free run from 20
-/// down to it (`cmp ax, 0Ch`, `0x146F5`, `0x1473A`).
-const ROOM_EFFECTS: usize = 12;
-
 /// What the drivers are asked, in their own entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Request {
@@ -187,8 +178,9 @@ pub(crate) struct Music {
     /// `[210h]`: a digital driver installed.
     pub(crate) digital: bool,
     /// The slots at `DS:1EF4h`: the row of table A each holds, `None` for a
-    /// null pointer.
-    pub(crate) slots: [Option<u16>; EFFECT_SLOTS],
+    /// null pointer — as many as the build keeps
+    /// ([`super::Profile::effects`]).
+    pub(crate) slots: Vec<Option<u16>>,
     /// Where the driver's calls go, once the front door has given one.
     sink: Option<Box<dyn MusicSink>>,
     /// The build's words.
@@ -212,11 +204,11 @@ impl std::fmt::Debug for Music {
 impl Music {
     /// The library read from `PSMP2L.DAT`'s bytes, or the reason there are
     /// none.
-    pub(crate) fn new(library: Result<P2l, String>, map: MusicMap) -> Self {
+    pub(crate) fn new(library: Result<P2l, String>, map: MusicMap, slots: usize) -> Self {
         Self {
             digital: library.is_ok(),
             library,
-            slots: [None; EFFECT_SLOTS],
+            slots: vec![None; slots],
             sink: None,
             map,
             #[cfg(test)]
@@ -419,8 +411,11 @@ impl Adventure {
 
     /// `1458h:01C1h` (`0x14741`): slots 11 down to 0 fetched, at the start.
     pub(crate) fn effects_preload(&mut self) {
-        for k in (0..ROOM_EFFECTS).rev() {
-            self.music.slots[k] = self.effect_fetch(k);
+        for k in (0..self.profile.effects.room_first).rev() {
+            let row = self.effect_fetch(k);
+            if let Some(s) = self.music.slots.get_mut(k) {
+                *s = row;
+            }
         }
     }
 
@@ -429,15 +424,28 @@ impl Adventure {
     /// mask is not zero, slots 20 down to 12
     /// fetched where the mask names them and they are still empty.
     fn effects_load(&mut self, slot: u16) {
-        if !self.music.dac() || slot == 0 || slot >= 26 {
+        let e = self.profile.effects;
+        if !self.music.dac() || slot == 0 || slot >= e.rooms {
             return;
         }
         let m = self.music.map;
-        let at =
-            usize::from(m.effect_seg) * 16 + usize::from(m.effect_masks) + 2 * usize::from(slot);
-        let mask = self.image.word(at).unwrap_or(0);
-        for k in (ROOM_EFFECTS..EFFECT_SLOTS).rev() {
-            if u32::from(mask) & (1 << (k - ROOM_EFFECTS)) != 0 && self.music.slots[k].is_none() {
+        let width = if e.wide_masks { 4 } else { 2 };
+        let at = usize::from(m.effect_seg) * 16
+            + usize::from(m.effect_masks)
+            + width * usize::from(slot);
+        let low = u32::from(self.image.word(at).unwrap_or(0));
+        let high = if e.wide_masks {
+            u32::from(self.image.word(at + 2).unwrap_or(0))
+        } else {
+            0
+        };
+        let mask = (high << 16) | low;
+        for k in (e.room_first..e.slots.min(self.music.slots.len())).rev() {
+            let bit = u32::try_from(k - e.room_first)
+                .ok()
+                .and_then(|b| 1u32.checked_shl(b))
+                .unwrap_or(0);
+            if mask & bit != 0 && self.music.slots[k].is_none() {
                 self.music.slots[k] = self.effect_fetch(k);
             }
         }
@@ -445,7 +453,8 @@ impl Adventure {
 
     /// `1458h:017Ch` (`0x146FC`): slots 20 down to 12 freed.
     fn effects_release(&mut self) {
-        for slot in &mut self.music.slots[ROOM_EFFECTS..] {
+        let first = self.profile.effects.room_first.min(self.music.slots.len());
+        for slot in &mut self.music.slots[first..] {
             *slot = None;
         }
     }
@@ -510,7 +519,7 @@ impl Adventure {
     /// `1197h:0035h(slot)` (`0x119A5`): a room slot's song — the table's
     /// entry for a slot below 30 that is not negative — loaded.
     fn slot_song(&self, slot: u16) -> Far {
-        if slot >= 30 {
+        if slot >= self.profile.song_slots {
             return Far::NULL;
         }
         let n = self.word(self.music.map.slot_songs.wrapping_add(slot * 2));
@@ -611,8 +620,10 @@ impl Adventure {
             && a < rows
             && crate::num::signed(b) >= 0
             && b < rows
-            && kind(a) == Some(self.kinds.forest)
-            && kind(b) == Some(self.kinds.forest)
+            && self
+                .profile
+                .forest
+                .is_some_and(|f| kind(a) == Some(f.kind) && kind(b) == Some(f.kind))
     }
 
     /// The music switch flipped by the options (`0x12304`): off, the
@@ -749,7 +760,7 @@ mod tests {
     #[test]
     fn the_zimmer_holds_the_start_s_effects_and_two_of_its_own() {
         let Some(a) = zimmer() else { return };
-        let want: Vec<Option<u16>> = (0..EFFECT_SLOTS)
+        let want: Vec<Option<u16>> = (0..a.profile.effects.slots)
             .map(|k| (k < 14).then(|| u16::try_from(k).unwrap()))
             .collect();
         assert_eq!(a.music.slots.to_vec(), want);
@@ -766,12 +777,20 @@ mod tests {
             a.music.sent,
             [Request::StopEffects, Request::Stop, Request::Digital(None)]
         );
-        assert!(a.music.slots[ROOM_EFFECTS..].iter().all(Option::is_none));
-        assert!(a.music.slots[..ROOM_EFFECTS].iter().all(Option::is_some));
+        assert!(
+            a.music.slots[a.profile.effects.room_first..]
+                .iter()
+                .all(Option::is_none)
+        );
+        assert!(
+            a.music.slots[..a.profile.effects.room_first]
+                .iter()
+                .all(Option::is_some)
+        );
         a.location_word = 4;
         a.picture_kept = false;
         a.effects_load(4);
-        let room: Vec<usize> = (ROOM_EFFECTS..EFFECT_SLOTS)
+        let room: Vec<usize> = (a.profile.effects.room_first..a.profile.effects.slots)
             .filter(|&k| a.music.slots[k].is_some())
             .collect();
         assert_eq!(room, [14, 19]);
@@ -808,7 +827,7 @@ mod tests {
     fn without_a_digital_driver_there_are_no_effects_and_no_digital_part() {
         let Some(mut a) = zimmer() else { return };
         a.music.digital = false;
-        a.music.slots = [None; EFFECT_SLOTS];
+        a.music.slots = vec![None; a.profile.effects.slots];
         a.effects_preload();
         a.effects_load(2);
         assert!(a.music.slots.iter().all(Option::is_none));

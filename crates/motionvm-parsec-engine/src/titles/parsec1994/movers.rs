@@ -154,8 +154,12 @@ impl Adventure {
     /// (`0x0B2D9`), without a graph at `+24h` (`0x0B2E3`) and while an
     /// animation of its own runs, `+12h == 0Ah` (`0x0B2EF`).
     fn pass_member(&mut self, body: Body, delta: i32) {
-        let Some(room) = super::loaded_room(self.bound_map.as_ref(), &self.rooms, self.slot())
-        else {
+        let Some(room) = super::loaded_room(
+            self.bound_map.as_ref(),
+            self.edited_room.as_ref(),
+            &self.rooms,
+            self.slot(),
+        ) else {
             return;
         };
         match body {
@@ -246,8 +250,12 @@ impl Adventure {
     /// hotspot of the node's id turned round (`0x0B67D`–`0x0B6E5`), and
     /// `+2` live and shown (`0x0B796`, `0x0B79B`).
     pub(crate) fn snap_mover(&mut self, i: usize, node: u16, facing: i16) -> i16 {
-        let Some(room) = super::loaded_room(self.bound_map.as_ref(), &self.rooms, self.slot())
-        else {
+        let Some(room) = super::loaded_room(
+            self.bound_map.as_ref(),
+            self.edited_room.as_ref(),
+            &self.rooms,
+            self.slot(),
+        ) else {
             return 0;
         };
         let Some(m) = self.movers.get(i) else {
@@ -275,8 +283,12 @@ impl Adventure {
     /// no graph would have the routine read a header through a null
     /// pointer; no call of Dunkle Schatten's does that, and this answers 0.
     pub(crate) fn walk_mover(&mut self, i: usize, node: u16, facing: i16) -> i16 {
-        let Some(room) = super::loaded_room(self.bound_map.as_ref(), &self.rooms, self.slot())
-        else {
+        let Some(room) = super::loaded_room(
+            self.bound_map.as_ref(),
+            self.edited_room.as_ref(),
+            &self.rooms,
+            self.slot(),
+        ) else {
             return 0;
         };
         if room.walks.is_empty() {
@@ -291,6 +303,75 @@ impl Adventure {
         let answer = m.walker.walk_to_code(graph, num::signed(node), facing);
         self.sync_links();
         answer
+    }
+
+    /// `0A9Fh:1002h(rec, node)` (`0x0B9F2`) and `0A9Fh:105Ch(rec, node)`
+    /// (`0x0BA4C`): every edge of `node` in the graph `rec` is bound to
+    /// gets `+8 := value`, `3FFh` and 0. Nothing without walk graphs
+    /// (`[2865h]`, `0x0B9F8`); the node is found as the near search at
+    /// `0x0A9F4` finds it, from the last down, and one the graph does not
+    /// have is left alone (`0x0BA3E`). The edges are its circular chain
+    /// from the node's first (`+0Ah`), on through `+4` where the node is
+    /// the edge's first end and `+6` where it is its second, until the
+    /// first comes round again (`0x0B9A4`–`0x0B9F1`).
+    ///
+    /// The edges are the room's memory in the original, so the edit lasts
+    /// until the slot is loaded again: here it goes into a copy of the
+    /// loaded room made for this visit. A record that is neither the
+    /// player nor a person, or one bound to no graph, is reported.
+    pub(crate) fn set_node_edges(&mut self, rec: Far, node: u16, value: u16) {
+        if self.room().is_none_or(|r| r.walks.is_empty()) {
+            return;
+        }
+        let graph = if let Some(i) = rec.mover_index() {
+            self.movers.get(i).and_then(|m| m.graph)
+        } else if rec
+            == (Far {
+                off: self.ds_map.walker,
+                seg: self.dgroup,
+            })
+        {
+            Some(0)
+        } else {
+            None
+        };
+        let Some(g) = graph else {
+            self.events.push(super::Event::Unbuilt(
+                "0A9Fh:1002h",
+                (u32::from(rec.off) << 16) | u32::from(node),
+            ));
+            return;
+        };
+        if self.bound_map.is_none() && self.edited_room.is_none() {
+            self.edited_room = self.room().cloned();
+        }
+        let room = match (&mut self.bound_map, &mut self.edited_room) {
+            (Some(m), _) => &mut m.room,
+            (None, Some(r)) => r,
+            (None, None) => return,
+        };
+        let Some(walk) = room.walks.get_mut(g) else {
+            return;
+        };
+        let Some(n) = walk.nodes.iter().rposition(|x| x.id == node) else {
+            return;
+        };
+        let first = walk.nodes[n].first_edge;
+        let mut e = first;
+        loop {
+            let Some(edge) = walk.edges.get_mut(usize::from(e)) else {
+                return;
+            };
+            edge.blocked = value;
+            e = if usize::from(edge.a) == n {
+                edge.next_a
+            } else {
+                edge.next_b
+            };
+            if e == first {
+                return;
+            }
+        }
     }
 
     /// `0A9Fh:0F42h(rec)` (`0x0B932`) and `0A9Fh:0E7Fh(rec)` (`0x0B86F`)
@@ -348,15 +429,19 @@ impl Adventure {
     /// an object's — the point at `+4`/`+6`, the cel `+0Ah` of bundle 0
     /// scaled by `+0Eh`/`+10h`, the alignment `+3` — whether or not the
     /// record hangs in a chain.
-    pub(crate) fn mover_point(&self, i: usize) -> Option<(i32, i32)> {
+    ///
+    /// Answers the point and the cel's scaled width and height.
+    pub(crate) fn mover_box(&self, i: usize) -> Option<(i32, i32, i32, i32)> {
         let m = self.movers.get(i)?;
         let w = &m.walker;
         let (cel, _) = w.cel();
         let Some((cw, ch)) = self.object_cel_size(m.bundle, num::word(cel)) else {
-            return Some((w.x, w.y));
+            return Some((w.x, w.y, 0, 0));
         };
         let s = num::small(w.scale);
-        Some(align_point(m.align, w.x, w.y, scaled(cw, s), scaled(ch, s)))
+        let (width, height) = (scaled(cw, s), scaled(ch, s));
+        let (x, y) = align_point(m.align, w.x, w.y, width, height);
+        Some((x, y, width, height))
     }
 
     /// `0BB6h:000Ah` on a person (`0x0BB6A`): drawn like an object when

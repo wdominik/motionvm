@@ -1,23 +1,24 @@
-//! What Dunkle Schatten's location logic asks of the engine.
+//! What a parsec1994 title's location logic asks of the engine.
 //!
 //! The game's logic — a location's handler, its hooks and its own rule
-//! handlers — is compiled C that talks to the engine through far calls
-//! alone, and it reads and writes globals in `DGROUP`. [`Api`] is that
-//! boundary: one method per engine routine — 64 far addresses, as the
-//! recording stand-in in `trace.rs` names them — with the routine's own
-//! arguments in the original's order and its own return value, and
-//! accessors for the data segment, the far bytes the logic reads and the
-//! handler's own locals. *Dunkle Schatten*'s program calls three engine
-//! routines more from its game code — `0CFDh:18C2h`, `0883h:000Fh` and
-//! `14DDh:074Bh` — all of them from global rules that read the hotspot or
-//! the object record a choice went through, which this trait does not
-//! reach; those rules are read over the runtime itself.
+//! handlers, the global rules and the shared hook — is compiled C that
+//! talks to the engine through far calls alone, and it reads and writes
+//! globals in `DGROUP`. [`Api`] is that boundary: one method per engine
+//! routine, as the recording stand-in in `trace.rs` names them, with the
+//! routine's own arguments in the original's order and its own return
+//! value, and accessors for the data segment, the far bytes the logic reads
+//! and the handler's own locals. Two methods stand for a call through a far
+//! pointer rather than to a routine: the shared hook's hand-on to the
+//! location's own hook ([`Api::location_hook`]) and the visit's callback
+//! ([`Api::callback`]).
 //!
 //! The logic is written against this trait and nothing else, so the same
 //! code runs against the engine and against a recording stand-in that
 //! compares every call with a trace of the original routine (`trace.rs`).
 //!
-//! Each method carries the routine's address and what it does.
+//! Each method carries the routine's address in *Dunkle Schatten*'s
+//! `XP01.EXE` and what it does; where that program has no such routine, the
+//! method says which build has it.
 
 /// A far pointer the logic only passes on: a record the engine found
 /// (`0BB6h:052Bh` and friends), or one of its own records in `DGROUP`.
@@ -272,6 +273,59 @@ pub(crate) trait Api {
     /// `1586h:05E1h(k)`: the location left through exit `k`, as the mode
     /// machine's gate does it.
     fn script_exit(&mut self, k: u16);
+
+    // --- what game code beyond the locations asks: the global rules and
+    // the shared hook -------------------------------------------------------
+
+    /// `0883h:000Fh(rec)`: the object's rectangle marked for the drawer.
+    /// This engine draws every frame whole and keeps no such marks.
+    fn obj_invalidate(&mut self, rec: Far);
+    /// `0883h:20D9h(rec, k)`: animation `k` on the figure's record `rec`;
+    /// answers `k + 1`, 1 for a fresh start, or 0 without an entry.
+    fn figure_anim(&mut self, rec: Far, k: i16) -> i16;
+    /// `0CFDh:18C2h(text)`: a hotspot's own line, played by task 0 as
+    /// kind 3, over the player.
+    fn say_text(&mut self, text: Far);
+    /// The far pointer the hotspot the object was chosen through keeps at
+    /// its `+16h + 4k` (`[28B3h]` the record), null when there is no such
+    /// hotspot or no line in that slot.
+    fn hotspot_own_text(&mut self, k: u16) -> Far;
+    /// `14DDh:074Bh(rec)`: the hotspot whose mask ends in the object's id
+    /// takes the object's live bit as its own.
+    fn hotspot_follow(&mut self, rec: Far);
+    /// `0A9Fh:0C0Ch(rec, dir)`: the figure faces direction `dir`.
+    fn figure_face(&mut self, rec: Far, dir: i16);
+    /// `0A9Fh:10F7h(k)`: a turn animation on the figure; answers 1 when
+    /// one started.
+    fn figure_turn(&mut self, k: i16) -> i16;
+    /// The shared hook's hand-on (`call far [1E5Ch]`, *Dunkle Schatten*'s
+    /// `0x1085E`): `(code, arg, task)` to the location's own hook, the far
+    /// pointer its record keeps at `+2Fh`. Its answer is not read.
+    fn location_hook(&mut self, code: u16, arg: u16, task: u16);
+    /// The visit's callback asked about object `id`, through the far
+    /// pointer the build keeps for it ([`super::Profile::callback`]): the
+    /// library's own answer where the visit's setup put it, or the
+    /// location's routine it was bent to. −1 for an object that is not
+    /// there. *Dunkle Schatten*'s program keeps no callback.
+    fn callback(&mut self, id: u16) -> i16;
+    /// `0CFDh:1A0Eh(i)`: task `i` stopped — countdown 0, kind 1 asked for.
+    fn task_stop(&mut self, i: u16);
+    /// `0CFDh:1BA2h(k)`: the page task 0 holds let go, `k` the code that
+    /// let it go.
+    fn page_release(&mut self, k: u16);
+    /// `0C3Fh:0581h(owner)`: the band held for `owner`'s bits.
+    fn band_hold(&mut self, owner: u16);
+    /// `0A9Fh:1002h(rec, node)`: every edge of node `node` in the graph
+    /// `rec` is bound to blocked (`3FFh`), so that no walk takes it; a
+    /// node the graph does not have is left alone.
+    fn node_block(&mut self, rec: Far, node: u16);
+    /// `0A9Fh:105Ch(rec, node)`: the same edges open again (`0`).
+    fn node_open(&mut self, rec: Far, node: u16);
+    /// `0EB9h:177Ah(id, facing, scene)`: the script's own interaction with
+    /// object `id`, as if the pointer had chosen it with verb 2 — the mode
+    /// block set, the player sent to the node of that id facing `facing`
+    /// — and scene `scene` played.
+    fn interaction(&mut self, id: u16, facing: i16, scene: i16);
 }
 
 /// The segment word of a handle the engine gives out for an object record.
@@ -286,6 +340,9 @@ const MOVER_HANDLE: u16 = 0xF0B2;
 /// The segment word of the handle for the loaded room's header. The engine
 /// keeps the room in its own shape, so what lies behind it is not served.
 const ROOM_HANDLE: u16 = 0xF0B3;
+/// The segment word of the handle for a line of the chosen hotspot; the
+/// offset word is the line's slot.
+const TEXT_HANDLE: u16 = 0xF0B4;
 
 impl Far {
     /// The handle for the loaded room's header.
@@ -297,18 +354,29 @@ impl Far {
     }
 }
 
+/// The room a handle leaves for each object's fields: the offset word is
+/// the id times this plus the field.
+const OBJECT_STRIDE: u16 = 0x40;
+
 impl Far {
     /// The handle for object `id`.
     pub(crate) fn object(id: u16) -> Far {
         Far {
-            off: id,
+            off: id.wrapping_mul(OBJECT_STRIDE),
             seg: OBJECT_HANDLE,
         }
     }
 
-    /// The object a handle names, if it is one.
+    /// The object a handle names, when it is an object's own address.
     pub(crate) fn object_id(self) -> Option<u16> {
-        (self.seg == OBJECT_HANDLE).then_some(self.off)
+        self.object_field()
+            .filter(|&(_, f)| f == 0)
+            .map(|(id, _)| id)
+    }
+
+    /// The object and the field offset a pointer into one names.
+    pub(crate) fn object_field(self) -> Option<(u16, u16)> {
+        (self.seg == OBJECT_HANDLE).then_some((self.off / OBJECT_STRIDE, self.off % OBJECT_STRIDE))
     }
 
     /// The handle for the room's 30h-byte record `i`.
@@ -381,6 +449,14 @@ pub(crate) struct DsMap {
     pub room_header: u16,
     /// The door the player came in by, until it has swung shut (`[1EDEh]`).
     pub entry_door: u16,
+    /// The node the figure walks to, put on record when a walk starts
+    /// (`[289Fh]`).
+    pub walk_target: u16,
+    /// The animation code the mode machine waits for (`[28C1h]`).
+    pub anim_wait: u16,
+    /// The items' classes, a byte an item id: what the choice of an item
+    /// puts beside it as its class (`[0527h + id]` at `0x0F5C4`).
+    pub item_classes: u16,
     /// The carried list: its count byte, the first visible slot's byte,
     /// and the first byte of the list.
     pub inventory: (u16, u16, u16),
@@ -390,10 +466,18 @@ pub(crate) struct DsMap {
     pub gates: GateMap,
     /// The choice menu's record, its geometry and its inks.
     pub menu: u16,
+    /// The first of the six words in a row the shared hook keeps the
+    /// script's business with the figure in, [`Script`]'s `pending_animation` to
+    /// `turn_pending` in address order.
+    pub script: u16,
+    /// The word the shared hook sets to ask the dispatcher's head to start
+    /// task 0 once the figure is linked ([`Script`]'s `start_task_asked`); `None` for
+    /// a build whose hook never asks.
+    pub script_start: Option<u16>,
 }
 
 use super::mode::{Gate, GateMap};
-use super::{Adventure, Event};
+use super::{Adventure, Event, Script, objects};
 use crate::titles::subject::Subject;
 
 impl Adventure {
@@ -426,7 +510,7 @@ impl Adventure {
         self.substitutions[n] = text;
     }
 
-    fn ds_word(&self, addr: u16) -> u16 {
+    pub(super) fn ds_word(&self, addr: u16) -> u16 {
         u16::from_le_bytes([
             self.ds[usize::from(addr)],
             self.ds[usize::from(addr.wrapping_add(1))],
@@ -485,6 +569,10 @@ impl Api for Adventure {
             self.second_object.1
         } else if addr == m.entry_door {
             num::unsigned(self.entry_door)
+        } else if addr == m.walk_target {
+            num::unsigned(self.walk_target)
+        } else if addr == m.anim_wait {
+            self.anim_wait
         } else if addr == m.gate || addr == m.gate.wrapping_add(2) {
             let (seg, off) = m.gates.far(self.gate);
             if addr == m.gate { off } else { seg }
@@ -499,6 +587,14 @@ impl Api for Adventure {
             // There is no event record: input reaches the runtime as host
             // events, and the poll leaves nothing here for the logic.
             0
+        } else if let Some(i) = self.script_word(addr) {
+            self.script.word(i)
+        } else if let Some(high) = self.callback_word(addr) {
+            if high {
+                self.callback.seg
+            } else {
+                self.callback.off
+            }
         } else {
             u16::from_le_bytes([self.mem_byte(addr), self.mem_byte(addr.wrapping_add(1))])
         }
@@ -527,6 +623,18 @@ impl Api for Adventure {
             self.second_object.1 = v;
         } else if addr == m.entry_door {
             self.entry_door = num::signed(v);
+        } else if addr == m.walk_target {
+            self.walk_target = num::signed(v);
+        } else if addr == m.anim_wait {
+            self.anim_wait = v;
+        } else if let Some(i) = self.script_word(addr) {
+            self.script.set_word(i, v);
+        } else if let Some(high) = self.callback_word(addr) {
+            if high {
+                self.callback.seg = v;
+            } else {
+                self.callback.off = v;
+            }
         } else if addr == m.input_event
             || addr == m.room_header
             || addr == m.room_header.wrapping_add(2)
@@ -536,15 +644,12 @@ impl Api for Adventure {
             let [lo, hi] = v.to_le_bytes();
             self.ds[a] = lo;
             self.ds[usize::from(addr.wrapping_add(1))] = hi;
+            // A pair written word by word is unknown between the two
+            // writes; whether the gate is one the engine has is asked when
+            // the gate is (`Adventure::ask_gate`).
             let off = self.ds_word(m.gate);
             let seg = self.ds_word(m.gate.wrapping_add(2));
-            self.gate = m.gates.gate((seg, off)).unwrap_or_else(|| {
-                self.events.push(Event::Unbuilt(
-                    "gate",
-                    (u32::from(seg) << 16) | u32::from(off),
-                ));
-                Gate::None
-            });
+            self.gate = m.gates.gate((seg, off)).unwrap_or(Gate::None);
         } else if addr == m.ticks_taken {
             if self.effects.busy() {
                 self.ticks_after_effect = Some(v);
@@ -644,6 +749,7 @@ impl Api for Adventure {
         Adventure::task_start(self, usize::from(i));
     }
     fn slot_set_object(&mut self, slot: u16, code: u16, rec: Far) {
+        let code = self.slot_code(code);
         match rec.object_id() {
             Some(id) => self
                 .subjects
@@ -652,11 +758,13 @@ impl Api for Adventure {
         }
     }
     fn slot_set_raw(&mut self, slot: u16, code: u16, w1: u16, w2: u16) {
+        let code = self.slot_code(code);
         // Only a point (kind 0) is ever written this way by the logic.
         self.subjects
             .set_point(usize::from(slot), code, num::signed(w1), num::signed(w2));
     }
     fn slot_set_figure(&mut self, slot: u16, code: u16, rec: Far) {
+        let code = self.slot_code(code);
         if rec == self.ds(self.map().walker) {
             self.subjects.set(usize::from(slot), code, Subject::Player);
         } else if let Some(i) = rec.mover_index().filter(|&i| i < self.movers.len()) {
@@ -714,7 +822,7 @@ impl Api for Adventure {
         // `14DDh:0A56h`: the player, facing left as it was, and the walk
         // put on record when one started (`0x15840`).
         let answer = self.walk_to_object(num::signed(node), -1);
-        if answer != 0 {
+        if answer != 0 && self.profile.walk_to_node_remembers {
             self.walk_target = num::signed(node);
         }
         answer
@@ -792,6 +900,75 @@ impl Api for Adventure {
     }
     fn script_exit(&mut self, k: u16) {
         Adventure::script_exit(self, num::low8(k));
+    }
+    fn obj_invalidate(&mut self, _rec: Far) {}
+    fn figure_anim(&mut self, _rec: Far, k: i16) -> i16 {
+        self.anim_player(k)
+    }
+    fn say_text(&mut self, text: Far) {
+        if text.seg != TEXT_HANDLE {
+            return;
+        }
+        if let Some(line) = self.own_text(usize::from(text.off)) {
+            self.hotspot_text(&line);
+        }
+    }
+    fn hotspot_own_text(&mut self, k: u16) -> Far {
+        if self.own_text(usize::from(k)).is_some() {
+            Far {
+                off: k,
+                seg: TEXT_HANDLE,
+            }
+        } else {
+            Far::NULL
+        }
+    }
+    fn hotspot_follow(&mut self, rec: Far) {
+        let Some(i) = rec
+            .object_id()
+            .and_then(|id| self.object_index(num::low8(id)))
+        else {
+            return;
+        };
+        self.hotspot_follows(i);
+    }
+    fn figure_face(&mut self, _rec: Far, dir: i16) {
+        self.face_player(dir);
+    }
+    fn figure_turn(&mut self, k: i16) -> i16 {
+        self.turn_player(k)
+    }
+    fn location_hook(&mut self, code: u16, arg: u16, task: u16) {
+        let (arg, task) = (num::signed(arg), usize::from(task));
+        self.events.push(Event::LocationHook { code, arg, task });
+        // The location's own hook, its record's `+2Fh` in Dunkle Schatten
+        // (`call far [1E5Ch]`, `0x1085E`), at once.
+        if let Some(table) = self.logic_table {
+            table.location_hook(self, code, arg, task);
+        }
+    }
+    fn callback(&mut self, id: u16) -> i16 {
+        Adventure::callback(self, id)
+    }
+    fn task_stop(&mut self, i: u16) {
+        if usize::from(i) < self.tasks.t.len() {
+            Adventure::task_stop(self, usize::from(i));
+        }
+    }
+    fn page_release(&mut self, k: u16) {
+        Adventure::page_release(self, k);
+    }
+    fn band_hold(&mut self, owner: u16) {
+        self.panel_tint(owner);
+    }
+    fn node_block(&mut self, rec: Far, node: u16) {
+        self.set_node_edges(rec, node, 0x03FF);
+    }
+    fn node_open(&mut self, rec: Far, node: u16) {
+        self.set_node_edges(rec, node, 0);
+    }
+    fn interaction(&mut self, id: u16, facing: i16, scene: i16) {
+        Adventure::interaction(self, id, facing, scene);
     }
     fn movmem(&mut self, src: Far, dst: Far, n: u16) {
         for i in 0..n {
@@ -925,6 +1102,8 @@ impl Api for Adventure {
     fn set_far_byte(&mut self, at: Far, v: u8) {
         if at.seg == self.dgroup {
             self.set_byte(at.off, v);
+        } else if self.set_object_byte(at, v).is_some() {
+            // A field the engine keeps, written through.
         } else if at.seg == OBJECT_HANDLE || at.seg == MOVER_HANDLE {
             // A field of a record the engine keeps in its own shape.
             self.events.push(Event::FarWrite {
@@ -956,6 +1135,8 @@ impl Api for Adventure {
             b
         } else if at.seg == self.dgroup {
             self.byte(at.off)
+        } else if let Some(b) = self.object_byte(at) {
+            b
         } else if at.seg == OBJECT_HANDLE || at.seg == MOVER_HANDLE {
             self.events.push(Event::Unbuilt(
                 "far read",
@@ -970,6 +1151,98 @@ impl Api for Adventure {
 }
 
 impl Adventure {
+    /// A byte of an object's record, for the fields the engine keeps:
+    /// the kind `+0`, the flags `+2`, the point `+4`/`+6`, the frame `+9`,
+    /// the cel drawn
+    /// `+0Ah`, the cel the frames count from `+0Ch`, the state `+12h`, the
+    /// id `+13h` and the cels in its block `+15h`.
+    fn object_byte(&self, at: Far) -> Option<u8> {
+        let (id, field) = at.object_field()?;
+        let o = self.objects.get(self.object_index(num::low8(id))?)?;
+        match field {
+            0x00 => Some(num::low8(o.kind)),
+            0x01 => Some(o.kind.to_le_bytes()[1]),
+            0x02 => Some(o.flags),
+            0x04 => Some(num::low16(o.x).to_le_bytes()[0]),
+            0x05 => Some(num::low16(o.x).to_le_bytes()[1]),
+            0x06 => Some(num::low16(o.y).to_le_bytes()[0]),
+            0x07 => Some(num::low16(o.y).to_le_bytes()[1]),
+            0x09 => Some(o.frame),
+            0x0A => Some(o.cel.to_le_bytes()[0]),
+            0x0B => Some(o.cel.to_le_bytes()[1]),
+            0x0C => Some(o.cel_base.to_le_bytes()[0]),
+            0x0D => Some(o.cel_base.to_le_bytes()[1]),
+            0x12 => Some(o.state),
+            0x13 => Some(o.id),
+            0x15 => Some(o.phases),
+            _ => None,
+        }
+    }
+
+    /// A write to one of those fields: the flags, the point, the frame,
+    /// the two cel words and the block's count, as the logic writes them. A change of
+    /// the live bit is told as the object being shown or hidden, as the
+    /// routines that change it tell it.
+    fn set_object_byte(&mut self, at: Far, v: u8) -> Option<()> {
+        let (id, field) = at.object_field()?;
+        let id = num::low8(id);
+        let i = self.object_index(id)?;
+        let o = &mut self.objects[i];
+        let put = |w: &mut u16, high: bool| {
+            let [lo, hi] = w.to_le_bytes();
+            *w = if high {
+                u16::from_le_bytes([lo, v])
+            } else {
+                u16::from_le_bytes([v, hi])
+            };
+        };
+        let put_point = |c: &mut i32, high: bool| {
+            let [lo, hi] = num::low16(*c).to_le_bytes();
+            let w = if high {
+                u16::from_le_bytes([lo, v])
+            } else {
+                u16::from_le_bytes([v, hi])
+            };
+            *c = i32::from(num::signed(w));
+        };
+        match field {
+            0x02 => {}
+            0x04 | 0x05 => {
+                put_point(&mut o.x, field == 0x05);
+                return Some(());
+            }
+            0x06 | 0x07 => {
+                put_point(&mut o.y, field == 0x07);
+                return Some(());
+            }
+            0x09 => {
+                o.frame = v;
+                return Some(());
+            }
+            0x0A | 0x0B => {
+                put(&mut o.cel, field == 0x0B);
+                return Some(());
+            }
+            0x0C | 0x0D => {
+                put(&mut o.cel_base, field == 0x0D);
+                return Some(());
+            }
+            0x15 => {
+                o.phases = v;
+                return Some(());
+            }
+            _ => return None,
+        }
+        let was = self.objects[i].flags & objects::LIVE;
+        self.objects[i].flags = v;
+        match (was != 0, v & objects::LIVE != 0) {
+            (true, false) => self.events.push(Event::ObjectHidden(id)),
+            (false, true) => self.events.push(Event::ObjectShown(id)),
+            _ => {}
+        }
+        Some(())
+    }
+
     /// Whether the logic shares this word with the engine.
     fn is_shared(&self, addr: u16) -> bool {
         let m = self.map();
@@ -990,8 +1263,37 @@ impl Adventure {
             m.room_header,
             m.room_header.wrapping_add(2),
             m.entry_door,
+            m.walk_target,
+            m.anim_wait,
         ]
         .contains(&addr)
+            || self.script_word(addr).is_some()
+            || self.callback_word(addr).is_some()
+    }
+
+    /// The code a slot setter was handed, in the engine's own form: as it
+    /// stands for a build that copies it, recoded for one that keeps its
+    /// own fields ([`super::Profile::slot_style`]).
+    fn slot_code(&self, code: u16) -> u16 {
+        self.profile.slot_style.map_or(code, |s| s.style(code))
+    }
+
+    /// Whether an address is one of the callback's two words, and which:
+    /// `true` its segment.
+    fn callback_word(&self, addr: u16) -> Option<bool> {
+        let w = self.profile.callback?.word;
+        (addr == w || addr == w.wrapping_add(2)).then_some(addr != w)
+    }
+
+    /// Which of the script's words an address names: 0 to 5 the six from
+    /// [`DsMap::script`] on, 6 [`DsMap::script_start`].
+    fn script_word(&self, addr: u16) -> Option<usize> {
+        let m = self.map();
+        if Some(addr) == m.script_start {
+            return Some(Script::START);
+        }
+        let d = addr.checked_sub(m.script)?;
+        (d % 2 == 0 && d < 12).then_some(usize::from(d / 2))
     }
 }
 
@@ -1025,6 +1327,10 @@ impl Adventure {
             num::byte(self.items.len())
         } else if addr == scroll {
             num::byte(self.scroll)
+        } else if addr == count.wrapping_add(2) {
+            num::byte(self.inv_lo)
+        } else if addr == count.wrapping_add(3) {
+            num::byte(self.inv_hi)
         } else if let Some(&id) = addr
             .checked_sub(list)
             .and_then(|i| self.items.get(usize::from(i)))
@@ -1053,8 +1359,11 @@ impl Adventure {
             // The list as bytes, the byte written, the list read back:
             // a block copy that writes the count first and the items after
             // it ends on the list it copied.
+            let (lo, hi) = (count.wrapping_add(2), count.wrapping_add(3));
             self.ds[usize::from(count)] = num::byte(self.items.len());
             self.ds[usize::from(scroll)] = num::byte(self.scroll);
+            self.ds[usize::from(lo)] = num::byte(self.inv_lo);
+            self.ds[usize::from(hi)] = num::byte(self.inv_hi);
             for (i, &id) in self.items.iter().enumerate() {
                 self.ds[usize::from(list) + i] = id;
             }
@@ -1063,6 +1372,8 @@ impl Adventure {
             let at = usize::from(list);
             self.items = self.ds[at..at + n].to_vec();
             self.scroll = usize::from(self.ds[usize::from(scroll)]);
+            self.inv_lo = usize::from(self.ds[usize::from(lo)]);
+            self.inv_hi = usize::from(self.ds[usize::from(hi)]);
             return;
         }
         self.ds[usize::from(addr)] = v;

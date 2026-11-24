@@ -9,10 +9,9 @@
 use super::hook;
 use super::logic::{self, SAVE_BUFFER, WALKER};
 use super::xp01data::{self, ExeText};
-use crate::num;
 use crate::titles::parsec1994::program::{Build, Names, Reading, Sound};
 use crate::titles::parsec1994::{
-    Block, DsMap, GateMap, Kinds, MusicMap, OptionsMap, PointerMap, SaveMap,
+    Block, DsMap, GateMap, Kinds, LibraryMap, MusicMap, OptionsMap, PointerMap, SaveMap,
 };
 use crate::titles::xp1994::Locations;
 
@@ -29,6 +28,11 @@ pub(crate) static BUILD: Build = Build {
         // `DS:0A06h`, the drivers' RIB (`0x5B7B`).
         drivers: "PSMDRV.DAT",
     },
+    // The seed at `1EB5h:0006h` stands at `0000:0000` before the loop
+    // (`11A0h:0686h`) and at `7698h:E605h` after it (`11A0h:06D5h`): 158 213
+    // steps of the generator, started through `SCHATTEN.BAT`.
+    dissolve_draws: 158_213,
+    library: LIBRARY,
     kinds: KINDS,
     save: SAVE,
     options: OPTIONS,
@@ -41,10 +45,44 @@ pub(crate) static BUILD: Build = Build {
         effect_volume: 0x3C,
     },
     logic: logic::TABLE,
-    rule: logic::rule_handler,
     hook: hook::answer,
-    location_hook: logic::location_hook,
-    anim_hook: logic::anim_hook,
+    ending: super::ending::open,
+    callbacks: &[],
+};
+
+/// Where `XP01.EXE` keeps the library routines the runtime reads its build
+/// off. Each is the far target a call names: hover off at `0x15E44`
+/// (the script's exit gate calls it first), the task start at `0x0FB7F`
+/// (the dispatcher's head), the script's exit gate in the global rules'
+/// segment, and the two visit routines every location handler calls —
+/// the Zimmer's at `0x009B8` and `0x00A02`.
+const LIBRARY: LibraryMap = LibraryMap {
+    input_lock: (0x0EB9, 0x188A),
+    input_unlock: (0x0EB9, 0x18A4),
+    hover_off: (0x0EB9, 0x18F4),
+    task_start: (0x0CFD, 0x1A3F),
+    script_exit: (0x1586, 0x05E1),
+    visit_finish_entry: (0x0EB9, 0x00B8),
+    visit_leave: (0x0EB9, 0x017A),
+    hover_on: (0x0EB9, 0x1917),
+    obj_state: (0x14DD, 0x07E7),
+    walk_to_node: (0x14DD, 0x0A56),
+    obj_anim: (0x0883, 0x1F82),
+    objs_save_state: (0x14DD, 0x068A),
+    dispatch: (0x0EB9, 0x0FCE),
+    mode_reset: (0x0EB9, 0x003F),
+    room_loader: (0x0766, 0x010A),
+    place_pair: (0x14DD, 0x08F1),
+    slot_unload: (0x0766, 0x0D34),
+    visit_enter: (0x0EB9, 0x0207),
+    inv_take: (0x0C3F, 0x09E1),
+    visit_setup: (0x0EB9, 0x0001),
+    slot_resolve: (0x0CFD, 0x02C0),
+    effects_load: (0x1458, 0x00F7),
+    slot_song: (0x1197, 0x0035),
+    strip_load: (0x0C1C, 0x000C),
+    text_scan: (0x0CFD, 0x01BE),
+    task_query: (0x0CFD, 0x0FD9),
 };
 
 /// What the runtime takes from this title's own reading of its program.
@@ -65,10 +103,7 @@ pub(crate) fn reading(text: &ExeText, locations: &Locations) -> Reading {
         initial_scroll: text.initial_scroll,
         panel_curves: text.panel_curves,
         gray_ramp: text.gray_ramp.clone(),
-        start: (
-            num::low16(text.start_location),
-            num::unsigned(text.start_entry),
-        ),
+        start: text.start,
     }
 }
 
@@ -77,16 +112,8 @@ pub(crate) const KINDS: Kinds = Kinds {
     // `0x04FA1`: the main loop walks on for kind 0; `0x053C7`, the walk
     // steps over it; `0x15919`, a door does not lead there.
     passage: 0,
-    // `0x077F2`, the room loader; `0x083F6`, the unload that keeps the
-    // slot; `0x1571B`, `14DDh:08F1h`; `0x0EC68`, the entry effect;
-    // `0x0ED34`, the leave.
-    forest: 3,
-    // `0x15720`, `14DDh:08F1h`; `0x0EC6D`, the entry effect.
-    reveal: 5,
     // `0x053CB`: the walk on steps over kind 4, location 60's.
     restore: 4,
-    // `0x077F7`, `0x083FB`: `mov si, 14h`.
-    forest_slot: 0x14,
 };
 
 /// Where `XP01.EXE` keeps its saved game and settings, and their files' shape.
@@ -104,6 +131,13 @@ pub(crate) const SAVE: SaveMap = SaveMap {
     sav_magic: [0x5344, 0x6863, 0x4153, 0x0056],
     // `DSchCFG\0`: `0x14B35`–`0x14B44` and `0x14881`–`0x14898`.
     cfg_magic: [0x5344, 0x6863, 0x4643, 0x0047],
+    // `push 1Fh` at the write (`0x14BBE`), `cmp ax, 1Fh` at the size
+    // check (`0x1485B`); the check value takes six words from `+12h`
+    // (`mov si, 6`, `0x147D6`), the last of them the speed the write
+    // stores at `0x14B68`; the options mark it changed (`0x1263A`).
+    cfg_len: 0x1F,
+    cfg_words: 6,
+    cfg_speed: true,
     // `0x14CBF`: `mov word [1F4Ah], 3Ch`.
     restore_row: 0x3C,
     blocks: [
@@ -264,6 +298,13 @@ pub(crate) fn ds_map(locations: &Locations, inventory: (u16, u16, u16)) -> DsMap
         // `0x16B1`: the Straße waits for the door it came in by; `0x1803`
         // its hook sets one.
         entry_door: 0x1EDE,
+        // `mov [289Fh], si` after a walk to a node that started
+        // (`0x15840`).
+        walk_target: 0x289F,
+        // `mov word [28C1h], 3`, the eighth verb's door (`0x15CC9`).
+        anim_wait: 0x28C1,
+        // `0x0F5C4`: `mov al, [si+0527h]`; all zero in the image.
+        item_classes: 0x0527,
         // `0x0CD67`, `0x0CABC`, `0x0CD71`.
         inventory,
         // `0x14817`: `mov word [bp-2], 2163h`, the buffer the start's load
@@ -272,6 +313,12 @@ pub(crate) fn ds_map(locations: &Locations, inventory: (u16, u16, u16)) -> DsMap
         // `0x0E061`: `[185Eh] / [502h]`, the record's line height; the
         // record at `DS:04F8h` (`0x223E8`) ships the menu's geometry.
         menu: 0x04F8,
+        // The shared hook's words: `[1E50h]` to `[1E5Ah]`, which its code-0
+        // arm clears (`0x10515`–`0x10527`) and the rest of it reads and
+        // writes, and `[1ED0h]`, which its event 111 sets (`0x1082A`) and
+        // the dispatcher's head reads (`0x0FB69`).
+        script: hook::W1E50,
+        script_start: Some(hook::W1ED0),
         gates: GateMap {
             // `0x15E4F`: a script exit installs `1586h:059Fh`.
             script_exit: (0x1586, 0x059F),
@@ -288,6 +335,68 @@ pub(crate) fn ds_map(locations: &Locations, inventory: (u16, u16, u16)) -> DsMap
 mod tests {
     use super::*;
     use crate::titles::parsec1994::onward::Table;
+
+    /// The library build `XP01.EXE` is linked against, read off its
+    /// routines: every capability the generation had as fixed before the
+    /// build was read.
+    #[test]
+    fn the_library_build_is_the_one_the_runtime_was_read_from() {
+        let Some(adv) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        let p = crate::titles::parsec1994::Profile::read(&adv.image, &LIBRARY).expect("reads");
+        assert!(p.lock_forgets_hover);
+        assert!(p.unlock_forgets_hover);
+        assert!(p.hover_off_forgets_hover);
+        assert!(p.task_start_tells_hook);
+        assert!(p.script_exit_hovers_off);
+        assert_eq!(p.leave_fade, 0x05DC);
+        let forest = p.forest.expect("this build has a forest");
+        assert_eq!((forest.kind, forest.slot, forest.reveal), (3, 0x14, 5));
+        assert_eq!(p.leave_spares_kind, Some(forest.kind));
+        assert_eq!(p.entry_reveals, Some((forest.kind, forest.reveal)));
+        assert_eq!(p.entry_fade_in, None);
+        assert!(p.hover_on_forgets_hover);
+        assert!(p.hover_on_polls);
+        assert!(p.kind4_live_when_mode_one);
+        assert!(p.walk_to_node_remembers);
+        assert!(p.anim_checks_count);
+        assert_eq!(p.anim_wakes_only_kind, Some(4));
+        assert_eq!(p.tri_state_kinds, 0b10_0010);
+        assert!(p.dispatch_starts_asked_task);
+        assert!(!p.forgotten_hover_is_nothing);
+        assert!(p.room_click_forgets_hover);
+        assert!(p.hover_off_only_notes);
+        assert!(p.verb6_refreshes_status);
+        assert_eq!(p.verb_bound, 0x0F);
+        assert!(p.locked_stops_hover_text);
+        assert!(p.mode_reset_forgets_hover);
+        let s = p.screen_slot.expect("this build fills a screen slot");
+        assert_eq!((s.slot, s.code, s.x, s.y), (10, 0x53, 160, 64));
+        let door = p.entry_door;
+        assert_eq!((door.kind, door.remembered, door.frame), (4, true, 1));
+        assert_eq!(p.inventory_window, 8);
+        assert_eq!(p.callback, None);
+        assert_eq!(p.slot_style, None);
+        let e = p.effects;
+        assert_eq!(
+            (e.slots, e.room_first, e.rooms, e.wide_masks),
+            (21, 12, 0x1A, false)
+        );
+        assert_eq!(p.song_slots, 30);
+        assert_eq!(p.figure_set.digits(), [0], "one set of strip and figure");
+        assert_eq!(p.figure_set.digit_for(40), 0);
+        assert_eq!(p.strip_split, None);
+        assert_eq!(
+            p.text_flags,
+            crate::titles::parsec1994::profile::TextFlags {
+                hold: 0x100,
+                firm: 0x200,
+                quick: Some(0x400)
+            }
+        );
+        assert_eq!(adv.profile, p);
+    }
 
     /// The numbers the generation's routines compare with, which the
     /// runtime takes from what it read rather than from here: each is
@@ -310,15 +419,18 @@ mod tests {
         // `cmp ax, 3`, `cmp ax, 5`, `cmp ax, 4` and `mov si, 14h`, each
         // with its word immediate after the opcode.
         let imm = |at: usize| adv.image.word(at + 1).unwrap();
+        // The forest's are the library's and read with its build: the
+        // runtime's reading is the program's immediates too.
+        let forest = adv.profile.forest.expect("this build has a forest");
         for at in [0x077F2, 0x083F6, 0x1571B, 0x0EC68, 0x0ED34] {
-            assert_eq!(imm(at), KINDS.forest, "{at:#x}");
+            assert_eq!(imm(at), forest.kind, "{at:#x}");
         }
         for at in [0x15720, 0x0EC6D] {
-            assert_eq!(imm(at), KINDS.reveal, "{at:#x}");
+            assert_eq!(imm(at), forest.reveal, "{at:#x}");
         }
         assert_eq!(imm(0x053CB), KINDS.restore);
         for at in [0x077F7, 0x083FB] {
-            assert_eq!(imm(at), KINDS.forest_slot, "{at:#x}");
+            assert_eq!(imm(at), forest.slot, "{at:#x}");
         }
         // `mov word [1F4Ah], 3Ch`, the load sending the main loop on.
         assert_eq!(adv.image.word(0x14CC3).unwrap(), SAVE.restore_row);

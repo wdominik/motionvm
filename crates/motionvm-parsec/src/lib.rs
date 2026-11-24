@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn the_roster_lists_what_plays() {
         let names: Vec<&str> = PARSEC.games().iter().map(|c| c.name).collect();
-        assert_eq!(names, ["Dunkle Schatten"]);
+        assert_eq!(names, ["Dunkle Schatten", "Captain Zins"]);
     }
 
     #[test]
@@ -190,6 +190,14 @@ mod tests {
         let found = PARSEC.detect(&dir).expect("claimed");
         assert_eq!(found.short, "Dunkle Schatten");
         assert_eq!(found.needs, "RESOURCE/DSROOM.DAT beside XP01.EXE");
+    }
+
+    #[test]
+    fn the_second_title_s_room_container_is_claimed() {
+        let dir = holding("capzins", &["CZROOM.DAT"]);
+        let found = PARSEC.detect(&dir).expect("claimed");
+        assert_eq!(found.short, "Captain Zins");
+        assert_eq!(found.needs, "RESOURCE/CZROOM.DAT beside XP01.EXE");
     }
 
     #[test]
@@ -217,6 +225,29 @@ mod tests {
         game.request_location(LocationRequest::at(2))
             .expect("the Zimmer");
         assert_eq!(game.start_location(), Some(2));
+        game.step().expect("a step");
+        assert!(!game.finished());
+        let size = game.display_size();
+        let shown = game.frame();
+        assert_eq!(
+            (shown.pixels.width, shown.pixels.height),
+            (size.width, size.height)
+        );
+    }
+
+    /// The same through the contract for *Captain Zins*: it starts, is
+    /// sent to its first location, steps and lends a frame.
+    #[test]
+    fn the_second_title_plays_through_the_contract() {
+        let Some(dir) = motionvm_parsec_testutil::gamedata_capzins() else {
+            eprintln!("skipping: no Captain Zins gamedata directory");
+            return;
+        };
+        let mut game = PARSEC.open(&dir).expect("open");
+        game.start().expect("start");
+        game.request_location(LocationRequest::at(1))
+            .expect("the Wohnung");
+        assert_eq!(game.start_location(), Some(1));
         game.step().expect("a step");
         assert!(!game.finished());
         let size = game.display_size();

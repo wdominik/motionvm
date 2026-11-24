@@ -7,6 +7,7 @@
 //! location installs no hook of its own.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::titles::parsec1994::{Api, Far};
 
 /// Object 201, the one rule `0008` wakes and the frame loop sets on
@@ -27,11 +28,6 @@ const ROOM_SUBSTATE: u16 = 0x2726;
 const HUNDREDTHS: u16 = 0x1C82;
 /// `[1C76h]`: the ticks not yet taken.
 const TICKS_TAKEN: u16 = 0x1C76;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x2EC1` to `0x2EEF`.
 pub(crate) fn enter(api: &mut dyn Api) {

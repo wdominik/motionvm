@@ -36,9 +36,8 @@ use crate::exe::Image;
 use crate::num;
 
 use crate::error::Result;
+use crate::exe::op::MOV_BX_MEM;
 
-/// `mov bx, [imm16]`, the dispatch read.
-const MOV_BX_MEM: [u8; 2] = [0x8B, 0x1E];
 /// `imul bx, bx, imm8`, the record stride.
 const IMUL_BX_IMM8: [u8; 2] = [0x6B, 0xDB];
 /// `mov ax, imm16` / `mov es, ax`, the record table's segment.
@@ -152,8 +151,11 @@ pub(crate) fn item_resources(img: &Image, count: usize) -> Result<Vec<usize>> {
         .windows(23)
         .enumerate()
         .filter_map(|(i, w)| {
+            // The index register is `si` in Dunkle Schatten (`8A 84`,
+            // `0x0C283`), or `bx` copied from `cx` (`8A 87`) where the
+            // compiler gave the loop that register instead.
             (w[0] == 0x8A
-                && w[1] == 0x84
+                && matches!(w[1], 0x84 | 0x87)
                 && w[4..11] == [0xB4, 0, 0xC1, 0xE0, 2, 0xC4, 0x1E]
                 && w[13..23] == [0x03, 0xD8, 0x26, 0x8B, 0x47, 0x0A, 0x26, 0x8B, 0x57, 8])
             .then_some(i)
@@ -703,6 +705,13 @@ impl Locations {
             .collect()
     }
 
+    /// The segment of location `n`'s handler, as its row names it.
+    #[cfg(test)]
+    pub(crate) fn handler_segment(&self, img: &Image, n: usize) -> Option<u16> {
+        let at = usize::from(self.table) * 16 + n * self.stride + self.handler;
+        img.word(at + 2).ok()
+    }
+
     /// The far pointer at `field` inside location `n`'s record.
     fn far(&self, img: &Image, n: usize, field: usize) -> Option<usize> {
         let at = usize::from(self.table) * 16 + n * self.stride + field;
@@ -882,8 +891,9 @@ fn find_exit_lists(img: &Image, location: u16) -> Result<(usize, usize)> {
 /// with `cmp di, 9`.
 ///
 /// Dunkle Schatten counts in `di`, and the bound is taken from the
-/// `cmp di, imm8` that closes the loop: nine slots, and the list starts
-/// immediately after the destinations.
+/// `cmp di, imm8` that closes the loop — or `cmp si, imm8` where the
+/// counter is `si`: nine slots, and the list starts immediately after the
+/// destinations.
 fn find_object_list(img: &Image) -> Result<(usize, usize)> {
     let b = img.bytes();
     let mut found = Vec::new();
@@ -898,9 +908,11 @@ fn find_object_list(img: &Image) -> Result<(usize, usize)> {
         }
         let at = usize::from(b[i + 3]) + ENTRY_BIAS;
         // The bound closes the loop within the next hundred and forty
-        // bytes: `cmp di, imm8` / `jl`.
+        // bytes: `cmp di|si, imm8` / `jl`.
         let bound = (i + 12..(i + 152).min(b.len().saturating_sub(4))).find_map(|j| {
-            let idx = b[j] == 0x83 && b[j + 1] == 0xFF && b[j + 3] == 0x7C;
+            // The counter is `di` in Dunkle Schatten (`83 FF`), or `si`
+            // (`83 FE`) where the compiler gave it that register.
+            let idx = b[j] == 0x83 && matches!(b[j + 1], 0xFF | 0xFE) && b[j + 3] == 0x7C;
             idx.then(|| usize::from(b[j + 2]))
         });
         if let Some(n) = bound.filter(|&n| n > 0) {

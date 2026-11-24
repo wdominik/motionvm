@@ -74,7 +74,7 @@ impl Picture {
     /// to every literal before the glyph is drawn — so 0 is a color there,
     /// not a hole. Decoding the same cel under two fills and keeping the
     /// pixels that agree is what separates the two.
-    pub(crate) fn parse_prefix_filled(data: &[u8], fill: u8) -> Result<Self> {
+    pub fn parse_prefix_filled(data: &[u8], fill: u8) -> Result<Self> {
         parse_with_len(data, false, fill)
     }
 

@@ -15,6 +15,7 @@
 //! `[1952h]` says so.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -45,11 +46,6 @@ const PLAYING_ANIM: u16 = 0x1956;
 const NEXT_ANIM: u16 = 0x1958;
 /// `[1C82h]`: the hundredths the scene machine counts.
 const HUNDREDTHS: u16 = 0x1C82;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// The DAC entry the fade writes.
 const FADE_ENTRY: u16 = 0x42;

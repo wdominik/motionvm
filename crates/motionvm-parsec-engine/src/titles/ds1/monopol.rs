@@ -11,6 +11,7 @@
 //! the location's state and reads it back for subject slot 2.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -30,11 +31,6 @@ const COUNTER: u16 = 0x272E;
 const SPEAKS: u16 = 0x18F4;
 const NEXT: u16 = 0x18EA;
 const PLAYING: u16 = 0x18E0;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 fn table(off: u16) -> Far {
     Far {

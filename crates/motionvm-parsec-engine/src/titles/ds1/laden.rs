@@ -12,6 +12,7 @@
 //! shared entry (`0x2141`).
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -45,11 +46,6 @@ const PLAYING_200: u16 = 0x18DC;
 /// node id.
 const WALKER: u16 = 0x1693;
 const WALKER_NODE: u16 = 0x16BB;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Handler locals 0 and 1: `[bp-4]`:`[bp-2]`, object 202's record as the
 /// entry found it (`0x216A`); the frame loop writes its words `+4` and `+6`

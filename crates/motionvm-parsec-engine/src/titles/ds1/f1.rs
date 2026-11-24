@@ -11,6 +11,7 @@
 //! after `0EB9:00B8` (`0x41D3`).
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -55,11 +56,6 @@ const PLAYING_ANIM: u16 = 0x1944;
 const SONG: u16 = 0x285D;
 /// `[1C82h]`: the hundredths the scene machine counts.
 const HUNDREDTHS: u16 = 0x1C82;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// The far pointer kept at `DS:at`, offset word first.
 fn far_at(api: &dyn Api, at: u16) -> Far {

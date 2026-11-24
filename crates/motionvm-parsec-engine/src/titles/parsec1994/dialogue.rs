@@ -22,9 +22,7 @@ use crate::num;
 use motionvm_parsec_formats::Dialogue;
 use motionvm_render::Framebuffer;
 
-use super::tasks::{
-    ARMED, BankId, DialogueRef, FLAG_200, FLAG_400, HOLD, PARKED, PROTECTED, REPEAT, RUNNING,
-};
+use super::tasks::{ARMED, BankId, DialogueRef, PARKED, PROTECTED, REPEAT, RUNNING};
 use super::{Adventure, Bank, Caption};
 
 /// What happened inside the scene machine, for a test to read back and for
@@ -78,6 +76,9 @@ pub(crate) enum Event {
     /// `10B8h:03BAh` in *Dunkle Schatten*: the reveal over the playfield a
     /// handler calls, which plays.
     Reveal,
+    /// What the program shows after its main loop could not be read, and
+    /// it exits at once instead.
+    EndingUnread(String),
     /// The rule search reached a handler this engine has not read.
     UnreadRule { far: (u16, u16), flags: u16 },
     /// The location logic wrote a word through a far pointer outside
@@ -341,8 +342,10 @@ impl Adventure {
             let page = self.tasks.t[i].page;
             self.compose(i, page);
         }
-        let slot = num::signed(num::word(self.tasks.t[i].slot));
-        self.hook_call(10, slot, i);
+        if self.profile.task_start_tells_hook {
+            let slot = num::signed(num::word(self.tasks.t[i].slot));
+            self.hook_call(10, slot, i);
+        }
     }
 
     /// `0CFDh:1A0Eh`: stop task `i` — countdown 0, kind 1 asked for.
@@ -412,9 +415,10 @@ impl Adventure {
             let k = self.tasks.t[0].kind.max(self.tasks.t[0].request);
             return Self::answer_for(k);
         }
+        let waits = ARMED | self.profile.text_flags.quick.unwrap_or(0);
         for i in (0..2).rev() {
             let t = &self.tasks.t[i];
-            if t.flags & (ARMED | FLAG_400) != 0 && t.countdown > 0 {
+            if t.flags & waits != 0 && t.countdown > 0 {
                 continue;
             }
             self.tasks.t[i].countdown -= delta;
@@ -460,7 +464,7 @@ impl Adventure {
             // `0x0E2BA`: a dialogue's next page, next record, or end.
             4 => {
                 let t = &self.tasks.t[i];
-                if i == 0 && t.flags & HOLD != 0 && t.request == 0 {
+                if i == 0 && t.flags & self.profile.text_flags.hold != 0 && t.request == 0 {
                     self.tasks.t[0].countdown = PARKED;
                     return;
                 }
@@ -655,10 +659,12 @@ impl Adventure {
     /// character (`0x0D1CB`); the others go through a jump table (`0x0D1D2`): 0
     /// and `0Dh` end the page, 1 and 2 skip their argument, and `03 n` with `n`
     /// from 1 to 5 is the scanner's own (`0x0D20C`) — 1 holds (task 0, flag
-    /// `100h`, `0x0D222`), 2 sets flag `200h` (`0x0D22E`), 3 makes the page
-    /// longer and 4 shorter (`0x0D236`, `0x0D239`), 5 sets flag `400h` (task 0,
-    /// `0x0D243`). An `n` above 5 goes into `[1687h]` as an event for the hook,
-    /// code 7 (`0x0D24C`). The end raises code 9 (`0x0D1EA`).
+    /// `100h`, `0x0D222`, after `[1E48h]` cleared at `0x0D21C`), 2 sets flag
+    /// `200h` (`0x0D22E`), 3 makes the page longer and 4 shorter (`0x0D236`,
+    /// `0x0D239`), 5 sets flag `400h` (task 0, `0x0D243`). An `n` above 5
+    /// goes into `[1687h]` as an event for the hook, code 7 (`0x0D24C`). The
+    /// end raises code 9 (`0x0D1EA`). Which bits, and whether `03 05` is the
+    /// scanner's own, is the build's: [`super::profile::TextFlags`].
     ///
     /// Answers with the adjustment: `03 03`s less `03 04`s.
     pub(super) fn scan_controls(&mut self, i: usize, from: usize) -> i32 {
@@ -682,14 +688,18 @@ impl Adventure {
                 3 => {
                     let n = self.tasks.t[i].scratch.get(at).copied().unwrap_or(0);
                     at += 1;
-                    match n {
-                        1 if i == 0 => self.tasks.t[0].flags |= HOLD,
-                        2 if i == 0 => self.tasks.t[0].flags |= FLAG_200,
-                        3 => adjust += 1,
-                        4 => adjust -= 1,
-                        5 if i == 0 => self.tasks.t[0].flags |= FLAG_400,
-                        1 | 2 | 5 => {}
-                        n => {
+                    let bits = self.profile.text_flags;
+                    match (n, bits.quick) {
+                        (1, _) if i == 0 => {
+                            self.page_release_code = 0;
+                            self.tasks.t[0].flags |= bits.hold;
+                        }
+                        (2, _) if i == 0 => self.tasks.t[0].flags |= bits.firm,
+                        (3, _) => adjust += 1,
+                        (4, _) => adjust -= 1,
+                        (5, Some(quick)) if i == 0 => self.tasks.t[0].flags |= quick,
+                        (1 | 2, _) | (5, Some(_)) => {}
+                        (n, _) => {
                             self.events.push(Event::Script { n, task: i });
                             self.hook_call(7, i16::from(n), i);
                         }
@@ -1054,7 +1064,7 @@ impl Adventure {
     /// The far hook at `[1E32h]`: recorded, then the logic's.
     pub(crate) fn hook_call(&mut self, code: u16, arg: i16, task: usize) {
         self.events.push(Event::Hook { code, arg, task });
-        (self.hook)(self, code, arg, task);
+        (self.hook)(self, code, num::unsigned(arg), num::word(task));
     }
 
     /// The walker record's position and scale (`[1697h]`, `[1699h]`,

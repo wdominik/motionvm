@@ -14,15 +14,8 @@
 //! buffer and its main loop's words.
 
 use super::build;
-use super::logic::{Logic, SAVE_BUFFER};
-use crate::titles::parsec1994::{self, Api, restore::MainLoop};
-
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`: see the Zimmer.
-const WORDS: MainLoop = MainLoop {
-    entry: 0x1F48,
-    location: 0x1F4A,
-    here: 0x1F4C,
-};
+use super::logic::{Logic, SAVE_BUFFER, WORDS};
+use crate::titles::parsec1994::{self, Api};
 
 /// The handler, whole: there is no frame loop.
 pub(crate) fn enter(api: &mut dyn Api) {

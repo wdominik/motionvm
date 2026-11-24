@@ -8,6 +8,7 @@
 //! own.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::titles::parsec1994::Api;
 
 /// Object 10, shown by one rule and taken by another.
@@ -16,11 +17,6 @@ const OBJECT_10: u16 = 0x0A;
 /// `[2711h]`: the shed's state, also the counter of its scene sequence;
 /// 3 once object 10 has been shown.
 const SHED_STATE: u16 = 0x2711;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x3E17` to `0x3E34`: the standard
 /// prologue and nothing of its own.

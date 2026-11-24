@@ -5,6 +5,13 @@
 //! pointer's own effect, once a frame, is [`Adventure::hover_frame`]'s.
 
 use super::{Adventure, PLAYFIELD_H, Panel, mode};
+
+/// The event the pointer's handler makes of a click (`0x17B6D`–`0x17B7D`):
+/// 4 and the buttons down, bit 0 the first and bit 1 the second. The
+/// dispatcher takes 5, 6 and 7 alike, save for the strip's arrows.
+pub(crate) const BUTTON_FIRST: u16 = 5;
+/// See [`BUTTON_FIRST`].
+pub(crate) const BUTTON_SECOND: u16 = 6;
 use crate::num;
 
 impl Adventure {
@@ -213,7 +220,9 @@ impl Adventure {
                         self.two_object = 3;
                         self.mode = 5;
                         self.walk_target = 0;
-                        self.status_refresh_age = 0x0A;
+                        if self.profile.verb6_refreshes_status {
+                            self.status_refresh_age = 0x0A;
+                        }
                     }
                 }
             }
@@ -230,7 +239,9 @@ impl Adventure {
                     self.two_object = 3;
                     self.mode = 5;
                     self.walk_target = 0;
-                    self.status_refresh_age = 0x0A;
+                    if self.profile.verb6_refreshes_status {
+                        self.status_refresh_age = 0x0A;
+                    }
                 }
             }
         }
@@ -238,10 +249,12 @@ impl Adventure {
 
     /// A click. `true` when it started something.
     ///
-    /// The dispatcher's order (`0EB9h:0FCEh`): a script that holds the
-    /// input takes the click (`0x0FB9E`); a text that is up takes it and
-    /// shortens itself (`0CFDh:0FD9h`); a menu that is up takes it as a
-    /// choice; on the strip a verb button is a verb and a filled slot an
+    /// The dispatcher's order (`0EB9h:0FCEh`): the query of task 0
+    /// (`0CFDh:0FD9h`, called at `0x0FB85`) comes first, and a text that is
+    /// up takes the click there and shortens itself, a menu that is up takes
+    /// it as a choice (`0x0E0A5`) — a script that holds the input does not
+    /// keep either from it. Past them, a script that holds the input lets
+    /// nothing else happen (`0x0FB9E`); on the strip a verb button is a verb and a filled slot an
     /// item chosen (`0x0FCB5`); in the room the hotspot under the pointer
     /// is the object clicked (`0x0FDD4`), and the click goes down the
     /// object road — chosen, walked to, acted on.
@@ -254,9 +267,6 @@ impl Adventure {
     /// tail (`0x0FDE1`) finds no hotspot the same as last time and lays
     /// the hover text again at the pointer.
     pub(crate) fn click(&mut self) -> bool {
-        if self.bits & mode::LOCKED != 0 {
-            return false;
-        }
         if self.tasks.t[0].kind == 5 {
             self.menu_click();
             return true;
@@ -265,12 +275,25 @@ impl Adventure {
             self.click_on_text();
             return true;
         }
-        self.last_hover = mode::Hover::None;
+        if self.bits & mode::LOCKED != 0 {
+            return false;
+        }
         let (x, y) = self.mouse;
+        if y >= self.panel_y || self.profile.room_click_forgets_hover {
+            self.last_hover = mode::Hover::None;
+        }
         if y >= self.panel_y {
             let Some(w) = self.panel_widgets.hit(x, y) else {
                 return false;
             };
+            // `0x0CAE3`: an arrow scrolls the slots and is not a hit
+            // (`FFFEh`), so the click goes on to the room's arm, which
+            // finds nothing under a pointer on the strip.
+            if let Some(way) = self.panel_widgets.arrow_of(w) {
+                let by_row = self.button == BUTTON_SECOND;
+                self.scroll_strip(way, by_row);
+                return false;
+            }
             // `0x0FBEC`: a widget the strip took asks for the status line
             // again before the verb or the item is acted on.
             if let Some(v) = Panel::verb_of(w) {
@@ -278,7 +301,11 @@ impl Adventure {
                 self.pick_verb(v);
                 return true;
             }
-            if let Some(id) = Panel::slot_of(w).and_then(|n| self.item_in_slot(n)) {
+            if let Some(id) = self
+                .panel_widgets
+                .slot_of(w)
+                .and_then(|n| self.item_in_slot(n))
+            {
                 self.status_refresh_age = 1;
                 self.click_object(i16::from(id), None);
                 return true;
@@ -296,7 +323,9 @@ impl Adventure {
         true
     }
 
-    /// `0x0DFF7`: a click while task 0 shows a text.
+    /// `0x0DFF7`: a click while task 0 shows a text. The bits are the
+    /// build's ([`super::profile::TextFlags`]); here as *Dunkle Schatten*
+    /// has them.
     ///
     /// The word `[1DB8h]` decides (`0x0DFF7`): masked with `8400h` and equal
     /// to `400h` — a `03 05` page, not armed — the page is over at once and
@@ -313,18 +342,75 @@ impl Adventure {
     }
 
     fn click_on_text(&mut self) {
+        let bits = self.profile.text_flags;
         let t = &mut self.tasks.t[0];
-        if t.flags & 0x8400 == 0x400 {
-            t.countdown = 0;
-            t.flags &= !0x400;
-        } else if t.flags & 0x8300 == 0 && t.countdown > 0x28 {
-            t.countdown = 0x28;
+        match bits.quick {
+            Some(quick) if t.flags & (0x8000 | quick) == quick => {
+                t.countdown = 0;
+                t.flags &= !quick;
+            }
+            _ if t.flags & (0x8000 | bits.hold | bits.firm) == 0 && t.countdown > 0x28 => {
+                t.countdown = 0x28;
+            }
+            _ => {}
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// A hover text does not outlive a script's lock in *Dunkle Schatten*:
+    /// the dispatcher stops task 0 on the first frame under it
+    /// (`0x0FBC2`–`0x0FBCE`).
+    #[test]
+    fn the_lock_stops_a_hover_text() {
+        let Some(mut a) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        a.tasks.t[0].kind = 2;
+        a.tasks.t[0].request = 0;
+        a.bits |= super::mode::LOCKED;
+        a.dispatch();
+        assert_eq!(a.tasks.t[0].request, 1, "the lock asks for its stop");
+    }
+
+    /// A click cuts a text short while a script holds the input: the
+    /// query of task 0 takes it before the dispatcher looks at the lock
+    /// (`0x0FB85`, `0x0FB9E`), as the original's capture shows in *Captain
+    /// Zins*'s laboratory.
+    #[test]
+    fn a_click_cuts_a_text_short_under_the_lock() {
+        let Some(mut a) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        a.bits |= super::mode::LOCKED;
+        a.tasks.t[0].kind = 4;
+        a.tasks.t[0].flags = 0;
+        a.tasks.t[0].countdown = 300;
+        assert!(a.click(), "the text takes the click");
+        assert_eq!(a.tasks.t[0].countdown, 0x28);
+        a.tasks.t[0].countdown = 300;
+        a.tasks.t[0].flags = a.profile.text_flags.firm;
+        a.click();
+        assert_eq!(a.tasks.t[0].countdown, 300, "03 02 leaves the page");
+    }
+
+    /// The input lock and its lifting forget what the pointer was over,
+    /// as *Dunkle Schatten*'s `0EB9h:188Ah` and `0EB9h:18A4h` do, so that
+    /// the hotspot under the pointer counts as new once the script is done.
+    #[test]
+    fn the_lock_and_its_lifting_forget_the_hover() {
+        let Some(mut a) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        a.last_hover = super::mode::Hover::Spot(0);
+        a.input_locked();
+        assert_eq!(a.last_hover, super::mode::Hover::None);
+        a.last_hover = super::mode::Hover::Spot(0);
+        a.input_unlocked();
+        assert_eq!(a.last_hover, super::mode::Hover::None);
+    }
     /// No status line the game can compose comes near the setter's bound
     /// of `140h` (`0x0CF9C`): every template with each `%s` filled by the
     /// widest name an item or a hotspot of any room carries, measured with

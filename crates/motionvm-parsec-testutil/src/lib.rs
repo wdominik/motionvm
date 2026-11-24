@@ -13,6 +13,8 @@
 //!   themselves), named for its slug. It falls back to `../games/DS1`
 //!   beside the workspace, which is where a checkout next to an installed
 //!   copy finds it. A machine without the game skips, it does not fail.
+//! - `MOTIONVM_GAMEDATA_CAPZINS` — the same for *Captain Zins*, falling
+//!   back to `../games/CAPZINS`.
 //! - `MOTIONVM_SAVES` — the directory the games' own save directories are
 //!   under: the `saves/` the program writes, not `saves/ds1/`, because that
 //!   is what the engine is pointed at and it puts the game's slug on itself.
@@ -29,8 +31,8 @@
 //!   needing a file, a skip that stops being a skip — is otherwise invisible
 //!   until after a push. `just check-nodata`.
 //!
-//! The game is recognized by its own room container, `DSROOM.DAT`, not by
-//! `XP01.EXE`: that is a name, not a signature.
+//! A game is recognized by its own room container — `DSROOM.DAT`,
+//! `CZROOM.DAT` — not by `XP01.EXE`: that is a name, not a signature.
 //!
 //! The reference digests the suites hold their register streams and the
 //! location logic's cases to are in [`digest`].
@@ -104,6 +106,17 @@ pub fn gamedata_ds1() -> Option<PathBuf> {
         fallback: "../../../games/DS1",
         probe: "DSROOM.DAT",
         name: "Dunkle Schatten",
+    })
+}
+
+/// *Captain Zins* (1994), or `None` when there is none to test.
+/// Panics on a `MOTIONVM_GAMEDATA_CAPZINS` that names another directory.
+pub fn gamedata_capzins() -> Option<PathBuf> {
+    title(&Install {
+        var: "MOTIONVM_GAMEDATA_CAPZINS",
+        fallback: "../../../games/CAPZINS",
+        probe: "CZROOM.DAT",
+        name: "Captain Zins",
     })
 }
 

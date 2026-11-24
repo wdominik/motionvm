@@ -10,6 +10,7 @@
 //! node 0CAh.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use super::story;
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
@@ -33,11 +34,6 @@ const COUNTER: u16 = 0x2724;
 /// `[2725h]`, `[2726h]`: the Wohnzimmer's state and sub-state.
 const HOME_STATE: u16 = 0x2725;
 const HOME_SUBSTATE: u16 = 0x2726;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// The record in `[18FEh]`/`[1900h]`.
 fn record(api: &dyn Api) -> Far {

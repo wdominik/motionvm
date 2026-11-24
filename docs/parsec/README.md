@@ -4,7 +4,7 @@
 
 Reverse-engineering documentation for **PARSEC**, the DOS adventure engine
 Norbert Schmidt wrote, and for [*Dunkle Schatten*](games/ds1/README.md)
-(1994), the game built with it: commissioned by the Bundesministerium des
+(1994), the first game built with it: commissioned by the Bundesministerium des
 Innern, made by The Art Department WA GmbH, Bochum, on a concept by Platzer
 Kommunikation GmbH, München. Its programs are `XP00.EXE`, the title
 program, and `XP01.EXE`, the game — both 1994-10-24.
@@ -15,10 +15,17 @@ Schmidt*, and the music system beside him, *PSM 2.00 Soundsystem ·
 Copyright (C) 1988-1994 · Norbert Schmidt & Jochen Heß*. The game's page
 carries who made it and how each entry is evidenced.
 
+A second title is built on the same library: [*Captain
+Zins*](games/capzins/README.md) (1994), whose `XP01.EXE` is linked against
+another build of it. The pages below are written from Dunkle Schatten's
+programs, and their addresses are that build's unless a sentence names
+Captain Zins.
+
 The game is installed here into `DS1`, and that name in lower case, `ds1`,
 is a key rather than a name: what is kept for the game is filed under it —
 `MOTIONVM_GAMEDATA_DS1`, `saves/ds1/`, `docs/parsec/games/ds1/` — while
-prose calls the game by its title.
+prose calls the game by its title. Captain Zins is installed into
+`CAPZINS`, and its key is `capzins`.
 
 ## The engine
 
@@ -93,6 +100,7 @@ its tables and its strings — and what it does is what its code says.
 | [The pointer](engine/cursors.md) | The pointer library: descriptor selection, the random animation, the mouse timer and the input state |
 | [Options and the saved game](engine/options.md) | The game options, the confirmations, `SAVEGAME.SAV` and `SAVEGAME.CFG` with the player's record, location 60 |
 | [Music](engine/music.md) | What the program asks of the PSM 2 driver: the piece per location, play on entry, the fade on exit, the music switch, the title program's piece |
+| [The way out](engine/ending.md) | What `XP01` shows after its main loop: Dunkle Schatten's end and quit, Captain Zins's parade |
 | [Palettes](engine/palettes.md) | Palette state, the DAC banks per resource, the panel's colors and the transition ramps |
 
 ### Dunkle Schatten
@@ -102,6 +110,12 @@ its tables and its strings — and what it does is what its code says.
 | [The game](games/ds1/README.md) | What it is about, who made it, and why it exists |
 | [Game structure](games/ds1/game-structure.md) | The sixty-one rows, the opening, the map, the days, the forest and the maze, saving |
 | [Other files](games/ds1/other-files.md) | The batch files, the `.DOK` viewer, the end sequence's file and the rest |
+
+### Captain Zins
+
+| Page | Covers |
+|---|---|
+| [The game](games/capzins/README.md) | The program, its library build, the start, what is built and what is not |
 
 ### Reference
 
@@ -120,10 +134,25 @@ its tables and its strings — and what it does is what its code says.
 | `XP02.EXE`, `INFO.DOK`, `FILES.DOK`, `INFO.BAT`, `FILES.BAT` | The `.DOK` viewer and the two German texts it shows ([other files](games/ds1/other-files.md)) |
 | `RESOURCE/DSROOM.DAT` | [Rooms](formats/rooms.md) — every location |
 | `RESOURCE/INTROS.DAT` | [Containers](formats/containers.md) — the title program's pictures |
-| `RESOURCE/EXTROS.DAT` | [Containers](formats/containers.md) — the end sequence, opened only when a game ends on location −1 ([other files](games/ds1/other-files.md)) |
+| `RESOURCE/EXTROS.DAT` | [Containers](formats/containers.md) — the sequences on the way out of `XP01`: the end of the game and quitting ([other files](games/ds1/other-files.md)) |
 | `RESOURCE/PANELS.DAT`, `RESOURCE/CMBMOU.DAT`, `RESOURCE/PLAY00.DAT` | [Graphics](formats/graphics.md) — the verb strip, the pointers and the font, the player's cels |
 | `RESOURCE/DIALOG.DAT` | [Dialogue](formats/dialogue.md) — the two global banks |
 | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | [Audio](formats/audio.md) — the music library and the sound drivers |
 | `RESOURCE/PRGVER.DAT` | Named by both programs ([other files](games/ds1/other-files.md)) |
 | `SCHATTEN.BAT`, `DS1.BAT`, `DS1.ICO` | Launchers and icon ([other files](games/ds1/other-files.md)) |
 | `PSMCFG4.EXE`, `CONFIG.DAT` | Shipped beside the programs ([other files](games/ds1/other-files.md)) |
+
+Captain Zins ships the same kinds of file, its own where the names differ:
+
+| File(s) | Format |
+|---|---|
+| `XP00.EXE`, `XP01.EXE` | [The title program and the game](games/capzins/README.md#the-program) |
+| `XP02.EXE`, `LIESMICH.DOK`, `INFO.BAT` | The `.DOK` viewer and the readme it shows ([the game](games/capzins/README.md#the-program)) |
+| `RESOURCE/CZROOM.DAT` | [Rooms](formats/rooms.md) — every location, in the FGROUP container `DSROOM.DAT` is |
+| `RESOURCE/INTROS.DAT` | [Containers](formats/containers.md) — the title program's pictures |
+| `RESOURCE/EXTROS.DAT` | [Containers](formats/containers.md) — the parade after the main loop ([the way out](engine/ending.md#captain-zins)) |
+| `RESOURCE/PANEL0.DAT`, `RESOURCE/PANEL1.DAT`, `RESOURCE/PLAY00.DAT`, `RESOURCE/PLAY01.DAT` | [Graphics](formats/graphics.md) — two sets of the verb strip and the player's cels, the first for locations 1 and 2, the second above them ([its library build](games/capzins/README.md#its-library-build)) |
+| `RESOURCE/CMBMOU.DAT` | [Graphics](formats/graphics.md) — the pointers and the font |
+| `RESOURCE/DIALOG.DAT` | [Dialogue](formats/dialogue.md) — the global banks |
+| `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | [Audio](formats/audio.md) — the music library and the sound drivers |
+| `ZINS.BAT` | The launcher ([the game](games/capzins/README.md#the-program)) |

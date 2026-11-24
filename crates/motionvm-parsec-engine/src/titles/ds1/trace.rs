@@ -1,8 +1,9 @@
 //! *Dunkle Schatten*'s location logic held to the original's traces: the
 //! generation's runner ([`parsec1994::trace`]) with this program's
-//! routines, over the cases in `tests/ds1_logic_cases.txt`.
+//! routines, over the cases in `tests/ds1_logic_cases.txt`: the
+//! locations' logic, the global rules and the shared hook.
 
-use super::{global_rules, logic};
+use super::{global_rules, hook, logic};
 use crate::titles::parsec1994::trace::{Case, Routines, TraceTitle, parse, run_case};
 
 /// Where `XP01.EXE` has the engine routines its logic calls.
@@ -26,7 +27,7 @@ static ROUTINES: Routines = Routines {
     slot_set_object: "0cfd:1a8c",
     slot_set_figure: "0cfd:1ad0",
     obj_find: "0bb6:052b",
-    obj_wake: "0883:20b3",
+    obj_wake: Some("0883:20b3"),
     obj_show: "14dd:084a",
     obj_anim: "0883:1f82",
     obj_anim_id: "0883:2099",
@@ -72,6 +73,19 @@ static ROUTINES: Routines = Routines {
     inv_give: "0c3f:095c",
     panel_refresh: "0c3f:005c",
     fx_reveal: "10b8:03ba",
+    obj_invalidate: "0883:000f",
+    figure_anim: "0883:20d9",
+    say_text: "0cfd:18c2",
+    hotspot_follow: "14dd:074b",
+    figure_face: "0a9f:0c0c",
+    figure_turn: "0a9f:10f7",
+    task_stop: "0cfd:1a0e",
+    page_release: "0cfd:1ba2",
+    band_hold: "0c3f:0581",
+    node_block: "0a9f:1002",
+    node_open: "0a9f:105c",
+    interaction: "0eb9:177a",
+    chosen_hotspot: 0x28B3,
     record_returns: &[
         "0bb6:052b",
         "0bb6:05b0",
@@ -82,6 +96,10 @@ static ROUTINES: Routines = Routines {
     ],
     // `[1F48h]`.
     exit_word: 0x1F48,
+    // `0x1085E`: `call far [1E5Ch]`.
+    location_hook: 0x1E5C,
+    // The program keeps no callback.
+    callback: None,
 };
 
 /// This title, as the runner takes it.
@@ -89,6 +107,7 @@ static TITLE: TraceTitle = TraceTitle {
     routines: &ROUTINES,
     logic: logic::logic,
     global_rule: global_rules::api_rule,
+    hook: hook::answer,
 };
 
 #[cfg(test)]
@@ -108,7 +127,7 @@ mod tests {
         let cases = cases();
         let names: std::collections::BTreeSet<String> = cases.iter().map(Case::name).collect();
         assert_eq!(names.len(), cases.len());
-        assert_eq!(cases.len(), 1342);
+        assert_eq!(cases.len(), 1612);
     }
 
     /// The location logic does what the original routine does in every

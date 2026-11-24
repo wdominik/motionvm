@@ -7,6 +7,7 @@
 //! alone.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -38,11 +39,6 @@ const ENTRY_DOOR: u16 = 0x1EDE;
 /// `si`: the entry door as the handler read it after the entry finished,
 /// kept until it is closed.
 const DOOR_LOCAL: usize = 0;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// The far pointer in `[18ACh]`/`[18AEh]`.
 fn person(api: &dyn Api) -> Far {

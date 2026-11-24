@@ -45,7 +45,7 @@
 use crate::num;
 use crate::titles::panel::Panel;
 
-use super::{Adventure, Event, KEY_ESCAPE, Opened, objects};
+use super::{Adventure, Api, Event, KEY_ESCAPE, Opened};
 
 /// `[28BBh]`/`[28BDh]`: which far routine the machine asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -123,15 +123,18 @@ const KEEP: u16 = 0xFE0F;
 
 /// The twin of an exit's node: the node the figure leaves through
 /// (`add ax, 7D0h` at `0x15B7D`, `0x1588B`).
-const TWIN: i16 = 0x7D0;
+pub(crate) const TWIN: i16 = 0x7D0;
 
 impl Adventure {
     /// The dispatcher's head (`0x0FB69` to `0x0FB91`), once a frame.
     pub(crate) fn dispatch(&mut self) {
         // Event 111 armed task 0 and asked for it to start once the
         // figure is linked (`0x0FB69`).
-        if self.script.g1ed0 != 0 && self.player_linked() {
-            self.script.g1ed0 = 0;
+        if self.profile.dispatch_starts_asked_task
+            && self.script.start_task_asked != 0
+            && self.player_linked()
+        {
+            self.script.start_task_asked = 0;
             self.task_start(0);
         }
         // The query's menu half (`0x0E041`) follows the pointer every
@@ -142,13 +145,19 @@ impl Adventure {
         let busy = self.task_query();
         self.mode_step(busy);
         // `0x0FB91`: an exit asked for ends the frame; `0x0FB9E`: a script
-        // that holds the input lets nothing else happen. The options a
-        // gate opened end it too.
-        if self.leave.is_some()
-            || self.entry_word != 0
-            || self.bits & LOCKED != 0
-            || self.options_up()
-        {
+        // that holds the input lets nothing else happen — in a build that
+        // has it, past stopping a hover text task 0 shows (`0x0FBC2`–
+        // `0x0FBCE`). The options a gate opened end it too.
+        if self.leave.is_some() || self.entry_word != 0 {
+            return;
+        }
+        if self.bits & LOCKED != 0 {
+            if self.profile.locked_stops_hover_text && busy < 0 {
+                self.task_stop(0);
+            }
+            return;
+        }
+        if self.options_up() {
             return;
         }
         self.hover_frame(busy);
@@ -195,8 +204,8 @@ impl Adventure {
             8 => {
                 let b = self.bits;
                 let ask = (b & WAIT_TASKS != 0 && busy <= 0)
-                    || (b & 0x20 != 0 && self.word_28bf == 0)
-                    || (b & 0x100 != 0 && self.word_28c1 == 0)
+                    || (b & 0x20 != 0 && self.wait_ticks == 0)
+                    || (b & 0x100 != 0 && self.anim_wait == 0)
                     || (b & WAIT_FIGURE != 0 && self.player_linked())
                     || b & WAIT_MASK == 0;
                 if ask {
@@ -320,8 +329,20 @@ impl Adventure {
         self.verb_chosen = 0;
         self.hover_spot = None;
         self.second_spot = None;
-        self.last_hover = Hover::None;
+        if self.profile.mode_reset_forgets_hover {
+            self.last_hover = Hover::None;
+        }
         self.status_refresh_age = 2;
+    }
+
+    /// No gate: the far pointer `[28BBh]` written 0:0, as the original
+    /// uninstalls it (`0x0F20F`, `0x0F215`).
+    pub(super) fn gate_clear(&mut self) {
+        self.gate = Gate::None;
+        let at = usize::from(self.ds_map.gate);
+        if let Some(w) = self.ds.get_mut(at..at + 4) {
+            w.fill(0);
+        }
     }
 
     /// `0EB9h:0654h(arg)`: ask the gate, and clear up when it answers.
@@ -336,6 +357,18 @@ impl Adventure {
     /// taken again.
     pub(super) fn ask_gate(&mut self, arg: i16) -> i16 {
         let mut answer = 1;
+        if self.mode >= 4 && self.gate == Gate::None {
+            // A far routine in `[28BBh]` that is none of the engine's.
+            let m = self.ds_map;
+            let off = self.ds_word(m.gate);
+            let seg = self.ds_word(m.gate.wrapping_add(2));
+            if (seg, off) != (0, 0) {
+                self.events.push(Event::Unbuilt(
+                    "gate",
+                    (u32::from(seg) << 16) | u32::from(off),
+                ));
+            }
+        }
         if self.mode >= 4 && self.gate != Gate::None {
             answer = match self.gate {
                 Gate::None => 1,
@@ -353,7 +386,7 @@ impl Adventure {
         }
         if answer != 0 {
             self.bits &= KEEP;
-            self.gate = Gate::None;
+            self.gate_clear();
             self.pointer_resync();
             self.mode_reset();
         }
@@ -371,7 +404,9 @@ impl Adventure {
     ///
     /// Nothing walks yet: the gate does, once the text is over.
     pub(crate) fn script_exit(&mut self, object: u8) {
-        self.hover_forgotten();
+        if self.profile.script_exit_hovers_off {
+            self.hover_forgotten();
+        }
         self.gate = Gate::ScriptExit;
         self.bits = (self.bits & KEEP) | LOCKED | WAIT_TASKS;
         self.object1 = u16::from(object);
@@ -402,7 +437,7 @@ impl Adventure {
         let object = num::signed(self.object1);
         self.walk_target = object;
         self.walk_to_object(object, -1);
-        self.gate = Gate::None;
+        self.gate_clear();
         0
     }
 
@@ -477,10 +512,10 @@ impl Adventure {
     /// answer of 0 keeps looking (`0x13EBD`), −1 starts over (`0x13E32`), and
     /// nothing found answers −1 (`0x13E3A`).
     ///
-    /// A handler is code. The one read is the walk verb's, `1586h:02E9h`
-    /// ([`Adventure::walk_rule`]); any other that the search reaches is
-    /// noted as [`Event::UnreadRule`] and taken as answered with 1, which
-    /// resets the machine — the same as a handler that did nothing.
+    /// A handler is code, the title's to answer ([`Adventure::rule_handler`]);
+    /// one it does not have is noted as [`Event::UnreadRule`] and taken as
+    /// answered with 1, which resets the machine — the same as a handler that
+    /// did nothing.
     fn rule_search(&mut self, flags: u16) -> i16 {
         let here = usize::try_from(self.loc).unwrap_or(usize::MAX);
         let own = self.locations.rules(&self.image, here);
@@ -531,10 +566,12 @@ impl Adventure {
     }
 
     /// The handler a rule names, by its far address. Which routine an
-    /// address links to is the program's own, so the title answers it
-    /// ([`Adventure::rule_hook`]); one it does not is said, and answered 1.
+    /// address links to is the program's own, so the title's logic answers
+    /// it ([`Adventure::logic_table`]); one it does not is said, and
+    /// answered 1.
     fn rule_handler(&mut self, far: (u16, u16), flags: u16) -> i16 {
-        if let Some(answer) = (self.rule_hook)(self, far, flags) {
+        let answer = self.logic_table.and_then(|t| t.rule(self, far, flags));
+        if let Some(answer) = answer {
             return answer;
         }
         self.events.push(Event::UnreadRule { far, flags });
@@ -556,11 +593,68 @@ impl Adventure {
         (!text.is_empty()).then(|| motionvm_parsec_formats::to_cp437(text))
     }
 
+    /// `0EB9h:177Ah(id, facing, scene)` (`0x1030A`): an interaction a
+    /// script starts as if the pointer had chosen it.
+    ///
+    /// For an id below `100h` (`0x10315`) the object is chosen: a room's
+    /// object by the hotspot whose mask ends in it with bit 15
+    /// (`and ax, 80FFh`, `0x10352`), which becomes the chosen hotspot
+    /// (`0x10374`); an item, `0 < id <` the items' end, by its name row
+    /// (`0x10395`). Found, it is the first object with the two-object flag
+    /// 3 (`0x103AE`); not found, nothing is (`0x103BB`). Either way the
+    /// machine goes to mode 7 with verb 2, the walk bit cleared, bit `10h`
+    /// set among the wait bits and the status line asked for at once
+    /// (`0x103D8`–`0x103EF`). Then, for any id, the figure walks to it
+    /// (`0A9Fh:0617h`, `0x103FD`), which is put on record when it starts
+    /// (`0x10409`), and the scene plays (`0CFDh:172Fh`, `0x10410`).
+    pub(crate) fn interaction(&mut self, id: u16, facing: i16, scene: i16) {
+        let sid = num::signed(id);
+        if sid < 0x100 {
+            let mut found = 0u16;
+            if sid >= num::signed(self.items_end()) {
+                let spot = self.room().map(|r| {
+                    r.hotspots
+                        .spots
+                        .iter()
+                        .position(|h| h.verb_mask & 0x80FF == id | 0x8000)
+                });
+                if let Some(spot) = spot {
+                    if let Some(i) = spot {
+                        self.hover_spot = Some(i);
+                        found = id;
+                    }
+                    self.bits &= 0xFFFE;
+                }
+            } else if sid > 0 {
+                found = id;
+            }
+            if found != 0 {
+                self.object1 = found;
+                self.two_object = 3;
+                self.bits &= 0xFFFE;
+            } else {
+                self.two_object = 0;
+                self.bits |= 0xFFFE;
+                self.object1 = 0;
+            }
+            self.mode = 7;
+            self.verb = 2;
+            self.bits = (self.bits & 0xFE0F) | 0x10;
+            self.status_refresh_age = 1;
+        }
+        if self.walk_to_object(sid, facing) != 0 {
+            self.walk_target = sid;
+        }
+        self.scene_load(scene);
+    }
+
     /// `0EB9h:0A0Dh(id, hotspot)`: an object chosen, by hover or click.
     ///
-    /// An id below `17h` is an item, with its name row and class 0
-    /// (`0x0F5AC`); a hotspot takes its class from bits 8 to 11 of its mask
-    /// (`0x0F5EE`). In mode 0 the same object again does nothing (`0x0F60B`);
+    /// An id below the items' end is an item, with its name row and its
+    /// class from the build's table ([`super::DsMap::item_classes`],
+    /// `0x0F5AC`–`0x0F5C4`; Dunkle Schatten's is all zero, Captain Zins's
+    /// makes the Bits class 5); a hotspot takes its class from bits 8 to 11
+    /// of its mask (`0x0F5EE`). In mode 0 the same object again does nothing (`0x0F60B`);
     /// otherwise the hover rules run with phase 1 (`13D0h:009Ch`, `0x0F636`),
     /// and their answer sets `[2899h]` to 1 for −1 or 2, nothing to do here
     /// (`0x0F648`), else to 2, something to do (`0x0F663`). Mode 2 runs phase
@@ -568,8 +662,8 @@ impl Adventure {
     pub(crate) fn select_object(&mut self, id: i16, spot: Option<usize>) {
         let id = if id <= 0 { 0x7FFF } else { id };
         let class = if id < num::signed(self.items_end()) {
-            // `DS:0527h + id`: the item classes, all zero in the image.
-            0
+            let at = self.ds_map.item_classes.wrapping_add(num::unsigned(id));
+            u16::from(Api::byte(self, at))
         } else {
             let Some(mask) =
                 spot.and_then(|i| self.room()?.hotspots.spots.get(i).map(|h| h.verb_mask))
@@ -861,10 +955,11 @@ impl Adventure {
             (None, Some(i)) => Hover::Spot(i),
             _ => Hover::None,
         };
-        if now == self.last_hover && now != Hover::None {
+        if now == self.last_hover && (now != Hover::None || self.profile.forgotten_hover_is_nothing)
+        {
             return;
         }
-        if !self.hover_enabled {
+        if !self.hover_enabled && self.profile.hover_off_only_notes {
             // `0x0FFD5`.
             if busy != 0 {
                 self.task_stop(0);
@@ -880,7 +975,9 @@ impl Adventure {
             .and_then(|_| self.panel_widgets.hit(x, y))
             .is_some_and(|w| {
                 Panel::verb_of(w).is_some()
-                    || Panel::slot_of(w)
+                    || self
+                        .panel_widgets
+                        .slot_of(w)
                         .and_then(|n| self.item_in_slot(n))
                         .is_some()
             });
@@ -936,14 +1033,18 @@ impl Adventure {
             return;
         };
         if let Some(v) = Panel::verb_of(widget) {
-            if v >= 0xF || v == self.verb || self.mode >= 2 {
+            if u16::from(v) >= self.profile.verb_bound || v == self.verb || self.mode >= 2 {
                 return;
             }
             self.mode_reset();
             self.verb = v;
             self.mode = 1;
             self.status_refresh_age = 1;
-        } else if let Some(item) = Panel::slot_of(widget).and_then(|n| self.item_in_slot(n)) {
+        } else if let Some(item) = self
+            .panel_widgets
+            .slot_of(widget)
+            .and_then(|n| self.item_in_slot(n))
+        {
             self.select_object(i16::from(item), None);
         }
     }
@@ -988,73 +1089,11 @@ impl Adventure {
         self.status_refresh_age = 1;
     }
 
-    /// `1586h:0364h`: the seventh verb's rule — verb 7, any object, flag 4
-    /// (`0x2155A`) — which the walk verb's rule hands a door to.
-    ///
-    /// The object's record (`0BB6h:052Bh`, `0x15BCC`) of kind 4 is a door
-    /// (`0x15BE0`): it plays its animation 1 and opens, thirty ticks to code 2
-    /// (`0883h:1F82h`, `0x15BED`); with no door remembered (`0x15BF5`) it
-    /// becomes the door to close later, `[1EDEh]` (`0x15BFF`); `[28C1h] = 2`
-    /// waits for the animation's code 2 (`0x15C02`), and the answer is 12
-    /// (`0x15C08`). Anything else asks for sample 12 (`0EB9h:1949h`,
-    /// `0x15C0D`) and is made live and marked, bit 0 of `+2` (`0x15C18`), and
-    /// the answer is 1.
-    pub(crate) fn door_rule(&mut self) -> i16 {
-        let Ok(id) = u8::try_from(self.object1) else {
-            return 1;
-        };
-        let Some(i) = self.object_index(id) else {
-            return 1;
-        };
-        if self.objects[i].kind == 4 {
-            self.object_anim(id, 1);
-            if self.entry_door == 0 {
-                self.entry_door = i16::from(id);
-            }
-            self.anim_code_wait(2);
-            12
-        } else {
-            self.effect_1949(12);
-            self.objects[i].flags |= objects::LIVE;
-            1
-        }
-    }
-
     /// `[28C1h] = code`: the machine waits until an animation reaches an
     /// opcode carrying `code`, which the animator reports through
     /// `0EB9h:1D97h` (`0x0109A8`, `cmp si, [28C1h]`; `0x0109AE` clears it).
     pub(crate) fn anim_code_wait(&mut self, code: u16) {
-        self.word_28c1 = code;
-    }
-
-    /// `1586h:02E9h`: the walk verb's rule — verb `0Ah`, any object, flag 4
-    /// (`0x215CA`).
-    ///
-    /// The door's gate `1586h:0000h` is installed (`0x15B4C`). The door come
-    /// through, `[1EDEh]` (`0x15B58`), or one stood on, `[16BBh]`
-    /// (`0x15B61`), equal to the object answers verb 7, −1; so does an object
-    /// that is not live (`14DDh:07E7h`, `0x15B6E`). Else the figure walks to
-    /// the object's twin, its id plus `7D0h` (`0x15B7D`, `0A9Fh:0617h` at
-    /// `0x15B85`), and when that walk started, input is locked
-    /// (`0EB9h:188Ah`, `0x15B91`) and the walk recorded in `[289Fh]`
-    /// (`0x15BA1`); the answer is 9, wait for the figure (`0x15BB1`).
-    pub(crate) fn walk_rule(&mut self) -> i16 {
-        self.gate = Gate::Door;
-        let object = num::signed(self.object1);
-        if self.entry_door == object && self.player_node_id() == object {
-            self.verb = 7;
-            return -1;
-        }
-        if !self.object_is_live(object) {
-            self.verb = 7;
-            return -1;
-        }
-        if self.walk_to_object(object + TWIN, -1) != 0 {
-            self.input_locked();
-            self.hover_forgotten();
-            self.walk_target = object + TWIN;
-        }
-        9
+        self.anim_wait = code;
     }
 
     /// `14DDh:07E7h(id)`: whether the object with this id is live.
@@ -1077,7 +1116,7 @@ impl Adventure {
         };
         match o.kind {
             1 | 2 => o.flags & 1 == 1,
-            4 => o.flags & 3 == 1,
+            4 => (o.flags & 3 == 1) == self.profile.kind4_live_when_mode_one,
             _ => true,
         }
     }
@@ -1087,14 +1126,22 @@ impl Adventure {
     /// Bit 1 of `[289Bh]` is set (`0x1041A`), nothing is hovered,
     /// `[28A5h] = FFFFh` (`0x1041F`), and the band held dark
     /// (`0C3Fh:0581h(4)`, `0x1042B`).
-    pub(super) fn input_locked(&mut self) {
+    pub(crate) fn input_locked(&mut self) {
         self.bits |= LOCKED;
+        if self.profile.lock_forgets_hover {
+            self.last_hover = Hover::None;
+        }
         self.panel_tint(4);
     }
 
-    /// `0EB9h:18A4h`: the lock off again, the band let go.
+    /// `0EB9h:18A4h`: the lock off again — bit 1 cleared (`0x10434`), the
+    /// hover forgotten, `[28A5h]` and `[28A3h]` = `FFFFh` (`0x10439`) — and
+    /// the band let go.
     pub(super) fn input_unlocked(&mut self) {
         self.bits &= !LOCKED;
+        if self.profile.unlock_forgets_hover {
+            self.last_hover = Hover::None;
+        }
         self.panel_release(4);
     }
 
@@ -1106,8 +1153,10 @@ impl Adventure {
     /// `0x104A1`), so it keeps animating unseen.
     pub(crate) fn hover_forgotten(&mut self) {
         self.hover_enabled = false;
-        self.last_hover = Hover::None;
-        self.status_refresh_age = 1;
+        if self.profile.hover_off_forgets_hover {
+            self.last_hover = Hover::None;
+            self.status_refresh_age = 1;
+        }
         self.pointer_off();
         self.pointer_thaw();
     }
@@ -1121,11 +1170,15 @@ impl Adventure {
     /// `179Eh:0830h` (`0x104D3`).
     pub(super) fn hover_reset(&mut self) {
         self.hover_enabled = true;
-        self.last_hover = Hover::None;
-        self.status_refresh_age = 1;
+        if self.profile.hover_on_forgets_hover {
+            self.last_hover = Hover::None;
+            self.status_refresh_age = 1;
+        }
         self.pointer_thaw();
-        self.pointer_poll();
-        self.pointer_poll();
+        if self.profile.hover_on_polls {
+            self.pointer_poll();
+            self.pointer_poll();
+        }
         self.pointer_on();
     }
 
@@ -1194,7 +1247,7 @@ impl Adventure {
             self.input_unlocked();
         }
         self.bits &= KEEP;
-        self.gate = Gate::None;
+        self.gate_clear();
         self.pointer_resync();
         self.mode_reset();
         self.status_refresh_age = 0x0A;

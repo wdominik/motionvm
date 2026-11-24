@@ -7,6 +7,7 @@
 //! no rules of its own.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::Api;
 
@@ -14,12 +15,6 @@ use crate::titles::parsec1994::Api;
 const OBJECT_200: u16 = 0xC8;
 const OBJECT_202: u16 = 0xCA;
 const OBJECT_204: u16 = 0xCC;
-
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x3E6E` to `0x3E98`: hover off and
 /// scene 0 at once.

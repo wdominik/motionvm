@@ -12,6 +12,7 @@
 //! `0EB9:00B8`.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::titles::parsec1994::{Api, Far};
 
 /// Object 215, set on animation 0 on every visit.
@@ -28,11 +29,6 @@ const BYTE_270D: u16 = 0x270D;
 /// before it goes on (see `parsec1994/mode.rs`); rule `03F1:0018` clears it.
 const GATE_OFF: u16 = 0x28BB;
 const GATE_SEG: u16 = 0x28BD;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x3F71` to `0x3F93`.
 pub(crate) fn enter(api: &mut dyn Api) {

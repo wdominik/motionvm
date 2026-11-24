@@ -36,7 +36,7 @@ fn a_directory_without_a_game_names_what_one_needs() {
         open_err(&dir),
         "not a PARSEC game directory\n  \
          missing a PARSEC game (XP00.EXE / XP01.EXE and RESOURCE/*.DAT \
-         (DSROOM.DAT))"
+         (DSROOM.DAT or CZROOM.DAT))"
     );
 }
 

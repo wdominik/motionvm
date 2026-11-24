@@ -10,6 +10,7 @@
 //! shared entry and `0EB9:00B8`, and no check in its frame loop.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -36,11 +37,6 @@ const FOLLOWS: u16 = 0x1924;
 /// `[1695h]`: byte `+2` of the player's walker record (`DS:1693h`); the
 /// location sets and clears its bit 0 around object 202.
 const WALKER_BYTE_2: u16 = 0x1695;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x33B2` to `0x33CF`.
 pub(crate) fn enter(api: &mut dyn Api) {

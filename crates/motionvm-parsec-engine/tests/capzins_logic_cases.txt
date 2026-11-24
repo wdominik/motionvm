@@ -1,0 +1,1182 @@
+# The cases the location logic of Captain Zins is digested over, one head
+# line each: `case`, the entry, the routine's segment:offset, the inputs.
+#
+# The entry is `L<location><kind>_<segment>_<offset>`, the kind `h` for a
+# handler, `k` for a hook, `a` for an animation hook, `r` for a rule handler;
+# the location `G` is the global rule table's and `H` the shared hook's,
+# which belong to none.
+# The inputs:
+#
+#   args=a,b,…         the routine's arguments, in hex
+#   set=addr:b,…       data-segment bytes written before the call
+#   wset=addr:w,…      data-segment words written before the call
+#   ret=seg:off:v,…    what that engine routine answers; every other answers
+#                      0, and a record lookup of id n (4000h + 4n):0000
+#   rset=id:off:b,…    a byte of the record window of id n, before the call
+#   rwset=id:off:w,…   a word of it
+#   absent=seg:off:id  that record lookup answers null for that id
+#   poke=f:addr:w,…    a word the engine writes before picture f
+#   frames=n           the picture after which the engine asks for an exit
+#                      (2 when absent)
+#
+# For each entry the set holds one case per behavior its inputs tell apart.
+# Every case's digest is a line of tests/digests/capzins-logic.txt.
+case L1h_112e_012a 112e:12a frames=2
+case L1h_112e_012a 112e:12a frames=2 set=1cea:1
+case L1h_112e_012a 112e:12a frames=2 set=1cea:1 wset=1a5a:1
+case L1h_112e_012a 112e:12a frames=2 set=1cea:1 wset=1a5c:1
+case L1h_112e_012a 112e:12a frames=2 wset=1204:5 poke=1:1e92:5
+case L1h_112e_012a 112e:12a frames=2 wset=1a5a:1
+case L1h_112e_012a 112e:12a frames=2 wset=1a5c:1
+case L1k_112e_01df 112e:1df frames=2 args=0,0,0
+case L1k_112e_01df 112e:1df frames=2 args=1,0,0
+case L1k_112e_01df 112e:1df frames=2 args=7,0,0
+case L1k_112e_01df 112e:1df frames=2 args=7,14,0
+case L1k_112e_01df 112e:1df frames=2 args=7,a,0
+case L1k_112e_01df 112e:1df frames=2 args=7,b,0
+case L1k_112e_01df 112e:1df frames=2 args=7,c,0
+case L1k_112e_01df 112e:1df frames=2 args=7,d,0
+case L1k_112e_01df 112e:1df frames=2 args=7,e,0
+case L1k_112e_01df 112e:1df frames=2 args=7,f,0
+case L1r_112e_0008 112e:8 frames=2 args=1
+case L1r_112e_0008 112e:8 frames=2 args=1 ret=1021:7b0:1
+case L1r_112e_0008 112e:8 frames=2 args=1 set=1ceb:1 ret=1021:7b0:1
+case L1r_112e_003b 112e:3b frames=2 args=1
+case L1r_112e_00ad 112e:ad frames=2 args=1
+case L1r_112e_00ad 112e:ad frames=2 args=1 ret=1021:7b0:1
+case L1r_112e_00cf 112e:cf frames=2 args=1
+case L1r_112e_00cf 112e:cf frames=2 args=1 ret=a01:18d7:1
+case L1r_112e_00de 112e:de frames=2 args=1
+case L1r_112e_00de 112e:de frames=2 args=1 ret=a01:18d7:1
+case L1r_112e_00f5 112e:f5 frames=2 args=1
+case L1r_112e_00f5 112e:f5 frames=2 args=1 ret=1021:7b0:1
+case L1r_112e_00f5 112e:f5 frames=2 args=1 ret=701:518:0
+case L1r_112e_00f5 112e:f5 frames=2 args=1 ret=701:518:1
+case L1r_112e_00f5 112e:f5 frames=2 args=1 ret=701:518:1,1021:7b0:1
+case L2a_1156_0284 1156:284 frames=2 args=0,0,0
+case L2a_1156_0284 1156:284 frames=2 args=0,0,64
+case L2a_1156_0284 1156:284 frames=2 args=0,0,64 wset=1e9c:3
+case L2a_1156_0284 1156:284 frames=2 args=0,0,64 wset=1e9c:4
+case L2a_1156_0284 1156:284 frames=2 args=0,0,64 wset=1e9c:5
+case L2a_1156_0284 1156:284 frames=2 args=0,0,65
+case L2a_1156_0284 1156:284 frames=2 args=0,0,65 wset=1e9c:3
+case L2a_1156_0284 1156:284 frames=2 args=0,0,65 wset=1e9c:4
+case L2a_1156_0284 1156:284 frames=2 args=0,0,65 wset=1e9c:6
+case L2h_1156_00a8 1156:a8 frames=2
+case L2h_1156_00a8 1156:a8 frames=2 set=1cea:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cea:1 wset=1a5a:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cea:1 wset=1a5c:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cea:1 wset=1e9a:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cea:1 wset=1e9c:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cea:1 wset=1e9c:2
+case L2h_1156_00a8 1156:a8 frames=2 set=1cec:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cec:1 wset=1a5a:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cec:1 wset=1a5c:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cec:1 wset=1e9a:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cec:1 wset=1e9c:1
+case L2h_1156_00a8 1156:a8 frames=2 set=1cec:1 wset=1e9c:2
+case L2h_1156_00a8 1156:a8 frames=2 wset=1204:c9,1e9c:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1204:cb,1e9c:2
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5a:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5a:1,1e9a:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5a:1,1e9c:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5a:1,1e9c:2
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5c:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5c:1,1e9a:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5c:1,1e9c:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1a5c:1,1e9c:2
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9a:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9a:1,16f4:2 ret=1d77:26:0
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9a:1,16f4:2 ret=1d77:26:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9a:1,16f4:2 ret=1d77:26:2
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9a:1,16f4:2 ret=1d77:26:3
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9a:1,1e9c:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9a:1,1e9c:2
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9c:1
+case L2h_1156_00a8 1156:a8 frames=2 wset=1e9c:2
+case L2k_1156_02e3 1156:2e3 frames=2 args=0,0,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=0,0,0 wset=1e98:1
+case L2k_1156_02e3 1156:2e3 frames=2 args=0,2,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=1,0,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=5,0,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=5,0,0 wset=1e98:1
+case L2k_1156_02e3 1156:2e3 frames=2 args=5,0,0 wset=1e98:a
+case L2k_1156_02e3 1156:2e3 frames=2 args=5,0,0 wset=1e98:b
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,0,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,10,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,11,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,13,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,14,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,6e,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,6e,0 wset=1e94:1
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,6e,0 wset=1e94:a
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,a,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,a,0 wset=1e9c:2
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,a,0 wset=1e9c:3
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,b,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,b,0 wset=1e9c:2
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,b,0 wset=1e9c:3
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,c,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,c,0 wset=1e9c:2
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,c,0 wset=1e9c:3
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,c,0 wset=1e9c:4
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,d,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,e,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,f,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,f,0 wset=1e9c:2
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,f,0 wset=1e9c:3
+case L2k_1156_02e3 1156:2e3 frames=2 args=7,f,0 wset=1e9c:5
+case L2k_1156_02e3 1156:2e3 frames=2 args=8,0,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=8,1,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=8,2,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=9,0,0
+case L2k_1156_02e3 1156:2e3 frames=2 args=9,0,0 wset=1e98:1
+case L2k_1156_02e3 1156:2e3 frames=2 args=9,0,0 wset=1e98:1,1e94:1
+case L2k_1156_02e3 1156:2e3 frames=2 args=a,0,0
+case L2r_1156_0004 1156:4 frames=2 args=1
+case L2r_1156_0004 1156:4 frames=2 args=1 set=1ced:1
+case L2r_1156_0050 1156:50 frames=2 args=1
+case L2r_1156_0050 1156:50 frames=2 args=1 set=1cee:1
+case L2r_1156_0050 1156:50 frames=2 args=1 set=1cee:2
+case L2r_1156_0050 1156:50 frames=2 args=1 set=1cee:3
+case L2r_1156_0050 1156:50 frames=2 args=1 set=1cee:4
+case L2r_1156_0050 1156:50 frames=2 args=1 set=1cee:5
+case L2r_1156_005e 1156:5e frames=2 args=1
+case L2r_1156_005e 1156:5e frames=2 args=1 set=1cee:1
+case L2r_1156_005e 1156:5e frames=2 args=1 set=1cee:2
+case L2r_1156_005e 1156:5e frames=2 args=1 set=1cee:3
+case L2r_1156_005e 1156:5e frames=2 args=1 set=1cee:4
+case L2r_1156_005e 1156:5e frames=2 args=1 set=1cee:5
+case L2r_1156_006c 1156:6c frames=2 args=1
+case L2r_1156_006c 1156:6c frames=2 args=1 set=1cee:1
+case L2r_1156_006c 1156:6c frames=2 args=1 set=1cee:2
+case L2r_1156_006c 1156:6c frames=2 args=1 set=1cee:3
+case L2r_1156_006c 1156:6c frames=2 args=1 set=1cee:4
+case L2r_1156_006c 1156:6c frames=2 args=1 set=1cee:5
+case L2r_1156_007a 1156:7a frames=2 args=1
+case L2r_1156_007a 1156:7a frames=2 args=1 set=1cee:1
+case L2r_1156_007a 1156:7a frames=2 args=1 set=1cee:2
+case L2r_1156_007a 1156:7a frames=2 args=1 set=1cee:3
+case L2r_1156_007a 1156:7a frames=2 args=1 set=1cee:4
+case L2r_1156_007a 1156:7a frames=2 args=1 set=1cee:5
+case L2r_1156_0088 1156:88 frames=2 args=1
+case L2r_1156_0098 1156:98 frames=2 args=1
+case L3a_119d_00f1 119d:f1 frames=2 args=0,0,0
+case L3a_119d_00f1 119d:f1 frames=2 args=0,0,64
+case L3a_119d_00f1 119d:f1 frames=2 args=0,0,66
+case L3a_119d_00f1 119d:f1 frames=2 args=0,0,67
+case L3a_119d_00f1 119d:f1 frames=2 args=1,0,65
+case L3h_119d_002b 119d:2b frames=2
+case L3h_119d_002b 119d:2b frames=2 set=1cea:2
+case L3h_119d_002b 119d:2b frames=2 set=1cea:2 wset=1a5a:1
+case L3h_119d_002b 119d:2b frames=2 set=1cea:2 wset=1a5c:1
+case L3h_119d_002b 119d:2b frames=2 set=1cec:2
+case L3h_119d_002b 119d:2b frames=2 set=1cec:2 wset=1a5a:1
+case L3h_119d_002b 119d:2b frames=2 set=1cec:2 wset=1a5c:1
+case L3h_119d_002b 119d:2b frames=2 set=1cef:6
+case L3h_119d_002b 119d:2b frames=2 set=1cef:6 wset=1a5a:1
+case L3h_119d_002b 119d:2b frames=2 set=1cef:6 wset=1a5c:1
+case L3h_119d_002b 119d:2b frames=2 wset=1a5a:1
+case L3h_119d_002b 119d:2b frames=2 wset=1a5c:1
+case L3k_119d_0173 119d:173 frames=2 args=0,0,0
+case L3k_119d_0173 119d:173 frames=2 args=0,0,0 wset=1ea0:1
+case L3k_119d_0173 119d:173 frames=2 args=0,2,0
+case L3k_119d_0173 119d:173 frames=2 args=1,0,0
+case L3k_119d_0173 119d:173 frames=2 args=5,0,0
+case L3k_119d_0173 119d:173 frames=2 args=5,0,0 wset=1ea0:1,1ea4:1
+case L3k_119d_0173 119d:173 frames=2 args=5,0,0 wset=1ea4:1
+case L3k_119d_0173 119d:173 frames=2 args=5,0,0 wset=1ea4:ffff
+case L3k_119d_0173 119d:173 frames=2 args=7,0,0
+case L3k_119d_0173 119d:173 frames=2 args=7,a,0
+case L3k_119d_0173 119d:173 frames=2 args=7,a,0 ret=1021:813:0
+case L3k_119d_0173 119d:173 frames=2 args=7,b,0
+case L3k_119d_0173 119d:173 frames=2 args=7,b,0 wset=1ea2:2
+case L3k_119d_0173 119d:173 frames=2 args=7,b,0 wset=1ea2:3
+case L3k_119d_0173 119d:173 frames=2 args=7,c,0
+case L3k_119d_0173 119d:173 frames=2 args=7,c,0 wset=1ea0:1
+case L3k_119d_0173 119d:173 frames=2 args=7,c,0 wset=1ea2:2
+case L3k_119d_0173 119d:173 frames=2 args=8,0,0
+case L3k_119d_0173 119d:173 frames=2 args=8,0,0 wset=1ea4:1
+case L3k_119d_0173 119d:173 frames=2 args=8,1,0 wset=1ea4:1
+case L3k_119d_0173 119d:173 frames=2 args=8,2,0 wset=1ea4:1
+case L3k_119d_0173 119d:173 frames=2 args=9,0,0
+case L3k_119d_0173 119d:173 frames=2 args=9,0,0 wset=1ea0:1
+case L3k_119d_0173 119d:173 frames=2 args=9,0,0 wset=1ea0:80
+case L3k_119d_0173 119d:173 frames=2 args=9,0,0 wset=1ea2:2
+case L3k_119d_0173 119d:173 frames=2 args=9,0,0 wset=1ea2:3
+case L3k_119d_0173 119d:173 frames=2 args=a,0,0
+case L3r_119d_000b 119d:b frames=2 args=1
+case L3r_119d_001b 119d:1b frames=2 args=1
+case L4a_11c7_010c 11c7:10c frames=2 args=0,0,0
+case L4a_11c7_010c 11c7:10c frames=2 args=0,0,64
+case L4a_11c7_010c 11c7:10c frames=2 args=0,0,64 wset=1eac:1
+case L4a_11c7_010c 11c7:10c frames=2 args=0,0,64 wset=1eac:80
+case L4a_11c7_010c 11c7:10c frames=2 args=0,0,65
+case L4a_11c7_010c 11c7:10c frames=2 args=0,0,66
+case L4a_11c7_010c 11c7:10c frames=2 args=0,0,67
+case L4h_11c7_008f 11c7:8f frames=2
+case L4h_11c7_008f 11c7:8f frames=2 set=1cec:2
+case L4h_11c7_008f 11c7:8f frames=2 set=1cec:2 wset=1a5a:1
+case L4h_11c7_008f 11c7:8f frames=2 set=1cec:2 wset=1a5c:1
+case L4h_11c7_008f 11c7:8f frames=2 wset=1a5a:1
+case L4h_11c7_008f 11c7:8f frames=2 wset=1a5c:1
+case L4k_11c7_0169 11c7:169 frames=2 args=0,0,0
+case L4k_11c7_0169 11c7:169 frames=2 args=0,0,0 wset=1eac:1
+case L4k_11c7_0169 11c7:169 frames=2 args=0,0,0 wset=1eae:1
+case L4k_11c7_0169 11c7:169 frames=2 args=0,2,0
+case L4k_11c7_0169 11c7:169 frames=2 args=0,2,0 wset=1eae:1
+case L4k_11c7_0169 11c7:169 frames=2 args=0,2,0 wset=1eae:2
+case L4k_11c7_0169 11c7:169 frames=2 args=1,0,0
+case L4k_11c7_0169 11c7:169 frames=2 args=5,0,0
+case L4k_11c7_0169 11c7:169 frames=2 args=5,0,0 wset=1eac:1,1eae:1
+case L4k_11c7_0169 11c7:169 frames=2 args=5,0,0 wset=1eae:1
+case L4k_11c7_0169 11c7:169 frames=2 args=5,0,0 wset=1eae:2
+case L4k_11c7_0169 11c7:169 frames=2 args=5,0,0 wset=1eae:80
+case L4k_11c7_0169 11c7:169 frames=2 args=5,0,0 wset=1eae:ff
+case L4k_11c7_0169 11c7:169 frames=2 args=5,0,0 wset=1eae:ffff
+case L4k_11c7_0169 11c7:169 frames=2 args=7,0,0
+case L4k_11c7_0169 11c7:169 frames=2 args=7,a,0
+case L4k_11c7_0169 11c7:169 frames=2 args=7,a,0 wset=1ea8:1
+case L4k_11c7_0169 11c7:169 frames=2 args=7,a,0 wset=1eac:1
+case L4k_11c7_0169 11c7:169 frames=2 args=8,0,0
+case L4k_11c7_0169 11c7:169 frames=2 args=8,0,0 wset=1eae:1
+case L4k_11c7_0169 11c7:169 frames=2 args=8,0,0 wset=1eae:2
+case L4k_11c7_0169 11c7:169 frames=2 args=8,1,0 wset=1eae:2
+case L4k_11c7_0169 11c7:169 frames=2 args=9,0,0
+case L4k_11c7_0169 11c7:169 frames=2 args=9,0,0 wset=1ea8:1,1eac:1
+case L4k_11c7_0169 11c7:169 frames=2 args=9,0,0 wset=1eac:1
+case L4k_11c7_0169 11c7:169 frames=2 args=9,0,0 wset=1eac:80
+case L4k_11c7_0169 11c7:169 frames=2 args=9,0,0 wset=1eac:ff
+case L4k_11c7_0169 11c7:169 frames=2 args=a,0,0
+case L4r_11c7_0000 11c7:0 frames=2 args=1
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:1
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:1,1cf1:2
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:2
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:2,1cf1:2
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:3
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:4
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:4,1cf0:2
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:5
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:6
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:7
+case L4r_11c7_0000 11c7:0 frames=2 args=1 set=1cef:7,1cf2:1
+case L5h_11f2_0040 11f2:40 frames=2
+case L5h_11f2_0040 11f2:40 frames=2 wset=16f4:65 poke=1:1eb6:1
+case L5h_11f2_0040 11f2:40 frames=2 wset=1a5a:1
+case L5h_11f2_0040 11f2:40 frames=2 wset=1a5c:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=0,0,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=0,0,0 wset=1eb2:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=0,0,0 wset=1eb4:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=0,2,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=0,2,0 wset=1eb4:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=0,2,0 wset=1eb4:80
+case L5k_11f2_00dd 11f2:dd frames=2 args=1,0,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=5,0,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=5,0,0 wset=1eb4:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=5,0,0 wset=1eb4:80
+case L5k_11f2_00dd 11f2:dd frames=2 args=5,0,0 wset=1eb4:ff
+case L5k_11f2_00dd 11f2:dd frames=2 args=7,0,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=7,a,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=8,0,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=8,0,0 wset=1eb4:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=8,1,0 wset=1eb4:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=8,2,0 wset=1eb4:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=8,ffff,0 wset=1eb4:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=9,0,0
+case L5k_11f2_00dd 11f2:dd frames=2 args=9,0,0 wset=1eb2:1
+case L5k_11f2_00dd 11f2:dd frames=2 args=9,0,0 wset=1eb2:80
+case L5k_11f2_00dd 11f2:dd frames=2 args=9,0,0 wset=1eb2:ff
+case L5k_11f2_00dd 11f2:dd frames=2 args=a,0,0
+case L5r_11f2_0007 11f2:7 frames=2 args=1
+case L5r_11f2_0007 11f2:7 frames=2 args=1 set=1cef:2,1cf1:1
+case L5r_11f2_0007 11f2:7 frames=2 args=1 set=1cf1:1
+case L5r_11f2_0007 11f2:7 frames=2 args=1 set=1cf1:2
+case L5r_11f2_0007 11f2:7 frames=2 args=1 set=1cf1:3
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,0
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,64
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,64 ret=1021:813:0
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,a
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,a set=1cf4:2
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,a set=1cf5:2
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,a set=1cf5:2 ret=701:518:0
+case L6a_120c_02a9 120c:2a9 frames=2 args=0,0,a set=1cf5:2 rset=12:2:1,13:2:1,14:2:1,15:2:1,16:2:1,17:2:1,18:2:1,19:2:1,13:9:2,16:9:2,17:9:2,18:9:2
+case L6h_120c_0161 120c:161 frames=2
+case L6h_120c_0161 120c:161 frames=2 set=1cef:3
+case L6h_120c_0161 120c:161 frames=2 set=1cef:3 wset=1a5a:1
+case L6h_120c_0161 120c:161 frames=2 set=1cef:3 wset=1a5c:1
+case L6h_120c_0161 120c:161 frames=2 set=1cef:3 wset=1ebe:1
+case L6h_120c_0161 120c:161 frames=2 set=1cef:3,1cf4:1
+case L6h_120c_0161 120c:161 frames=2 set=1cef:4
+case L6h_120c_0161 120c:161 frames=2 set=1cef:4 wset=1a5a:1
+case L6h_120c_0161 120c:161 frames=2 set=1cef:4 wset=1a5c:1
+case L6h_120c_0161 120c:161 frames=2 set=1cef:4 wset=1ebe:1
+case L6h_120c_0161 120c:161 frames=2 set=1cef:4,1cf0:2
+case L6h_120c_0161 120c:161 frames=2 set=1cef:4,1cf4:1
+case L6h_120c_0161 120c:161 frames=2 set=1cf4:1
+case L6h_120c_0161 120c:161 frames=2 set=1cf4:1 wset=1a5a:1
+case L6h_120c_0161 120c:161 frames=2 set=1cf4:1 wset=1a5c:1
+case L6h_120c_0161 120c:161 frames=2 set=1cf4:1 wset=1ebe:1
+case L6h_120c_0161 120c:161 frames=2 wset=1204:1,1ebe:1
+case L6h_120c_0161 120c:161 frames=2 wset=1a5a:1
+case L6h_120c_0161 120c:161 frames=2 wset=1a5a:1,1ebe:1
+case L6h_120c_0161 120c:161 frames=2 wset=1a5c:1
+case L6h_120c_0161 120c:161 frames=2 wset=1a5c:1,1ebe:1
+case L6h_120c_0161 120c:161 frames=2 wset=1ebe:1
+case L6k_120c_0303 120c:303 frames=2 args=0,0,0
+case L6k_120c_0303 120c:303 frames=2 args=0,0,0 wset=1eb8:1
+case L6k_120c_0303 120c:303 frames=2 args=0,2,0
+case L6k_120c_0303 120c:303 frames=2 args=1,0,0
+case L6k_120c_0303 120c:303 frames=2 args=5,0,0
+case L6k_120c_0303 120c:303 frames=2 args=5,0,0 wset=1eb8:1,1ebc:1
+case L6k_120c_0303 120c:303 frames=2 args=5,0,0 wset=1ebc:1
+case L6k_120c_0303 120c:303 frames=2 args=5,0,0 wset=1ebc:ffff
+case L6k_120c_0303 120c:303 frames=2 args=7,0,0
+case L6k_120c_0303 120c:303 frames=2 args=7,6e,0
+case L6k_120c_0303 120c:303 frames=2 args=7,6e,0 wset=1eb8:1
+case L6k_120c_0303 120c:303 frames=2 args=7,6e,0 wset=1eb8:80
+case L6k_120c_0303 120c:303 frames=2 args=7,a,0
+case L6k_120c_0303 120c:303 frames=2 args=8,0,0
+case L6k_120c_0303 120c:303 frames=2 args=8,0,0 wset=1ebc:1
+case L6k_120c_0303 120c:303 frames=2 args=8,1,0 wset=1ebc:1
+case L6k_120c_0303 120c:303 frames=2 args=8,2,0 wset=1ebc:1
+case L6k_120c_0303 120c:303 frames=2 args=9,0,0
+case L6k_120c_0303 120c:303 frames=2 args=9,0,0 wset=1eb8:1
+case L6k_120c_0303 120c:303 frames=2 args=9,0,0 wset=1eb8:80
+case L6k_120c_0303 120c:303 frames=2 args=9,0,0 wset=1eb8:ff
+case L6k_120c_0303 120c:303 frames=2 args=a,0,0
+case L6r_120c_0098 120c:98 frames=2 args=1
+case L6r_120c_00a8 120c:a8 frames=2 args=1
+case L6r_120c_00a8 120c:a8 frames=2 args=1 set=1cf4:2
+case L6r_120c_00c5 120c:c5 frames=2 args=1
+case L6r_120c_00d5 120c:d5 frames=2 args=1
+case L6r_120c_00d5 120c:d5 frames=2 args=1 ret=78a:b0b:1
+case L6r_120c_00d5 120c:d5 frames=2 args=1 ret=78a:b0b:1,1021:813:0
+case L6r_120c_012a 120c:12a frames=2 args=1
+case L6r_120c_012a 120c:12a frames=2 args=1 ret=701:518:0
+case L6r_120c_012a 120c:12a frames=2 args=1 rset=12:2:1,13:2:1,14:2:1,15:2:1,16:2:1,17:2:1,18:2:1,19:2:1
+case L6r_120c_012a 120c:12a frames=2 args=1 rset=12:2:1,13:2:1,14:2:1,15:2:1,16:2:1,17:2:1,18:2:1,19:2:1,13:9:2,16:9:2,17:9:2,18:9:2
+case L6r_120c_012a 120c:12a frames=2 args=1 set=1cf4:2
+case L6r_120c_0151 120c:151 frames=2 args=1
+case L7h_1246_0022 1246:22 frames=2
+case L7h_1246_0022 1246:22 frames=2 wset=1a5a:1
+case L7h_1246_0022 1246:22 frames=2 wset=1a5c:1
+case L7k_1246_00b4 1246:b4 frames=2 args=0,0,0
+case L7k_1246_00b4 1246:b4 frames=2 args=5,0,0
+case L7k_1246_00b4 1246:b4 frames=2 args=5,0,0 wset=1ec0:1
+case L7k_1246_00b4 1246:b4 frames=2 args=5,0,0 wset=1ec0:ffff
+case L7k_1246_00b4 1246:b4 frames=2 args=6,0,0
+case L7k_1246_00b4 1246:b4 frames=2 args=6,0,0 wset=1ec0:1
+case L7k_1246_00b4 1246:b4 frames=2 args=6,0,0 wset=1ec0:ffff
+case L7k_1246_00b4 1246:b4 frames=2 args=7,0,0
+case L7k_1246_00b4 1246:b4 frames=2 args=7,a,0
+case L7r_1246_0001 1246:1 frames=2 args=1
+case L7r_1246_0001 1246:1 frames=2 args=1 set=1cf5:1
+case L8h_1254_00d7 1254:d7 frames=2
+case L8h_1254_00d7 1254:d7 frames=2 poke=1:1ec2:1
+case L8h_1254_00d7 1254:d7 frames=2 poke=1:1ec2:1 rwset=c8:28:ffff
+case L8h_1254_00d7 1254:d7 frames=2 poke=1:1ec2:1,1:1ec4:4e20 absent=701:518:c8
+case L8h_1254_00d7 1254:d7 frames=2 poke=1:1ec2:1,1:1ec4:4e20 rset=c8:2:1
+case L8h_1254_00d7 1254:d7 frames=2 poke=1:1ec2:1,1:1ec4:4e20 rset=c8:2:1,c8:9:4
+case L8h_1254_00d7 1254:d7 frames=2 set=1cf6:1
+case L8h_1254_00d7 1254:d7 frames=2 set=1cf6:1 wset=1a5a:1
+case L8h_1254_00d7 1254:d7 frames=2 set=1cf6:1 wset=1a5c:1
+case L8h_1254_00d7 1254:d7 frames=2 wset=1a5a:1
+case L8h_1254_00d7 1254:d7 frames=2 wset=1a5c:1
+case L8k_1254_0384 1254:384 frames=2 args=0,0,0
+case L8k_1254_0384 1254:384 frames=2 args=7,0,0
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:1,1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:1,1ec6:80
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:271a
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:271b
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:271d
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:4e20
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:80,1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec4:ff,1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec6:1,1ecc:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec6:1,1ece:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec6:80
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ec6:ff
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ecc:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c8,0 wset=1ece:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:1,1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:1,1ec6:80
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:271f
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:271f,1ecc:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:271f,1ece:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:2728
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:2728,1ecc:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:2728,1ece:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:4e20
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec4:80,1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec6:1,1ecc:1
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec6:80
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ec6:ff
+case L8k_1254_0384 1254:384 frames=2 args=7,c9,0 wset=1ecc:1
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 ret=701:518:0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ec4:4e20
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ec6:1
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ec6:1 ret=701:518:0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ec6:80 ret=701:518:0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ecc:1
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ecc:1 ret=701:518:0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ecc:80 ret=701:518:0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ecc:ff ret=701:518:0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ece:1 ret=701:518:0
+case L8k_1254_0384 1254:384 frames=2 args=7,ca,0 wset=1ece:ff ret=701:518:0
+case L8r_1254_0045 1254:45 frames=2 args=1
+case L8r_1254_00a4 1254:a4 frames=2 args=1
+case L8r_1254_00a4 1254:a4 frames=2 args=1 set=1cfc:1
+case L8r_1254_00a4 1254:a4 frames=2 args=1 set=1cfc:1 ret=1d77:26:1
+case L9a_1292_00d3 1292:d3 frames=2 args=0,0,0
+case L9a_1292_00d3 1292:d3 frames=2 args=0,0,64
+case L9h_1292_005e 1292:5e frames=2
+case L9h_1292_005e 1292:5e frames=2 wset=1a5a:1
+case L9h_1292_005e 1292:5e frames=2 wset=1a5c:1
+case L9k_1292_00f0 1292:f0 frames=2 args=0,0,0
+case L9k_1292_00f0 1292:f0 frames=2 args=0,0,0 wset=1ed2:1
+case L9k_1292_00f0 1292:f0 frames=2 args=0,2,0
+case L9k_1292_00f0 1292:f0 frames=2 args=1,0,0
+case L9k_1292_00f0 1292:f0 frames=2 args=5,0,0
+case L9k_1292_00f0 1292:f0 frames=2 args=5,0,0 wset=1ed2:1,1ed4:1
+case L9k_1292_00f0 1292:f0 frames=2 args=5,0,0 wset=1ed4:1
+case L9k_1292_00f0 1292:f0 frames=2 args=5,0,0 wset=1ed4:ffff
+case L9k_1292_00f0 1292:f0 frames=2 args=7,0,0
+case L9k_1292_00f0 1292:f0 frames=2 args=7,a,0
+case L9k_1292_00f0 1292:f0 frames=2 args=7,b,0
+case L9k_1292_00f0 1292:f0 frames=2 args=7,b,0 wset=1ed2:1
+case L9k_1292_00f0 1292:f0 frames=2 args=7,b,0 wset=1ed2:80
+case L9k_1292_00f0 1292:f0 frames=2 args=8,0,0
+case L9k_1292_00f0 1292:f0 frames=2 args=8,0,0 wset=1ed4:1
+case L9k_1292_00f0 1292:f0 frames=2 args=8,1,0 wset=1ed4:1
+case L9k_1292_00f0 1292:f0 frames=2 args=8,2,0 wset=1ed4:1
+case L9k_1292_00f0 1292:f0 frames=2 args=9,0,0
+case L9k_1292_00f0 1292:f0 frames=2 args=9,0,0 wset=1ed2:1
+case L9k_1292_00f0 1292:f0 frames=2 args=9,0,0 wset=1ed2:80
+case L9k_1292_00f0 1292:f0 frames=2 args=9,0,0 wset=1ed2:ff
+case L9k_1292_00f0 1292:f0 frames=2 args=a,0,0
+case L9r_1292_0006 1292:6 frames=2 args=1
+case L9r_1292_0006 1292:6 frames=2 args=1 set=1cef:4
+case L9r_1292_0006 1292:6 frames=2 args=1 set=1cef:4,1cf0:1
+case L9r_1292_0006 1292:6 frames=2 args=1 set=1cf0:1
+case L9r_1292_0006 1292:6 frames=2 args=1 set=1cf0:2
+case L9r_1292_0006 1292:6 frames=2 args=1 set=1cf0:3
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,0
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,64
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,64 ret=1021:813:0
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,65
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,66
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,66 ret=1021:912:1
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,67
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,67 ret=1021:912:1
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,67 wset=1ee4:bb9
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,67 wset=1ee4:bb9 ret=1021:912:1
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,68
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,68 set=1cf3:1
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,68 set=1cf3:80
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,69
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,69 ret=1021:912:1
+case L10a_12ac_02b9 12ac:2b9 frames=2 args=0,0,6a
+case L10h_12ac_0152 12ac:152 frames=2
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:1 ret=78a:b0b:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:1 wset=1a5a:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:1 wset=1a5c:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:1 wset=1ee4:bb8
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:1 wset=1ee4:bb9
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:2
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:2 wset=1a5a:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:2 wset=1a5c:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:2 wset=1ee4:bb8
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:2 wset=1ee4:bb9
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:3
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:3 wset=1a5a:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:3 wset=1a5c:1
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:3 wset=1ee4:bb8
+case L10h_12ac_0152 12ac:152 frames=2 set=1cf3:3 wset=1ee4:bb9
+case L10h_12ac_0152 12ac:152 frames=2 wset=1a5a:1
+case L10h_12ac_0152 12ac:152 frames=2 wset=1a5a:1,1ee4:bb8
+case L10h_12ac_0152 12ac:152 frames=2 wset=1a5a:1,1ee4:bb9
+case L10h_12ac_0152 12ac:152 frames=2 wset=1a5c:1
+case L10h_12ac_0152 12ac:152 frames=2 wset=1a5c:1,1ee4:bb8
+case L10h_12ac_0152 12ac:152 frames=2 wset=1a5c:1,1ee4:bb9
+case L10h_12ac_0152 12ac:152 frames=2 wset=1ee4:bb8
+case L10h_12ac_0152 12ac:152 frames=2 wset=1ee4:bb8,1204:bb8
+case L10h_12ac_0152 12ac:152 frames=2 wset=1ee4:bb9
+case L10h_12ac_0152 12ac:152 frames=2 wset=1ee4:bb9,1204:bb9
+case L10k_12ac_040c 12ac:40c frames=2 args=0,0,0
+case L10k_12ac_040c 12ac:40c frames=2 args=0,2,0
+case L10k_12ac_040c 12ac:40c frames=2 args=0,4,0
+case L10k_12ac_040c 12ac:40c frames=2 args=1,0,0
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0 wset=1ed6:1
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0 wset=1ed6:1,1eda:1
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0 wset=1ed6:1,1eda:80
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0 wset=1ed6:1,1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0 wset=1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0 wset=1edc:1,1ee0:1
+case L10k_12ac_040c 12ac:40c frames=2 args=5,0,0 wset=1edc:1,1ee0:80
+case L10k_12ac_040c 12ac:40c frames=2 args=7,0,0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,a,0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,a,0 wset=1ee0:1
+case L10k_12ac_040c 12ac:40c frames=2 args=7,a,0 wset=1ee0:80
+case L10k_12ac_040c 12ac:40c frames=2 args=7,b,0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,b,0 wset=1ee0:1
+case L10k_12ac_040c 12ac:40c frames=2 args=7,b,0 wset=1ee0:80
+case L10k_12ac_040c 12ac:40c frames=2 args=7,c,0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,c,0 wset=1ee0:1
+case L10k_12ac_040c 12ac:40c frames=2 args=7,c,0 wset=1ee0:80
+case L10k_12ac_040c 12ac:40c frames=2 args=7,d,0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,d,0 ret=1021:813:0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,e,0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,f,0
+case L10k_12ac_040c 12ac:40c frames=2 args=7,f,0 wset=1ee2:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,0,0
+case L10k_12ac_040c 12ac:40c frames=2 args=8,0,0 wset=1ed6:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,0,0 wset=1ed6:1,1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,0,0 wset=1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,1,0 wset=1ed6:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,1,0 wset=1ed6:1,1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,1,0 wset=1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,2,0 wset=1ed6:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,2,0 wset=1ed6:1,1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=8,2,0 wset=1edc:1
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1eda:1
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1eda:1,1ee0:1
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1eda:1,1ee0:80
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1eda:1,1ee0:ff
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1eda:80
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1eda:ff
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1ee0:1
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1ee0:80
+case L10k_12ac_040c 12ac:40c frames=2 args=9,0,0 wset=1ee0:ff
+case L10k_12ac_040c 12ac:40c frames=2 args=a,0,0
+case L10r_12ac_000c 12ac:c frames=2 args=1
+case L10r_12ac_000c 12ac:c frames=2 args=1 set=1cf3:2
+case L10r_12ac_000c 12ac:c frames=2 args=1 set=1cf3:3
+case L10r_12ac_000c 12ac:c frames=2 args=1 set=1cf3:5
+case L10r_12ac_0042 12ac:42 frames=2 args=1
+case L10r_12ac_0042 12ac:42 frames=2 args=1 set=1cf3:2
+case L10r_12ac_0042 12ac:42 frames=2 args=1 set=1cf3:4
+case L10r_12ac_0042 12ac:42 frames=2 args=1 set=1cf3:5
+case L10r_12ac_0084 12ac:84 frames=2 args=1
+case L10r_12ac_0084 12ac:84 frames=2 args=1 set=1cf3:2
+case L10r_12ac_0084 12ac:84 frames=2 args=1 set=1cf3:3
+case L10r_12ac_0084 12ac:84 frames=2 args=1 set=1cf3:4
+case L10r_12ac_0084 12ac:84 frames=2 args=1 set=1cf3:5
+case L10r_12ac_00dc 12ac:dc frames=2 args=1
+case L10r_12ac_00f6 12ac:f6 frames=2 args=1
+case L10r_12ac_00f6 12ac:f6 frames=2 args=1 ret=78a:b0b:1
+case L10r_12ac_0116 12ac:116 frames=2 args=1
+case L10r_12ac_0126 12ac:126 frames=2 args=1
+case L10r_12ac_0136 12ac:136 frames=2 args=1
+case L10r_12ac_0136 12ac:136 frames=2 args=1 wset=1e60:80
+case L11h_130a_002f 130a:2f frames=2
+case L11h_130a_002f 130a:2f frames=2 wset=16f4:33
+case L11h_130a_002f 130a:2f frames=2 wset=16f4:33,1a5a:1
+case L11h_130a_002f 130a:2f frames=2 wset=16f4:33,1a5c:1
+case L11h_130a_002f 130a:2f frames=2 wset=1a5a:1
+case L11h_130a_002f 130a:2f frames=2 wset=1a5c:1
+case L11k_130a_00d6 130a:d6 frames=2 args=0,0,0
+case L11k_130a_00d6 130a:d6 frames=2 args=0,2,0
+case L11k_130a_00d6 130a:d6 frames=2 args=0,4,0
+case L11k_130a_00d6 130a:d6 frames=2 args=1,0,0
+case L11k_130a_00d6 130a:d6 frames=2 args=5,0,0
+case L11k_130a_00d6 130a:d6 frames=2 args=5,0,0 wset=1ee8:1
+case L11k_130a_00d6 130a:d6 frames=2 args=5,0,0 wset=1ee8:ffff
+case L11k_130a_00d6 130a:d6 frames=2 args=7,0,0
+case L11k_130a_00d6 130a:d6 frames=2 args=7,a,0
+case L11k_130a_00d6 130a:d6 frames=2 args=9,0,0
+case L11k_130a_00d6 130a:d6 frames=2 args=9,0,0 wset=1ee8:1
+case L11k_130a_00d6 130a:d6 frames=2 args=9,1,0 wset=1ee8:1
+case L11k_130a_00d6 130a:d6 frames=2 args=9,2,0 wset=1ee8:1
+case L11k_130a_00d6 130a:d6 frames=2 args=a,0,0
+case L11r_130a_0002 130a:2 frames=2 args=1
+case L11r_130a_0002 130a:2 frames=2 args=1 ret=1d77:26:1
+case L11r_130a_0002 130a:2 frames=2 args=1 set=1cf4:1
+case L11r_130a_0002 130a:2 frames=2 args=1 set=1cf4:1,1cf5:2
+case L12a_1323_018b 1323:18b frames=2 args=0,0,0
+case L12a_1323_018b 1323:18b frames=2 args=0,0,b
+case L12a_1323_018b 1323:18b frames=2 args=0,0,b wset=12ac:1
+case L12a_1323_018b 1323:18b frames=2 args=0,0,b wset=12ac:ffff
+case L12h_1323_0121 1323:121 frames=2
+case L12h_1323_0121 1323:121 frames=2 wset=1a5a:1
+case L12h_1323_0121 1323:121 frames=2 wset=1a5c:1
+case L12k_1323_01d3 1323:1d3 frames=2 args=0,0,0
+case L12k_1323_01d3 1323:1d3 frames=2 args=0,0,0 wset=12aa:1
+case L12k_1323_01d3 1323:1d3 frames=2 args=1,0,0
+case L12k_1323_01d3 1323:1d3 frames=2 args=7,0,0
+case L12k_1323_01d3 1323:1d3 frames=2 args=7,a,0
+case L12k_1323_01d3 1323:1d3 frames=2 args=7,a,0 ret=1021:813:0
+case L12k_1323_01d3 1323:1d3 frames=2 args=7,a,0 wset=12aa:1
+case L12k_1323_01d3 1323:1d3 frames=2 args=7,b,0
+case L12k_1323_01d3 1323:1d3 frames=2 args=8,0,0
+case L12k_1323_01d3 1323:1d3 frames=2 args=8,0,0 wset=12aa:1
+case L12k_1323_01d3 1323:1d3 frames=2 args=8,1,0 wset=12aa:1
+case L12k_1323_01d3 1323:1d3 frames=2 args=8,2,0 wset=12aa:1
+case L12k_1323_01d3 1323:1d3 frames=2 args=8,3,0 wset=12aa:1
+case L12k_1323_01d3 1323:1d3 frames=2 args=9,0,0
+case L12r_1323_0007 1323:7 frames=2 args=1
+case L12r_1323_0007 1323:7 frames=2 args=1 set=1cf8:1
+case L12r_1323_0007 1323:7 frames=2 args=1 set=1cf8:2
+case L12r_1323_0007 1323:7 frames=2 args=1 set=1cf8:3
+case L12r_1323_0034 1323:34 frames=2 args=1
+case L12r_1323_0034 1323:34 frames=2 args=1 ret=1021:7b0:1
+case L12r_1323_0034 1323:34 frames=2 args=1 set=1cf8:1
+case L12r_1323_0034 1323:34 frames=2 args=1 set=1cf8:2
+case L12r_1323_0034 1323:34 frames=2 args=1 set=1cf8:3
+case L12r_1323_006e 1323:6e frames=2 args=1
+case L12r_1323_006e 1323:6e frames=2 args=1 ret=1021:7b0:1
+case L12r_1323_0095 1323:95 frames=2 args=1
+case L12r_1323_0095 1323:95 frames=2 args=1 ret=a01:18d7:1
+case L12r_1323_00a9 1323:a9 frames=2 args=1
+case L12r_1323_00a9 1323:a9 frames=2 args=1 ret=a01:18d7:1
+case L12r_1323_00a9 1323:a9 frames=2 args=1 set=1cf8:1
+case L12r_1323_00ce 1323:ce frames=2 args=1
+case L12r_1323_00ce 1323:ce frames=2 args=1 ret=a01:18d7:1
+case L12r_1323_00dd 1323:dd frames=2 args=1
+case L12r_1323_00dd 1323:dd frames=2 args=1 set=1cf8:1
+case L12r_1323_00f8 1323:f8 frames=2 args=1
+case L12r_1323_00f8 1323:f8 frames=2 args=1 wset=1e60:c8
+case L12r_1323_00f8 1323:f8 frames=2 args=1 wset=1e60:c8 ret=1021:7b0:1
+case L13a_134a_0319 134a:319 frames=2 args=0,0,0
+case L13a_134a_0319 134a:319 frames=2 args=0,0,64
+case L13a_134a_0319 134a:319 frames=2 args=e000,1fc4,64 set=e013:10
+case L13a_134a_0319 134a:319 frames=2 args=e000,1fc4,64 set=e013:e
+case L13h_134a_0269 134a:269 frames=2
+case L13h_134a_0269 134a:269 frames=2 ret=701:518:0
+case L13h_134a_0269 134a:269 frames=2 ret=701:518:0,1021:813:0
+case L13h_134a_0269 134a:269 frames=2 rset=ca:2:1,cb:2:1,cb:9:1
+case L13h_134a_0269 134a:269 frames=2 wset=1a5a:1
+case L13h_134a_0269 134a:269 frames=2 wset=1a5a:1 ret=701:518:0
+case L13h_134a_0269 134a:269 frames=2 wset=1a5c:1
+case L13r_134a_0035 134a:35 frames=2 args=1
+case L13r_134a_0035 134a:35 frames=2 args=1 set=1cf9:1
+case L13r_134a_0052 134a:52 frames=2 args=1
+case L13r_134a_0052 134a:52 frames=2 args=1 ret=701:518:0
+case L13r_134a_0052 134a:52 frames=2 args=1 rset=0:2:1
+case L13r_134a_0052 134a:52 frames=2 args=1 rset=0:2:1,0:9:1
+case L13r_134a_0080 134a:80 frames=2 args=1
+case L13r_134a_0080 134a:80 frames=2 args=1 ret=701:518:0
+case L13r_134a_0080 134a:80 frames=2 args=1 rset=0:2:1
+case L13r_134a_0080 134a:80 frames=2 args=1 rset=0:2:1,0:9:1,1:2:1,1:9:1
+case L13r_134a_0080 134a:80 frames=2 args=1 rset=1:2:1
+case L13r_134a_0080 134a:80 frames=2 args=1 rset=1:2:1,1:9:1
+case L13r_134a_0080 134a:80 frames=2 args=1 rset=1:2:1,1:9:2
+case L13r_134a_0080 134a:80 frames=2 args=1 set=1cf9:1
+case L13r_134a_0080 134a:80 frames=2 args=1 wset=1e5c:1
+case L13r_134a_0080 134a:80 frames=2 args=1 wset=1e5c:1 ret=701:518:0
+case L13r_134a_0080 134a:80 frames=2 args=1 wset=1e5c:2
+case L13r_134a_0080 134a:80 frames=2 args=1 wset=1e5c:2 ret=701:518:0
+case L13r_134a_01cd 134a:1cd frames=2 args=1
+case L13r_134a_01cd 134a:1cd frames=2 args=1 ret=701:518:0
+case L13r_134a_01cd 134a:1cd frames=2 args=1 rset=1:2:1
+case L13r_134a_01cd 134a:1cd frames=2 args=1 wset=1e60:1
+case L13r_134a_01cd 134a:1cd frames=2 args=1 wset=1e60:1 ret=701:518:0
+case L13r_134a_01cd 134a:1cd frames=2 args=1 wset=1e60:2
+case L13r_134a_01cd 134a:1cd frames=2 args=1 wset=1e60:2 ret=701:518:0
+case L13r_134a_024e 134a:24e frames=2 args=1
+case L13r_134a_024e 134a:24e frames=2 args=1 set=1cf9:1
+case L14a_1380_00f4 1380:f4 frames=2 args=0,0,0
+case L14a_1380_00f4 1380:f4 frames=2 args=0,0,64
+case L14a_1380_00f4 1380:f4 frames=2 args=1,0,64
+case L14a_1380_00f4 1380:f4 frames=2 args=2,0,64
+case L14h_1380_000e 1380:e frames=2
+case L14h_1380_000e 1380:e frames=2 set=1cf0:1,1cfa:2
+case L14h_1380_000e 1380:e frames=2 set=1cf0:2,1cfa:2
+case L14h_1380_000e 1380:e frames=2 set=1cf0:3,1cfa:2
+case L14h_1380_000e 1380:e frames=2 set=1cf0:4,1cfa:2
+case L14h_1380_000e 1380:e frames=2 set=1cfa:1
+case L14h_1380_000e 1380:e frames=2 set=1cfa:1 wset=1a5a:1
+case L14h_1380_000e 1380:e frames=2 set=1cfa:1 wset=1a5c:1
+case L14h_1380_000e 1380:e frames=2 set=1cfa:2
+case L14h_1380_000e 1380:e frames=2 set=1cfa:3
+case L14h_1380_000e 1380:e frames=2 set=1cfa:3 wset=1a5a:1
+case L14h_1380_000e 1380:e frames=2 set=1cfa:3 wset=1a5c:1
+case L14h_1380_000e 1380:e frames=2 wset=1204:c8
+case L14h_1380_000e 1380:e frames=2 wset=1a5a:1
+case L14h_1380_000e 1380:e frames=2 wset=1a5c:1
+case L14k_1380_0119 1380:119 frames=2 args=0,0,0
+case L14k_1380_0119 1380:119 frames=2 args=0,0,0 wset=1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=0,0,0 wset=1eee:a
+case L14k_1380_0119 1380:119 frames=2 args=0,2,0
+case L14k_1380_0119 1380:119 frames=2 args=0,4,0
+case L14k_1380_0119 1380:119 frames=2 args=0,6,0
+case L14k_1380_0119 1380:119 frames=2 args=1,0,0
+case L14k_1380_0119 1380:119 frames=2 args=5,0,0
+case L14k_1380_0119 1380:119 frames=2 args=5,0,0 wset=1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=5,0,0 wset=1eee:a
+case L14k_1380_0119 1380:119 frames=2 args=5,0,0 wset=1eee:b
+case L14k_1380_0119 1380:119 frames=2 args=7,0,0
+case L14k_1380_0119 1380:119 frames=2 args=7,6e,0
+case L14k_1380_0119 1380:119 frames=2 args=7,6e,0 wset=1eea:1
+case L14k_1380_0119 1380:119 frames=2 args=7,6e,0 wset=1eea:a
+case L14k_1380_0119 1380:119 frames=2 args=7,a,0
+case L14k_1380_0119 1380:119 frames=2 args=7,b,0
+case L14k_1380_0119 1380:119 frames=2 args=7,c,0
+case L14k_1380_0119 1380:119 frames=2 args=7,c,0 wset=1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=7,c,0 wset=1eee:a
+case L14k_1380_0119 1380:119 frames=2 args=7,d,0
+case L14k_1380_0119 1380:119 frames=2 args=7,d,0 wset=1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=7,d,0 wset=1eee:a
+case L14k_1380_0119 1380:119 frames=2 args=7,e,0
+case L14k_1380_0119 1380:119 frames=2 args=8,0,0
+case L14k_1380_0119 1380:119 frames=2 args=8,1,0
+case L14k_1380_0119 1380:119 frames=2 args=8,2,0
+case L14k_1380_0119 1380:119 frames=2 args=9,0,0
+case L14k_1380_0119 1380:119 frames=2 args=9,0,0 wset=1eea:1,1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=9,0,0 wset=1eea:a,1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=9,0,0 wset=1eea:b,1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=9,0,0 wset=1eee:1
+case L14k_1380_0119 1380:119 frames=2 args=a,0,0
+case L15a_13a5_00b8 13a5:b8 frames=2 args=0,0,0
+case L15a_13a5_00b8 13a5:b8 frames=2 args=0,0,64
+case L15a_13a5_00b8 13a5:b8 frames=2 args=0,0,65
+case L15a_13a5_00b8 13a5:b8 frames=2 args=0,0,66
+case L15a_13a5_00b8 13a5:b8 frames=2 args=0,0,67
+case L15h_13a5_0047 13a5:47 frames=2
+case L15h_13a5_0047 13a5:47 frames=2 wset=1a5a:1
+case L15h_13a5_0047 13a5:47 frames=2 wset=1a5c:1
+case L15k_13a5_00e9 13a5:e9 frames=2 args=0,0,0
+case L15k_13a5_00e9 13a5:e9 frames=2 args=0,0,0 wset=1ef2:1
+case L15k_13a5_00e9 13a5:e9 frames=2 args=0,0,0 wset=1ef2:ffff
+case L15k_13a5_00e9 13a5:e9 frames=2 args=0,2,0
+case L15k_13a5_00e9 13a5:e9 frames=2 args=0,2,0 wset=1ef2:1
+case L15k_13a5_00e9 13a5:e9 frames=2 args=0,2,0 wset=1ef2:ffff
+case L15k_13a5_00e9 13a5:e9 frames=2 args=1,0,0
+case L15k_13a5_00e9 13a5:e9 frames=2 args=5,0,0
+case L15k_13a5_00e9 13a5:e9 frames=2 args=5,0,0 wset=1ef2:1
+case L15k_13a5_00e9 13a5:e9 frames=2 args=5,0,0 wset=1ef2:ffff
+case L15k_13a5_00e9 13a5:e9 frames=2 args=7,0,0
+case L15k_13a5_00e9 13a5:e9 frames=2 args=7,a,0
+case L15k_13a5_00e9 13a5:e9 frames=2 args=9,0,0
+case L15k_13a5_00e9 13a5:e9 frames=2 args=9,0,0 wset=1ef2:1
+case L15k_13a5_00e9 13a5:e9 frames=2 args=9,1,0 wset=1ef2:1
+case L15k_13a5_00e9 13a5:e9 frames=2 args=9,2,0 wset=1ef2:1
+case L15k_13a5_00e9 13a5:e9 frames=2 args=a,0,0
+case L15r_13a5_0006 13a5:6 frames=2 args=1
+case L15r_13a5_0006 13a5:6 frames=2 args=1 set=1cf2:1
+case L15r_13a5_0006 13a5:6 frames=2 args=1 set=1cf2:2
+case L15r_13a5_0006 13a5:6 frames=2 args=1 set=1cf2:3
+case L15r_13a5_0006 13a5:6 frames=2 args=1 set=1cf2:4
+case L16a_13bc_01be 13bc:1be frames=2 args=0,0,0
+case L16a_13bc_01be 13bc:1be frames=2 args=0,0,64
+case L16a_13bc_01be 13bc:1be frames=2 args=0,0,64 ret=1d77:26:1
+case L16a_13bc_01be 13bc:1be frames=2 args=0,0,64 ret=1d77:26:2
+case L16a_13bc_01be 13bc:1be frames=2 args=0,0,64 wset=1f06:12c
+case L16a_13bc_01be 13bc:1be frames=2 args=0,0,64 wset=1f06:12c ret=1d77:26:1
+case L16a_13bc_01be 13bc:1be frames=2 args=1,0,64
+case L16a_13bc_01be 13bc:1be frames=2 args=1,0,64 ret=1d77:26:1
+case L16a_13bc_01be 13bc:1be frames=2 args=1,0,64 wset=1f06:12c
+case L16a_13bc_01be 13bc:1be frames=2 args=1,0,64 wset=1f06:12c ret=1d77:26:1
+case L16a_13bc_01be 13bc:1be frames=2 args=2,0,64
+case L16a_13bc_01be 13bc:1be frames=2 args=2,0,64 ret=1d77:26:1
+case L16a_13bc_01be 13bc:1be frames=2 args=2,0,64 wset=1f06:12c
+case L16a_13bc_01be 13bc:1be frames=2 args=2,0,64 wset=1f06:12c ret=1d77:26:1
+case L16h_13bc_00b1 13bc:b1 frames=2
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cec:2,1cf7:2
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:1
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:1 wset=1a5a:1
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:1 wset=1a5c:1
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:1 wset=1f02:1
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:2
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:2 wset=1a5a:1
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:2 wset=1a5c:1
+case L16h_13bc_00b1 13bc:b1 frames=2 set=1cf7:2 wset=1f02:1
+case L16h_13bc_00b1 13bc:b1 frames=2 wset=1204:1,1f02:1
+case L16h_13bc_00b1 13bc:b1 frames=2 wset=1a5a:1
+case L16h_13bc_00b1 13bc:b1 frames=2 wset=1a5a:1,1f02:1
+case L16h_13bc_00b1 13bc:b1 frames=2 wset=1a5c:1
+case L16h_13bc_00b1 13bc:b1 frames=2 wset=1a5c:1,1f02:1
+case L16h_13bc_00b1 13bc:b1 frames=2 wset=1f02:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=0,0,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=0,2,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=0,4,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=1,0,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=5,0,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=5,0,0 wset=1efe:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=5,0,0 wset=1efe:ffff
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,0,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,a,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,a,0 wset=1204:6
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,b,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,b,0 wset=1ef4:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,b,0 wset=1ef6:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,c,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,d,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,d,0 wset=1efa:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,d,0 wset=1efc:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,e,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,e,0 wset=1f04:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,e,0 wset=1f04:80
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,f,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=7,f,0 ret=1d77:26:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=8,0,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=8,0,0 wset=1ef8:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=8,0,0 wset=1efe:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=8,1,0 wset=1ef8:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=8,1,0 wset=1efe:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=8,2,0 wset=1ef8:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=8,2,0 wset=1efe:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=9,0,0
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=9,0,0 wset=1ef4:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=9,0,0 wset=1ef4:80
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=9,0,0 wset=1ef6:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=9,0,0 wset=1efa:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=9,0,0 wset=1efa:80
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=9,0,0 wset=1efc:1
+case L16k_13bc_02a3 13bc:2a3 frames=2 args=a,0,0
+case L16r_13bc_0003 13bc:3 frames=2 args=1
+case L16r_13bc_0003 13bc:3 frames=2 args=1 ret=1d77:26:1
+case L16r_13bc_0003 13bc:3 frames=2 args=1 ret=1d77:26:4
+case L16r_13bc_002b 13bc:2b frames=2 args=1
+case L16r_13bc_003b 13bc:3b frames=2 args=1
+case L16r_13bc_003b 13bc:3b frames=2 args=1 ret=701:518:0
+case L16r_13bc_00a1 13bc:a1 frames=2 args=1
+case L17a_1406_01a5 1406:1a5 frames=2 args=0,0,0
+case L17a_1406_01a5 1406:1a5 frames=2 args=0,0,64
+case L17a_1406_01a5 1406:1a5 frames=2 args=0,0,65
+case L17a_1406_01a5 1406:1a5 frames=2 args=0,0,65 ret=1d77:26:1
+case L17a_1406_01a5 1406:1a5 frames=2 args=0,0,66
+case L17h_1406_0006 1406:6 frames=2
+case L17h_1406_0006 1406:6 frames=2 ret=3e8:1ede:1,78a:b0b:1
+case L17h_1406_0006 1406:6 frames=2 ret=78a:b0b:1
+case L17h_1406_0006 1406:6 frames=2 ret=78a:b0b:1,1021:813:0
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2 ret=78a:b0b:1
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2 wset=1a5a:1
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2 wset=1a5c:1
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2 wset=1f08:1
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2,1cfb:1
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2,1cfb:2
+case L17h_1406_0006 1406:6 frames=2 set=1cec:2,1cfb:3
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:1 wset=1a5a:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:1 wset=1a5c:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:1 wset=1f08:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:2
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:2 wset=1a5a:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:2 wset=1a5c:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:2 wset=1f08:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:3
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:3 wset=1a5a:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:3 wset=1a5c:1
+case L17h_1406_0006 1406:6 frames=2 set=1cfb:3 wset=1f08:1
+case L17h_1406_0006 1406:6 frames=2 wset=1204:1,1f08:1
+case L17h_1406_0006 1406:6 frames=2 wset=1a5a:1
+case L17h_1406_0006 1406:6 frames=2 wset=1a5a:1,1f08:1
+case L17h_1406_0006 1406:6 frames=2 wset=1a5c:1
+case L17h_1406_0006 1406:6 frames=2 wset=1a5c:1,1f08:1
+case L17h_1406_0006 1406:6 frames=2 wset=1f08:1
+case L17h_1406_0006 1406:6 frames=2 wset=1f08:1 ret=78a:b0b:1
+case L17k_1406_01fa 1406:1fa frames=2 args=0,0,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,0,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,10,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,10,0 wset=1f0a:1
+case L17k_1406_01fa 1406:1fa frames=2 args=7,10,0 wset=1f0a:a
+case L17k_1406_01fa 1406:1fa frames=2 args=7,10,0 wset=1f0e:1
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 ret=1d77:26:1
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 ret=1d77:26:2
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 ret=1d77:26:3
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 ret=1d77:26:4
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 wset=1f0e:1
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 wset=1f0e:2
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 wset=1f0e:4
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 wset=1f14:1
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 wset=1f14:2
+case L17k_1406_01fa 1406:1fa frames=2 args=7,6e,0 wset=1f14:a
+case L17k_1406_01fa 1406:1fa frames=2 args=7,a,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,b,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,b,0 wset=1f10:1
+case L17k_1406_01fa 1406:1fa frames=2 args=7,b,0 wset=1f10:a
+case L17k_1406_01fa 1406:1fa frames=2 args=7,d,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,e,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,f,0
+case L17k_1406_01fa 1406:1fa frames=2 args=7,f,0 wset=1f0a:1
+case L17k_1406_01fa 1406:1fa frames=2 args=7,f,0 wset=1f0a:a
+case L17k_1406_01fa 1406:1fa frames=2 args=7,f,0 wset=1f0e:5
+case L17k_1406_01fa 1406:1fa frames=2 args=8,0,0
+case L17k_1406_01fa 1406:1fa frames=2 args=8,0,0 wset=1f0e:1
+case L17k_1406_01fa 1406:1fa frames=2 args=8,0,0 wset=1f0e:2
+case L17k_1406_01fa 1406:1fa frames=2 args=8,0,0 wset=1f0e:4
+case L17k_1406_01fa 1406:1fa frames=2 args=8,0,0 wset=1f14:1
+case L17k_1406_01fa 1406:1fa frames=2 args=8,0,0 wset=1f14:2
+case L17k_1406_01fa 1406:1fa frames=2 args=8,0,0 wset=1f14:a
+case L17k_1406_01fa 1406:1fa frames=2 args=9,0,0
+case L17k_1406_01fa 1406:1fa frames=2 args=9,0,0 wset=1f0a:1
+case L17k_1406_01fa 1406:1fa frames=2 args=9,0,0 wset=1f0a:a
+case L17k_1406_01fa 1406:1fa frames=2 args=9,0,0 wset=1f0a:b
+case L17k_1406_01fa 1406:1fa frames=2 args=9,0,0 wset=1f10:1
+case L17k_1406_01fa 1406:1fa frames=2 args=9,0,0 wset=1f10:a
+case L17k_1406_01fa 1406:1fa frames=2 args=9,0,0 wset=1f10:b
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,0
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,64
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,65
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,65 ret=1d77:26:1
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,66
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,67
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,67 ret=1d77:26:1
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,67 ret=1d77:26:2
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,67 ret=1d77:26:4
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,68
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,68 ret=1d77:26:1
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,68 ret=1d77:26:4
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,68 ret=1d77:26:5
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,68 ret=1d77:26:6
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,69
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,6a
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,6b
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,6b ret=1021:813:0
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,6c
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,6d
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,ff9c
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,ff9c ret=1d77:26:1
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,ff9c ret=1d77:26:2
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,ff9c ret=1d77:26:3
+case L18a_143e_00ca 143e:ca frames=2 args=0,0,ff9c ret=1d77:26:4
+case L18a_143e_00ca 143e:ca frames=2 args=1,0,66
+case L18a_143e_00ca 143e:ca frames=2 args=1,0,6c
+case L18a_143e_00ca 143e:ca frames=2 args=1,0,6d
+case L18a_143e_00ca 143e:ca frames=2 args=2,0,66
+case L18a_143e_00ca 143e:ca frames=2 args=2,0,6c
+case L18a_143e_00ca 143e:ca frames=2 args=2,0,6d
+case L18h_143e_0004 143e:4 frames=2
+case L18h_143e_0004 143e:4 frames=2 set=1cec:1
+case L18h_143e_0004 143e:4 frames=2 set=1cec:1 wset=1a5a:1
+case L18h_143e_0004 143e:4 frames=2 set=1cec:1 wset=1a5c:1
+case L18h_143e_0004 143e:4 frames=2 set=1cec:1 wset=1f26:64
+case L18h_143e_0004 143e:4 frames=2 set=1cec:2
+case L18h_143e_0004 143e:4 frames=2 set=1cec:2 wset=1a5a:1
+case L18h_143e_0004 143e:4 frames=2 set=1cec:2 wset=1a5c:1
+case L18h_143e_0004 143e:4 frames=2 set=1cec:2 wset=1f26:64
+case L18h_143e_0004 143e:4 frames=2 wset=1204:64,1f26:64
+case L18h_143e_0004 143e:4 frames=2 wset=1a5a:1
+case L18h_143e_0004 143e:4 frames=2 wset=1a5a:1,1f26:64
+case L18h_143e_0004 143e:4 frames=2 wset=1a5c:1
+case L18h_143e_0004 143e:4 frames=2 wset=1a5c:1,1f26:64
+case L18h_143e_0004 143e:4 frames=2 wset=1f26:64
+case L18k_143e_0361 143e:361 frames=2 args=0,0,0
+case L18k_143e_0361 143e:361 frames=2 args=7,0,0
+case L18k_143e_0361 143e:361 frames=2 args=7,10,0
+case L18k_143e_0361 143e:361 frames=2 args=7,10,0 wset=1f1c:1
+case L18k_143e_0361 143e:361 frames=2 args=7,10,0 wset=1f1c:a
+case L18k_143e_0361 143e:361 frames=2 args=7,11,0
+case L18k_143e_0361 143e:361 frames=2 args=7,11,0 wset=1f1a:1
+case L18k_143e_0361 143e:361 frames=2 args=7,11,0 wset=1f1a:2
+case L18k_143e_0361 143e:361 frames=2 args=7,12,0
+case L18k_143e_0361 143e:361 frames=2 args=7,13,0
+case L18k_143e_0361 143e:361 frames=2 args=7,14,0
+case L18k_143e_0361 143e:361 frames=2 args=7,14,0 wset=1f1c:1
+case L18k_143e_0361 143e:361 frames=2 args=7,14,0 wset=1f1c:a
+case L18k_143e_0361 143e:361 frames=2 args=7,15,0
+case L18k_143e_0361 143e:361 frames=2 args=7,15,0 wset=1f1c:1
+case L18k_143e_0361 143e:361 frames=2 args=7,15,0 wset=1f1c:a
+case L18k_143e_0361 143e:361 frames=2 args=7,6e,0
+case L18k_143e_0361 143e:361 frames=2 args=7,6e,0 wset=1f1a:1
+case L18k_143e_0361 143e:361 frames=2 args=7,6e,0 wset=1f1a:2
+case L18k_143e_0361 143e:361 frames=2 args=7,6e,0 wset=1f1a:a
+case L18k_143e_0361 143e:361 frames=2 args=7,6e,0 wset=1f24:1
+case L18k_143e_0361 143e:361 frames=2 args=7,6e,0 wset=1f24:a
+case L18k_143e_0361 143e:361 frames=2 args=7,6e,0 wset=1f24:b
+case L18k_143e_0361 143e:361 frames=2 args=7,a,0
+case L18k_143e_0361 143e:361 frames=2 args=7,b,0
+case L18k_143e_0361 143e:361 frames=2 args=7,c,0
+case L18k_143e_0361 143e:361 frames=2 args=7,c,0 ret=1021:813:0
+case L18k_143e_0361 143e:361 frames=2 args=7,d,0
+case L18k_143e_0361 143e:361 frames=2 args=7,d,0 wset=1f1c:1
+case L18k_143e_0361 143e:361 frames=2 args=7,d,0 wset=1f1c:a
+case L18k_143e_0361 143e:361 frames=2 args=7,e,0
+case L18k_143e_0361 143e:361 frames=2 args=7,e,0 wset=1f1c:1
+case L18k_143e_0361 143e:361 frames=2 args=7,e,0 wset=1f1c:a
+case L18k_143e_0361 143e:361 frames=2 args=7,f,0
+case L18k_143e_0361 143e:361 frames=2 args=7,f,0 wset=1f1c:1
+case L18k_143e_0361 143e:361 frames=2 args=7,f,0 wset=1f1c:a
+case L18k_143e_0361 143e:361 frames=2 args=8,0,0
+case L18k_143e_0361 143e:361 frames=2 args=8,0,0 wset=1f1a:1
+case L18k_143e_0361 143e:361 frames=2 args=8,0,0 wset=1f1a:2
+case L18k_143e_0361 143e:361 frames=2 args=8,0,0 wset=1f1a:a
+case L18k_143e_0361 143e:361 frames=2 args=8,0,0 wset=1f24:1
+case L18k_143e_0361 143e:361 frames=2 args=8,0,0 wset=1f24:a
+case L18k_143e_0361 143e:361 frames=2 args=8,0,0 wset=1f24:b
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f16:1
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f16:a
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f16:b
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f1c:1
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f1c:a
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f1c:b
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f20:1
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f20:a
+case L18k_143e_0361 143e:361 frames=2 args=9,0,0 wset=1f20:b
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 ret=78a:b0b:1
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 set=1cfc:1
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 set=1cfc:1 wset=1e5c:1
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 set=1cfc:1 wset=1e5c:80
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 wset=1e5c:1
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 wset=1e5c:1 ret=78a:b0b:1
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 wset=1e5c:80
+case LGr_10c3_00d5 10c3:d5 frames=2 args=1 wset=1e5c:80 ret=78a:b0b:1
+case LGr_10c3_011a 10c3:11a frames=2 args=1
+case LGr_10c3_011a 10c3:11a frames=2 args=1 wset=1980:1,1982:a01 ret=a01:1:1
+case LGr_10c3_011a 10c3:11a frames=2 args=1 wset=1e5c:1
+case LGr_10c3_011a 10c3:11a frames=2 args=1 wset=1e5c:80
+case LGr_10c3_0141 10c3:141 frames=2 args=1
+case LGr_10c3_0141 10c3:141 frames=2 args=1 ret=78a:b0b:1
+case LGr_10c3_0141 10c3:141 frames=2 args=1 wset=1980:1,1982:a01 ret=a01:1:1
+case LGr_10c3_0174 10c3:174 frames=2 args=1
+case LGr_10c3_0174 10c3:174 frames=2 args=1 ret=78a:b0b:1
+case LGr_10c3_01be 10c3:1be frames=2 args=1
+case LGr_10c3_01be 10c3:1be frames=2 args=1 ret=78a:b0b:1
+case LGr_10c3_01be 10c3:1be frames=2 args=1 wset=1e62:fffd
+case LGr_10c3_01be 10c3:1be frames=2 args=1 wset=1e62:fffd ret=701:518:0
+case LGr_10c3_0203 10c3:203 frames=2 args=1
+case LGr_10c3_0203 10c3:203 frames=2 args=1 wset=1e5c:1
+case LGr_10c3_0203 10c3:203 frames=2 args=1 wset=1e5c:19
+case LGr_10c3_0203 10c3:203 frames=2 args=1 wset=1e5c:1a
+case LGr_10c3_0203 10c3:203 frames=2 args=1 wset=1e7e:1
+case LGr_10c3_0203 10c3:203 frames=2 args=1 wset=1e7e:80
+case LGr_10c3_0203 10c3:203 frames=2 args=1 wset=1e7e:ff
+case LGr_10c3_025d 10c3:25d frames=2 args=1
+case LGr_10c3_025d 10c3:25d frames=2 args=1 ret=78a:b0b:1
+case LGr_10c3_027f 10c3:27f frames=2 args=1
+case LGr_10c3_027f 10c3:27f frames=2 args=1 ret=1d77:26:1
+case LGr_10c3_027f 10c3:27f frames=2 args=1 ret=1d77:26:1,701:518:0
+case LGr_10c3_027f 10c3:27f frames=2 args=1 ret=701:518:0
+case LGr_10c3_027f 10c3:27f frames=2 args=1 rset=0:2:1
+case LGr_10c3_027f 10c3:27f frames=2 args=1 wset=1e5c:19
+case LGr_10c3_027f 10c3:27f frames=2 args=1 wset=1e5c:19 ret=701:518:0
+case LGr_10c3_027f 10c3:27f frames=2 args=1 wset=1e5c:1a
+case LGr_10c3_027f 10c3:27f frames=2 args=1 wset=1e5c:1a ret=1d77:26:1
+case LGr_10c3_027f 10c3:27f frames=2 args=1 wset=1e7e:1
+case LGr_10c3_027f 10c3:27f frames=2 args=1 wset=1e7e:80
+case LGr_10c3_027f 10c3:27f frames=2 args=1 wset=1e7e:ff
+case LGr_10c3_0326 10c3:326 frames=2 args=1
+case LGr_10c3_0326 10c3:326 frames=2 args=1 ret=78a:b0b:1
+case LGr_10c3_0326 10c3:326 frames=2 args=1 wset=1e7e:1
+case LGr_10c3_0326 10c3:326 frames=2 args=1 wset=1e7e:80
+case LGr_10c3_0326 10c3:326 frames=2 args=1 wset=1e7e:ff
+case LGr_10c3_0376 10c3:376 frames=2 args=1
+case LGr_10c3_0376 10c3:376 frames=2 args=1 wset=1e7e:1
+case LGr_10c3_0376 10c3:376 frames=2 args=1 wset=1e7e:80
+case LGr_10c3_0376 10c3:376 frames=2 args=1 wset=1e7e:ff
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 ret=1021:7b0:1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 ret=5f2:5db:1,1021:7b0:1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 wset=1204:1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 wset=1990:1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 wset=1990:1 ret=1021:7b0:1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 wset=1e5c:1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 wset=1e5c:1 ret=1021:7b0:1
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 wset=1e5c:80
+case LGr_10c3_03b4 10c3:3b4 frames=2 args=1 wset=1e5c:80 ret=1021:7b0:1
+case LGr_10c3_041c 10c3:41c frames=2 args=1
+case LGr_10c3_042a 10c3:42a frames=2 args=1
+case LGr_10c3_042a 10c3:42a frames=2 args=1 ret=701:518:0
+case LGr_10c3_042a 10c3:42a frames=2 args=1 rset=0:0:4
+case LGr_10c3_047f 10c3:47f frames=2 args=1
+case LGr_10c3_048d 10c3:48d frames=2 args=1
+case LGr_10c3_049b 10c3:49b frames=2 args=1
+case LGr_10c3_049b 10c3:49b frames=2 args=1 ret=1021:7b0:1
+case LGr_10c3_04bf 10c3:4bf frames=2 args=1
+case LGr_10c3_04cd 10c3:4cd frames=2 args=1
+case LGr_10c3_04cd 10c3:4cd frames=2 args=1 rset=0:0:4
+case LGr_10c3_0530 10c3:530 frames=2 args=1
+case LGr_10c3_0540 10c3:540 frames=2 args=1
+case LGr_10c3_0540 10c3:540 frames=2 args=1 ret=78a:b0b:1
+case LGr_10c3_05e0 10c3:5e0 frames=2 args=1
+case LGr_10c3_05e0 10c3:5e0 frames=2 args=1 ret=1021:7b0:1
+case LHk_0a01_18f6 0a01:18f6 args=0,7,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c2:5,18c4:6,18c6:7,18c8:8,18cc:9
+case LHk_0a01_18f6 0a01:18f6 args=1,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000 ret=7000:0100:5
+case LHk_0a01_18f6 0a01:18f6 args=1,7,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c2:5,18c4:6,18c6:7,18c8:8,18cc:9
+case LHk_0a01_18f6 0a01:18f6 args=2,7,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c2:5,18c4:6,18c6:7,18c8:8,18cc:9
+case LHk_0a01_18f6 0a01:18f6 args=4,7,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c2:5,18c4:6,18c6:7,18c8:8,18cc:9
+case LHk_0a01_18f6 0a01:18f6 args=5,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:0,18c8:0
+case LHk_0a01_18f6 0a01:18f6 args=5,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:0,18c8:6,18ca:2,18c6:1,18c4:3
+case LHk_0a01_18f6 0a01:18f6 args=5,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:1,18ca:1,18c8:4 set=11ee:5
+case LHk_0a01_18f6 0a01:18f6 args=5,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:1,18ca:3,18c8:4 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=5,0,1 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:1,18c8:4,18ca:2 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=6,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:0,18c8:0
+case LHk_0a01_18f6 0a01:18f6 args=6,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:0,18c8:6,18ca:2,18c6:1,18c4:3
+case LHk_0a01_18f6 0a01:18f6 args=6,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:1,18ca:1,18c8:4 set=11ee:5
+case LHk_0a01_18f6 0a01:18f6 args=6,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:1,18ca:3,18c8:4 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=6,0,1 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:1,18c8:4,18ca:2 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=7,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c4:5
+case LHk_0a01_18f6 0a01:18f6 args=7,31,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c4:5
+case LHk_0a01_18f6 0a01:18f6 args=7,32,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000
+case LHk_0a01_18f6 0a01:18f6 args=7,33,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000
+case LHk_0a01_18f6 0a01:18f6 args=7,34,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000
+case LHk_0a01_18f6 0a01:18f6 args=7,35,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c4:5
+case LHk_0a01_18f6 0a01:18f6 args=7,37,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000
+case LHk_0a01_18f6 0a01:18f6 args=7,38,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000
+case LHk_0a01_18f6 0a01:18f6 args=7,39,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000
+case LHk_0a01_18f6 0a01:18f6 args=7,3b,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000
+case LHk_0a01_18f6 0a01:18f6 args=7,5a,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,18c6:6,18c8:7,18cc:8
+case LHk_0a01_18f6 0a01:18f6 args=7,5a,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:ffff,18c4:5,18c6:6,18c8:7,18cc:8
+case LHk_0a01_18f6 0a01:18f6 args=7,5b,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:3
+case LHk_0a01_18f6 0a01:18f6 args=7,5c,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:ffff,120a:9
+case LHk_0a01_18f6 0a01:18f6 args=7,5d,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,18c6:6,18c8:7,18cc:8
+case LHk_0a01_18f6 0a01:18f6 args=7,5d,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:ffff,18c4:5,18c6:6,18c8:7,18cc:8
+case LHk_0a01_18f6 0a01:18f6 args=7,5e,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5 set=11ee:0
+case LHk_0a01_18f6 0a01:18f6 args=7,5e,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5 set=11ee:5 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,5e,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:4 set=11ee:0,11f1:1 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,5e,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:6 set=11ee:a,11f1:2 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,5e,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:ffff,18c4:5
+case LHk_0a01_18f6 0a01:18f6 args=7,5f,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:4 set=11ee:0,11f1:1 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,60,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:4 set=11ee:0,11f1:1 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,62,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5 set=11ee:0
+case LHk_0a01_18f6 0a01:18f6 args=7,62,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5 set=11ee:5 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,62,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:4 set=11ee:0,11f1:1 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,62,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:6 set=11ee:a,11f1:2 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,62,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:fff9 set=11ee:0,11f1:1 ret=05f2:1078:ffff
+case LHk_0a01_18f6 0a01:18f6 args=7,62,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:ffff,18c4:5
+case LHk_0a01_18f6 0a01:18f6 args=7,63,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:4 set=11ee:0,11f1:1 ret=05f2:1078:1
+case LHk_0a01_18f6 0a01:18f6 args=7,64,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:9,18ca:9
+case LHk_0a01_18f6 0a01:18f6 args=7,65,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:9,18ca:9
+case LHk_0a01_18f6 0a01:18f6 args=7,66,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:9,18ca:9
+case LHk_0a01_18f6 0a01:18f6 args=7,68,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1208:0 set=11f1:ff
+case LHk_0a01_18f6 0a01:18f6 args=7,68,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1208:6 set=11f1:2
+case LHk_0a01_18f6 0a01:18f6 args=7,68,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1208:fff9 set=11f1:1
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:0 set=11f1:0
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:1 set=11f1:0
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:2 set=11f1:0
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:3 set=11f1:0
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:4 set=11f1:0
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:7fff set=11f1:ff
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:0,18c4:5,1208:ffff set=11f1:0
+case LHk_0a01_18f6 0a01:18f6 args=7,69,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:ffff,18c4:5
+case LHk_0a01_18f6 0a01:18f6 args=7,6a,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c4:5,18c6:9
+case LHk_0a01_18f6 0a01:18f6 args=7,6b,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c4:5,18c6:9
+case LHk_0a01_18f6 0a01:18f6 args=7,6e,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c4:5,18c8:0
+case LHk_0a01_18f6 0a01:18f6 args=7,6e,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c4:5,18c8:8
+case LHk_0a01_18f6 0a01:18f6 args=7,c8,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:0
+case LHk_0a01_18f6 0a01:18f6 args=7,c8,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:23
+case LHk_0a01_18f6 0a01:18f6 args=7,c9,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:0
+case LHk_0a01_18f6 0a01:18f6 args=7,c9,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:23
+case LHk_0a01_18f6 0a01:18f6 args=7,ca,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:0
+case LHk_0a01_18f6 0a01:18f6 args=7,ca,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:23
+case LHk_0a01_18f6 0a01:18f6 args=7,ca,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:23 ret=7000:0200:1
+case LHk_0a01_18f6 0a01:18f6 args=7,ca,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:23 ret=7000:0200:2
+case LHk_0a01_18f6 0a01:18f6 args=7,ca,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1ce8:23 ret=7000:0200:ffff
+case LHk_0a01_18f6 0a01:18f6 args=8,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:1,18c8:4 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=8,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:2,18c8:fffe set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=8,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:2,18ca:1,1204:0,18c8:0 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=8,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:2,18ca:1,1204:ffff,18c8:4 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=8,0,1 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:2,18c8:4 set=11ee:a
+case LHk_0a01_18f6 0a01:18f6 args=8,3,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18cc:2,18c8:6 set=11ee:5
+case LHk_0a01_18f6 0a01:18f6 args=9,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,1204:ffff,18c6:2,18c8:4
+case LHk_0a01_18f6 0a01:18f6 args=9,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:0,18c8:2,18c4:0,18c2:1
+case LHk_0a01_18f6 0a01:18f6 args=9,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:1,18c8:0,18c4:fffe,18c2:fffe,18cc:2
+case LHk_0a01_18f6 0a01:18f6 args=9,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:2,18c8:4,18c4:fffe,18c2:fffe
+case LHk_0a01_18f6 0a01:18f6 args=9,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:8000,18c4:3,18c2:fffe
+case LHk_0a01_18f6 0a01:18f6 args=9,0,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:ffff,18c4:ffff,18c2:ffff
+case LHk_0a01_18f6 0a01:18f6 args=9,2,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c6:ffff,18c8:6,18c4:fffe,18c2:fffe
+case LHk_0a01_18f6 0a01:18f6 args=a,7,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c2:5,18c4:6,18c6:7,18c8:8,18cc:9
+case LHk_0a01_18f6 0a01:18f6 args=ffff,7,0 wset=18ce:0100,18d0:7000,1980:0200,1982:7000,18c2:5,18c4:6,18c6:7,18c8:8,18cc:9

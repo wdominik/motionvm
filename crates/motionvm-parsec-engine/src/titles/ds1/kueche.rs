@@ -7,6 +7,7 @@
 //! `00D2:004B`, `00D2:0068` and `00D2:00B4`, against [`Api`] alone.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::Api;
 
@@ -33,11 +34,6 @@ const SHE_SPEAKS: u16 = 0x1898;
 const NEXT_ANIM: u16 = 0x1894;
 /// `[1896h]`: the animation she is playing.
 const PLAYING_ANIM: u16 = 0x1896;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0xDFC` to `0xEDD`.
 pub(crate) fn enter(api: &mut dyn Api) {

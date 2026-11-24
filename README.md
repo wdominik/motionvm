@@ -30,6 +30,7 @@ PARSEC:
 | *Victor Loomes – Das Spiel* | 1993 | LBS (Landesbausparkasse) | Promotion Software GmbH, Reutlingen | **MOTION 16-bit** — `LL.EXE` |
 | *Falsches Spiel mit Eddie M.* | 1994 | Gruner + Jahr, for the magazine *Stern* | via productions ag, by the published record | **MOTION 16-bit** — `STERN.EXE` |
 | *Dunkle Schatten* | 1994 | Bundesministerium des Innern | The Art Department WA GmbH, Bochum | **PARSEC** — `XP00.EXE` and `XP01.EXE` |
+| *Captain Zins* | 1994 | Dresdner Bank | the files name people, not a studio | **PARSEC** — `XP00.EXE` and `XP01.EXE` |
 
 All of them are commissioned work — advergames, edutainment and campaign
 titles — which is why each has a client as well as a studio; each entry
@@ -38,8 +39,11 @@ the published record does and says so. The MOTION games were given away
 rather than sold. They are German-language throughout, and motionvm plays
 them as they are: it changes nothing about the content.
 
-Every one of them boots, enters each location it has and draws it, plays its
-music, and saves and loads through the game's own pages; what is particular
+Every one of them boots, enters each location it has and draws it, plays
+its music, and saves and loads through the game's own pages. Captain Zins,
+the second PARSEC title, plays from its title program to its end, its
+location logic held routine by routine against the original's, and its
+title program and its end against recordings of it. What is particular
 to each one is on its own pages in its family's documentation —
 [MOTION's](docs/motion/README.md#documentation-map) and
 [PARSEC's](docs/parsec/README.md#documentation-map).
@@ -56,7 +60,7 @@ PARSEC is Norbert Schmidt's: Dunkle Schatten's credits name him for the
 programming, and, with Jochen Heß, for the *PSM 2.00 Soundsystem* its music
 plays through — the same music system the MOTION 16-bit games ship — and
 every program the game installs carries the line *A PARSEC Production*.
-Where MOTION runs a game as data on one engine, Dunkle Schatten is a
+Where MOTION runs a game as data on one engine, each PARSEC game is a
 compiled program of its own, and motionvm reads that program to play it.
 
 ## Getting started
@@ -119,15 +123,15 @@ location to ask for.
 have several. The MOTION games have none: a location is asked for by its
 number alone, and each of them refuses `--entry` and says so.
 
-Dunkle Schatten takes both, and they mean two things. `--loc N` alone shows
+The PARSEC games take both, and they mean two things. `--loc N` alone shows
 location N's room as its loader sets it up —
 picture, objects, animations — without entering it: the original only ever
 enters a location through one of its arrival points, and without one no
-handler runs and Karsten is not in the room. `--loc N --entry E` enters it
-the way the game does, through arrival point E; `127` is the one a fresh
-game starts on. A row of the location table that is not a place walks on
-to the next one, as the game's own path does — `--loc 20` arrives in the
-Schuppen, location 21.
+handler runs and the player's figure is not in the room. `--loc N --entry E`
+enters it the way the game does, through arrival point E; `127` is the one a
+fresh game starts on. A row of the location table that is not a place walks
+on to the next one, as the game's own path does — in Dunkle Schatten
+`--loc 20` arrives in the Schuppen, location 21.
 
 ## What a game needs
 
@@ -146,16 +150,20 @@ Nothing else in an installation is ever opened, so a copy can be this small:
 | Hilfe für Amajambere | `DATA.-1-`, `DATA.-2-`, `BMZ.EXE` | `MUSADL.DRV` | 5.5 MB |
 | Victor Loomes | `DATA.-1-`, `LL.EXE` | `MUSADL.DRV` | 1.1 MB |
 | Falsches Spiel mit Eddie M. | `DATA.-1-`, `DATA.-2-`, `DATA.-3-`, `STERN.EXE` | `MUSADL.DRV` | 2.8 MB |
-| Dunkle Schatten | `XP00.EXE`, `XP01.EXE`; in `RESOURCE/`: `DSROOM.DAT`, `INTROS.DAT`, `DIALOG.DAT`, `PANELS.DAT`, `CMBMOU.DAT`, `PLAY00.DAT` | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | 1.4 MB |
+| Dunkle Schatten | `XP00.EXE`, `XP01.EXE`; in `RESOURCE/`: `DSROOM.DAT`, `INTROS.DAT`, `EXTROS.DAT`, `DIALOG.DAT`, `PANELS.DAT`, `CMBMOU.DAT`, `PLAY00.DAT` | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | 1.4 MB |
+| Captain Zins | `XP00.EXE`, `XP01.EXE`; in `RESOURCE/`: `CZROOM.DAT`, `INTROS.DAT`, `EXTROS.DAT`, `DIALOG.DAT`, `PANEL0.DAT`, `PANEL1.DAT`, `CMBMOU.DAT`, `PLAY00.DAT`, `PLAY01.DAT` | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | 1.5 MB |
 
-Every line of that was established by taking the file away and seeing what
-happened, not by reading the loader. Leave out a file from the middle column
-and motionvm stops at start-up and says which one; leave out one from the third
-and it prints `sound is off: …` and plays on in silence. The one exception
-is Checker 2000's `ENGINE.RSC`: the game opens without it, because every
-text it draws names a font of its own, but the system palette the engine's
-arrow pointer takes its two colors from is in it, and without that both
-colors resolve to index 0 and the arrow is not seen.
+The MOTION lines of that were established by taking the file away and
+seeing what happened, not by reading the loader; the PARSEC lines are the
+files their programs open. Leave out a file from the middle column and motionvm stops at start-up and says which
+one; leave out one from the third and it prints `sound is off: …` and plays
+on in silence. There are two exceptions. Checker 2000's `ENGINE.RSC`: the
+game opens without it, because every text it draws names a font of its own,
+but the system palette the engine's arrow pointer takes its two colors from
+is in it, and without that both colors resolve to index 0 and the arrow is
+not seen. And a PARSEC game's `EXTROS.DAT`, which is read only once the
+game's main loop has ended: without it the game plays as it does with it,
+and the program ends at once where it would show what follows the loop.
 
 ```sh
 mkdir vloomes-min
@@ -171,10 +179,10 @@ in Hilfe für Amajambere the second volume holds every sprite, palette and font
 the game ever draws, and Falsches Spiel mit Eddie M. spreads its sprites over
 two more volumes.
 motionvm looks for `NNN.RSC` and `DATA.-n-` by pattern and merges what it
-finds, so the count is the game's to decide. Dunkle Schatten's two programs
-are read the same way and never run: its location table, its texts and its
-handlers' tables come out of the unpacked `XP01.EXE`, its title program's
-out of `XP00.EXE`, and the sound driver out of `PSMDRV.DAT`.
+finds, so the count is the game's to decide. The PARSEC games' two programs
+are read the same way and never run: each game's location table, its texts
+and its handlers' tables come out of its unpacked `XP01.EXE`, its title
+program's out of `XP00.EXE`, and the sound driver out of `PSMDRV.DAT`.
 
 What each of the other files in an installation is — the launchers, the sound
 setup, the readmes, the loose copies of things the containers already hold — is
@@ -202,7 +210,7 @@ its manual describes.
 |---|---|
 | Left click | Walk, use, or pick the thing under the pointer |
 | Right click | Open the verb menu on it |
-| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In Checker 2000 it leaves a scene for the board. In the 16-bit games it skips the intro. In Dunkle Schatten it opens the game options — music, mouse, text and walk speed, save, load, quit — and in its title menu it is *Spiel sofort beenden* |
+| Escape | Dunkle Schatten 2's in-game menu — save, load, options, quit. In Checker 2000 it leaves a scene for the board. In the 16-bit games it skips the intro. In the PARSEC games it opens the game options — in Dunkle Schatten music, mouse, text and walk speed, save, load, quit — and in their title menus it quits, in Dunkle Schatten's as *Spiel sofort beenden* |
 | Letters, digits, Return, Backspace | Checker 2000's registration board: the name and the postcode |
 | Cursor keys | Move through Dunkle Schatten 2's in-game mailbox; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
@@ -211,8 +219,8 @@ its manual describes.
 | Close the window | Quit |
 
 Each game's own menu is reached the way that game reaches it. Dunkle Schatten 2
-puts it on Escape, and so does Dunkle Schatten, as well as on a click on
-its small monitor symbol. Die Enviro-Kids greifen ein, Jeff Jet, Hilfe für
+puts it on Escape, and so do the PARSEC games — Dunkle Schatten as well on a
+click on its small monitor symbol. Die Enviro-Kids greifen ein, Jeff Jet, Hilfe für
 Amajambere and Falsches Spiel mit Eddie M. put it on the icon at the right end
 of the bar. Victor Loomes hides
 a panel along the top edge of the screen and fades it in when the pointer
@@ -242,16 +250,18 @@ started from:
 
 Underneath it, one directory per game: `saves/ds2/`, `saves/checker/`,
 `saves/enviro/`, `saves/jeffjet/`, `saves/hfa/`, `saves/vloomes/`,
-`saves/eddiem/` and `saves/ds1/`. Each game looks for its own at start-up;
+`saves/eddiem/`, `saves/ds1/` and `saves/capzins/`. Each game looks for its own at start-up;
 the directory is created then if it is not there and its path is printed,
 so a fresh install needs no setup and a savegame is an ordinary file to copy
 or back up.
 
-**Dunkle Schatten keeps the original's files.** It has one saved game and no
-slots, and writes them as its own program does — `SAVEGAME.SAV` and the
-settings in `SAVEGAME.CFG`, with the original's layout, magic and check
-values — so a saved game moves between motionvm and the original in both
-directions. What follows here is the MOTION games' own format.
+**The PARSEC games keep the original's files.** Each has one saved game and
+no slots, and writes them as its own program does — `SAVEGAME.SAV` and the
+settings in `SAVEGAME.CFG`, with the program's layout, magic and check
+values. A saved game of Dunkle Schatten moves between motionvm and the
+original in both directions; Captain Zins's files are written to its
+program's layout, and have not yet been carried over to the original. What
+follows here is the MOTION games' own format.
 
 The MOTION games name their slots alike. Each file is written whole or not
 at all — to a temporary name, flushed, then renamed — so a crash partway through a save costs the new slot and not the old
@@ -271,7 +281,7 @@ the files is [documented](docs/motion/savegames.md).
 The window shows the picture the way the game's own monitor did, and only ever
 scaled by whole numbers — one per axis. Dunkle Schatten 2's 640×480 is
 square-pixel 4:3 and opens at twice its size. The 320×200 of the 16-bit games
-and of Dunkle Schatten filled
+and of the PARSEC games filled
 a 4:3 screen with pixels 6/5 as tall as wide, so each of their pixels becomes a
 block as close to that shape as whole numbers come — exact at 5×6 and its
 multiples — and the window opens on the largest exact step the screen has room
@@ -325,7 +335,10 @@ the games' music has been held against register captures of the original's
 sound hardware. Dunkle Schatten's location logic is held routine by routine
 against the original's own, traced on the same inputs; its maze matches a
 recording frame for frame, and its title song a register capture write for
-write. Those recordings cannot ship, so what the test suite keeps
+write. Captain Zins's location logic is held the same way; its title
+program's animation and intro match a recording pixel for pixel, and so do
+909 frames of its closing parade. Those recordings cannot
+ship, so what the test suite keeps
 instead is a digest of every scene it composes and every tune it plays — a change that moves a pixel or a register write is a failing
 test on any machine that has the game.
 [`docs/motion/verification.md`](docs/motion/verification.md) and
@@ -342,9 +355,9 @@ are not played through it — so a player who remembers the Sound Blaster mix
 of a 16-bit tune hears the FM one. The 32-bit engine's digital layer is
 another matter: it plays Checker 2000's speech and effects over the music as
 the original's mixer does, read out of it; Dunkle Schatten 2 ships no WAV
-file, so its scripts' speech path is never reached. Dunkle Schatten plays
-music and sound effects: its songs on the OPL with their digital voices,
-and its effects, through the game's own `MUSADL.DRV` and `DMABLAST.DRV`.
+file, so its scripts' speech path is never reached. The PARSEC games play
+music and sound effects: their songs on the OPL with their digital voices,
+and their effects, through each game's own `MUSADL.DRV` and `DMABLAST.DRV`.
 
 ## How it works
 
@@ -353,13 +366,13 @@ palettes, fonts, texts and music inside resource containers. motionvm reads
 that data and runs it — the same bytecode, through the same frame cycle, onto
 the same picture, with the same music, and with no emulator underneath.
 
-Dunkle Schatten, on PARSEC, is a *program*: compiled C, with its rooms, walk
-graphs, animations, dialogue and songs in resource files beside it. Its
-location handlers, its puzzles and its verbs are code in the game's own
-executable, so motionvm carries that code re-expressed handler by handler,
-each with the addresses it was read from, over a library rebuilt from the
-same executable — and reads the tables and texts out of the program image
-itself rather than copying them.
+A PARSEC game is a *program*: compiled C, with its rooms, walk graphs,
+animations, dialogue and songs in resource files beside it. Its location
+handlers, its puzzles and its verbs are code in the game's own executable,
+so motionvm carries that code re-expressed handler by handler, each with
+the addresses it was read from, over a library rebuilt from the same
+executable — and reads the tables and texts out of the program image itself
+rather than copying them. The games built on the same library share it.
 
 It is one Rust workspace, deliberately small at the edges: five dependencies
 to run at all — a window, a presenter, an audio device, a folder dialog and an
@@ -387,13 +400,13 @@ not.
 
 | Where | What is in it |
 |---|---|
-| [`docs/README.md`](docs/README.md) | The map of the technical documentation — one tree per engine family; MOTION's covers every file format, both virtual machines, the engine's subsystems, and a page per game and per script module; PARSEC's covers Dunkle Schatten's programs, its formats and the engine's subsystems |
+| [`docs/README.md`](docs/README.md) | The map of the technical documentation — one tree per engine family; MOTION's covers every file format, both virtual machines, the engine's subsystems, and a page per game and per script module; PARSEC's covers Dunkle Schatten's programs, its formats and the engine's subsystems, and Captain Zins on the same library |
 | [`docs/motion/tools.md`](docs/motion/tools.md) | `motionvm-motion-tools`, which reads a game's containers and writes out what it finds as ordinary files |
-| [`docs/parsec/tools.md`](docs/parsec/tools.md) | `motionvm-parsec-tools`, the same for Dunkle Schatten's `RESOURCE/` files |
+| [`docs/parsec/tools.md`](docs/parsec/tools.md) | `motionvm-parsec-tools`, the same for the PARSEC games' `RESOURCE/` files |
 | [`docs/motion/verification.md`](docs/motion/verification.md) | What is checked against the original engine's own output, and what is only checked against the games' files |
 | [`docs/motion/verification-method.md`](docs/motion/verification-method.md) | How such a check is made: the emulator's settings, and the two commands that compare a frame and a register stream against a capture |
 | [`docs/motion/departures.md`](docs/motion/departures.md) | Every place motionvm knowingly does something else, and why |
-| [`docs/parsec/verification.md`](docs/parsec/verification.md), [`docs/parsec/departures.md`](docs/parsec/departures.md) | The same two records for Dunkle Schatten |
+| [`docs/parsec/verification.md`](docs/parsec/verification.md), [`docs/parsec/departures.md`](docs/parsec/departures.md) | The same two records for the PARSEC games |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | How the code is laid out: the two layers, the four levels of variance, and the seams between them |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to work in it: the conventions, the quality gate, adding a game, an engine build, or an engine family |
 | [`docs/writing-a-family.md`](docs/writing-a-family.md) | The contract read from the engine's side: what the window asks of a game, in the order it asks, and what each answer has to hold |

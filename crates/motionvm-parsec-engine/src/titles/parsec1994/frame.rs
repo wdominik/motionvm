@@ -95,8 +95,8 @@ impl Adventure {
         self.mover_pass(delta);
         self.animator_tick(delta);
         if self.bits & 0x20 != 0 {
-            let left = i32::from(num::signed(self.word_28bf)) - delta;
-            self.word_28bf = if left > 0 { num::low16(left) } else { 0 };
+            let left = i32::from(num::signed(self.wait_ticks)) - delta;
+            self.wait_ticks = if left > 0 { num::low16(left) } else { 0 };
         }
         self.panel_frame();
         self.frame_tasks();

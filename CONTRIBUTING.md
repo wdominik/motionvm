@@ -11,11 +11,11 @@ its earlier build, V0.04.15/R78), *Die Enviro-Kids greifen ein* (on the
 Spiel* (on `LL.EXE`, 1993-05-20) — the last four on older builds of that
 same 16-bit engine, the last of them three years older than the first and in
 an earlier framing of the container. The second is PARSEC, Norbert
-Schmidt's adventure engine, with *Dunkle Schatten* (1994, `XP00.EXE` and
-`XP01.EXE`), a game that is a compiled C program rather than data on an
-interpreter. motionvm runs the MOTION originals' compiled Forth bytecode
-natively and carries the PARSEC original's location logic re-expressed from
-its program, and one hard constraint shapes every convention in this
+Schmidt's adventure engine, with *Dunkle Schatten* and *Captain Zins* (both
+1994, each `XP00.EXE` and `XP01.EXE`), games that are compiled C programs
+rather than data on an interpreter. motionvm runs the MOTION originals'
+compiled Forth bytecode natively and carries the PARSEC originals' location
+logic re-expressed from their programs, and one hard constraint shapes every convention in this
 document: **the original binary a game ships with is the authority on what
 that engine does.** Code here is not merely correct or incorrect; it is
 faithful or unfaithful, and fidelity is established by evidence, not by
@@ -23,9 +23,10 @@ plausibility. The code runs these today: Dunkle Schatten 2 end to end on
 the 32-bit engine, Checker 2000's boards and story on its earlier build, and
 Die Enviro-Kids greifen ein — intro, locations, walk, conversations, music,
 saves — with Jeff Jet, Hilfe für Amajambere, Victor Loomes and Falsches Spiel
-mit Eddie M. on the 16-bit one; and Dunkle Schatten from its title program
+mit Eddie M. on the 16-bit one; Dunkle Schatten from its title program
 through the game, its rooms, the forest and the maze, its dialogue, options
-and saved game, and its music. The MOTION side is written for the engine
+and saved game, and its music, to its end; and Captain Zins the same way,
+from its title program to the parade at its end. The MOTION side is written for the engine
 rather than for those games: what a further MOTION game would need is its
 own file under `titles/`, and the naming rules below are what keeps that
 cost down.
@@ -60,7 +61,8 @@ RUSTUP_TOOLCHAIN=1.88.0 cargo check --workspace --all-targets
 ```
 
 **Game data.** The games' files are not in the repository and cannot be; they
-are copyrighted. The `justfile` reads eight locations and one switch:
+are copyrighted. The `justfile` reads a location for each of the games it
+plays today, one for the savegames, and one switch:
 
 - `GAMEDATA_DS2` — a copy of Dunkle Schatten 2's game directory (`001.RSC`
   and friends); `GAMEDATA_CHECKER` — a copy of Checker 2000's (`001.RSC`,
@@ -71,10 +73,12 @@ are copyrighted. The `justfile` reads eight locations and one switch:
   `BMZ.EXE`); `GAMEDATA_VLOOMES` — a copy of Victor Loomes' (`DATA.-1-`,
   `LL.EXE`); `GAMEDATA_EDDIEM` — a copy of Falsches Spiel mit Eddie M.'s
   (`DATA.-1-`, `DATA.-2-`, `DATA.-3-`, `STERN.EXE`); `GAMEDATA_DS1` — a copy
-  of Dunkle Schatten's (`XP00.EXE`, `XP01.EXE` and `RESOURCE/`). Each
-  defaults to a sibling directory of this checkout (`../games/DS2`,
-  `../games/CHECKER`, `../games/ENVIRO`, `../games/JEFFJET`, `../games/HFA`,
-  `../games/VLOOMES`, `../games/EDDIEM`, `../games/DS1`), and that default is only passed on when the data is
+  of Dunkle Schatten's (`XP00.EXE`, `XP01.EXE` and `RESOURCE/`);
+  `GAMEDATA_CAPZINS` — a copy of Captain Zins's (`XP00.EXE`, `XP01.EXE` and
+  `RESOURCE/`). Each defaults to a sibling directory of this checkout
+  (`../games/DS2`, `../games/CHECKER`, `../games/ENVIRO`, `../games/JEFFJET`,
+  `../games/HFA`, `../games/VLOOMES`, `../games/EDDIEM`, `../games/DS1`,
+  `../games/CAPZINS`), and that default is only passed on when the data is
   really there — so `just check` is green on a machine with no copy of a
   game, with that game's data-dependent tests skipping. A path you name
   yourself is always passed on, so a typo panics instead of quietly skipping
@@ -82,8 +86,9 @@ are copyrighted. The `justfile` reads eight locations and one switch:
   by their container: they all ship a `DATA.-1-`. The two 32-bit games both
   ship `001.RSC` and `ENGINE.EXE`, so each is probed for the file the other
   lacks — Dunkle Schatten 2's loose `000.PAL`, Checker 2000's `ENGINE.RSC`.
-  Dunkle Schatten is probed for its room container,
-  `RESOURCE/DSROOM.DAT`, which no other game ships. Each reaches the suite
+  The two PARSEC games are probed for their room containers,
+  `RESOURCE/DSROOM.DAT` and `RESOURCE/CZROOM.DAT`, which no other game
+  ships. Each reaches the suite
   as `MOTIONVM_GAMEDATA_<SLUG>`.
 - `SAVES` — the directory the games' own save directories are under, for the
   savegame tests: the `saves/` the program writes, not `saves/ds2/`, because
@@ -99,7 +104,7 @@ are copyrighted. The `justfile` reads eight locations and one switch:
   anchored at compile time and neither an empty variable nor a different
   working directory escapes them. Worth running before a push that touches a
   test: the data-free path is the only thing CI proves, and a test that
-  quietly starts needing a file was previously invisible until CI said so.
+  quietly starts needing a file is otherwise invisible until CI says so.
 
 Tests that need data they cannot find skip themselves and say so. A *set but
 wrong* path panics instead: a run that skips everything is indistinguishable
@@ -107,7 +112,7 @@ from a run that passes everything, so a mistyped path would otherwise report
 green without executing a line.
 
 **Running.** `just run ds2`, and the same for `checker`, `enviro`, `jeffjet`,
-`hfa`, `vloomes`, `eddiem` and `ds1`. The slug is required: no game is the one you
+`hfa`, `vloomes`, `eddiem`, `ds1` and `capzins`. The slug is required: no game is the one you
 get for saying `just run`. This builds in release mode, and that is not
 optional ceremony: the frontend is a software renderer that walks every
 physical window pixel on the CPU, and at opt-level 0 the result is a
@@ -381,7 +386,7 @@ Dependencies point strictly downward:
 | `motionvm-parsec-formats` | PARSEC's readers for the shipped resource formats and program images; std-only, zero dependencies |
 | `motionvm-parsec-engine` | The PARSEC runtime: the game's program over the library it is linked against |
 | `motionvm-parsec` | PARSEC's front door: engine and music, paired behind the contract |
-| `motionvm-parsec-tools` | CLI for reading and extracting Dunkle Schatten's resources |
+| `motionvm-parsec-tools` | CLI for reading and extracting the PARSEC games' resources |
 | `motionvm-parsec-testutil` | PARSEC's test-data location and reference digests |
 
 The same MOTION crates carry both generations; the rule for how they share is in the
@@ -477,13 +482,17 @@ are all the family's answers, made behind `motionvm-motion`.
 PARSEC has one generation, `parsec1994`, so its rule has two kinds rather
 than three: with one generation read, there is no level above it whose
 claims would have to hold for another. What belongs to **the game** is
-code under `titles/ds1/` in `motionvm-parsec-engine` — its build in
+code under `titles/<slug>/` in `motionvm-parsec-engine` — `titles/ds1/`,
+`titles/capzins/` — its build in
 `build.rs` (the values of every map the generation reads, the file names,
 the kinds of its location table, which logic each row has), where its
 program keeps a fresh game's start and the status-line templates, a module
 per location named as the location table names it, its global rules, the
 puzzle logic, its title program and the addresses its trace cases call —
-and documentation under `docs/parsec/games/ds1/`. What the game's program
+and documentation under `docs/parsec/games/<slug>/`. Where two titles'
+programs are linked against different builds of the library, the
+difference is the generation's, read off the routine's own body
+(`Profile`), never a question of which title it is. What the game's program
 is linked against belongs to **the generation**: its runtime — the
 program's main loop and its visits, the mode machine, the animator, the
 tasks, the dialogue, the options and the savegame, the walk on and the

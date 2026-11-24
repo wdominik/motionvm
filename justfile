@@ -10,7 +10,8 @@
 # Abenteuer InfoHighway, GAMEDATA_HFA at your copy of Hilfe für Amajambere,
 # GAMEDATA_VLOOMES at your copy of Victor Loomes – Das Spiel, GAMEDATA_EDDIEM
 # at your copy of Falsches Spiel mit Eddie M., GAMEDATA_CHECKER at your copy
-# of Checker 2000 and GAMEDATA_DS1 at your copy of Dunkle Schatten — the
+# of Checker 2000, GAMEDATA_DS1 at your copy of Dunkle Schatten and
+# GAMEDATA_CAPZINS at your copy of Captain Zins — the
 # defaults are directories next to this one, which is where a checkout beside
 # installed copies of the games finds them. Tests
 # that need data and cannot find it skip themselves; a *wrong* path panics
@@ -31,6 +32,8 @@ DEFAULT_GAMEDATA_CHECKER := justfile_directory() / ".." / "games" / "CHECKER"
 GAMEDATA_CHECKER := DEFAULT_GAMEDATA_CHECKER
 DEFAULT_GAMEDATA_DS1 := justfile_directory() / ".." / "games" / "DS1"
 GAMEDATA_DS1 := DEFAULT_GAMEDATA_DS1
+DEFAULT_GAMEDATA_CAPZINS := justfile_directory() / ".." / "games" / "CAPZINS"
+GAMEDATA_CAPZINS := DEFAULT_GAMEDATA_CAPZINS
 
 # What actually reaches the suite.
 #
@@ -42,9 +45,9 @@ GAMEDATA_DS1 := DEFAULT_GAMEDATA_DS1
 # all ship a DATA.-1-, so probing for that would let any of those defaults match
 # another game's directory. The two 32-bit games both ship 001.RSC and
 # ENGINE.EXE, so each is probed for the file the other lacks: the loose 000.PAL
-# of Dunkle Schatten 2, the ENGINE.RSC of Checker 2000. Dunkle Schatten is
-# probed for its room container, RESOURCE/DSROOM.DAT, which no other game
-# ships.
+# of Dunkle Schatten 2, the ENGINE.RSC of Checker 2000. The two PARSEC games
+# are probed for their room containers, RESOURCE/DSROOM.DAT and
+# RESOURCE/CZROOM.DAT, which no other game ships.
 _DATA_DS2 := if GAMEDATA_DS2 != DEFAULT_GAMEDATA_DS2 { GAMEDATA_DS2 } \
     else if path_exists(GAMEDATA_DS2 / "000.PAL") == "true" { GAMEDATA_DS2 } \
     else { "" }
@@ -69,6 +72,9 @@ _DATA_CHECKER := if GAMEDATA_CHECKER != DEFAULT_GAMEDATA_CHECKER { GAMEDATA_CHEC
 _DATA_DS1 := if GAMEDATA_DS1 != DEFAULT_GAMEDATA_DS1 { GAMEDATA_DS1 } \
     else if path_exists(GAMEDATA_DS1 / "RESOURCE" / "DSROOM.DAT") == "true" { GAMEDATA_DS1 } \
     else { "" }
+_DATA_CAPZINS := if GAMEDATA_CAPZINS != DEFAULT_GAMEDATA_CAPZINS { GAMEDATA_CAPZINS } \
+    else if path_exists(GAMEDATA_CAPZINS / "RESOURCE" / "CZROOM.DAT") == "true" { GAMEDATA_CAPZINS } \
+    else { "" }
 
 # Savegames cannot be reconstructed, only played to, and never enter the
 # repository. They are kept the way the games are: a directory beside this one,
@@ -86,9 +92,9 @@ _SAVES := if SAVES != DEFAULT_SAVES { SAVES } \
 
 # Where every game reaches a cargo command, written once.
 #
-# Three recipes hand the suite its data. Spelling the variables out in each
-# would make a further game a matter of remembering all three; this is the
-# one block they share, and adding a game touches it once.
+# Several recipes hand the suite its data. Spelling the variables out in each
+# would make a further game a matter of remembering every one of them; this is
+# the one block they share, and adding a game touches it once.
 _GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
     'MOTIONVM_GAMEDATA_ENVIRO="' + _DATA_ENVIRO + '" ' + \
     'MOTIONVM_GAMEDATA_JEFFJET="' + _DATA_JEFFJET + '" ' + \
@@ -97,6 +103,7 @@ _GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
     'MOTIONVM_GAMEDATA_EDDIEM="' + _DATA_EDDIEM + '" ' + \
     'MOTIONVM_GAMEDATA_CHECKER="' + _DATA_CHECKER + '" ' + \
     'MOTIONVM_GAMEDATA_DS1="' + _DATA_DS1 + '" ' + \
+    'MOTIONVM_GAMEDATA_CAPZINS="' + _DATA_CAPZINS + '" ' + \
     'MOTIONVM_SAVES="' + _SAVES + '"'
 
 _default:
@@ -115,13 +122,20 @@ test:
 # empty variable nor a different working directory escapes it. Short of moving
 # `../games` aside, the data-free tests could not be exercised in isolation,
 # and the data-free path is the only thing CI proves: a test that quietly
-# starts needing a file, or a skip that stops being a skip, was invisible here
-# and only surfaced after a push. This is the floor, not the gate: `just
+# starts needing a file, or a skip that stops being a skip, is invisible here
+# and only surfaces after a push. This is the floor, not the gate: `just
 # check` is still what has to pass before a change is finished.
 #
 # CI's floor, on your own machine: the suite with no game data at all.
 check-nodata:
     MOTIONVM_NO_GAMEDATA=1 RUSTFLAGS="-D warnings" cargo test --workspace
+
+# Captain Zins played from its first scene to its end through the host's
+# input. It runs for minutes of game time, so `just check` skips it.
+#
+# Captain Zins played to its end, in release.
+playthrough:
+    {{ _GAMES }} cargo test --release -p motionvm-parsec-engine captain_zins_can_be_played_to_its_end -- --ignored --nocapture
 
 # One test target, e.g. `just test-one ds2_scenes` or `just test-one enviro_psm`.
 test-one target:
@@ -262,7 +276,7 @@ doc:
 
 # One of the games: `just run ds2`, `just run checker`, `just run enviro`,
 # `just run jeffjet`, `just run hfa`, `just run vloomes`, `just run eddiem`,
-# `just run ds1`.
+# `just run ds1`, `just run capzins`.
 #
 # The slug is required and there is no default — a `just run` that picked a
 # game would pick it for everyone. A recipe per game would be a copy of one
@@ -279,7 +293,8 @@ run GAME *ARGS:
         eddiem)  dir='{{ GAMEDATA_EDDIEM }}' ;;
         checker) dir='{{ GAMEDATA_CHECKER }}' ;;
         ds1)     dir='{{ GAMEDATA_DS1 }}' ;;
-        *) echo "just run <ds2|checker|enviro|jeffjet|hfa|vloomes|eddiem|ds1> [args]" >&2; exit 2 ;;
+        capzins) dir='{{ GAMEDATA_CAPZINS }}' ;;
+        *) echo "just run <ds2|checker|enviro|jeffjet|hfa|vloomes|eddiem|ds1|capzins> [args]" >&2; exit 2 ;;
     esac
     cargo run --release -p motionvm-app -- "$dir" {{ ARGS }}
 

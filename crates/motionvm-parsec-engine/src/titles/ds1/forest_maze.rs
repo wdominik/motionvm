@@ -16,6 +16,7 @@
 //! that exit.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -43,11 +44,6 @@ const PATIENCE: u16 = 0x2733;
 const LAST_STEP: u16 = 0x195A;
 /// `[1C82h]`: the hundredths the scene machine counts.
 const HUNDREDTHS: u16 = 0x1C82;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Handler local 0: `si`, the hundredths until the next forest sound.
 const SOUND_DUE: usize = 0;

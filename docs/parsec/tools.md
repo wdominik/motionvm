@@ -2,12 +2,13 @@
 
 # motionvm-parsec-tools
 
-*The command-line inspector, built from a checkout. It reads Dunkle Schatten's `RESOURCE/` files and writes out what it finds; what those files are is documented under [formats](README.md#formats).*
+*The command-line inspector, built from a checkout. It reads the `RESOURCE/` files of the PARSEC games motionvm plays and writes out what it finds; what those files are is documented under [formats](README.md#formats).*
 
-`motionvm-parsec-tools` reads the containers of a Dunkle Schatten
-installation and writes what it finds as ordinary files or lines. It asks
-less of a directory than the player does: the `RESOURCE/` directory with
-`DSROOM.DAT` in it is what tells it the game is there, and each command
+`motionvm-parsec-tools` reads the containers of a Dunkle Schatten or
+Captain Zins installation and writes what it finds as ordinary files or
+lines. It asks less of a directory than the player does: the `RESOURCE/`
+directory with the game's room container in it — `DSROOM.DAT` or
+`CZROOM.DAT` — is what tells it which game is there, and each command
 reads only the files it names. A directory without the room container is
 refused with a sentence, rather than read until some file is missing.
 
@@ -33,10 +34,12 @@ installation from a partial one.
 
 ## `extract <gamedata> [--out DIR]`
 
-Every room playfield of `DSROOM.DAT` as an indexed PNG, 320×128 in the
+Every room playfield of the room container as an indexed PNG, 320×128 in the
 room's own palette, with a text file beside each giving its viewport, tile
 and map sizes and its hotspot list — rectangle, verb mask and name — and
-the pictures of `PANELS.DAT` and `CMBMOU.DAT` as indexed PNGs through the
+the pictures of the strip's files (Dunkle Schatten's `PANELS.DAT`,
+Captain Zins's `PANEL0.DAT` and `PANEL1.DAT`) and `CMBMOU.DAT` as indexed
+PNGs through the
 palette their file carries. `--out` defaults to `out`.
 
 ## `picture <gamedata> <file> [n] [--out FILE]`

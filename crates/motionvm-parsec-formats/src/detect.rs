@@ -1,10 +1,11 @@
-//! Whether a directory holds the PARSEC game this engine plays.
+//! Which PARSEC game a directory holds, of those this engine plays.
 //!
 //! Identification is by the file the original opens, not by a version
-//! string: *Dunkle Schatten* ships packed `XP0n.EXE` binaries and a
-//! `RESOURCE/` folder, and its room container `RESOURCE/DSROOM.DAT` is what
+//! string: the games ship packed `XP0n.EXE` binaries and a `RESOURCE/`
+//! folder, and each one's room container — `RESOURCE/DSROOM.DAT` for
+//! *Dunkle Schatten*, `RESOURCE/CZROOM.DAT` for *Captain Zins* — is what
 //! tells a copy of it from any other directory. `XP01.EXE` alone does not:
-//! it is a name, not a signature.
+//! every one of them ships one, so it is a name, not a signature.
 //!
 //! A flattened copy that put the DAT files next to the EXEs still matches:
 //! [`resource_dir`] looks in `RESOURCE/` when it exists and in `dir` itself
@@ -19,11 +20,14 @@ pub enum Title {
     /// *Dunkle Schatten* (1994). `DSROOM.DAT` contains the room resources,
     /// including the RDV playfields.
     DunkleSchatten,
+    /// *Captain Zins* (1994). `CZROOM.DAT` contains the room resources, in
+    /// the same container as *Dunkle Schatten*'s.
+    CaptainZins,
 }
 
 impl Title {
     /// Every game, in the order [`identify`] looks for their room containers.
-    pub const ALL: [Title; 1] = [Self::DunkleSchatten];
+    pub const ALL: [Title; 2] = [Self::DunkleSchatten, Self::CaptainZins];
 
     /// The key the game's files are found under, never a word in a
     /// sentence: the folder its install is usually unpacked into, in lower
@@ -34,6 +38,7 @@ impl Title {
     pub fn slug(self) -> &'static str {
         match self {
             Self::DunkleSchatten => "ds1",
+            Self::CaptainZins => "capzins",
         }
     }
 
@@ -41,13 +46,23 @@ impl Title {
     pub fn name(self) -> &'static str {
         match self {
             Self::DunkleSchatten => "Dunkle Schatten",
+            Self::CaptainZins => "Captain Zins",
         }
     }
 
-    /// The title without a subtitle — what prose calls it. *Dunkle
-    /// Schatten* carries none, so it is its name.
+    /// The title without a subtitle — what prose calls it. Neither game
+    /// carries one, so it is the name.
     pub fn short(self) -> &'static str {
         self.name()
+    }
+
+    /// The room container the game ships, in `RESOURCE/`: the file that
+    /// identifies a copy.
+    pub fn room_file(self) -> &'static str {
+        match self {
+            Self::DunkleSchatten => "DSROOM.DAT",
+            Self::CaptainZins => "CZROOM.DAT",
+        }
     }
 
     /// The file that identifies a copy, the way a player is told where to
@@ -55,6 +70,7 @@ impl Title {
     pub fn needs(self) -> &'static str {
         match self {
             Self::DunkleSchatten => "RESOURCE/DSROOM.DAT beside XP01.EXE",
+            Self::CaptainZins => "RESOURCE/CZROOM.DAT beside XP01.EXE",
         }
     }
 }
@@ -79,16 +95,13 @@ fn find_ci_dir(dir: &Path, name: &str) -> Option<PathBuf> {
     crate::first_ci(names, name).map(|n| dir.join(n))
 }
 
-/// The room container each game opens, in the order [`identify`] looks.
-const ROOM_FILES: [(&str, Title); 1] = [("DSROOM.DAT", Title::DunkleSchatten)];
-
-/// Which game `dir` holds, or `None` when it holds none.
+/// Which game `dir` holds, or `None` when it holds none: the first of
+/// [`Title::ALL`] whose room container is there.
 pub fn identify(dir: &Path) -> Option<Title> {
     let res = resource_dir(dir);
-    ROOM_FILES
-        .iter()
-        .find(|(file, _)| find_ci(&res, file).is_some())
-        .map(|&(_, title)| title)
+    Title::ALL
+        .into_iter()
+        .find(|t| find_ci(&res, t.room_file()).is_some())
 }
 
 /// A file from `dir` or its `RESOURCE/` folder, whatever case it is spelled
@@ -114,6 +127,8 @@ mod tests {
     fn the_room_container_is_the_game() {
         let dir = holding("one", &["DSROOM.DAT"]);
         assert_eq!(identify(&dir), Some(Title::DunkleSchatten));
+        let dir = holding("second", &["CZROOM.DAT"]);
+        assert_eq!(identify(&dir), Some(Title::CaptainZins));
         let dir = holding("none", &["PANELS.DAT"]);
         assert_eq!(identify(&dir), None);
     }

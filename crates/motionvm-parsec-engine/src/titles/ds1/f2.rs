@@ -12,6 +12,7 @@
 //! half a second later.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::Api;
 
@@ -29,11 +30,6 @@ const PLAYING_ANIM: u16 = 0x194E;
 const NEXT_ANIM: u16 = 0x1950;
 /// `[1C82h]`: the hundredths the scene machine counts.
 const HUNDREDTHS: u16 = 0x1C82;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x46C6` to `0x471E`.
 pub(crate) fn enter(api: &mut dyn Api) {

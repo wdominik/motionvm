@@ -16,6 +16,7 @@ use motionvm_render::{Frame, Framebuffer};
 
 use crate::draw::{DISPLAY_H, DISPLAY_W};
 use crate::music_sink::MusicSink;
+use crate::titles::capzins::CaptainZins;
 use crate::titles::ds1::DunkleSchatten;
 use crate::titles::{Runtime as Program, Start};
 
@@ -28,9 +29,7 @@ use crate::error::{Error, Result};
 /// the loader. The locations are slots of one file, and the cursor file
 /// carries the font as well as the pointer.
 fn required(title: Title) -> [(&'static str, &'static str); 4] {
-    let names = match title {
-        Title::DunkleSchatten => &crate::titles::ds1::build::BUILD.names,
-    };
+    let names = &build_of(title).names;
     [
         (names.rooms, "every location, as slots of one FGROUP"),
         (names.panel, "the verb strip under the playfield"),
@@ -39,22 +38,47 @@ fn required(title: Title) -> [(&'static str, &'static str); 4] {
     ]
 }
 
+fn build_of(title: Title) -> &'static crate::titles::parsec1994::program::Build {
+    match title {
+        Title::DunkleSchatten => &crate::titles::ds1::build::BUILD,
+        Title::CaptainZins => &crate::titles::capzins::build::BUILD,
+    }
+}
+
+/// The digits a `%` in a file name takes: every figure set the program
+/// can load, read from it as the runtime reads it. A program that cannot
+/// be read gives the first, `0` — [`Game::open`] names what is wrong with
+/// it then.
+fn set_digits(dir: &Path, title: Title) -> Vec<u16> {
+    let build = build_of(title);
+    crate::exe::Image::open(dir, build.program.0, build.program.1)
+        .and_then(|img| crate::titles::parsec1994::profile::Profile::read(&img, &build.library))
+        .map_or_else(|_| vec![0], |p| p.figure_set.digits())
+}
+
 /// Which of the required files `dir` does not hold, as `(what, what for)`.
 ///
 /// Empty means [`Game::open`] will get as far as parsing. It is an existence
 /// check, not a validity one — a truncated room container still fails
-/// later.
+/// later. A name with a `%` is a set of files told apart by the digit in
+/// its place, as the program builds them; each digit the program can
+/// load is looked for.
 pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
     let Some(title) = detect::identify(dir) else {
         return vec![(
             "a PARSEC game",
-            "XP00.EXE / XP01.EXE and RESOURCE/*.DAT (DSROOM.DAT)",
+            "XP00.EXE / XP01.EXE and RESOURCE/*.DAT (DSROOM.DAT or CZROOM.DAT)",
         )];
     };
     let res = detect::resource_dir(dir);
+    let digits = set_digits(dir, title);
     required(title)
         .into_iter()
-        .filter(|(name, _)| find_ci(&res, name).is_none())
+        .filter(|(name, _)| {
+            digits
+                .iter()
+                .any(|d| find_ci(&res, &name.replace('%', &d.to_string())).is_none())
+        })
         .collect()
 }
 
@@ -112,6 +136,7 @@ impl Game {
         }
         let inner: Box<dyn Program> = match title {
             Title::DunkleSchatten => Box::new(DunkleSchatten::open(dir)?),
+            Title::CaptainZins => Box::new(CaptainZins::open(dir)?),
         };
         Ok(Game {
             inner,

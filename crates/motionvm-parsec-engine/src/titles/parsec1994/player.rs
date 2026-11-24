@@ -56,6 +56,9 @@ use crate::num;
 /// The record's length: the save's `push 30h` at `0x14C6E`.
 pub(crate) const RECORD: u16 = 0x30;
 
+/// `+1Eh`: the figure set the loader last loaded, the `n` of `PLAY0n.DAT`.
+pub(crate) const FIGURE_SET: usize = 0x1E;
+
 /// Bit 40h of `+2`.
 const MIRROR_BIT: u8 = 0x40;
 
@@ -157,7 +160,7 @@ impl Adventure {
 
     /// One byte of the record written: the record as it stands, the byte
     /// put in, the walker read back out of it.
-    pub(super) fn set_player_record_byte(&mut self, i: usize, v: u8) {
+    pub(crate) fn set_player_record_byte(&mut self, i: usize, v: u8) {
         self.player_record_sync();
         let at = usize::from(self.map().walker);
         self.ds[at + i] = v;

@@ -6,6 +6,7 @@
 //! (`0x3956`), against [`Api`] alone.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::Api;
 
@@ -27,11 +28,6 @@ const SPEAKS_201: u16 = 0x193A;
 const SPEAKS_203: u16 = 0x1938;
 const NEXT: u16 = 0x1934;
 const PLAYING: u16 = 0x1936;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x39F8` to `0x3A62`.
 pub(crate) fn enter(api: &mut dyn Api) {

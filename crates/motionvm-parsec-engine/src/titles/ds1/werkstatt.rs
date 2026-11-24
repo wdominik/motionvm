@@ -10,6 +10,7 @@
 //! and the frame loop waits for his walk to end.
 
 use super::logic::Logic;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -35,11 +36,6 @@ const PLAYING: u16 = 0x190E;
 /// `[272Bh]`, `[272Ch]`: the Werkstatt's state and sub-state.
 const STATE: u16 = 0x272B;
 const SUBSTATE: u16 = 0x272C;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// The record in `[190Ah]`/`[190Ch]`.
 fn record(api: &dyn Api) -> Far {

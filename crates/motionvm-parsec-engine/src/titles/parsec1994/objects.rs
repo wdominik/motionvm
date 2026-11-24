@@ -595,7 +595,7 @@ impl Adventure {
         for o in &self.objects {
             let b = match o.kind {
                 0 => (o.flags & LIVE) + 1,
-                1 | 5 => {
+                k if k < 8 && u16::from(self.profile.tri_state_kinds) & (1 << k) != 0 => {
                     if o.flags & LIVE == 0 {
                         1
                     } else if o.flags & HIDDEN != 0 {

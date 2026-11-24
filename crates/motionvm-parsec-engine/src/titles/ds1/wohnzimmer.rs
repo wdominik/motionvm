@@ -10,6 +10,7 @@
 
 use super::logic::Logic;
 use super::logic::WALKER;
+use super::logic::{ENTRY, HERE, LOCATION, OBJECT_STATES};
 use crate::num;
 use crate::titles::parsec1994::{Api, Far};
 
@@ -51,11 +52,6 @@ const FATHER_PLAYING: u16 = 0x18A0;
 const MIKE_SPEAKS: u16 = 0x189E;
 const MIKE_NEXT: u16 = 0x189C;
 const MIKE_PLAYING: u16 = 0x189A;
-/// `[1F48h]`, `[1F4Ah]`, `[1F4Ch]`, `DS:1F56h`: see the Zimmer.
-const ENTRY: u16 = 0x1F48;
-const LOCATION: u16 = 0x1F4A;
-const HERE: u16 = 0x1F4C;
-const OBJECT_STATES: u16 = 0x1F56;
 
 /// Everything before the frame loop, `0x1073` to `0x11BA`.
 pub(crate) fn enter(api: &mut dyn Api) {

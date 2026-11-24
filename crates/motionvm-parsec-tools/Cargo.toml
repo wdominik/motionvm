@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true
-description = "Command line tools for inspecting and extracting Dunkle Schatten's resources"
+description = "Command line tools for inspecting and extracting the resources of the PARSEC games motionvm plays"
 
 [[bin]]
 name = "motionvm-parsec-tools"

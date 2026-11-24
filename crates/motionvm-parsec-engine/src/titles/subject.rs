@@ -149,14 +149,32 @@ impl Subjects {
     /// A slot of kind `3000h` resolves to the global point `[1854h]` /
     /// `[1856h]`, which has no writer among the plain forms scanned — so
     /// it answers `None` here rather than a made-up place.
+    ///
+    /// A record's point then moves by the slot's style (`0x0D3ED`–`0x0D42C`):
+    /// a vertical style of 2 puts it the cel's height lower, 3 half of it
+    /// lower; a horizontal style of 4 half the width to the left, 8 half of
+    /// it to the right.
     pub(crate) fn point(&self, game: &Adventure, n: usize) -> Option<(i32, i32)> {
-        match self.get(n)?.subject {
-            Subject::Nothing => None,
-            Subject::Point(x, y) => Some((i32::from(x), i32::from(y))),
-            Subject::Player => game.player_point(),
-            Subject::Mover(i) => game.mover_point(i),
-            Subject::Object(id) => game.object_point(id),
-        }
+        let slot = self.get(n)?;
+        let (x, y, w, h) = match slot.subject {
+            Subject::Nothing => return None,
+            Subject::Point(x, y) => return Some((i32::from(x), i32::from(y))),
+            Subject::Player => game.player_box()?,
+            Subject::Mover(i) => game.mover_box(i)?,
+            Subject::Object(id) => game.slot_object_box(id)?,
+        };
+        let style = slot.payload();
+        let y = match style & 3 {
+            2 => y + h,
+            3 => y + (h >> 1),
+            _ => y,
+        };
+        let x = match style & 0x0C {
+            4 => x - (w >> 1),
+            8 => x + (w >> 1),
+            _ => x,
+        };
+        Some((x, y))
     }
 }
 

@@ -30,10 +30,6 @@ use crate::titles::rng::LcRng;
 
 use super::{Adventure, Api, Far};
 
-/// The settings file: `push 1Fh` at the write (`0x14BBE`) and `cmp ax, 1Fh`
-/// at the size check (`0x1485B`).
-pub(crate) const CFG_LEN: usize = 0x1F;
-
 /// `mov bx, 3E5h` (`0x147EE`): the settings' check value is multiplied by
 /// 997 after each word.
 const CFG_FACTOR: u32 = 0x3E5;
@@ -63,6 +59,14 @@ pub(crate) struct SaveMap {
     pub sav_magic: [u16; 4],
     /// The four words `SAVEGAME.CFG` opens with.
     pub cfg_magic: [u16; 4],
+    /// The settings file's length.
+    pub cfg_len: usize,
+    /// How many words from `+12h` its check value takes.
+    pub cfg_words: usize,
+    /// Whether it carries the walk speed, as a word at `+1Ch`, and the
+    /// options mark the settings changed when the speed moves. Its last
+    /// byte is 0 either way.
+    pub cfg_speed: bool,
     /// The row the main loop is sent to when a game is loaded, whose
     /// handler copies the blocks back.
     pub restore_row: u16,
@@ -157,11 +161,11 @@ pub(crate) fn sav_check(buf: &[u8], map: &SaveMap, rng: &mut LcRng) -> (u32, u16
 /// unsigned, `adc 0` at `0x147E4` — and the sum multiplied by 997
 /// (`0x147F7`, the compiler's long multiply). The tick also seeds the
 /// generator first (`0x147BF`).
-pub(crate) fn cfg_check(cfg: &[u8], rng: &mut LcRng) -> u32 {
+pub(crate) fn cfg_check(cfg: &[u8], words: usize, rng: &mut LcRng) -> u32 {
     let (lo, hi) = (word(cfg, 0x0A), word(cfg, 0x0C));
     srand(rng, lo, hi);
     let mut v = (u32::from(hi) << 16) | u32::from(lo);
-    for at in words_from(0x12, 6) {
+    for at in words_from(0x12, words) {
         v = v.wrapping_add(u32::from(word(cfg, at)));
         v = v.wrapping_mul(CFG_FACTOR);
     }
@@ -190,29 +194,35 @@ fn magic_is(b: &[u8], magic: &[u16; 4]) -> bool {
 pub(crate) enum Cfg {
     /// Not the size, not the magic, or not the check value: passed over.
     Ignored,
-    /// Taken: the mouse setting, the four text words, the walk speed.
+    /// Taken: the mouse setting, the four text words, the walk speed when
+    /// the file carries it.
     Taken {
         mouse: u16,
         text: [u8; 8],
-        speed: u8,
+        speed: Option<u8>,
     },
 }
 
 /// Reads a settings file. The magic is compared first and the check value,
 /// which reseeds the generator, only after it (`0x148A6`).
 pub(crate) fn cfg_read(cfg: &[u8], map: &SaveMap, rng: &mut LcRng) -> Cfg {
-    if cfg.len() != CFG_LEN || !magic_is(cfg, &map.cfg_magic) {
+    if cfg.len() != map.cfg_len || !magic_is(cfg, &map.cfg_magic) {
         return Cfg::Ignored;
     }
-    let v = cfg_check(cfg, rng);
+    let v = cfg_check(cfg, map.cfg_words, rng);
     if (u32::from(word(cfg, 0x10)) << 16) | u32::from(word(cfg, 0x0E)) != v {
         return Cfg::Ignored;
     }
-    let (Some(&text), Some(&speed)) = (
-        cfg.get(0x14..0x1C).and_then(|t| t.first_chunk::<8>()),
-        cfg.get(0x1C),
-    ) else {
+    let Some(&text) = cfg.get(0x14..0x1C).and_then(|t| t.first_chunk::<8>()) else {
         return Cfg::Ignored;
+    };
+    let speed = if map.cfg_speed {
+        let Some(&s) = cfg.get(0x1C) else {
+            return Cfg::Ignored;
+        };
+        Some(s)
+    } else {
+        None
     };
     Cfg::Taken {
         mouse: word(cfg, 0x12),
@@ -321,7 +331,7 @@ impl Adventure {
         if self.word(map.cfg_dirty) == 0 {
             return None;
         }
-        let mut cfg = vec![0u8; CFG_LEN];
+        let mut cfg = vec![0u8; map.cfg_len];
         for (at, &m) in words_from(0, 4).zip(&map.cfg_magic) {
             put(&mut cfg, at, m);
         }
@@ -331,25 +341,30 @@ impl Adventure {
             let b = self.byte(map.text.wrapping_add(num::word(i)));
             set(&mut cfg, at, b);
         }
-        // 0x14B68: the speed byte as a word, then the byte 0.
-        put(&mut cfg, 0x1C, u16::from(self.byte(map.speed)));
-        set(&mut cfg, 0x1E, 0);
+        // 0x14B68: the speed byte as a word, when the file carries it;
+        // then the byte 0 (`0x14B70`), the file's last.
+        if map.cfg_speed {
+            put(&mut cfg, 0x1C, u16::from(self.byte(map.speed)));
+        }
+        set(&mut cfg, map.cfg_len.saturating_sub(1), 0);
         put(&mut cfg, 0x0A, num::low_word(tick));
         put(&mut cfg, 0x0C, num::high_word(tick));
-        let v = cfg_check(&cfg, &mut self.rng);
+        let v = cfg_check(&cfg, map.cfg_words, &mut self.rng);
         put(&mut cfg, 0x0E, num::low_word(v));
         put(&mut cfg, 0x10, num::high_word(v));
         Some(cfg)
     }
 
     /// The settings taken from a file (`0x148B6`–`0x148D7`).
-    pub(crate) fn cfg_take(&mut self, map: &SaveMap, mouse: u16, text: [u8; 8], speed: u8) {
+    pub(crate) fn cfg_take(&mut self, map: &SaveMap, mouse: u16, text: [u8; 8], speed: Option<u8>) {
         self.set_word(map.mouse, mouse);
         self.mouse_divisors_05dc(map);
         for (i, &b) in text.iter().enumerate() {
             self.set_byte(map.text.wrapping_add(num::word(i)), b);
         }
-        self.set_byte(map.speed, speed);
+        if let Some(speed) = speed {
+            self.set_byte(map.speed, speed);
+        }
     }
 
     /// `147Ah:05DCh` (`0x14D7C`): the mickey divisors by the mouse setting,
@@ -392,12 +407,12 @@ mod tests {
 
     #[test]
     fn the_settings_check_is_seeded_by_the_tick_and_multiplies_by_997() {
-        let mut cfg = vec![0u8; CFG_LEN];
+        let mut cfg = vec![0u8; 0x1F];
         put(&mut cfg, 0x0A, 0x1234);
         put(&mut cfg, 0x0C, 0x0005);
         put(&mut cfg, 0x12, 1);
         let mut rng = LcRng::default();
-        let v = cfg_check(&cfg, &mut rng);
+        let v = cfg_check(&cfg, 6, &mut rng);
         let mut want: u32 = 0x0005_1234;
         for w in [1u32, 0, 0, 0, 0, 0] {
             want = want.wrapping_add(w).wrapping_mul(997);

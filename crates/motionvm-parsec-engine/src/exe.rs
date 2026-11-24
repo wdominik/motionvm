@@ -195,3 +195,14 @@ impl Image {
         Ok(u16::from_le_bytes([b[n], b[n + 1]]))
     }
 }
+
+/// The opcodes, with their operand bytes, that open the instructions whose
+/// immediates the titles read ([`Image::imm16`]).
+pub(crate) mod op {
+    /// `push imm16`.
+    pub(crate) const PUSH_IMM16: [u8; 1] = [0x68];
+    /// `push word [bx+imm16]`.
+    pub(crate) const PUSH_BX_MEM: [u8; 2] = [0xFF, 0xB7];
+    /// `mov bx, [imm16]`.
+    pub(crate) const MOV_BX_MEM: [u8; 2] = [0x8B, 0x1E];
+}

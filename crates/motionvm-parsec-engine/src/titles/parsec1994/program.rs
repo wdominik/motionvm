@@ -19,9 +19,10 @@ use motionvm_parsec_formats::detect::resource_dir;
 use motionvm_render::{Framebuffer, Palette};
 
 use super::logic::{LogicTable, Visit};
+use super::title::host::{Ending, Endings, Exit};
 use super::{
-    Adventure, AnimHook, Api, Cfg, DsMap, Files, Hook, Kinds, MenuKey, MusicMap, Opened,
-    OptionsInput, OptionsMap, PointerMap, Request, SaveMap, cfg_read, sav_valid,
+    Adventure, Api, Callback, Cfg, DsMap, Event, Files, Hook, Kinds, LibraryMap, MenuKey, MusicMap,
+    Opened, OptionsInput, OptionsMap, PointerMap, Profile, Request, SaveMap, cfg_read, sav_valid,
 };
 use crate::error::{Error, Result};
 use crate::exe::Image;
@@ -87,6 +88,9 @@ pub(crate) struct Build {
     pub program: (&'static str, usize),
     /// The files beside it.
     pub names: Names,
+    /// Where the program keeps the library routines the runtime reads its
+    /// build off.
+    pub library: LibraryMap,
     /// What the location table's kinds mean.
     pub kinds: Kinds,
     /// Where the saved game and the settings are kept, and their shape.
@@ -101,15 +105,27 @@ pub(crate) struct Build {
     pub sound: Sound,
     /// Which logic each row has.
     pub logic: LogicTable,
-    /// The rule handlers by far address, the location's and the global
-    /// table's.
-    pub rule: fn(&mut Adventure, (u16, u16), u16) -> Option<i16>,
     /// The hook the library calls with its codes.
     pub hook: Hook,
-    /// The location's own hook.
-    pub location_hook: Hook,
-    /// The location's animation hook.
-    pub anim_hook: AnimHook,
+    /// The title's routines the callback can be bent to.
+    pub callbacks: &'static [Callback],
+    /// How many draws the options' dissolve takes from the game's generator
+    /// on the reference machine, DOSBox-X with `core = normal` and `cycles =
+    /// fixed 25000`.
+    ///
+    /// The loop draws until the hundredths counter reaches 100, so the
+    /// number is how many of the title's own passes that machine fits into
+    /// a second: it is not in the program, and a build whose loop costs
+    /// more per pass draws fewer. It is measured on the original, as the
+    /// steps of the generator between its seed before the loop of the
+    /// options `XP01` opens at its start and after it. Every dissolve
+    /// takes that many here, the one at the start and the ones in game; on
+    /// the original a dissolve's count varies with the machine and with
+    /// where the timer stands when it begins.
+    pub dissolve_draws: u32,
+    /// What the program shows after its main loop, by the location word
+    /// it ended on.
+    pub ending: Endings,
 }
 
 /// One install's game program.
@@ -129,7 +145,10 @@ pub(crate) struct Program {
     saves: Option<PathBuf>,
     /// Whether play has begun.
     pub started: bool,
-    /// Whether the main loop has ended: the player quit.
+    /// The sequence the program plays after its main loop, while it does.
+    ending: Option<Box<dyn Ending>>,
+    /// Whether the program has ended: its main loop, and the sequence
+    /// after it.
     pub over: bool,
     /// Where a fresh game starts.
     start: (u16, u16),
@@ -147,6 +166,7 @@ impl Program {
         let res = resource_dir(dir);
         let image = Image::open(dir, build.program.0, build.program.1)?;
         let locations = Locations::read(&image)?;
+        let profile = Profile::read(&image, &build.library)?;
         let reading = read(&locations)?;
         let mut inner = Adventure::open(
             &res,
@@ -163,13 +183,14 @@ impl Program {
                 templates: reading.templates,
                 music: (build.names.music, build.music),
             },
+            profile,
         )?;
         inner.options_map = Some(build.options);
         inner.install_pointer(build.pointer);
-        inner.rule_hook = build.rule;
+        inner.logic_table = Some(build.logic);
         inner.hook = build.hook;
-        inner.location_hook = build.location_hook;
-        inner.anim_hook = build.anim_hook;
+        inner.callbacks = build.callbacks;
+        inner.dissolve_draws = build.dissolve_draws;
         inner.substitutions = reading.substitutions;
         inner.initialize_inventory(&reading.initial_items, reading.initial_scroll)?;
         inner.enable_panel_colors(reading.panel_curves, reading.gray_ramp)?;
@@ -187,6 +208,7 @@ impl Program {
             game_dir: dir.to_path_buf(),
             saves: None,
             started: false,
+            ending: None,
             over: false,
             start: reading.start,
         })
@@ -276,6 +298,10 @@ impl Program {
                 self.inner.notice = Some(msg);
             }
         }
+        // The start loads the figure and the strip after the game
+        // (`0x00731`): the set the record remembers, and the strip's range
+        // from the list as it is now.
+        self.inner.figure_set_at_start();
         let a = &mut self.inner;
         if a.location_word == 0 {
             // 0x4F31: a fresh game.
@@ -312,13 +338,62 @@ impl Program {
     }
 
     /// After the main loop: the settings written when they changed
-    /// (`0x4FF0`, `147Ah:0373h`).
+    /// (`0x4FF0`, `147Ah:0373h`), then what the title shows for the
+    /// location word the loop ended on, and the exit with code 0 — at once
+    /// when it shows nothing, or its sequence cannot be read.
     fn finish(&mut self) {
-        self.over = true;
         let map = self.build.save;
         let tick = self.inner.bios.count();
         if let Some(cfg) = self.inner.cfg_0373(&map, tick) {
             self.write_save(map.cfg_name, &cfg);
+        }
+        let res = resource_dir(&self.game_dir);
+        let a = &self.inner;
+        let exit = Exit {
+            res: &res,
+            image: &a.image,
+            pointer: self.build.pointer,
+            location: num::signed(a.location_word),
+            screen: a.effects.screen.clone().unwrap_or_else(|| a.render_scene()),
+            dac: a.palette().clone(),
+        };
+        self.ending = match (self.build.ending)(&exit) {
+            Ok(e) => e,
+            Err(why) => {
+                self.inner.events.push(Event::EndingUnread(why.to_string()));
+                None
+            }
+        };
+        self.over = self.ending.is_none();
+    }
+
+    /// A host's jump while the sequence after the main loop plays: it is
+    /// taken down, and its endless song with it.
+    fn leave_ending(&mut self) {
+        if self.ending.take().is_some() {
+            self.inner.music.send(Request::Stop);
+        }
+    }
+
+    /// Whether the sequence after the main loop is playing.
+    #[cfg(test)]
+    pub(crate) fn ending(&self) -> bool {
+        self.ending.is_some()
+    }
+
+    /// One retrace of the sequence after the main loop; the program is
+    /// over with it.
+    fn ending_tick(&mut self) {
+        let Some(e) = self.ending.as_mut() else {
+            return;
+        };
+        let going = e.tick();
+        for request in e.take_music() {
+            self.inner.music.send(request);
+        }
+        if !going {
+            self.ending = None;
+            self.over = true;
         }
     }
 
@@ -334,11 +409,24 @@ impl Program {
     /// A button. The options take any button the same (`cs:0C86h`: events
     /// 5, 6 and 7 go to one arm); the game takes the left.
     pub(crate) fn click(&mut self, left: bool) {
+        if let Some(e) = self.ending.as_mut() {
+            e.click(left);
+            return;
+        }
         self.inner.notice = None;
+        // Either button is a click: the dispatcher sends events 5, 6 and 7
+        // the same way (`cs:1479h`), and only the strip's arrows tell the
+        // second button apart.
         if self.inner.options_up() {
             self.inner.options_input(OptionsInput::Click);
-        } else if left {
+        } else {
+            self.inner.button = if left {
+                super::input::BUTTON_FIRST
+            } else {
+                super::input::BUTTON_SECOND
+            };
             self.inner.click();
+            self.inner.button = super::input::BUTTON_FIRST;
         }
     }
 
@@ -346,6 +434,10 @@ impl Program {
     /// options take it while they are up, then the choice menu, then the
     /// game.
     pub(crate) fn key(&mut self, mapped: u16) {
+        if let Some(e) = self.ending.as_mut() {
+            e.key(mapped);
+            return;
+        }
         if self.inner.options_up() {
             self.inner.options_input(OptionsInput::Key(mapped));
             return;
@@ -369,6 +461,10 @@ impl Program {
     pub(crate) fn tick(&mut self) -> bool {
         if self.over {
             return false;
+        }
+        if self.ending.is_some() {
+            self.ending_tick();
+            return !self.over;
         }
         // The timer's tick, then one turn of the running handler's frame
         // loop: the input polled and dispatched, the handler's own check,
@@ -421,6 +517,7 @@ impl Program {
             return;
         }
         self.started = true;
+        self.leave_ending();
         self.inner.options_drop();
         self.inner.complete_entry();
         if let Some(v) = self.visit.take() {
@@ -445,6 +542,7 @@ impl Program {
             return;
         }
         self.started = true;
+        self.leave_ending();
         self.inner.options_drop();
         self.inner.complete_entry();
         if let Some(v) = self.visit.take() {
@@ -474,12 +572,18 @@ impl Program {
 
     /// The palette the program shows.
     pub(crate) fn palette(&self) -> &Palette {
-        self.inner.palette()
+        match &self.ending {
+            Some(e) => e.palette(),
+            None => self.inner.palette(),
+        }
     }
 
     /// The picture the program shows.
     pub(crate) fn render(&self) -> Framebuffer {
-        self.inner.render()
+        match &self.ending {
+            Some(e) => e.render(),
+            None => self.inner.render(),
+        }
     }
 
     /// A 120th of a second, read from the timer.
@@ -493,5 +597,14 @@ impl Program {
     /// chip, 120 ticks a second.
     pub(crate) fn frame_duration() -> Duration {
         Duration::from_nanos(super::Clock::tick_nanos())
+    }
+
+    /// How long a tick lasts now: the timer's, or a retrace of the screen
+    /// while the sequence after the main loop plays.
+    pub(crate) fn tick_duration(&self) -> Duration {
+        if self.ending.is_some() {
+            return Duration::from_nanos(super::title::frame_nanos());
+        }
+        Program::frame_duration()
     }
 }
