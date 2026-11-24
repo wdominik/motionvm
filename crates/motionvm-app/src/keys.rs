@@ -98,6 +98,8 @@ fn key(physical: PhysicalKey) -> Key {
         KeyCode::Backspace => Key::Backspace,
         KeyCode::Tab => Key::Tab,
         KeyCode::Space => Key::Space,
+        KeyCode::NumpadAdd => Key::KeypadPlus,
+        KeyCode::NumpadSubtract => Key::KeypadMinus,
         _ => Key::Other,
     }
 }

@@ -85,6 +85,9 @@ impl Player {
                     }
                     self.g.key(9);
                 }
+                // The menu's own table takes 101h, handed to the runtime
+                // past the pointer library's hook: a player's Enter never
+                // reaches it, Space and Enter clicking at the pointer.
                 self.g.key(13);
             } else if matches!(a.tasks.t[0].kind, 3 | 4) && t % 30 == 0 {
                 self.g.click(true);

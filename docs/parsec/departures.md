@@ -170,16 +170,6 @@ take back, are the same case: the original fills them from its heap.
 
 ## Rooms and objects
 
-**The forest's animations start afresh in each row.** Between two forest
-rows the original keeps the slot loaded, and with bit 4 of the object map
-set the slot unload keeps the `AN` entries as they stand (`0x8592`) — their
-working state with them — so an animation in one maze row runs on in the
-next ([objects](engine/objects.md)). Here the animation runs are built
-anew from the block on every arrival, the map's renaming applied
-(`0x82E5`): an animation that was mid-stream when the player stepped on
-starts again from its beginning. The picture, the objects' positions and
-frames and the song are kept as the original keeps them.
-
 **The live byte has no counterpart.** An object map's byte at `+6` goes
 into the bound object's `+1` (`0x7EB9`), and only `0883h:000Fh` reads it,
 to leave a standing single-cel visible record's rectangle off the list of
@@ -244,6 +234,16 @@ original's ([the pointer](engine/cursors.md)). What is not:
 - **The mouse driver's mickeys and their acceleration**
   (`0x184D9`–`0x185FA`): the position is the host's, clamped to the
   library's limits, and a change sets the same bits 0 and 1 of `[2F6h]`.
+  The library's own keys go through the original's step and conversion
+  ([the pointer](engine/cursors.md#the-keys)), from wherever the host's
+  mouse last put the pointer: a host move sets the position outright,
+  where the original would have added its mickeys to what the keys
+  carry.
+- **The title programs' pointer is placed, not stepped.** Their library
+  is `XP01`'s, but the rebuild of it keeps only where the pointer is: the
+  keys step it on the library's timer slot as in `XP01`, and a hidden
+  pointer takes no step, where the original counts the units and steps
+  by them once it is shown.
 - **The buttons' click timing and pressed shapes**
   (`0x18733`–`0x187C2`): the one shaped region the game registers, the
   menu's, names the same shape for hover and press (`0101h`).

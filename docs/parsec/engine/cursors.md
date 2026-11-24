@@ -143,6 +143,80 @@ built from (`0x17B24`). `179Eh:12C7h` does the same reload inline
 The pointer is drawn over the finished picture with a save-under in video
 memory (`0x17C50`, `0x17D5F`), so it never enters the room's own redraw.
 
+## The keys
+
+The library takes twelve keys for itself. When it starts (`179Eh:0A00h`),
+each module in its table at `179Dh:0000h` is called with `AX = 0`
+(`0x18431`–`0x18447`); the second, `179Eh:13B3h`, takes INT 9
+(`0x18DC4`–`0x18DE8`) and puts its step first in the movement,
+`[3FEh] = 14E6h` (`0x18E03`). The shutdown gives the interrupt back
+(`0x18A4E`). In between nothing takes it away; one byte, `cs:13B2h`, says
+whether it acts, the image holds it at 1, and only `179Eh:14B4h` changes
+it — called by the developer's room list alone (`0x0F069`, `0x0F1A6`).
+
+The handler (`179Eh:142Ah`) reads the scan code at port `60h`
+(`0x18E14`), looks its low seven bits up in a table of 60h bytes at
+`cs:1352h` (`0x18E25`) and keeps the level of the slot it finds, 1 to 12,
+in `cs:1346h`. A key with a slot is acknowledged and **not passed on**
+(`0x18E34`–`0x18E3A`): the BIOS never buffers it, and the program never
+reads it as a keystroke. The program fills the table with
+`179Eh:1483h(list)` right after setting the pointer up (`0x5F10`–`0x5F14`),
+from `DS:0228h`:
+
+| Slots | Keys | What they do |
+|---|---|---|
+| 1–8 | Home, Up, Page Up, Left, Right, End, Down, Page Down | the eight directions |
+| 9, 10 | Space, Enter | the first button, the second |
+| 11, 12 | keypad −, keypad + | every direction at its slowest, at its fastest |
+
+The step (`179Eh:14E6h`, `0x18EC6`) runs first in every movement. With the
+switch clear it clears the key buttons `[3CEh]` and stops (`0x18ED7`); with
+no units elapsed it stops (`0x18ED6`). A held direction's speed, one of
+eight words at `[1868h]`, grows by `[3CCh]` up to `[3CAh]`, a released
+one's drops to `[3C8h]` — or all eight are `[3C8h]` while keypad − is
+down and `[3CAh]` while keypad + is (`0x18EE0`–`0x18F32`). A held
+direction moves by its speed times the units, at most ten, over 256
+(`0x18F34`–`0x18F48`), into `[3E2h]` and `[3E4h]`, where the mouse
+driver's mickeys go too (`0x18F51`–`0x18F8D`). Slots 9 and 10 become bits
+0 and 1 of `[3CEh]` (`0x18F91`–`0x18F9E`), which the buttons take as their
+level beside the mouse's (`0x187BE`).
+
+The movement then converts what is carried, y before x
+(`0x18500`–`0x1856F`): an acceleration factor of the value's size times
+`[3D8h]` plus half the last factor, at most 1000h, which from 100h up
+scales the value, rounded; the value over the mouse setting's divisor,
+`[3DAh]` for x and `[3DCh]` for y, is the move, and the rest is carried
+only when the move is zero (`0x18571`–`0x185E9`). Resetting the library
+(`179Eh:12C7h`) runs the step with nothing elapsed and clears what is
+carried and both factors (`0x18CDE`–`0x18CF1`).
+
+`INFO.DOK`, the guide the game ships, says the same to the player: the
+cursor keys move the pointer, Return or Space presses the button.
+
+Held for eight BIOS ticks, 439 ms, in the options `XP01` opens with, under
+DOSBox-X, Down takes the pointer from the last row into the strip; the
+rebuild held for the same time comes to rest on the same picture, every
+RGB pixel. The step and the conversion are held against the original's
+poll `179Eh:0AF9h`, run under an 8086 emulator, for 264 polls
+(`tests/ds1_keyboard_cases.txt`).
+
+Captain Zins's `XP01.EXE` has the same library at `163Ch`, hands it the
+same twelve keys (`0x1662`, `DS:01BEh`) and keeps the words at its own
+addresses — the switch `cs:04C2h`, the speeds at `[138Ah]`, `[35Eh]` for
+`[3C8h]`, `[36Eh]` for `[3D8h]`, `[370h]` for `[3DAh]`. Its handler passes
+an `E0h` prefix on to the BIOS where Dunkle Schatten's swallows it
+(`0x18E19`); the key after it is the one with the slot either way.
+
+Both title programs, `XP00.EXE`, carry the same library at their own
+addresses — Dunkle Schatten's at `08E6h`, Captain Zins's at `0970h` —
+hand it the same twelve keys (`0x0CDF`, `DS:00BCh`) and register its
+timer slot with the same two hundredths (`0x0CAF`, `[1A8h]`). Both read
+the settings file at their start for the mouse setting alone and set the
+divisors by `XP01`'s table (`0x69E`–`0x700`). Held for eight BIOS ticks in
+Dunkle Schatten's title menu under DOSBox-X, Down takes the arrow from
+`(160, 100)` onto *Neues Spiel beginnen*; the rebuild held for the same
+time comes to rest on the same picture, every RGB pixel.
+
 ## See also
 
 - [Verbs](verbs.md) — what a click under the pointer reaches

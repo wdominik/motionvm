@@ -9,7 +9,7 @@
 
 use super::cli::{Options, choose_game, parse_args, usage};
 use super::scale::{base_pair, blit, opening_pair, scale_pair};
-use super::{data_path, fatal, keys, note, roster, sound};
+use super::{data_path, keys, note, roster, sound};
 use std::path::PathBuf;
 
 use std::num::NonZeroU32;
@@ -169,6 +169,7 @@ pub(crate) fn run() -> Result<(), motionvm_playable::Error> {
         lut_palette: None,
         perf: std::env::var_os("MOTIONVM_PERF").is_some().then(Perf::new),
         _audio: audio,
+        stopped: None,
     };
     event_loop.run_app(&mut app)?;
 
@@ -183,7 +184,10 @@ pub(crate) fn run() -> Result<(), motionvm_playable::Error> {
     for line in app.game.diagnostics() {
         note(&line.to_string());
     }
-    Ok(())
+    match app.stopped {
+        Some(why) => Err(why.into()),
+        None => Ok(()),
+    }
 }
 
 /// A pointer position as the platform reports it, in whole window pixels.
@@ -278,6 +282,11 @@ struct App {
     /// Holds the audio stream open. Dropping it stops the music, so it lives
     /// here even though nothing ever reads it.
     _audio: Option<sound::Sound>,
+    /// Why the run stopped short, once something inside the event loop has
+    /// stopped it. The loop can only be left, not left with an error, so the
+    /// reason waits here and [`run`] returns it — the player's dialog and the
+    /// exit status both come from `main`, once, as for an error at the start.
+    stopped: Option<String>,
 }
 
 /// The tally behind `MOTIONVM_PERF=1`: how many pictures a second actually
@@ -348,8 +357,7 @@ impl ApplicationHandler for App {
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Rc::new(w),
             Err(e) => {
-                fatal(&format!("cannot open a window: {e}"));
-                event_loop.exit();
+                self.stop(event_loop, format!("cannot open a window: {e}"));
                 return;
             }
         };
@@ -358,8 +366,7 @@ impl ApplicationHandler for App {
         {
             Ok(surface) => self.surface = Some(surface),
             Err(e) => {
-                fatal(&format!("cannot get a drawing surface: {e}"));
-                event_loop.exit();
+                self.stop(event_loop, format!("cannot get a drawing surface: {e}"));
                 return;
             }
         }
@@ -451,7 +458,10 @@ impl ApplicationHandler for App {
                 // It is the one key the window keeps for itself, and it
                 // costs the games nothing: their keyboard module documents
                 // that none of them reads F12.
-                if down && event.physical_key == PhysicalKey::Code(KeyCode::F12) {
+                //
+                // Not on repeat, like Alt+Enter: a held key would toggle the
+                // pause and overwrite the picture for as long as it is down.
+                if down && !event.repeat && event.physical_key == PhysicalKey::Code(KeyCode::F12) {
                     self.paused = !self.paused;
                     let path = self.shot.as_path();
                     // The data directory need not exist yet: a player who has
@@ -569,6 +579,13 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// Leaves the event loop because the run cannot go on, keeping the reason
+    /// for [`run`] to hand back.
+    fn stop(&mut self, event_loop: &ActiveEventLoop, why: String) {
+        self.stopped.get_or_insert(why);
+        event_loop.exit();
+    }
+
     /// One picture: let the game step — sometimes more than once — ask for a
     /// repaint, and say how long the picture it left should stand on screen.
     ///
@@ -619,8 +636,7 @@ impl App {
                 // A missing word stops the game rather than limping on, on
                 // purpose: a silently skipped word is indistinguishable from a
                 // working one until something far downstream goes wrong.
-                fatal(&format!("the game stopped: {e}"));
-                event_loop.exit();
+                self.stop(event_loop, format!("the game stopped: {e}"));
                 return FRAME;
             }
             // The game ended itself: `QUITANIM` stopped the main loop and

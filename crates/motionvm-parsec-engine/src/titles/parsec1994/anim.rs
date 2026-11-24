@@ -205,6 +205,39 @@ impl Adventure {
         }
     }
 
+    /// The runs of the next forest row, when the release kept the room's
+    /// `AN` entries (`0x8592`): each as the last row left it, its id given
+    /// back (`0x87E7`) and the new row's map renaming it (`0x82E5`). The
+    /// global block's entries are taken afresh, as on every arrival.
+    pub(super) fn carry_animations(&mut self) {
+        let Some(block) = self.room_animations.clone() else {
+            self.rebuild_animations();
+            return;
+        };
+        let renamed = self.bound_map.as_ref().map(|m| m.ani_ids.clone());
+        let room: Vec<AniRun> = self.anis.iter().filter(|r| !r.global).cloned().collect();
+        let mut anis: Vec<AniRun> = room
+            .into_iter()
+            .zip(block.entries())
+            .enumerate()
+            .map(|(j, (mut run, e))| {
+                run.id = renamed
+                    .as_ref()
+                    .and_then(|r| r.get(j).copied().flatten())
+                    .unwrap_or_else(|| AniRun::new(&e, false).id);
+                run.head = None;
+                run
+            })
+            .collect();
+        if let Some(global) = &self.global_animations {
+            anis.extend(global.entries().map(|e| AniRun::new(&e, true)));
+        }
+        self.anis = anis;
+        if let Some(w) = &mut self.walker {
+            w.state = 0;
+        }
+    }
+
     /// `19D2h(lo, hi)`: a wait between the two, `lo` itself when they
     /// are not in order (`0x0A20E`).
     fn wait_between(&mut self, lo: i32, hi: i32) -> i32 {

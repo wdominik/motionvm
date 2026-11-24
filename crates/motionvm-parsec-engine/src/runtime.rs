@@ -47,8 +47,8 @@ pub trait Runtime: Send {
     fn button(&mut self, which: Button, down: bool);
     /// One key press; read in a later step.
     fn key_down(&mut self, press: &KeyPress);
-    /// One key release. The game reads none, so the default body drops it;
-    /// the channel exists because the contract has one.
+    /// One key release. A key the program's keyboard hook reads is let go
+    /// here; the default body drops it.
     fn key_up(&mut self, press: &KeyPress) {
         let _ = press;
     }

@@ -17,6 +17,13 @@
 //! The scan codes are the US set-1 codes, the set every PC BIOS of the time
 //! answers with: `48h`, `50h`, `4Bh` and `4Dh` for the four arrows.
 //!
+//! **Before the BIOS.** A program can take keys at the keyboard interrupt,
+//! before the BIOS buffers them, and `XP01.EXE`'s pointer library does: a
+//! key it has a slot for moves the pointer or presses a button and never
+//! becomes a keystroke (`titles::parsec1994::keyboard`). So each key is
+//! offered there first, by its make code ([`scan`]), and only a key the
+//! program leaves alone reaches this buffer.
+//!
 //! A key that types nothing and has no code here — a function key, Home, a
 //! bare modifier — is not delivered: the game reads none, and inventing one
 //! would put a way through a game that the game does not know about.
@@ -55,6 +62,44 @@ pub(crate) fn code(press: &KeyPress) -> Option<i32> {
         Key::Right => scan(0x4D),
         _ => press.text.map(|c| num::signed32(u32::from(c))),
     }
+}
+
+/// The make code a key sends, in the US set-1 codes every PC keyboard
+/// controller of the time hands port `60h`, or `None` for a key the
+/// contract names without one. A key on the grey block (the arrows, Home,
+/// End, the page keys, Insert, Delete) sends the same code behind an `E0h`
+/// prefix, which a program reading the port takes or passes as a prefix.
+pub(crate) fn scan(key: Key) -> Option<u8> {
+    const LETTERS: &[u8; 26] = &[
+        0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18,
+        0x19, 0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, 0x15, 0x2C,
+    ];
+    Some(match key {
+        Key::Letter(c @ b'A'..=b'Z') => LETTERS[usize::from(c - b'A')],
+        Key::Digit(0) => 0x0B,
+        Key::Digit(d @ 1..=9) => d + 1,
+        Key::Function(f @ 1..=10) => 0x3A + f,
+        Key::Function(11) => 0x57,
+        Key::Function(12) => 0x58,
+        Key::Escape => 0x01,
+        Key::Backspace => 0x0E,
+        Key::Tab => 0x0F,
+        Key::Enter => 0x1C,
+        Key::Space => 0x39,
+        Key::Home => 0x47,
+        Key::Up => 0x48,
+        Key::PageUp => 0x49,
+        Key::KeypadMinus => 0x4A,
+        Key::Left => 0x4B,
+        Key::Right => 0x4D,
+        Key::KeypadPlus => 0x4E,
+        Key::End => 0x4F,
+        Key::Down => 0x50,
+        Key::PageDown => 0x51,
+        Key::Insert => 0x52,
+        Key::Delete => 0x53,
+        _ => return None,
+    })
 }
 
 /// The type-ahead buffer: keystrokes waiting for the step that reads them.

@@ -134,6 +134,12 @@ fills the reservation. The strip's widgets — six verb buttons in two
 rows, eight inventory slots and two arrows — are a table of seventeen
 18-byte records at `2115:0000` ([verbs](verbs.md)).
 
+Captain Zins's painter, `078Ah:0069h`, sets the line two rows lower and
+holds the band dark from there: each glyph at row 130 (`0x07C7B`, `push
+82h`) and the twelve rows flattened from 130 (`0x07D59`), where Dunkle
+Schatten's `0C3Fh:005Ch` uses 128 for both (`0x0C7BE`, `0x0C89C`). The
+runtime reads the row off the painter of the program it opens.
+
 ## Open questions
 
 What is not yet known about the timing of the leaving is recorded in the

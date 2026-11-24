@@ -119,6 +119,23 @@ impl std::fmt::Debug for Game {
 }
 
 impl Game {
+    /// A key offered to the program's keyboard hook first, by its make
+    /// code ([`crate::keys::scan`]); answers whether the hook kept it.
+    fn hooked(&mut self, press: &KeyPress, down: bool) -> bool {
+        let Some(scan) = crate::keys::scan(press.key) else {
+            return false;
+        };
+        match self.inner.pointer_key(scan, down) {
+            crate::titles::parsec1994::KeyRoute::Passed => false,
+            crate::titles::parsec1994::KeyRoute::Taken => true,
+            crate::titles::parsec1994::KeyRoute::Button { first, down } => {
+                self.buttons
+                    .key(if first { Button::Left } else { Button::Right }, down);
+                true
+            }
+        }
+    }
+
     /// Opens a PARSEC install at `dir`.
     ///
     /// The game is identified by its room container's name; a directory
@@ -231,6 +248,7 @@ impl crate::Runtime for Game {
             self.inner.click(false);
         }
         self.over = !self.inner.tick();
+        self.inner.settle_events();
         Ok(())
     }
 
@@ -249,9 +267,18 @@ impl crate::Runtime for Game {
     }
 
     /// A key press, into the type-ahead buffer a later step reads it from
-    /// (see `keys`). What the game reads out of a keystroke is its own.
+    /// (see `keys`). What the game reads out of a keystroke is its own —
+    /// unless the program's keyboard hook takes the key first: then it
+    /// never reaches the buffer, and its two button keys are buttons.
     fn key_down(&mut self, press: &KeyPress) {
-        self.keys.press(press);
+        if !self.hooked(press, true) {
+            self.keys.press(press);
+        }
+    }
+
+    /// A key coming up, which only the program's keyboard hook reads.
+    fn key_up(&mut self, press: &KeyPress) {
+        self.hooked(press, false);
     }
 
     /// The frame to show, pointer and all: the 320×200 picture composed
@@ -293,11 +320,13 @@ impl crate::Runtime for Game {
     /// resolves inside the game directory: the install is treated as
     /// read-only.
     ///
-    /// The directory is resolved before the slug goes on, so that a path
-    /// spelled through `..` into the install is seen to be inside it even
-    /// though the game's own directory there does not exist yet.
+    /// The directory is resolved before the slug goes on
+    /// ([`motionvm_playable::resolve_dir`]), so that a relative path, a `..`
+    /// or a symlinked parent into the install is seen to be inside it even
+    /// though neither the directory nor the game's own one under it exists
+    /// yet.
     fn set_saves(&mut self, dir: &Path) -> Result<()> {
-        let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let dir = motionvm_playable::resolve_dir(dir)?;
         let own = dir.join(self.title().slug());
         self.inner.set_saves(&own)?;
         self.saves = Some(own);

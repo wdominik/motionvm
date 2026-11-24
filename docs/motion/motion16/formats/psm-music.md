@@ -122,8 +122,10 @@ The same driver two years earlier is held against a recording of its own:
 Falsches Spiel mit Eddie M.'s intro runs `-1 24 STARTTUNE` under a poll loop
 that waits for a key, and a capture of the original standing there holds the
 tune for 54.8 seconds — 3 640 writes, of which the 3 551 past the recording's
-opening snapshot agree with the rebuilt stream write for write, the chip's
-state at the first note agreeing register for register. That is the fifth
+opening snapshot agree with the rebuilt stream write for write, and each
+register the snapshot holds at the first note has the rebuilt stream's value
+— compared in that one direction only, so a register the rebuilt stream sets
+and the snapshot leaves at zero is not covered. That is the fifth
 build's `MUSADL.DRV`, byte-identical to the 1995/96 games', playing a module
 whose `PLX` section sits 1688 bytes in.
 

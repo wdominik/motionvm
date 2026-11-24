@@ -430,7 +430,8 @@ mod tests {
         assert!(full(&x, x.banner_pal));
         assert_eq!(x.lib.screen.pixels, x.banner.pixels);
         ticks(&mut x, 500);
-        x.key(0x20);
+        // A key the library's hook leaves to the BIOS: `a`.
+        x.key(0x61);
         assert_eq!(to_the_end(&mut x), 34, "faded out by 8");
         assert!(x.take_music().is_empty(), "the quit leaves the music be");
     }
@@ -545,7 +546,7 @@ mod tests {
             return;
         };
         let mut lib = x.lib;
-        lib.key(0x20);
+        lib.key(0x61);
         lib.click(true);
         lib.click(true);
         assert_eq!(lib.poll(), 5);

@@ -190,3 +190,73 @@ fn every_slot_the_panel_offers_is_one_that_was_written() {
     assert_eq!(existing(&mut fresh), [-1, 0, 0, 0, 0]);
     let _ = std::fs::remove_dir_all(&saves);
 }
+
+/// A save that stops at its last file leaves the first save — all three of
+/// its files, under both of their numbers — to the next session.
+///
+/// This game's save is the one that does not keep to a single number:
+/// `701.blk` from `PUT`, `001.anm` and `001.FRZ` from the other two. The
+/// second save here gets through `PUT` and `PUTANIM` and is stopped at
+/// `=>PUTAS` by a directory where its temporary would go. A fresh session must
+/// find the first save byte for byte, and load it into location 5.
+#[test]
+fn a_save_stopped_at_its_last_file_leaves_the_first_save() {
+    let Some(dir) = gamedata_vloomes() else {
+        eprintln!("skipping: no Victor Loomes gamedata directory");
+        return;
+    };
+    let saves = temp_saves("stopped");
+    let files = ["701.blk", "001.anm", "001.FRZ"];
+
+    let mut game = into_the_game(&dir, &saves);
+    game.request_location(5).expect("NAO");
+    common::hold(&mut game, 160, 100, 600, -1);
+    assert_eq!(game.get_var(605, "AO"), Some(5), "the game moved");
+    open_page(&mut game, 317);
+    click_first_slot(&mut game);
+    let slots = game.saves().expect("a save directory").to_path_buf();
+    let read = || -> Vec<Vec<u8>> {
+        files
+            .iter()
+            .map(|f| std::fs::read(slots.join(f)).expect("the save"))
+            .collect()
+    };
+    let first = read();
+    drop(game);
+
+    // The second session saves from location 1 and is stopped at the last
+    // of the three files.
+    let mut second = into_the_game(&dir, &saves);
+    let block = slots.join("001.FRZ.tmp");
+    std::fs::create_dir(&block).expect("a directory in the temporary's way");
+    open_page(&mut second, 317);
+    let mut result = Ok(());
+    for f in 0..600 {
+        second
+            .set_input(60, 122, f == 100, false, 0)
+            .expect("input");
+        result = second.pump().and_then(|_| second.step());
+        if result.is_err() {
+            break;
+        }
+    }
+    let err = result.expect_err("the save is stopped");
+    assert!(
+        err.to_string().contains("001.FRZ"),
+        "at the last file: {err}"
+    );
+    assert_ne!(
+        std::fs::read(slots.join("701.blk")).expect("the second .blk"),
+        first[0],
+        "the second save had replaced the block"
+    );
+    drop(second);
+    std::fs::remove_dir(&block).expect("unblocked");
+
+    let mut fresh = into_the_game(&dir, &saves);
+    assert!(read() == first, "the first save, byte for byte");
+    open_page(&mut fresh, 318);
+    click_first_slot(&mut fresh);
+    assert_eq!(fresh.get_var(605, "AO"), Some(5), "and it loads");
+    let _ = std::fs::remove_dir_all(&saves);
+}

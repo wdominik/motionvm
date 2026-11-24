@@ -53,6 +53,10 @@ Once, before the first picture:
    subdirectory of your own under it, named by the game, so two games
    pointed at the same directory keep their slots apart — and know that
    slugs are a workspace-wide namespace, shared with every other family.
+   Refuse a directory inside the game's data, and resolve both paths with
+   `motionvm_playable::resolve_dir` before comparing them and before
+   creating anything: a relative path, a `..` or a symlink walks around a
+   comparison of the paths as given.
 6. **`start`**, which runs the original's own startup and returns once the
    game is parked in its frame loop. Everything after this is `step`'s.
 7. **`request_location(at)`**, only behind the window's `--loc` (and

@@ -19,10 +19,18 @@ use motionvm_playable::Button;
 
 /// The two buttons' level, and whether each went down since the last
 /// step took it.
+///
+/// A button has two sources: the mouse, and the two keys the program's
+/// keyboard hook makes buttons of (`titles::parsec1994::keyboard`). The
+/// library takes the key bits as the buttons' level beside the mouse's
+/// (`0x187BE`), so a button is down while either holds it, and a press is
+/// the two together going from up to down.
 #[derive(Debug, Default)]
 pub(crate) struct Latch {
-    /// Down now, left then right.
+    /// Down on the mouse now, left then right.
     held: [bool; 2],
+    /// Down on the keyboard now, left then right.
+    keys: [bool; 2],
     /// Went down since the last [`Latch::take`], left then right.
     pressed: [bool; 2],
 }
@@ -42,10 +50,21 @@ impl Latch {
         let Some(i) = slot(which) else {
             return;
         };
-        if down && !self.held[i] {
+        if down && !self.held[i] && !self.keys[i] {
             self.pressed[i] = true;
         }
         self.held[i] = down;
+    }
+
+    /// One transition of a button key.
+    pub(crate) fn key(&mut self, which: Button, down: bool) {
+        let Some(i) = slot(which) else {
+            return;
+        };
+        if down && !self.held[i] && !self.keys[i] {
+            self.pressed[i] = true;
+        }
+        self.keys[i] = down;
     }
 
     /// The presses since the last call, left first, taken out of the

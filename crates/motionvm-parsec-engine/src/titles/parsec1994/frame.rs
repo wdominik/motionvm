@@ -75,8 +75,19 @@ impl Adventure {
         let hundredths = self.clock.interrupt();
         self.bios.interrupt();
         let mouse = self.mouse;
+        let mut keys_moved = None;
         if let Some(c) = &mut self.cursor {
+            c.read_key_params(&self.ds);
             c.timer(num::low_word(hundredths), mouse);
+            if c.take_keys_moved() {
+                keys_moved = Some((i32::from(c.pos.0), i32::from(c.pos.1)));
+            }
+        }
+        // Where the keys took the pointer is where the program has it: the
+        // hover and the hotspots follow, as they follow the host's mouse.
+        if let Some(at) = keys_moved {
+            self.mouse = at;
+            self.menu_hover();
         }
     }
 

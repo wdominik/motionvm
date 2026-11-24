@@ -134,6 +134,8 @@ pub(crate) struct Program {
     build: &'static Build,
     /// The generation's parts: locations, rooms, strip, palette banks.
     pub inner: Adventure,
+    /// What the run has found so far, the events it was told by let go.
+    findings: Findings,
     /// The location being visited, whose handler's frame loop the ticks
     /// run. `None` before the main loop and after it, and after a host's
     /// jump without an entry.
@@ -209,6 +211,7 @@ impl Program {
             saves: None,
             started: false,
             ending: None,
+            findings: Findings::default(),
             over: false,
             start: reading.start,
         })
@@ -225,6 +228,12 @@ impl Program {
     pub(crate) fn has_save(&self) -> bool {
         self.save_path(self.build.save.sav_name)
             .is_some_and(|p| p.is_file())
+    }
+
+    /// The settings file's bytes, when there is one to read.
+    pub(crate) fn settings_file(&self) -> Option<Vec<u8>> {
+        self.save_path(self.build.save.cfg_name)
+            .and_then(|p| std::fs::read(p).ok())
     }
 
     /// The saved game deleted, as a new game from the title program
@@ -367,6 +376,28 @@ impl Program {
         self.over = self.ending.is_none();
     }
 
+    /// Where this run fell short of the program, for the host: the events
+    /// that say the engine did not do what the original would have.
+    ///
+    /// An ending that could not be read is its own line, with its reason —
+    /// the run then ends at once, and a player who sees the window close
+    /// after the last answer has nothing else to go on. The rest are totals,
+    /// one line per kind, because a handler reached every frame would
+    /// otherwise bury the report.
+    pub(crate) fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic> {
+        let mut f = self.findings.clone();
+        f.fold(&self.inner.events);
+        f.lines()
+    }
+
+    /// The events since the last call folded into what the run reports, and
+    /// let go: nothing else outside the tests reads them, and a run that
+    /// kept every one would grow for as long as it plays.
+    pub(crate) fn settle_events(&mut self) {
+        let events = std::mem::take(&mut self.inner.events);
+        self.findings.fold(&events);
+    }
+
     /// A host's jump while the sequence after the main loop plays: it is
     /// taken down, and its endless song with it.
     fn leave_ending(&mut self) {
@@ -443,7 +474,9 @@ impl Program {
             return;
         }
         // The choice menu's own table (`cs:11ACh`, `0x0E0B6`): `20h` and
-        // `101h` take, `105h` and `106h` move.
+        // `101h` take, `105h` and `106h` move. With the pointer library's
+        // hook in, Space and Enter never reach it — they are the pointer's
+        // buttons (`keyboard`) — and Tab and Shift-Tab do.
         if self.inner.menu.up {
             let key = match mapped {
                 0x20 | 0x101 => MenuKey::Select,
@@ -555,13 +588,13 @@ impl Program {
 
     /// The save directory, refused inside the install, which is treated as
     /// read-only.
+    ///
+    /// Both sides are resolved ([`motionvm_playable::resolve_dir`]) and the
+    /// check comes before anything is created: a directory made and then
+    /// refused is the very thing the refusal is for.
     pub(crate) fn set_saves(&mut self, dir: &Path) -> Result<()> {
-        let game = std::fs::canonicalize(&self.game_dir).unwrap_or_else(|_| self.game_dir.clone());
-        let want = if dir.exists() {
-            std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
-        } else {
-            dir.to_path_buf()
-        };
+        let game = motionvm_playable::resolve_dir(&self.game_dir)?;
+        let want = motionvm_playable::resolve_dir(dir)?;
         if want.starts_with(&game) {
             return Err(Error::SavesInsideGame);
         }
@@ -606,5 +639,83 @@ impl Program {
             return Duration::from_nanos(super::title::frame_nanos());
         }
         Program::frame_duration()
+    }
+}
+
+/// What a run has found it could not do as the program does: the events
+/// that say so, counted.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Findings {
+    /// Why the sequence after the main loop could not be read.
+    ending: Vec<String>,
+    unread: std::collections::BTreeMap<String, usize>,
+    far: std::collections::BTreeMap<String, usize>,
+    unbuilt: std::collections::BTreeMap<&'static str, usize>,
+}
+
+impl Findings {
+    fn fold(&mut self, events: &[Event]) {
+        for event in events {
+            match event {
+                Event::EndingUnread(why) => self.ending.push(why.clone()),
+                Event::UnreadRule {
+                    far: (seg, off),
+                    flags,
+                } => {
+                    *self
+                        .unread
+                        .entry(format!("{seg:04X}h:{off:04X}h (flags {flags:04X}h)"))
+                        .or_default() += 1;
+                }
+                Event::FarWrite { seg, off, .. } => {
+                    *self
+                        .far
+                        .entry(format!("{seg:04X}h:{off:04X}h"))
+                        .or_default() += 1;
+                }
+                Event::Unbuilt(at, _) => *self.unbuilt.entry(at).or_default() += 1,
+                _ => {}
+            }
+        }
+    }
+
+    fn lines(self) -> Vec<motionvm_playable::Diagnostic> {
+        let mut out: Vec<_> = self
+            .ending
+            .into_iter()
+            .map(|why| motionvm_playable::Diagnostic {
+                subject: "the ending",
+                detail: format!(
+                    "what the program shows after its main loop could not be read, \
+                     so it ended at once: {why}"
+                ),
+            })
+            .collect();
+        let line = |subject, totals: Vec<(String, usize)>| {
+            (!totals.is_empty()).then(|| motionvm_playable::Diagnostic {
+                subject,
+                detail: totals
+                    .into_iter()
+                    .map(|(what, n)| format!("{what} ×{n}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            })
+        };
+        out.extend(line(
+            "rule handlers not read",
+            self.unread.into_iter().collect(),
+        ));
+        out.extend(line(
+            "far writes not carried out",
+            self.far.into_iter().collect(),
+        ));
+        out.extend(line(
+            "engine routines not built",
+            self.unbuilt
+                .into_iter()
+                .map(|(at, n)| (at.to_string(), n))
+                .collect(),
+        ));
+        out
     }
 }

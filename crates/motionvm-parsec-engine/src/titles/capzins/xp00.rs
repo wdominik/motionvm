@@ -39,14 +39,15 @@ use crate::error::Result;
 use crate::exe::Image;
 use crate::exe::op::{PUSH_BX_MEM, PUSH_IMM16};
 use crate::num;
+use crate::titles::parsec1994::KeyMap;
 use crate::titles::parsec1994::Request;
 use crate::titles::parsec1994::title::host::TitleProgram;
 use crate::titles::parsec1994::title::intro::{Intro, Rect, copy_rect};
 use crate::titles::parsec1994::title::menu::{MUSIC_FADE, Menu, MenuSpec};
 use crate::titles::parsec1994::title::roll::{Roll, RollSpec};
 use crate::titles::parsec1994::title::{
-    Choice, Common, Event, FULL, Fade, Faded, KEY_ESCAPE, Lib, Pal, Slots, Step, fade_stage,
-    picture_fb,
+    Choice, Common, Event, FULL, Fade, Faded, KEY_ESCAPE, Lib, Pal, Slots, Step, TitleKeys,
+    fade_stage, picture_fb,
 };
 
 /// The build these addresses were read on.
@@ -221,12 +222,33 @@ pub(crate) struct Xp00 {
     stage: Stage,
 }
 
+/// The pointer library's keyboard in `XP00` (`crate::titles::parsec1994::keyboard`),
+/// the same code as `XP01`'s at `0970h`.
+const KEYS: TitleKeys = TitleKeys {
+    map: KeyMap {
+        // `0x0CDF`–`0x0CE3`: `push ds ; push 0BCh ; call far 0970h:049Fh`.
+        list: 0x00BC,
+        // `cs:0402h`, `0x9C02`: `cmp byte [cs:0402h], 0`.
+        switch: 0x09700 + 0x0402,
+        // `0x9C36`: `mov di, 2618h`.
+        speeds: 0x2618,
+        // `0x9C2F`, `0x9C41`: `[25Ch]`, `[25Eh]`, `[260h]`.
+        limits: 0x025C,
+        // `0xA3BC`: `mul word [26Ch]`.
+        acceleration: 0x026C,
+        // `0xA469`: `idiv word [26Eh]`; `0xA429`: `idiv word [270h]`.
+        divisors: 0x026E,
+    },
+    // `0x0CAF`: `push word [1A8h]`, the interval the slot is registered with.
+    interval: 0x01A8,
+};
+
 impl Xp00 {
     /// Reads the program and its files. Nothing runs yet.
     pub(crate) fn open(dir: &Path) -> Result<Self> {
         let image = Image::open(dir, "XP00.EXE", IMAGE_LEN)?;
         let res = resource_dir(dir);
-        let mut lib = Lib::new(Common::read(&image, &res)?);
+        let mut lib = Lib::new(Common::read(&image, &res, KEYS)?);
         let intros = Slots::open(&res, "INTROS.DAT")?;
 
         let anim = intros.resources(ANIM_SLOT)?;

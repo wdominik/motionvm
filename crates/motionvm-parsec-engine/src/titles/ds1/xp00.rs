@@ -38,11 +38,12 @@ use crate::error::Result;
 use crate::exe::Image;
 use crate::exe::op::PUSH_BX_MEM;
 use crate::num;
+use crate::titles::parsec1994::KeyMap;
 use crate::titles::parsec1994::title::host::TitleProgram;
 use crate::titles::parsec1994::title::intro::Intro;
 use crate::titles::parsec1994::title::menu::{Menu, MenuSpec};
 use crate::titles::parsec1994::title::{
-    Choice, Common, Fade, Faded, Lib, Pal, SURFACE_W, Slots, Step,
+    Choice, Common, Fade, Faded, Lib, Pal, SURFACE_W, Slots, Step, TitleKeys,
 };
 
 /// The build these addresses were read on.
@@ -116,6 +117,27 @@ pub(crate) struct Xp00 {
     stage: Stage,
 }
 
+/// The pointer library's keyboard in `XP00` (`crate::titles::parsec1994::keyboard`),
+/// the same code as `XP01`'s at `08E6h`.
+const KEYS: TitleKeys = TitleKeys {
+    map: KeyMap {
+        // `0x0CDF`–`0x0CE3`: `push ds ; push 0BCh ; call far 08E6h:1393h`.
+        list: 0x00BC,
+        // `cs:12C2h`, `0xA256`: `cmp byte [cs:12C2h], 0`.
+        switch: 0x08E60 + 0x12C2,
+        // `0xA28A`: `mov di, 1084h`.
+        speeds: 0x1084,
+        // `0xA283`, `0xA295`: `[25Ch]`, `[25Eh]`, `[260h]`.
+        limits: 0x025C,
+        // `0x989C`: `mul word [26Ch]`.
+        acceleration: 0x026C,
+        // `0x9949`: `idiv word [26Eh]`; `0x9909`: `idiv word [270h]`.
+        divisors: 0x026E,
+    },
+    // `0x0CAF`: `push word [1A8h]`, the interval the slot is registered with.
+    interval: 0x01A8,
+};
+
 impl Xp00 {
     /// Reads the program and its files. Nothing runs yet.
     pub(crate) fn open(dir: &Path) -> Result<Self> {
@@ -136,7 +158,7 @@ impl Xp00 {
             story.push(lines.iter().map(|l| to_cp437(l)).collect());
             at += 4;
         }
-        let mut lib = Lib::new(Common::read(&image, &res)?);
+        let mut lib = Lib::new(Common::read(&image, &res, KEYS)?);
         let intros = Slots::open(&res, "INTROS.DAT")?;
         let intro = Intro::read(&mut lib, &intros, WAVE_SLOT)?;
         let menu_pal = lib.add_palette(intros.palette(MENU_PAL)?);

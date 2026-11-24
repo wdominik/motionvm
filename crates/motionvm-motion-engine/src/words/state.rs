@@ -140,6 +140,10 @@ impl Engine {
                     return Err(Error::NoSaveDir { word: "PUT", id });
                 };
                 let bytes = mem.read_bytes(addr, size)?;
+                // The first of a save's three words opens the save: the file
+                // goes aside under a note before it is replaced, and
+                // `=>PUTAS` closes it (`save::journal`).
+                self.enlist("PUT", &path)?;
                 crate::save::write_atomically(&path, &bytes).map_err(|e| Error::Io {
                     word: "PUT",
                     path: path.clone(),

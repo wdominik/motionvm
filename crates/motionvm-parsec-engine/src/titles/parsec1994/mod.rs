@@ -40,12 +40,13 @@ use crate::titles::xp1994::{Flatten, Locations, Rule, Style, Timing};
 mod anim;
 mod api;
 pub(crate) mod clock;
-mod cursor;
+pub(crate) mod cursor;
 mod dialogue;
 mod effects;
 mod frame;
 mod input;
 pub(crate) mod install;
+pub(crate) mod keyboard;
 pub(crate) mod logic;
 mod menu;
 mod mode;
@@ -72,6 +73,7 @@ pub(crate) use clock::{BiosTick, Clock};
 pub(crate) use cursor::PointerMap;
 pub(crate) use dialogue::Event;
 pub(crate) use effects::{RETRACE_DEN, RETRACE_NUM};
+pub(crate) use keyboard::{KeyMap, Route as KeyRoute};
 use logic::LogicTable;
 #[cfg(test)]
 pub(crate) use menu::prepare_menu_text;
@@ -80,7 +82,9 @@ pub(crate) use mode::{Gate, GateMap, TWIN};
 pub(crate) use movers::MoverRt;
 pub(crate) use music::{MusicMap, Request};
 pub(crate) use objects::{HotspotRt, LIVE as OBJECT_LIVE, ObjectRt};
-pub(crate) use options::{Input as OptionsInput, KEY_ESCAPE, KEY_TAB, Opened, OptionsMap};
+pub(crate) use options::{
+    Input as OptionsInput, KEY_ESCAPE, KEY_TAB, Opened, OptionInks, OptionsMap,
+};
 pub(crate) use profile::{LibraryMap, Profile};
 #[cfg(test)]
 pub(crate) use savegame::sav_check;
@@ -180,9 +184,6 @@ const STATUS_INK: u8 = 0xF4;
 /// `0Ah` to `0FCh` (`0x0C793`), `0Dh` back to `0F4h` (`0x0C79E`); `00h`
 /// ends the line (`0x0C7D2`).
 const STATUS_INKS: [(u8, u8); 3] = [(0x09, 0xFA), (0x0A, 0xFC), (0x0D, 0xF4)];
-
-/// The row the status band starts on, and its height (`0x0C876`).
-const STATUS_Y: i32 = 128;
 
 /// The entry twin a room carries for a door the player should walk in
 /// through (`0x0EF4F`).
@@ -1020,6 +1021,9 @@ impl Adventure {
                     .forest
                     .is_some_and(|f| self.place_pair_kind() == f.kind);
             self.picture_kept = kept;
+            // The release kept the `AN` entries, working state and all,
+            // when the map it released had bit 4 (`0x8592`).
+            let entries_kept = kept && self.bound_map.as_ref().is_some_and(|m| m.flags & 0x10 != 0);
             self.loc = n;
             self.clear_mode_block();
             // The loader's fresh copy of the room's records — or, with
@@ -1034,7 +1038,11 @@ impl Adventure {
             }
             self.bind_object_map();
             self.rebuild_movers();
-            self.rebuild_animations();
+            if entries_kept {
+                self.carry_animations();
+            } else {
+                self.rebuild_animations();
+            }
             self.bind_animations();
             self.settle_objects();
             // The room's palette goes to the DAC as the entry pass loads

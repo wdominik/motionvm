@@ -37,6 +37,7 @@
 //! save-under in video memory (`0x17C50`, `0x17D5F`): the cel is drawn
 //! over the finished frame.
 
+use super::keyboard::{KeyMap, Keyboard, Params, Route};
 use crate::num;
 use motionvm_parsec_formats::Picture;
 
@@ -76,6 +77,9 @@ pub(crate) struct PointerMap {
     /// Image offset of the menu's mouse region, the one region with a
     /// shape word. `+4` flags, `+6` shape, `+8` … `+0Eh` the rectangle.
     pub menu_region: usize,
+    /// The keyboard's words, for a build whose library takes the keys
+    /// ([`super::keyboard`]).
+    pub keys: Option<KeyMap>,
 }
 
 /// One 32-byte descriptor, as it stands in `DGROUP`.
@@ -141,17 +145,27 @@ struct Region {
 /// The timer's slot for the callback: `+4` countdown, `+6` calls not yet
 /// made, `+8` reload (`0x1A801`–`0x1A805`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Slot {
+pub(super) struct Slot {
     countdown: u16,
     pending: u16,
     reload: u16,
 }
 
 impl Slot {
+    /// A slot as the library registers it: the interval in hundredths as
+    /// countdown and reload, nothing pending.
+    pub(super) fn every(interval: u16) -> Self {
+        Slot {
+            countdown: interval,
+            pending: 0,
+            reload: interval,
+        }
+    }
+
     /// `0x1A226`–`0x1A250`: `hundredths` increments of the scheduler's
     /// own counter. Answers the count the callback is handed, if it is
     /// called.
-    fn advance(&mut self, hundredths: u16) -> Option<u16> {
+    pub(super) fn advance(&mut self, hundredths: u16) -> Option<u16> {
         if self.reload == 0 {
             return None;
         }
@@ -228,9 +242,13 @@ pub(crate) struct Cursor {
     pub menu_registered: bool,
     menu: Region,
     slot: Slot,
+    /// The keyboard's part, when the build's library has one.
+    keyboard: Option<Keyboard>,
+    /// Whether the keys moved the position since the runtime last asked.
+    keys_moved: bool,
 }
 
-fn word(ds: &[u8], at: u16) -> u16 {
+pub(super) fn word(ds: &[u8], at: u16) -> u16 {
     let a = usize::from(at);
     u16::from_le_bytes([ds[a], ds[a + 1]])
 }
@@ -332,6 +350,8 @@ impl Cursor {
                 pending: 0,
                 reload: interval,
             },
+            keyboard: map.keys.map(|k| Keyboard::load(&k, ds, image)),
+            keys_moved: false,
         };
         c.init();
         c.hide();
@@ -462,12 +482,16 @@ impl Cursor {
     /// (`0x18CBB`) or, for the timeout's own, the ask withdrawn (`0x18CC0`) and
     /// taken (`179Eh:0F78h`, `0x18CC9`). Everything is marked changed
     /// (`[2F6h]`, `0x18CCD`), and the backlog `[318h]` and the step `[31Ah]`
-    /// cleared (`0x18CD5`, `0x18CDB`).
+    /// cleared (`0x18CD5`, `0x18CDB`). The keyboard's step then runs with
+    /// nothing elapsed and what it carries is cleared (`0x18CDE`–`0x18CF1`).
     fn reset(&mut self) {
         self.timed_out_returns();
         self.dirty = 0xFFFF;
         self.backlog = 0;
         self.elapsed = 0;
+        if let Some(k) = &mut self.keyboard {
+            k.reset();
+        }
     }
 
     /// The reload `0x17ABE` and `0x18CA8` share, and what follows a
@@ -542,7 +566,10 @@ impl Cursor {
     /// `179Eh:0AF9h`, its effect: the position taken and clamped
     /// (`0x185CD`–`0x185E9` for x, bit 0; `0x1858C`–`0x185AA` for y, bit
     /// 1). The original takes the driver's mickeys; here the host's
-    /// position stands in for them.
+    /// position stands in for them, and where the host has put it the
+    /// keys move on from ([`super::keyboard`]): their step (`[3FEh]`,
+    /// `0x184D9`), the conversion of what they carry, and the move inside
+    /// the limits, y first.
     fn motion(&mut self, mouse: (i32, i32)) -> u16 {
         let (x, y) = self.clamp(mouse.0, mouse.1);
         let mut si = self.dirty;
@@ -554,8 +581,61 @@ impl Cursor {
             self.pos.0 = num::short(x);
             si |= 1;
         }
+        if let Some(k) = &mut self.keyboard {
+            k.step(self.elapsed);
+            let (dx, dy) = k.convert();
+            let [x0, y0, x1, y1] = self.limits;
+            // `add ax, [3E8h]`, then `[30Ch]` and `[310h]` as signed
+            // bounds (`0x18590`–`0x185A2`); a move of 0 changes nothing.
+            let to = |at: i16, d: i16, lo: i16, hi: i16| {
+                let v = at.wrapping_add(d);
+                if v < lo {
+                    lo
+                } else if v > hi {
+                    hi
+                } else {
+                    v
+                }
+            };
+            if dy != 0 {
+                let y = to(self.pos.1, dy, y0, y1);
+                if y != self.pos.1 {
+                    self.pos.1 = y;
+                    si |= 2;
+                    self.keys_moved = true;
+                }
+            }
+            if dx != 0 {
+                let x = to(self.pos.0, dx, x0, x1);
+                if x != self.pos.0 {
+                    self.pos.0 = x;
+                    si |= 1;
+                    self.keys_moved = true;
+                }
+            }
+        }
         self.dirty = si;
         si
+    }
+
+    /// A key the host reports, as the library's handler reads it.
+    pub(crate) fn key(&mut self, scan: u8, down: bool) -> Route {
+        match &mut self.keyboard {
+            Some(k) => k.key(scan, down),
+            None => Route::Passed,
+        }
+    }
+
+    /// The keyboard's words read out of `ds` again, before a poll.
+    pub(crate) fn read_key_params(&mut self, ds: &[u8]) {
+        if let (Some(k), Some(map)) = (&mut self.keyboard, &self.map.keys) {
+            k.params = Params::read(map, ds);
+        }
+    }
+
+    /// Whether the keys moved the position since the last call.
+    pub(crate) fn take_keys_moved(&mut self) -> bool {
+        std::mem::take(&mut self.keys_moved)
     }
 
     /// `179Eh:0C1Bh`: the timeout, the regions, the animation, the place.
@@ -1063,6 +1143,75 @@ mod tests {
         let (mut ds, image) = fixture();
         patch(&mut ds);
         Cursor::load(crate::titles::ds1::build::POINTER, &ds, &image, &cels())
+    }
+
+    /// The keyboard's step, the conversion and the move inside the limits
+    /// against the original's own poll, `179Eh:0AF9h`, line by line
+    /// (`tests/ds1_keyboard_cases.txt`): the slots' levels set through the
+    /// handler's reading, the units and divisors as the line gives them, and
+    /// after each poll the position, what is carried, both factors, the key
+    /// buttons and what changed.
+    #[test]
+    fn the_keys_move_the_pointer_as_the_original_poll_does() {
+        const CODES: [u8; 12] = [
+            0x47, 0x48, 0x49, 0x4B, 0x4D, 0x4F, 0x50, 0x51, 0x39, 0x1C, 0x4A, 0x4E,
+        ];
+        let keys = crate::titles::ds1::build::POINTER
+            .keys
+            .expect("Dunkle Schatten's keys");
+        let (mut ds, mut image) = fixture();
+        ds[usize::from(keys.list)..usize::from(keys.list) + 12].copy_from_slice(&CODES);
+        let mut put = |at: u16, v: u16| {
+            ds[usize::from(at)..usize::from(at) + 2].copy_from_slice(&v.to_le_bytes());
+        };
+        put(keys.limits, 512);
+        put(keys.limits + 2, 8192);
+        put(keys.limits + 4, 256);
+        put(keys.acceleration, 32);
+        image.resize(image.len().max(keys.switch + 1), 0);
+        image[keys.switch] = 1;
+        let mut c = Cursor::load(crate::titles::ds1::build::POINTER, &ds, &image, &cels());
+        let mut held = 0u16;
+        let cases = include_str!("../../../tests/ds1_keyboard_cases.txt");
+        let mut n = 0;
+        for (line_no, line) in cases.lines().enumerate() {
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+            let f: Vec<&str> = line.split_whitespace().collect();
+            let mask = u16::from_str_radix(f[0], 16).expect("a mask");
+            let num = |i: usize| f[i].parse::<i32>().expect("a number");
+            for (k, &code) in CODES.iter().enumerate() {
+                let bit = 1 << k;
+                if (mask ^ held) & bit != 0 {
+                    c.keyboard.as_mut().expect("keys").on = true;
+                    c.key(code, mask & bit != 0);
+                }
+            }
+            held = mask;
+            let k = c.keyboard.as_mut().expect("keys");
+            k.on = num(4) != 0;
+            k.params.divisors = [num::short(num(2)), num::short(num(3))];
+            c.elapsed = num::small(num(1));
+            c.dirty = 0;
+            let pos = (i32::from(c.pos.0), i32::from(c.pos.1));
+            let si = c.motion(pos);
+            let k = c.keyboard.as_ref().expect("keys");
+            let got = [
+                i32::from(c.pos.0),
+                i32::from(c.pos.1),
+                i32::from(k.carried[0]),
+                i32::from(k.carried[1]),
+                i32::from(k.gain[0]),
+                i32::from(k.gain[1]),
+                i32::from(k.buttons),
+                i32::from(si & 3),
+            ];
+            let want: Vec<i32> = (5..13).map(num).collect();
+            assert_eq!(got.to_vec(), want, "line {}: {line}", line_no + 1);
+            n += 1;
+        }
+        assert_eq!(n, 264);
     }
 
     /// `0x188FA` from the shipped seed `0457h`: the seeds and the

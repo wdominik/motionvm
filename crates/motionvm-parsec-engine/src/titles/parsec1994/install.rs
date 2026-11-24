@@ -90,6 +90,18 @@ impl<X: TitleProgram + Send> Runtime for Install<X> {
         self.game.inner.mouse_move(x, y);
     }
 
+    /// The pointer library's keyboard hook ([`super::keyboard`]) sees the
+    /// key first: the title program's while it runs, then `XP01`'s.
+    fn pointer_key(&mut self, scan: u8, down: bool) -> super::KeyRoute {
+        if let Some(x) = &mut self.xp00.program {
+            return x.pointer_key(scan, down);
+        }
+        match &mut self.game.inner.cursor {
+            Some(c) => c.key(scan, down),
+            None => super::KeyRoute::Passed,
+        }
+    }
+
     fn click(&mut self, left: bool) {
         if let Some(x) = &mut self.xp00.program {
             x.click(left);
@@ -158,6 +170,14 @@ impl<X: TitleProgram + Send> Runtime for Install<X> {
     /// from it. Without a seed it starts at 0.
     fn seed(&mut self, seed: u64) {
         self.game.inner.bios = super::BiosTick::seeded(seed);
+    }
+
+    fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic> {
+        self.game.diagnostics()
+    }
+
+    fn settle_events(&mut self) {
+        self.game.settle_events();
     }
 
     /// Refused inside the install, which is treated as read-only.

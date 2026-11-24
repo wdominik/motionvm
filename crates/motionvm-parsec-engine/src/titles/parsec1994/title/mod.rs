@@ -55,6 +55,8 @@ use crate::draw;
 use crate::error::Result;
 use crate::exe::Image;
 use crate::num;
+use crate::titles::parsec1994::cursor::Slot as TimerSlot;
+use crate::titles::parsec1994::keyboard::{KeyMap, Keyboard, Route};
 use crate::titles::parsec1994::{RETRACE_DEN, RETRACE_NUM, Request};
 
 /// Cycles a second of the timer chip.
@@ -203,6 +205,19 @@ pub(crate) struct Common {
     /// `DS:027Ah` in both programs (`XP01` `DS:030Ah`, `DS:03E6h`).
     pub limits: [i32; 4],
     pub start: (i32, i32),
+    /// The pointer library's keyboard, for a program whose library takes
+    /// the keys ([`crate::titles::parsec1994::keyboard`]), and the
+    /// interval its timer slot calls the pointer at.
+    pub keys: Option<(Keyboard, u16)>,
+}
+
+/// Where a title program keeps its keyboard's words, and the interval the
+/// pointer's timer slot is registered with.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TitleKeys {
+    pub map: KeyMap,
+    /// `[1A8h]` in both programs, `XP01`'s `[314h]`.
+    pub interval: u16,
 }
 
 /// `DS:019Eh`: the pointer's four limits; `DS:027Ah`: its position.
@@ -216,8 +231,18 @@ const FONT_RES: usize = 15;
 impl Common {
     /// A title program's: its limits and position where both programs
     /// keep them.
-    pub(crate) fn read(image: &Image, res: &Path) -> Result<Self> {
-        Common::read_at(image, res, LIMITS, POSITION)
+    pub(crate) fn read(image: &Image, res: &Path, keys: TitleKeys) -> Result<Self> {
+        let mut common = Common::read_at(image, res, LIMITS, POSITION)?;
+        let ds = image
+            .bytes()
+            .get(image.at(0)..)
+            .ok_or("DGROUP outside the program")?;
+        let interval = num::signed(image.word(image.at(usize::from(keys.interval)))?);
+        common.keys = Some((
+            Keyboard::load(&keys.map, ds, image.bytes()),
+            num::unsigned(interval),
+        ));
+        Ok(common)
     }
 
     /// The same out of a program that keeps the pointer's limits and
@@ -249,6 +274,7 @@ impl Common {
             font: Font::parse(get(FONT_RES)?)?,
             limits,
             start,
+            keys: None,
         })
     }
 }
@@ -364,6 +390,8 @@ pub(crate) struct Lib {
     pub music: Vec<Request>,
     /// What the blank fills the screen with: the program's own.
     pub blank_fill: u8,
+    /// The pointer's timer slot, while the library takes the keys.
+    slot: Option<TimerSlot>,
 }
 
 impl Lib {
@@ -404,6 +432,7 @@ impl Lib {
             skip_mask: 0,
             music: Vec::new(),
             blank_fill: BLANK_FILL,
+            slot: None,
         }
     }
 
@@ -418,12 +447,74 @@ impl Lib {
     pub(crate) fn begin(&mut self, saved: bool) {
         self.saved = saved;
         self.mouse_move(self.common.start.0, self.common.start.1);
+        self.slot = self.common.keys.as_ref().map(|&(_, n)| TimerSlot::every(n));
     }
 
-    /// A retrace begun.
+    /// The mouse setting a settings file holds, `+12h`, taken as both
+    /// programs take it at their start: a file of at least 14h bytes
+    /// (`0x6AB`–`0x6B7`), the divisors by the same table as `XP01`'s
+    /// (`0x6C7`–`0x700`; a setting past 4 is 20 and 20).
+    pub(crate) fn mouse_setting(&mut self, cfg: &[u8]) {
+        let Some(setting) = cfg.get(0x12..0x14).filter(|_| cfg.len() >= 0x14) else {
+            return;
+        };
+        let (y, x) = match u16::from_le_bytes([setting[0], setting[1]]) {
+            0 => (10, 10),
+            2 => (40, 40),
+            3 => (40, 20),
+            4 => (20, 40),
+            _ => (20, 20),
+        };
+        if let Some((k, _)) = &mut self.common.keys {
+            k.params.divisors = [x, y];
+        }
+    }
+
+    /// A retrace begun: the hundredths it crossed counted off the pointer's
+    /// timer slot, and the pointer called when it runs out.
     pub(crate) fn retrace(&mut self) {
+        let before = self.now();
         self.frames += 1;
         self.retraced = false;
+        let crossed = num::low_word(u32::try_from(self.now() - before).unwrap_or(u32::MAX));
+        if let Some(n) = self.slot.as_mut().and_then(|s| s.advance(crossed)) {
+            self.pointer_callback(n);
+        }
+    }
+
+    /// The pointer's callback with `n` units: the keyboard's step, the
+    /// conversion, the move inside the limits, y first — as `XP01`'s
+    /// (`crate::titles::parsec1994::keyboard`). A hidden pointer samples
+    /// nothing.
+    fn pointer_callback(&mut self, n: u16) {
+        if self.frozen {
+            return;
+        }
+        let Some((k, _)) = &mut self.common.keys else {
+            return;
+        };
+        k.step(n);
+        let (dx, dy) = k.convert();
+        let [x0, y0, x1, y1] = self.common.limits;
+        let step = |at: i32, d: i16, lo: i32, hi: i32| {
+            if d == 0 {
+                at
+            } else {
+                (at + i32::from(d)).clamp(lo, hi)
+            }
+        };
+        self.mouse = (
+            step(self.mouse.0, dx, x0, x1),
+            step(self.mouse.1, dy, y0, y1),
+        );
+    }
+
+    /// A key, as the library's keyboard hook reads it.
+    pub(crate) fn pointer_key(&mut self, scan: u8, down: bool) -> Route {
+        match &mut self.common.keys {
+            Some((k, _)) => k.key(scan, down),
+            None => Route::Passed,
+        }
     }
 
     /// Waits for the retrace: `true` when this one is still unused, and

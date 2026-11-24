@@ -6,6 +6,137 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-24
+
+**A save that stops partway keeps the slot it was saving over, and the
+PARSEC games take the keys their pointer library takes.** A MOTION save is
+now a journal the next run rolls back when it stopped partway. In Dunkle
+Schatten and Captain Zins the arrows, Home, End and the page keys move the
+pointer, Space and Return are its buttons and the keypad's minus and plus
+its speeds, in the title menus and in the game, as the original's keyboard
+hook has them — held against the original's own poll and, in both of
+Dunkle Schatten's programs, against captures of a held key, pixel for
+pixel. Captain Zins's status line and options take their rows and inks
+from its own program, Dunkle Schatten's forest keeps its animations from
+row to row, and a load in the 16-bit games holds its frame as theirs does.
+Savegames load as before: no layout changed.
+
+### Added
+
+- **The PARSEC games' keyboard pointer.** `XP01.EXE`'s pointer library
+  takes twelve keys for itself, and so does the rebuild now: Home, Up,
+  Page Up, Left, Right, End, Down and Page Down move the pointer through
+  the library's own speeds and acceleration, Space and Return are its two
+  buttons, keypad − and + its slowest and fastest speed. The keys are read
+  out of each program's own list, for Dunkle Schatten and Captain Zins
+  alike. The step and the conversion agree with the original's poll, run
+  under an 8086 emulator, over 264 polls; a held Down in Dunkle
+  Schatten's start options comes to rest on the original's picture, every
+  pixel. The title programs carry the same hook, and so does their
+  rebuild, stepped on the same timer slot and reading the mouse setting
+  from the settings file at their start as theirs do; a held Down in
+  Dunkle Schatten's title menu comes to rest on the original's picture
+  too.
+- `motionvm-playable`: `Key::KeypadPlus` and `Key::KeypadMinus`, and
+  `resolve_dir`.
+
+### Changed
+
+- **Space, Return and the arrows no longer reach a PARSEC game as
+  keystrokes**, title menus included. The original's keyboard hook keeps
+  them from the program, so Space and Return in a choice menu click at the
+  pointer rather than taking the highlighted line, as they do in the
+  original.
+
+### Fixed
+
+- **Captain Zins's status line sits two rows lower, as its program sets
+  it.** Its painter sets the line and holds the band dark from row 130
+  where Dunkle Schatten's uses 128; the runtime took Dunkle Schatten's row
+  for both. The row is now read off the painter of the program opened.
+  Against a fresh capture of the original's opening, five states that
+  differed in exactly the band's four misplaced rows now agree whole.
+- **A PARSEC run no longer keeps every event it noticed.** The events a
+  step leaves were kept for the whole run, read by nothing but the tests
+  and the diagnostics; after each of the host's steps they are now counted
+  into the diagnostics and let go.
+- **Dunkle Schatten 2's inventory tests test the bar.** The scroll test
+  clicked the arrows before the opening scene had handed the game over
+  and was left ignored; it now plays into free play first and holds all
+  eight slots against the list forward into a part-filled window and back.
+  An empty slot is expected with sprite 0, as the 32-bit `CCALCINV`
+  clears it, where the tests expected none — which a slot restored from
+  a savegame showed up.
+- **A load in the 16-bit games holds the rest of its frame.** `GETANIM`
+  leaves the frame loop's freeze cell at 1, and until that frame's blit
+  no screen runs its callbacks or its controller; the runtime ran them,
+  so a game loaded from a slot read its input a frame early. The hold is
+  now kept, read as each screen's turn comes.
+- **Dunkle Schatten's forest and maze keep their animations from row to
+  row.** Between two forest rows the original keeps the room's `AN`
+  entries with their working state and only gives them the next row's
+  ids; the runtime built them afresh on every arrival, so one mid-way
+  started over. They are now carried on, renamed by the next row's map;
+  a jump still loads them afresh.
+- **Captain Zins's options in its own inks.** Its menu sets the heading
+  in `FEh` where Dunkle Schatten's sets `F4h`, and both answers of a
+  confirmation in `F0h` where Dunkle Schatten's sets `F8h` and `FAh`; the
+  runtime used Dunkle Schatten's for both. Each ink is now read off the
+  instruction that sets it in the program opened, and the options at
+  Captain Zins's start agree with a capture of the original, every pixel.
+- **A MOTION save that stops partway no longer costs the slot it was
+  saving over.** Each of a slot's three files was replaced atomically, but
+  on its own: a save that stopped after `PUT` left the new location's
+  `.blk` beside the old location's `.anm` and `.FRZ`, and the slot no
+  longer loaded. A save is now a journal: `PUT` opens it, each of the
+  three words notes its file and sets the old one aside before replacing
+  it, `=>PUTAS` closes it, and a run that takes the save directory into use
+  rolls back a save still open. The journal follows the files rather than
+  a slot number, since Victor Loomes saves `701.blk` beside `001.anm` and
+  `001.FRZ`. Existing slots load as before; no layout changed. Checker
+  2000's single block is written as it was. A slot missing a file is still
+  refused as incomplete, and the message no longer claims the cause.
+- **`compare-dro` sees a register only our stream sets.** The chip's state
+  at the recording's first note was compared over the recording's
+  registers alone. The recorder drops a write of zero to a chip at zero,
+  so a register the original leaves at zero is not in its snapshot, and a
+  value ours put there passed as agreement. Both sides' registers are now
+  compared, a register a side has not set counting as zero. Dunkle
+  Schatten 2's twenty-four recorded songs agree under the stricter check.
+- **A PARSEC game says why it ended when its ending cannot be read, and
+  what it could not carry out.** Without `RESOURCE/EXTROS.DAT`, Dunkle
+  Schatten's quit ends the game at once, as the original's does, and
+  nothing said why. The reason now reaches the host as a diagnostic naming
+  the file, which the window prints on the way out (stderr, and the log
+  when one is asked for); and the rule handlers not read, far writes not
+  carried out and engine routines not built are reported there as totals,
+  as the MOTION games' stubbed words are.
+- **A game that stops inside the window ends the program with status 1.**
+  A failed step, or a window or drawing surface that could not be had,
+  showed its dialog and then returned success; the reason now goes out
+  through the same path as an error at the start, one dialog and exit
+  status 1.
+- **A held F12 takes one picture.** Key repeat toggled the pause and
+  rewrote the picture for as long as the key was down; repeats are now
+  ignored, as Alt+Enter's are.
+- **A PARSEC save directory inside the install is refused however it is
+  spelled.** A relative path to a directory that did not exist yet was
+  compared as given with the install's absolute path, passed, and was
+  created inside the install. Both paths are now resolved first, through
+  the working directory, `..` and symlinks, with the part that does not
+  exist yet appended; the one function doing it,
+  `motionvm_playable::resolve_dir`, serves both families.
+
+### Documentation
+
+- Victor Loomes' save files are named as the game names them: the block
+  under `700 + n`, the display and module images under `n`.
+- Die Enviro-Kids greifen ein names its publisher in the intro's first
+  picture, sprite 793; the game's page says so.
+- Dunkle Schatten's logic verification states the case set it runs:
+  1 612 cases over 136 entry points, the shared hook and 25 of the global
+  table's 29 handlers.
+
 ## [0.14.0] - 2026-11-24
 
 **Captain Zins plays from its title program to its end.** The second
@@ -1798,7 +1929,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/wdominik/motionvm/releases/tag/v0.15.0
 [0.14.0]: https://github.com/wdominik/motionvm/releases/tag/v0.14.0
 [0.13.0]: https://github.com/wdominik/motionvm/releases/tag/v0.13.0
 [0.12.0]: https://github.com/wdominik/motionvm/releases/tag/v0.12.0

@@ -113,8 +113,14 @@ machine — snapshot, screen by screen, the draw of each screen between its
 controller and the next screen's callbacks — and holds the remaining
 phases while a fade a word started plays out, as the original holds them
 inside the word. `FREEZESCR` is one engine-wide cell (`DS:0x05b0`), so
-every screen freezes together; the one-frame hold `GETANIM` writes into
-the same cell is a [departure](../../departures.md#the-16-bit-machine).
+every screen freezes together. The same cell holds a third value: 1,
+which `GETANIM` stores as its last act (`08f4:1113`, the one store of 1
+in `ENVIRO.EXE`) and the loop clears after the blit (`016a:0801`–`0808`).
+Callbacks run only while the cell is 0 (`016a:05ee`) and a controller
+while it is 0 or 2 (`016a:0686`–`0692`), each read as the screen's turn
+comes: a load holds the rest of its frame — or, made outside one, the
+next frame — still, and the controller reads the input again a frame
+later. motionvm keeps the hold as read.
 
 **Every screen's controller runs, including a screen that is switched off.**
 The same loop in `LL.EXE` walks three slots (`0104:5528`, `cmp $3,%si`) and

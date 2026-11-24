@@ -13,6 +13,9 @@
 //!
 //! The game this file drives is Dunkle Schatten 2 (MOTION 32-bit).
 
+mod ds2_play;
+
+use ds2_play::play_into_free_play;
 use motionvm_motion_engine::Game;
 use motionvm_motion_forth::cell;
 use motionvm_motion_forth::m32::Vm;
@@ -96,6 +99,16 @@ impl Bar {
                 .expect("a record"),
         )
     }
+    /// What the eight slot descriptors are actually showing, the carried
+    /// item's blink folded back: `FLASH_ENTRY` (module 5, `0x032D4`) swaps
+    /// its sprite 13 for 14 one frame in six (see
+    /// `the_carried_items_slot_keeps_blinking`).
+    fn shown_unblinked(&self, game: &Game<Vm>) -> Vec<Option<u32>> {
+        self.shown(game)
+            .into_iter()
+            .map(|s| if s == Some(14) { Some(13) } else { s })
+            .collect()
+    }
     /// What the eight slot descriptors are actually showing.
     fn shown(&self, game: &Game<Vm>) -> Vec<Option<u32>> {
         (0..8)
@@ -111,12 +124,15 @@ impl Bar {
             })
             .collect()
     }
-    /// And what they ought to show, straight off the list.
+    /// And what they ought to show, straight off the list: an item's
+    /// sprite, and for an empty slot sprite 0 — the 32-bit `CCALCINV`
+    /// clears a slot with `SDBL 0` and leaves it active, where the 16-bit
+    /// one hides it.
     fn wanted(&self, game: &Game<Vm>) -> Vec<Option<u32>> {
         let offset = self.offset(game);
         (0..8)
             .map(|k| match self.entry(game, offset + k) {
-                0 => None,
+                0 => Some(0),
                 item => Some(cell::unsigned(self.sprite_of(game, item))),
             })
             .collect()
@@ -222,29 +238,20 @@ fn a_negative_offset_ends_at_the_start() {
     );
 }
 
-/// And it still does after the arrows have moved it.
+/// And it still does after the arrows have moved it: forward to the
+/// second window, where two items and six empty slots stand, and back to
+/// the first.
 ///
-/// **The arrows do work.** `free_play.rs` clicks one and watches the window
-/// move, so the premise this was written on — that the branch never runs — is
-/// disproved. Two things had to be understood first: the branch is gated on
-/// `_SYS_LEVEL` being 0 *and* the order machine being idle, and a location's
-/// opening scene does not end on its own, because it finishes by putting a
-/// conversation on screen and waiting for an answer.
-///
-/// What is wrong is this test's own setup. `in_a_location` returns as soon as
-/// the classroom is on screen, some 600 frames in and long before either gate
-/// opens, so the click lands while the script still has the game. Rewriting it
-/// to play the scene through would duplicate `free_play.rs`; left here, ignored,
-/// because the assertions below check something that one does not — that the
-/// eight slots still agree with the list *after* a scroll.
-#[ignore = "its own setup reaches the arrows before the scene ends; the arrows themselves are covered by free_play.rs"]
+/// The arrows answer only when the game is the player's — `_SYS_LEVEL` 0
+/// and the order machine idle (`ds2_free_play.rs`) — so the classroom is
+/// played through its opening scene first.
 #[test]
 fn the_bar_shows_what_the_list_says_after_scrolling() {
     let Some(dir) = gamedata_ds2() else {
         eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
         return;
     };
-    let mut game = in_a_location(&dir);
+    let (mut game, _) = play_into_free_play(&dir);
     let b = bar(&mut game);
     let items = fill(&mut game, &b, 10);
     game.call_at(b.calcinv).expect("CALCINV");
@@ -254,7 +261,7 @@ fn the_bar_shows_what_the_list_says_after_scrolling() {
     game.call_at(b.calcinv).expect("CALCINV");
     assert_eq!(b.offset(&game), 0);
     assert_eq!(
-        b.shown(&game),
+        b.shown_unblinked(&game),
         b.wanted(&game),
         "at the top already wrong: {items:?}"
     );
@@ -267,7 +274,7 @@ fn the_bar_shows_what_the_list_says_after_scrolling() {
         "the forward arrow did not scroll (offset {after})"
     );
     assert_eq!(
-        b.shown(&game),
+        b.shown_unblinked(&game),
         b.wanted(&game),
         "after scrolling forward to offset {after} the slots do not match the list"
     );
@@ -277,7 +284,7 @@ fn the_bar_shows_what_the_list_says_after_scrolling() {
     let back = b.offset(&game);
     assert_eq!(back, 0, "the back arrow should reach the top again");
     assert_eq!(
-        b.shown(&game),
+        b.shown_unblinked(&game),
         b.wanted(&game),
         "after scrolling back the slots do not match the list"
     );
@@ -403,7 +410,7 @@ fn a_savegame_says_what_the_bar_is_showing() {
             .find(|d| d.handle == handle)
             .expect("slot");
         let want = match b.entry(&game, offset + k) {
-            0 => None,
+            0 => Some(0),
             item => Some(cell::unsigned(b.sprite_of(&game, item))),
         };
         assert_eq!(

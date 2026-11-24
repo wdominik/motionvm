@@ -2,8 +2,8 @@
 //! the status band, a caption, the pointer.
 
 use super::{
-    Adventure, Body, Caption, Framebuffer, Picture, RoomFile, STATUS_INK, STATUS_INKS, STATUS_Y,
-    Walker, objects, scaled,
+    Adventure, Body, Caption, Framebuffer, Picture, RoomFile, STATUS_INK, STATUS_INKS, Walker,
+    objects, scaled,
 };
 use crate::num;
 
@@ -131,18 +131,19 @@ impl Adventure {
                 &self.font,
                 &text,
                 (320 - width) / 2,
-                STATUS_Y,
+                self.profile.status_row,
                 STATUS_INK,
             );
         } else if !self.menu.up {
-            // The status band: twelve rows at 128, the line as it was last
-            // set, in the inks its controls choose.
+            // The status band: twelve rows from the build's row, the line
+            // as it was last set, in the inks its controls choose.
             self.draw_status(&mut fb);
             // `0C3Fh:005Ch`: while any part of the band is held dark, the
             // whole band is flattened after the line is set (`0x0C8A1`,
-            // `0724h:0221h(0, 80h, 140h, 0Ch)`).
+            // `0724h:0221h(0, 80h, 140h, 0Ch)`; Captain Zins's `0x07D5E`
+            // from 82h).
             if self.status_dim != 0 {
-                Caption::flatten_rect(&mut fb, 0, STATUS_Y, 320, 12, self.flatten);
+                Caption::flatten_rect(&mut fb, 0, self.profile.status_row, 320, 12, self.flatten);
             }
         }
         self.paint_menu(&mut fb, &self.font);
@@ -174,7 +175,7 @@ impl Adventure {
             let Some(g) = self.font.glyph(b) else {
                 continue;
             };
-            crate::draw::text::glyph(fb, &self.font, b, pen, STATUS_Y, ink);
+            crate::draw::text::glyph(fb, &self.font, b, pen, self.profile.status_row, ink);
             // 0x0C7B8–0x0C7CA: a nonzero width, plus the record's spacing.
             if g.advance != 0 {
                 pen += i32::from(g.advance) + i32::from(motionvm_parsec_formats::font::SPACING);

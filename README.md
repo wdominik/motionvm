@@ -214,6 +214,7 @@ its manual describes.
 | Letters, digits, Return, Backspace | Checker 2000's registration board: the name and the postcode |
 | Cursor keys | Move through Dunkle Schatten 2's in-game mailbox; Return or Space takes what is highlighted |
 | Return, Space, Backspace, letters | Passed through to the game, which uses them on its own pages |
+| Cursor keys, Home, End, Page Up/Down, Space, Return, keypad + and − | In the PARSEC games, title menus included, the pointer library's own keys: the eight directions move the pointer, Space and Return are its two buttons, keypad − and + its slowest and fastest speed. The game never sees them as keystrokes, as in the original |
 | F12 | Freeze the picture **and** write it out as an indexed PNG, to `shot.png` in the data directory beside `saves/`; the path is printed |
 | Alt+Enter | Borderless fullscreen, on and off (Option+Return on macOS) |
 | Close the window | Quit |
@@ -264,9 +265,11 @@ program's layout, and have not yet been carried over to the original. What
 follows here is the MOTION games' own format.
 
 The MOTION games name their slots alike. Each file is written whole or not
-at all — to a temporary name, flushed, then renamed — so a crash partway through a save costs the new slot and not the old
-one, and each carries a checksum, so a file damaged afterwards is refused as
-damaged rather than half-read. A slot that has ended up in the wrong game's
+at all — to a temporary name, flushed, then renamed — and the three files of a
+slot are saved as one: the old ones stay aside until the last is written, and
+the next run puts them back if a save stopped partway. A crash partway through
+a save costs the new save and not the old slot. Each file carries a checksum,
+so a file damaged afterwards is refused as damaged rather than half-read. A slot that has ended up in the wrong game's
 directory is refused as that other game's, by name.
 
 A savegame is a snapshot of the engine's own state, so it carries a version

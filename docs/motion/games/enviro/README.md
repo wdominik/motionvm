@@ -44,9 +44,13 @@ and the Postbote, reached through the family's eight verbs
 
 ## Who made it
 
-**The shipped files name no client and carry no credits table.** What they do
-carry is a joke at the same address: the town administration's door signs, in
-text table 21, name the team as municipal officials.
+**The shipped files name the publisher and carry no credits table.** The
+intro's first picture is sprite 793, which `STARTINTRO` in module 610 places
+as `_LOG`: the state's coat of arms, *Herausgegeben vom Ministerium für
+Umwelt, Raumordnung und Landwirtschaft des Landes Nordrhein-Westfalen*, and
+the *NRW 50* emblem. What the files also carry is a joke at the same address:
+the town administration's door signs, in text table 21, name the team as
+municipal officials.
 
 | Door sign | Reading |
 |---|---|
@@ -88,8 +92,9 @@ umweltbewußt zu verhalten."*
 Everything above is read out of the game's own files except the following,
 which comes from the published record and is not verifiable here:
 
-- The commissioning ministry. The files name no client; the attribution is the
-  published one. ([Adventure-Treff](https://www.adventure-treff.de/spiele-datenbank/14046-die-enviro-kids-greifen-ein-umweltministerium-nrw), [Adventure Corner](https://www.adventurecorner.de/game/2559/die-enviro-kids-greifen-ein))
+- That the ministry commissioned the game. The files name it as the publisher
+  (sprite 793, above); that it was also the client is the published
+  attribution. ([Adventure-Treff](https://www.adventure-treff.de/spiele-datenbank/14046-die-enviro-kids-greifen-ein-umweltministerium-nrw), [Adventure Corner](https://www.adventurecorner.de/game/2559/die-enviro-kids-greifen-ein))
 
 ## See also
 

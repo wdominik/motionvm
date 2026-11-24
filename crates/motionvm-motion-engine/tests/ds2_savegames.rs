@@ -237,6 +237,13 @@ fn the_resident_modules_are_the_ones_the_original_would_have() {
 /// Runs the game up to a settled location, the way `4:START` does.
 fn started_in(dir: &Path, name: &str, location: i32) -> (Game<Vm>, PathBuf, PathBuf) {
     let (mut game, base, saves) = game_with_saves(dir, name);
+    enter(&mut game, location);
+    (game, base, saves)
+}
+
+/// Starts an opened game and walks it into `location`, settled enough that a
+/// click in the status bar lands.
+fn enter(game: &mut Game<Vm>, location: i32) {
     game.start().expect("4:START");
     while game.pump().expect("startup runs") {}
     game.set_var(2, "_NEXTLOC", location)
@@ -269,7 +276,6 @@ fn started_in(dir: &Path, name: &str, location: i32) -> (Game<Vm>, PathBuf, Path
         Some(300),
         "ICTRL never got to read the mouse"
     );
-    (game, base, saves)
 }
 
 /// `=>PUTAS` writes the resident modules and `=>GETAS` puts them back.
@@ -331,10 +337,10 @@ fn putas_writes_the_resident_modules_and_getas_puts_them_back() {
 /// A slot missing one of its three files is refused as an incomplete slot.
 ///
 /// `EXIST` answers off the `.blk` alone, as the original's does, so the game
-/// offers a slot whose two state files may not be there — and with each file
-/// now written whole or not at all, that is the one way a save can be
-/// half-made: the run that wrote it stopped between two of the three words.
-/// Saying "No such file or directory" leaves the player to work that out.
+/// offers a slot whose two state files may not be there. A save of this
+/// program that stopped partway is rolled back by the next run, so such a
+/// slot is one a person has taken a file out of. Saying "No such file or directory" leaves the player to work
+/// that out.
 ///
 /// Both of the two are checked, because the two words that read them are
 /// different words on different paths.
@@ -357,7 +363,6 @@ fn a_slot_missing_one_of_its_files_is_refused_as_incomplete() {
         let said = err.to_string();
         assert!(said.contains("incomplete"), "{word}: {said}");
         assert!(said.contains(&format!("701.{suffix}")), "{word}: {said}");
-        assert!(said.contains("interrupted"), "{word}: {said}");
     }
 }
 
@@ -863,5 +868,150 @@ fn the_save_directory_may_not_be_inside_the_game_data() {
     assert!(
         game.set_saves(&saves_dir("ds2-outside")).is_ok(),
         "somewhere else is fine"
+    );
+}
+
+/// A save that stops partway through leaves the slot it was saving over
+/// loadable, whole, by the next run.
+///
+/// A slot is three files from three words, and every one of them replaced
+/// atomically is not enough: a save that stops after `PUT` without a journal
+/// leaves a `.blk` naming the new location beside the old location's `.anm`
+/// and `.FRZ`, and the next load fails on a module the new location does not
+/// have. Here the save is stopped at each of its three files in turn — a
+/// directory where the file's temporary would go makes that one write fail —
+/// and a fresh game then loads the slot through the menu and must find the
+/// old location and the old story flag.
+///
+/// The fresh game is the point: the roll-back happens when a run takes the
+/// save directory into use, which is when a real stop — a crash, a full disk,
+/// a closed window — is followed by anything at all.
+///
+/// It cannot see a stop that comes partway through renaming a file aside;
+/// the journal's own tests stop it there.
+#[test]
+fn a_save_stopped_at_any_of_its_files_leaves_the_old_slot_loadable() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    for blocked in ["blk", "anm", "FRZ"] {
+        let (mut first, base, saves) = started_in(&dir, &format!("stopped-{blocked}"), 23);
+        first.set_var(11, "_?STIFT", 7).expect("a story flag");
+        open_menu(&mut first, 4);
+        click_slot(&mut first, 0);
+        let before: Vec<Vec<u8>> = ["blk", "anm", "FRZ"]
+            .iter()
+            .map(|s| std::fs::read(saves.join(format!("701.{s}"))).expect("the first save"))
+            .collect();
+        drop(first);
+
+        // A second game, elsewhere in the story, saves over the same slot and
+        // is stopped at one of the three files.
+        let mut second = Game::open(&dir).expect("game opens");
+        second.set_saves(&base).expect("the same directory");
+        enter(&mut second, 1);
+        second.set_var(11, "_?STIFT", 99).expect("a different flag");
+        let block = saves.join(format!("701.{blocked}.tmp"));
+        std::fs::create_dir(&block).expect("a directory in the temporary's way");
+        open_menu(&mut second, 4);
+        let x = 239 + 20;
+        second.set_input(x, 440, true, false, 0).expect("press");
+        let mut result = second.step();
+        for _ in 0..400 {
+            if result.is_err() {
+                break;
+            }
+            second.set_input(x, 440, false, false, 0).expect("release");
+            result = second.step();
+        }
+        let err = result.expect_err("the save is stopped");
+        assert!(
+            err.to_string().contains(&format!("701.{blocked}")),
+            "{blocked}: stopped at the blocked file: {err}"
+        );
+        drop(second);
+        std::fs::remove_dir(&block).expect("unblocked");
+
+        // The next run puts the old slot back before anything reads it.
+        let mut third = Game::open(&dir).expect("game opens");
+        third.set_saves(&base).expect("the same directory");
+        let after: Vec<Vec<u8>> = ["blk", "anm", "FRZ"]
+            .iter()
+            .map(|s| std::fs::read(saves.join(format!("701.{s}"))).expect("the slot"))
+            .collect();
+        assert!(
+            after == before,
+            "{blocked}: the slot is the first save, byte for byte"
+        );
+        let left: Vec<_> = std::fs::read_dir(&saves)
+            .expect("lists")
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+            .filter(|n| !["701.blk", "701.anm", "701.FRZ"].contains(&n.as_str()))
+            .collect();
+        assert!(
+            left.is_empty(),
+            "{blocked}: nothing beside the slot: {left:?}"
+        );
+
+        // And it loads, through the menu, into the first save's story.
+        enter(&mut third, 1);
+        open_menu(&mut third, 3);
+        click_slot(&mut third, 0);
+        assert_eq!(
+            third.get_var(2, "_ACTLOC"),
+            Some(23),
+            "{blocked}: the old slot's location"
+        );
+        assert_eq!(
+            third.get_var(11, "_?STIFT"),
+            Some(7),
+            "{blocked}: the old slot's story"
+        );
+    }
+}
+
+/// A save over an existing slot that runs to its end replaces it, and leaves
+/// nothing of the old one beside it.
+#[test]
+fn a_finished_save_replaces_the_slot_and_leaves_nothing_beside_it() {
+    let Some(dir) = gamedata_ds2() else {
+        eprintln!("skipping: no Dunkle Schatten 2 gamedata directory");
+        return;
+    };
+    let (mut first, base, saves) = started_in(&dir, "replaced", 23);
+    open_menu(&mut first, 4);
+    click_slot(&mut first, 0);
+    drop(first);
+
+    let mut second = Game::open(&dir).expect("game opens");
+    second.set_saves(&base).expect("the same directory");
+    enter(&mut second, 1);
+    second.set_var(11, "_?STIFT", 5).expect("a story flag");
+    open_menu(&mut second, 4);
+    click_slot(&mut second, 0);
+    drop(second);
+
+    let mut names: Vec<_> = std::fs::read_dir(&saves)
+        .expect("lists")
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .collect();
+    names.sort();
+    assert_eq!(names, ["701.FRZ", "701.anm", "701.blk"]);
+
+    let mut third = Game::open(&dir).expect("game opens");
+    third.set_saves(&base).expect("the same directory");
+    enter(&mut third, 23);
+    open_menu(&mut third, 3);
+    click_slot(&mut third, 0);
+    assert_eq!(
+        third.get_var(2, "_ACTLOC"),
+        Some(1),
+        "the second save's location"
+    );
+    assert_eq!(
+        third.get_var(11, "_?STIFT"),
+        Some(5),
+        "the second save's story"
     );
 }

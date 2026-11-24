@@ -76,6 +76,9 @@ pub(crate) struct LibraryMap {
     /// What task 0 is doing, asked once a frame; with a text up it takes
     /// the click or key that would cut the page short.
     pub task_query: (u16, u16),
+    /// The status band painted: the line, the strip's widgets, the band
+    /// held dark.
+    pub status_paint: (u16, u16),
 }
 
 /// The bits of task 0's flags `+1Ah` that a page's controls set, and what
@@ -339,6 +342,8 @@ pub(crate) struct Profile {
     pub strip_split: Option<u8>,
     /// The flags a page's controls set.
     pub text_flags: TextFlags,
+    /// The row the status line is set on and the band held dark from.
+    pub status_row: i32,
 }
 
 impl Profile {
@@ -381,6 +386,7 @@ impl Profile {
             figure_set: figure_set(img, map.visit_setup)?,
             strip_split: strip_split(img, map.strip_load)?,
             text_flags: text_flags(img, map.text_scan, map.task_query)?,
+            status_row: status_row(img, map.status_paint)?,
         })
     }
 }
@@ -897,6 +903,35 @@ fn entry_door(img: &Image, at: (u16, u16)) -> Result<EntryDoor> {
         remembered,
         frame: i16::from(i8::from_le_bytes([f])),
     })
+}
+
+/// The painter holds the band dark with `push word [m16] ; push word
+/// [m16] ; push 0Ch ; push 140h ; push y ; push 0 ; call far`
+/// (`FF 36 … FF 36 … 6A 0C 68 40 01 68 lo hi 6A 00 9A`), twelve rows from
+/// `y` the whole width; it sets each glyph of the line on the same row,
+/// `push ax ; push y ; push si ; call far` (`50 68 lo hi 56 9A`) — ink,
+/// row, column. *Dunkle Schatten*'s `0C3Fh:005Ch` has 80h at `0x0C89C`
+/// and `0x0C7BE`; Captain Zins's `078Ah:0069h` 82h at `0x07D59` and
+/// `0x07C7B`. A painter whose two rows differ is refused.
+fn status_row(img: &Image, at: (u16, u16)) -> Result<i32> {
+    let what = "the status painter";
+    let b = body(img, at, 0x466, what)?;
+    let row = b
+        .windows(19)
+        .find(|w| {
+            w[..2] == [0xFF, 0x36]
+                && w[4..6] == [0xFF, 0x36]
+                && w[8..13] == [0x6A, 0x0C, 0x68, 0x40, 0x01]
+                && w[13] == 0x68
+                && w[16..19] == [0x6A, 0x00, 0x9A]
+        })
+        .map(|w| [w[14], w[15]])
+        .ok_or_else(|| refused(what, at))?;
+    let glyph = [0x50, 0x68, row[0], row[1], 0x56, 0x9A];
+    if !b.windows(6).any(|w| w == glyph) {
+        return Err(refused(what, at));
+    }
+    Ok(i32::from(u16::from_le_bytes(row)))
 }
 
 /// Taking an item out compares the first visible slot plus the window

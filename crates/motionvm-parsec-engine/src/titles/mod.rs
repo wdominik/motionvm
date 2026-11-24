@@ -92,6 +92,15 @@ pub(crate) trait Runtime: Send {
     /// character, or `100h` plus the scan code (see `crate::keys`).
     fn key(&mut self, code: i32);
 
+    /// A key going down or up, by its make code, as a keyboard interrupt
+    /// the program installs would see it — before the BIOS does. A title
+    /// whose program takes no keys there passes every key on, which is the
+    /// default.
+    fn pointer_key(&mut self, scan: u8, down: bool) -> parsec1994::KeyRoute {
+        let _ = (scan, down);
+        parsec1994::KeyRoute::Passed
+    }
+
     /// One frame. `false` when the player has chosen to quit.
     fn tick(&mut self) -> bool;
 
@@ -172,6 +181,10 @@ pub(crate) trait Runtime: Send {
     fn diagnostics(&self) -> Vec<motionvm_playable::Diagnostic> {
         Vec::new()
     }
+
+    /// The events of the steps so far taken into the diagnostics and let
+    /// go, once a host's step is over. The default keeps none.
+    fn settle_events(&mut self) {}
 }
 
 #[cfg(test)]

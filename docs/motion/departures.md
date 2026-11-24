@@ -314,9 +314,10 @@ writes one run of its arena, addresses and all, and the rebuild's arena is
 laid out differently ([the 16-bit machine](#the-16-bit-machine)) — so its
 `.FRZ` and `.anm` are motionvm's own as well, under magics of their own
 (`ENVFRZ`, `ENVANM`), and its `.blk` is two raw bytes. What those layouts are
-is written down: [motionvm's savegames](savegames.md) — including the three
+is written down: [motionvm's savegames](savegames.md) — including the four
 things motionvm's files do that no original's did: they are written whole or
-not at all, they carry a checksum, and they name the game they belong to.
+not at all, a save that stops partway is rolled back, they carry a checksum,
+and they name the game they belong to.
 
 **The magic is the generation's, and the directory is the game's.** All four
 16-bit games write `ENVFRZ` and `ENVANM`, because that is a fact about the
@@ -635,15 +636,6 @@ entry 0 of the table — the size of whatever sprite 0 is, once loaded, and
 0 before. This engine answers a natural size of 0 and stores 0 pixels. No
 shipped script sets a scale before a sprite: the walk writes `SDSPR` first
 and the intro's card flip writes against the motif of the frame before.
-
-**The one-frame hold after a load is not kept.** The 16-bit loop's freeze
-cell (`DS:0x05b0`) has a third value: `GETANIM` and the rotation words
-write 1, which skips callbacks *and* controllers for exactly one frame
-and is cleared after that frame's blit (`016a:06da`, `016a:07f9`).
-`FREEZESCR`'s 2 is modelled, as is the frame itself
-([the frame loop](motion16/engine/game-loop.md#the-frame-loop)); the 1 is
-not — a game loaded from a slot runs its controller on the first frame
-after, where the original runs it on the second.
 
 **`LL.EXE`'s heading pass stops at the buffer's end.** The pass that build's
 `CROUTE` closes with (`0104:516d`) walks the step buffer as runs of equal

@@ -72,4 +72,11 @@ pub(crate) struct Persistence {
     /// resource, so redoing the flip costs nothing and keeps a savegame from
     /// carrying pixels.
     pub(crate) flips: Vec<(u32, u32)>,
+
+    /// The save `PUT` has opened and `=>PUTAS` has not yet closed.
+    ///
+    /// Between the two, the files it replaces sit aside under a note, and a
+    /// save that stops there is rolled back the next time the directory is
+    /// taken into use — see [`crate::save::journal`].
+    pub(crate) saving: Option<crate::save::journal::Journal>,
 }

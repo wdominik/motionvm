@@ -121,8 +121,9 @@ A rendered register stream against a DRO version 2 recording of the original
 — DOSBox-X's `DX-CAPTURE /O`. Both sides are reduced to the writes that
 change a register, the recording's snapshot at its first note is set apart,
 the streams are lined up on the write it resumes with, the chip's state at
-that note is held register for register, and then the streams write for
-write. The first difference is named with its position and the writes around
+that note is held register for register — every register either side has
+set, a register a side has not set counting as zero — and then the streams
+write for write. The first difference is named with its position and the writes around
 it; the command exits 1 on one.
 
 ```sh

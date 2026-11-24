@@ -11,7 +11,8 @@ use super::logic::{self, SAVE_BUFFER, WALKER};
 use super::xp01data::{self, ExeText};
 use crate::titles::parsec1994::program::{Build, Names, Reading, Sound};
 use crate::titles::parsec1994::{
-    Block, DsMap, GateMap, Kinds, LibraryMap, MusicMap, OptionsMap, PointerMap, SaveMap,
+    Block, DsMap, GateMap, KeyMap, Kinds, LibraryMap, MusicMap, OptionInks, OptionsMap, PointerMap,
+    SaveMap,
 };
 use crate::titles::xp1994::Locations;
 
@@ -83,6 +84,7 @@ const LIBRARY: LibraryMap = LibraryMap {
     strip_load: (0x0C1C, 0x000C),
     text_scan: (0x0CFD, 0x01BE),
     task_query: (0x0CFD, 0x0FD9),
+    status_paint: (0x0C3F, 0x005C), // 0x0C44C
 };
 
 /// What the runtime takes from this title's own reading of its program.
@@ -212,6 +214,13 @@ pub(crate) const OPTIONS: OptionsMap = OptionsMap {
     // 0x12379: `test word [1EDCh], 10h`.
     switches: 0x1EDC,
     save: SAVE,
+    inks: OptionInks {
+        head: 0x11A4B,
+        question: 0x11CA6,
+        yes: 0x11D5D,
+        no: 0x11D83,
+        hover: 0x12214,
+    },
 };
 
 /// Where `XP01.EXE` keeps the pointer's words and tables.
@@ -243,6 +252,20 @@ pub(crate) const POINTER: PointerMap = PointerMap {
     drawn: 0x03EE,
     // `0x0DC8B`: `push 2139h ; push 2Ah ; call far 179Eh:0210h`.
     menu_region: 0x2139 * 16 + 0x2A,
+    keys: Some(KeyMap {
+        // `0x5F10`–`0x5F14`: `push ds ; push 228h ; call far 179Eh:1483h`.
+        list: 0x0228,
+        // `cs:13B2h`, `0x18EC6`: `cmp byte [cs:13B2h], 0`.
+        switch: 0x179E0 + 0x13B2,
+        // `0x18F16`: `mov di, 1868h`.
+        speeds: 0x1868,
+        // `0x18F05`–`0x18F0C`: `[3C8h]`, `[3CCh]`, `[3CAh]`.
+        limits: 0x03C8,
+        // `0x1850C`: `mul word [3D8h]`.
+        acceleration: 0x03D8,
+        // `0x185B9`: `idiv word [3DAh]`; `0x18579`: `idiv word [3DCh]`.
+        divisors: 0x03DA,
+    }),
 };
 
 /// Where `XP01.EXE` keeps the music's and the effects' words and tables.
@@ -336,6 +359,26 @@ mod tests {
     use super::*;
     use crate::titles::parsec1994::onward::Table;
 
+    /// Each of the options' inks is where its routine sets it: a
+    /// `mov byte es:[bx+4], ink` (`26 C6 47 04`) on the font record, and the
+    /// ink the build's own.
+    #[test]
+    fn the_options_inks_are_the_routines_immediates() {
+        let Some(adv) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        let i = OPTIONS.inks;
+        let inks: Vec<u8> = [i.head, i.question, i.yes, i.no, i.hover]
+            .into_iter()
+            .map(|at| {
+                let b = adv.image.bytes();
+                assert_eq!(b[at..at + 4], [0x26, 0xC6, 0x47, 0x04], "{at:#x}");
+                b[at + 4]
+            })
+            .collect();
+        assert_eq!(inks, [0xF4, 0xFE, 0xF8, 0xFA, 0xFE]);
+    }
+
     /// The library build `XP01.EXE` is linked against, read off its
     /// routines: every capability the generation had as fixed before the
     /// build was read.
@@ -376,6 +419,7 @@ mod tests {
         let door = p.entry_door;
         assert_eq!((door.kind, door.remembered, door.frame), (4, true, 1));
         assert_eq!(p.inventory_window, 8);
+        assert_eq!(p.status_row, 128);
         assert_eq!(p.callback, None);
         assert_eq!(p.slot_style, None);
         let e = p.effects;

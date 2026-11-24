@@ -182,7 +182,9 @@ off (`0x876B`); a hotspot its id back (`0x879B`) and its offset off
 (`0x87AF`); a node and an `AN` entry their ids back (`0x87D2`,
 `0x87E7`). The active bits, the objects' flags and frames stay as the
 visit left them, and the next row's map binds onto the records as they
-are. What a set map bit names is kept rather than released — the
+are — the `AN` entries with their working state, so an animation mid-way
+in one row goes on in the next under the new row's ids. What a set map
+bit names is kept rather than released — the
 hotspots (bit 0, `0x8433`), the dialogue bank (bit 1, `0x8547`), the
 samples (bit 2, `0x85D4`), the song (bit 3, `0x85ED`), the animation
 entries (bit 4, `0x8592`), the walk graph (bit 5, `0x84FC`). The song is

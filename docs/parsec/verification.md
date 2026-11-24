@@ -21,17 +21,19 @@ other two cannot: that nothing has moved since.
 
 The location handlers of `XP01.EXE`, with their hooks, animation hooks and
 rule handlers, and the global rules, are held against
-the original routines themselves: **1 342 cases over 131 entry points** —
-487 runs of a handler, 645 of a hook, 182 of a rule handler and 28 of an
+the original routines themselves: **1 612 cases over 136 entry points** —
+487 runs of a handler, 884 of a hook, 213 of a rule handler and 28 of an
 animation hook. They cover every handler the location table names: the
 onward walk of rows 0 and 20, the three later JZ rows through the JZ's
 own, the maze's thirty rows through the one they share, and location 60's
-restore; and 21 of the global table's 29 handlers. The other eight are not
-traced: the four that speak the chosen hotspot's own text and the walk
-verb's and the doors' rules, which read records outside what the traced
-logic is handed, and
-the options' gate, which is library code; the runtime's own tests hold
-those.
+restore; the shared hook `0EB9h:1968h`, with 239 of the hook cases; and 25
+of the global table's 29 handlers, the four that speak the chosen
+hotspot's own text among them. The other four are not traced: the walk
+verb's rule and the seventh verb's door, which read records outside what
+the traced logic is handed, the eighth verb's rule, which reads the
+object's record, and the options' gate, which is library code; the
+runtime's own tests hold those. The counts are those of
+`tests/ds1_logic_cases.txt`, whose length the trace test holds.
 
 A case is one entry point and one set of inputs: the location, the
 routine's address, the bytes and words of the data segment set before the
@@ -63,6 +65,29 @@ which order, with what, and what it leaves in memory. It does not settle
 what the engine routines themselves draw or play; that is what the next
 checks are for.
 
+### The keyboard pointer
+
+The pointer library's keyboard step and conversion, `179Eh:0AF9h` with
+the step `179Eh:14E6h` in its first slot and no mouse driver, run under an
+8086 emulator over 264 polls of Dunkle Schatten's `XP01.EXE`: the eight
+directions held alone and together, both speed keys, both button keys,
+units from 0 to 15, three divisor settings, the switch off, and the
+pointer driven into its limits. After every poll the position, what is
+carried, both acceleration factors, the key buttons and the changed bits
+agree (`tests/ds1_keyboard_cases.txt`). Captain Zins's addresses are held
+to its own image's words and keys; its routines are the same code at
+other addresses and were not run.
+
+Against `XP01.EXE` under DOSBox-X, Down held for eight BIOS ticks in the
+options at the start: the rebuild held for the same 439 ms comes to rest
+on the same picture, every RGB pixel; held for 51 or 54 steps it does not
+(`tests/ds1_keyboard.rs`, which holds the change's place without the
+original's pixels). That Space and Return are the buttons rests on the
+hook's handler and the program's list, and on the game's own `INFO.DOK`;
+no DOS run has pressed them. The title menu's arrow, held the same way in
+Dunkle Schatten's `XP00.EXE`, comes to rest on the original's picture
+too (`tests/ds1_keyboard.rs`).
+
 ### Pictures
 
 Against lossless recordings of the original under DOSBox-X:
@@ -90,7 +115,13 @@ Against lossless recordings of the original under DOSBox-X:
   original's load times, which the runtime does not spend
   ([departures](departures.md)).
 - **Captain Zins's first scenes**, `XP01` from a new game on: the
-  sampled frames agree but for six pixels, the pointer's; the telephone
+  sampled frames agree but for six pixels, the pointer's. Nine more
+  states of a fresh DOSBox-X capture, the options left with Escape and
+  the first conversation waited for, each held against the nearest of
+  10 700 frames of the rebuild: six agree whole, the options among them
+  with their heading in Captain Zins's own ink, the others differ in a
+  figure's or a bubble's phase; none in the status band, which is set and
+  held dark from row 130 as the program's painter does. The telephone
   call's pages agree in their text, and every text page of the capture —
   41 of them over 109 s — stands as long as the original's, within 0.1 s.
 - **The way out of `XP01`** ([the way out](engine/ending.md)), reached by

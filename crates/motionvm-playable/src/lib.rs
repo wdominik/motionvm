@@ -116,6 +116,10 @@ pub enum Key {
     Tab,
     /// The space bar.
     Space,
+    /// Plus on the numeric keypad, a key of its own beside the top row's.
+    KeypadPlus,
+    /// Minus on the numeric keypad.
+    KeypadMinus,
     /// Any key without a variant of its own.
     Other,
 }
@@ -485,4 +489,103 @@ pub trait Family: Sync {
     /// of them would need; for a game the family recognizes and does not
     /// play yet, it says that, by the game's name.
     fn open(&self, dir: &std::path::Path) -> Result<Box<dyn Playable>>;
+}
+
+/// An absolute, symlink-free path for a directory that need not exist yet.
+///
+/// For [`Playable::set_saves`]: every game refuses a save directory inside
+/// its own data, and that check is only as good as the two paths it compares.
+/// A relative path, a `..` or a symlinked parent walks around a plain
+/// `starts_with`, and `canonicalize`, which resolves all three, refuses a path
+/// that is not there yet — the usual case for a save directory about to be
+/// created. So the deepest part that exists is canonicalized and the rest
+/// appended. A `..` or a symlink can only sit in the part that exists, because
+/// the part that does not is a name nobody has created yet.
+///
+/// A relative path is taken from the process's working directory, which is
+/// what the file system would do with it.
+///
+/// # Errors
+///
+/// When there is no working directory to take a relative path from, or the
+/// existing part cannot be canonicalized — which includes a `..` that
+/// follows a part not there yet, since there is nothing to go up from.
+pub fn resolve_dir(dir: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    let absolute = if dir.is_absolute() {
+        dir.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(dir)
+    };
+    let mut here = absolute.as_path();
+    let mut rest = Vec::new();
+    while !here.exists() {
+        match (here.file_name(), here.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name.to_owned());
+                here = parent;
+            }
+            _ => break,
+        }
+    }
+    let mut out = here.canonicalize()?;
+    out.extend(rest.into_iter().rev());
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_dir;
+
+    /// A directory that does not exist yet resolves under the canonical form
+    /// of the part that does, so a `..` through it and the plain spelling
+    /// come out the same, and a relative path is taken from the working
+    /// directory.
+    #[test]
+    fn a_directory_not_there_yet_resolves_through_the_part_that_is() {
+        let base = std::env::temp_dir().join("motionvm-resolve-dir");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("game")).expect("a scratch directory");
+        let real = base.canonicalize().expect("canonical");
+
+        let plain = resolve_dir(&base.join("game").join("saves").join("x")).expect("resolves");
+        assert_eq!(plain, real.join("game").join("saves").join("x"));
+        let through = base
+            .join("game")
+            .join("..")
+            .join("game")
+            .join("saves")
+            .join("x");
+        assert_eq!(resolve_dir(&through).expect("resolves"), plain);
+        // A `..` after a part that does not exist has nothing to go up from:
+        // the path is refused rather than guessed at.
+        let around = base.join("other").join("..").join("game").join("saves");
+        assert!(!base.join("other").exists());
+        assert!(resolve_dir(&around).is_err());
+
+        let relative = resolve_dir(std::path::Path::new("motionvm-not-there")).expect("resolves");
+        let cwd = std::env::current_dir().expect("a working directory");
+        assert_eq!(
+            relative,
+            cwd.canonicalize()
+                .expect("canonical")
+                .join("motionvm-not-there")
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A symlinked parent resolves to where it points.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_parent_resolves_to_its_target() {
+        let base = std::env::temp_dir().join("motionvm-resolve-link");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("game")).expect("a scratch directory");
+        std::os::unix::fs::symlink(base.join("game"), base.join("link")).expect("a link");
+        let real = base.canonicalize().expect("canonical");
+        assert_eq!(
+            resolve_dir(&base.join("link").join("saves")).expect("resolves"),
+            real.join("game").join("saves")
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

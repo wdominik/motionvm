@@ -49,11 +49,29 @@ pub(crate) struct OptionsMap {
     pub switches: u16,
     /// Where the same build keeps the settings and the saved game.
     pub save: SaveMap,
+    /// The menu's text inks, each where its routine sets it.
+    pub inks: OptionInks,
 }
 
-/// The menu's own inks and grounds, all immediates of the routines.
-const HEAD_INK: u8 = 0xF4; // 0x11A4B
-const HOVER_INK: u8 = 0xFE; // 0x12214
+/// Where the menu's routines set their text inks: image offsets of
+/// `mov byte es:[bx+4], ink` (`26 C6 47 04 ink`) on the font record. The
+/// builds differ: Dunkle Schatten's heading is `F4h`, Captain Zins's
+/// `FEh`, and Captain Zins's answers are both `F0h`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OptionInks {
+    /// The heading.
+    pub head: usize,
+    /// A confirmation's question.
+    pub question: usize,
+    /// Its first answer and its second.
+    pub yes: usize,
+    pub no: usize,
+    /// The row under the pointer.
+    pub hover: usize,
+}
+
+/// The menu's own grounds, immediates of the routines; its inks are the
+/// build's ([`OptionInks`]).
 const BACK_TOP: u8 = 0xC1; // 0x11A1E
 const BACK_MID: u8 = 0xC0; // 0x11A33
 /// The playfield's extent the menu covers (`0x11A0C`, `push 80h ; push
@@ -81,8 +99,6 @@ const BOX_PAD: i32 = 16;
 const BOX_OUTER: u8 = 0xFE; // 0x11C46
 const BOX_INNER: u8 = 0xFF; // 0x11C6C
 const BOX_FRAME: u8 = 0xEE; // 0x11D23
-const YES_INK: u8 = 0xF8; // 0x11D5D
-const NO_INK: u8 = 0xFA; // 0x11D83
 
 /// The input event `[184Eh]` the loop takes: `-1` a key with its mapped
 /// code in `[1852h]`, `5`/`6`/`7` a button (`cs:0C86h`, `cs:043Fh`: all
@@ -186,6 +202,13 @@ struct Row {
 }
 
 impl Adventure {
+    /// One of the menu's text inks, as the build's routine sets it: the
+    /// immediate of its `mov byte es:[bx+4], ink`.
+    fn option_ink(&self, which: impl Fn(&OptionInks) -> usize) -> u8 {
+        let at = which(&self.omap().inks) + 4;
+        self.image.bytes().get(at).copied().unwrap_or(0)
+    }
+
     fn omap(&self) -> OptionsMap {
         self.options_map
             .expect("a title opens the options without its OptionsMap")
@@ -283,7 +306,7 @@ impl Adventure {
             off: self.omap().title,
             seg: self.dgroup,
         });
-        self.option_line(fb, &title, HEAD_Y, HEAD_INK);
+        self.option_line(fb, &title, HEAD_Y, self.option_ink(|i| i.head));
         for r in self.option_rows() {
             let text = self.option_text(r.texts, r.index);
             self.option_line(fb, &text, r.y, r.ink);
@@ -480,7 +503,7 @@ impl Adventure {
             if hover > 0 {
                 let r = rows[usize::from(hover) - 1];
                 let text = self.option_text(r.texts, r.index);
-                self.option_line(&mut o.surface, &text, r.y, HOVER_INK);
+                self.option_line(&mut o.surface, &text, r.y, self.option_ink(|i| i.hover));
             }
         }
         let input = if o.queue.is_empty() {
@@ -568,7 +591,11 @@ impl Adventure {
     fn option_step(&mut self, o: &mut Options, id: u16) {
         let rows = self.option_rows();
         let r = rows[usize::from(id) - 1];
-        let ink = if o.hover == id { HOVER_INK } else { r.ink };
+        let ink = if o.hover == id {
+            self.option_ink(|i| i.hover)
+        } else {
+            r.ink
+        };
         let h = i32::from(self.font.line_height);
         crate::draw::fill_rect(&mut o.surface, 0, r.y, W, h, r.ground);
         let mut index = r.index.wrapping_add(1);
@@ -606,7 +633,12 @@ impl Adventure {
         crate::draw::fill_rect(&mut o.surface, x0 - 2, y0 - 2, w + 4, BOX_H + 4, BOX_OUTER);
         crate::draw::fill_rect(&mut o.surface, x0 - 1, y0 - 1, w + 2, BOX_H + 2, BOX_INNER);
         crate::draw::fill_rect(&mut o.surface, x0, y0, w, BOX_ROW, BACK_TOP);
-        self.option_line_mid(&mut o.surface, &texts[0], y0 + 10, HOVER_INK);
+        self.option_line_mid(
+            &mut o.surface,
+            &texts[0],
+            y0 + 10,
+            self.option_ink(|i| i.question),
+        );
         o.phase = Phase::Confirm(Confirm {
             ask,
             x0,
@@ -659,8 +691,18 @@ impl Adventure {
                 let fy = c.y0 + 3 + i32::from(hover) * BOX_ROW;
                 crate::draw::text::frame_rect(&mut o.surface, c.x0 + 3, fy, c.w - 6, 14, BOX_FRAME);
             }
-            self.option_line_mid(&mut o.surface, &texts[1], c.y0 + 30, YES_INK);
-            self.option_line_mid(&mut o.surface, &texts[2], c.y0 + 50, NO_INK);
+            self.option_line_mid(
+                &mut o.surface,
+                &texts[1],
+                c.y0 + 30,
+                self.option_ink(|i| i.yes),
+            );
+            self.option_line_mid(
+                &mut o.surface,
+                &texts[2],
+                c.y0 + 50,
+                self.option_ink(|i| i.no),
+            );
             o.screen = o.surface.clone();
         }
         let input = if o.queue.is_empty() {

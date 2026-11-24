@@ -11,7 +11,6 @@
 //! change.
 
 use crate::descriptor::{placement_code, placement_of};
-use crate::resources::resolve;
 use crate::{Descriptor, Engine, Shows, save};
 use crate::{Field, Fields};
 use motionvm_motion_forth::cell;
@@ -33,8 +32,11 @@ impl Engine {
         dir: &std::path::Path,
         slug: &'static str,
     ) -> Result<(), String> {
+        let resolve = |d: &std::path::Path| {
+            motionvm_playable::resolve_dir(d).map_err(|e| format!("{}: {e}", d.display()))
+        };
         let saves = resolve(dir)?;
-        if let Some(data) = self.dir.as_ref().map(|d| resolve(d)).transpose()?
+        if let Some(data) = self.dir.as_deref().map(resolve).transpose()?
             && saves.starts_with(&data)
         {
             return Err(format!(
@@ -44,9 +46,81 @@ impl Engine {
             ));
         }
         std::fs::create_dir_all(&saves).map_err(|e| format!("{}: {e}", saves.display()))?;
+        // A save this run still has open belongs to the directory it was
+        // opened in, and is rolled back there before the run moves on.
+        if let Some(open) = self.persistence.saving.take() {
+            open.abandon()
+                .map_err(|e| format!("rolling back an unfinished save: {e}"))?;
+        }
+        // A save that a previous run opened and never closed is rolled back
+        // here, before the menu can ask which slots exist: this is the first
+        // moment anything reads the directory, and the last one before the
+        // half-made slot would be offered.
+        save::journal::settle(&saves).map_err(|e| format!("{}: {e}", saves.display()))?;
         self.persistence.dir = Some(saves);
         self.persistence.slug = slug;
         Ok(())
+    }
+
+    /// Whether this build saves through three words that belong together,
+    /// which is whether its kernel has `PUTANIM`.
+    ///
+    /// Every build that has it saves through `PUT`, `PUTANIM`, `=>PUTAS` and
+    /// calls `PUT` nowhere else — DS2's module 4 once, the 16-bit games'
+    /// modules 100 and 650 once per save page. Checker 2000's R78 kernel has
+    /// no `PUTANIM`, and its one `PUT` (module 218) writes a block of its own
+    /// that is the whole of what it keeps; that one stays a single file.
+    fn saves_in_three_words(&self) -> bool {
+        self.words.contains(&Some(crate::words::Word::PUTANIM))
+    }
+
+    /// Takes the file at `path` into the save before `word` replaces it.
+    ///
+    /// `PUT` opens the save, on a build that saves in three words; a save
+    /// still open then never reached `=>PUTAS` and is rolled back first. The
+    /// scripts never leave one open, so that is a caller driving the words by
+    /// hand. `PUTANIM` and `=>PUTAS` join the save that is open, and outside
+    /// one they write as a lone word does.
+    pub(crate) fn enlist(
+        &mut self,
+        word: &'static str,
+        path: &std::path::Path,
+    ) -> Result<(), motionvm_motion_forth::Error> {
+        let io = |source| motionvm_motion_forth::Error::Io {
+            word,
+            path: path.to_path_buf(),
+            source,
+        };
+        if word == "PUT" && self.saves_in_three_words() {
+            if let Some(open) = self.persistence.saving.take() {
+                open.abandon().map_err(io)?;
+            }
+            if let Some(dir) = self.persistence.dir.as_deref() {
+                self.persistence.saving = Some(save::journal::Journal::open(dir).map_err(io)?);
+            }
+        }
+        let (Some(journal), Some(name)) = (
+            self.persistence.saving.as_mut(),
+            path.file_name().and_then(|n| n.to_str()),
+        ) else {
+            return Ok(());
+        };
+        journal.enlist(name).map_err(io)
+    }
+
+    /// Closes the open save once `=>PUTAS` has written, if `PUT` opened one.
+    pub(crate) fn close_save(&mut self) -> Result<(), motionvm_motion_forth::Error> {
+        let Some(journal) = self.persistence.saving.take() else {
+            return Ok(());
+        };
+        let dir = self.persistence.dir.clone().unwrap_or_default();
+        journal
+            .close()
+            .map_err(|source| motionvm_motion_forth::Error::Io {
+                word: "=>PUTAS",
+                path: dir,
+                source,
+            })
     }
 
     /// Where saving and loading go, once a directory has been set.
@@ -60,15 +134,14 @@ impl Engine {
     /// A missing file on the load path is not an ordinary I/O fault. `EXIST`
     /// answers off the `.blk` alone, as the original's does (`0x66b0e` tests
     /// that one name and nothing else), so a slot the game offers can still
-    /// be missing the two files that carry the state — and there is one way
-    /// that happens: the run that wrote it stopped between two of the three
-    /// words. Each file is written whole or not at all
-    /// ([`crate::save::write_atomically`]), so the slot is the only thing
-    /// that can be half-made.
+    /// be missing the two files that carry the state. A save of this program
+    /// that stopped between its words does not leave one behind — the next
+    /// run rolls it back ([`crate::save::journal`]) — so such a slot has had a
+    /// file removed by hand.
     ///
     /// "No such file or directory" leaves the player to work that out. This
-    /// says which artifact is gone and that the save was interrupted, and
-    /// leaves everything on disk where it is.
+    /// says which artifact is gone, and leaves everything on disk where it
+    /// is.
     pub(crate) fn read_slot(
         &self,
         word: &'static str,
@@ -83,8 +156,7 @@ impl Engine {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 Err(motionvm_motion_forth::Error::Savegame {
                     what: format!(
-                        "{word} {id}: slot {id} is incomplete — {id:03}.{suffix} is missing, so \
-                         the save it belongs to was interrupted while it was being written"
+                        "{word} {id}: slot {id} is incomplete — {id:03}.{suffix} is missing"
                     ),
                 })
             }

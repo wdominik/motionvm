@@ -132,8 +132,12 @@ zero, sets the recording's snapshot apart at the first register it names
 twice, lines the two streams up on the write the recording resumes with —
 choosing, among the places we make that write, the one that agrees longest,
 so a write matching by accident does not decide the comparison — holds the
-snapshot against our state at that point register for register, and then
-compares the streams write for write:
+snapshot against our state at that point, over every register either side
+has set, with zero for one a side has not, and then compares the streams
+write for write. Both directions count: the recorder drops a write of zero to
+a chip at zero, so a register ours sets and the original leaves at zero is
+missing from the snapshot altogether, and a walk over the snapshot's
+registers alone would pass it:
 
 ```sh
 motionvm-motion-tools compare-dro registers-025.txt capture.dro

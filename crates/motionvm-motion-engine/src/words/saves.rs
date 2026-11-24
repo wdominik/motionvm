@@ -46,6 +46,7 @@ impl Engine {
                         id,
                     });
                 };
+                self.enlist("PUTANIM", &path)?;
                 let anim = self.snapshot();
                 let layout = self.profile.save_layout;
                 save::write_atomically(&path, &save::write_anm(&anim, layout, self.save_slug()))
@@ -75,6 +76,9 @@ impl Engine {
                 })?;
                 self.restore(anim)
                     .map_err(|what| Error::Savegame { what })?;
+                if self.profile.frame_by_screen {
+                    self.hold16 = true;
+                }
             }
 
             _ => return Ok(None),
@@ -105,7 +109,7 @@ impl Engine {
     /// copies back. Which modules those are, and in which order, is
     /// [`crate::persistence::Persistence::slots`]. The layout is ours and the reasons are in
     /// `save/`, but the set and the moment are the original's.
-    fn word_putas(&self, stack: &mut Vec<i32>, mem: &dyn AddressSpace) -> Result<()> {
+    fn word_putas(&mut self, stack: &mut Vec<i32>, mem: &dyn AddressSpace) -> Result<()> {
         let id = pop1(stack, "=>PUTAS")?;
         let Some(path) = self.save_path(id, "FRZ") else {
             return Err(Error::NoSaveDir {
@@ -138,6 +142,7 @@ impl Engine {
             };
             images.push(save::ModuleImage { module, bytes });
         }
+        self.enlist("=>PUTAS", &path)?;
         let layout = self.profile.save_layout;
         save::write_atomically(&path, &save::write_frz(&images, layout, self.save_slug()))
             .map_err(|e| Error::Io {
@@ -145,7 +150,8 @@ impl Engine {
                 path: path.clone(),
                 source: e,
             })?;
-        Ok(())
+        // The last of a save's three words: what it wrote is now the save.
+        self.close_save()
     }
 
     fn word_getas(&self, stack: &mut Vec<i32>, mem: &mut dyn AddressSpace) -> Result<()> {

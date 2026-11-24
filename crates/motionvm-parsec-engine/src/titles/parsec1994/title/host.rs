@@ -63,6 +63,11 @@ pub(crate) trait TitleProgram {
     fn key(&mut self, code: u16) {
         self.lib_mut().key(code);
     }
+    /// A key at the keyboard interrupt, before the BIOS: the library's hook
+    /// reads it first.
+    fn pointer_key(&mut self, scan: u8, down: bool) -> crate::titles::parsec1994::KeyRoute {
+        self.lib_mut().pointer_key(scan, down)
+    }
 }
 
 /// A title's `XP00` while it runs, before `XP01`.
@@ -88,6 +93,11 @@ impl<T: TitleProgram> TitleRun<T> {
         let saved = game.has_save();
         game.inner.music.install(3);
         x.begin(saved);
+        // Both programs read the settings file at their start for the
+        // mouse setting alone (`0x69E`–`0x700`).
+        if let Some(cfg) = game.settings_file() {
+            x.lib_mut().mouse_setting(&cfg);
+        }
         self.program = Some(Box::new(x));
         game.started = true;
         Ok(())

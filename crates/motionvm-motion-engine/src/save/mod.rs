@@ -1,6 +1,7 @@
 //! The files a savegame is made of.
 //!
-//! The original writes three per slot, all named from the id `701 + slot`:
+//! The original writes three per slot, named from the id `701 + slot` —
+//! Victor Loomes names the last two from the slot's number alone:
 //!
 //! | file | written by | holds |
 //! |---|---|---|
@@ -44,7 +45,8 @@
 //! ## What is where
 //!
 //! This file holds what every savegame file shares: the atomic write, the
-//! per-generation magic and the layout version. [`codec`] is the file's
+//! per-generation magic and the layout version. [`journal`] makes the three
+//! files of a slot one save. [`codec`] is the file's
 //! grammar — the head with its checksum, the chunked body, the reader that
 //! refuses by name and the writer. [`frz`] and [`anm`] are the two files
 //! themselves, each a set of chunks over that grammar. The tests at the
@@ -67,6 +69,7 @@ use std::path::{Path, PathBuf};
 mod anm;
 mod codec;
 mod frz;
+pub(crate) mod journal;
 
 pub(crate) use anm::{Anim, DescriptorState, ScreenState, read_anm, write_anm};
 pub(crate) use frz::{ModuleImage, read_frz, write_frz};
@@ -80,6 +83,9 @@ pub(crate) use frz::{ModuleImage, read_frz, write_frz};
 /// a fault worth reproducing: it costs a player the slot they were saving
 /// over, and it costs them silently, since a half-written file still opens.
 ///
+/// This keeps one file whole. That a slot's three files belong to one save
+/// is [`journal`]'s, on top of it.
+///
 /// Here the bytes go to `<name>.tmp`, are flushed to the device, and only then
 /// take the file's name. A rename within a directory is atomic on every
 /// filesystem this runs on, so a reader sees either every byte of the new file
@@ -88,10 +94,11 @@ pub(crate) use frz::{ModuleImage, read_frz, write_frz};
 /// The temporary lands beside its target and not in a system temporary
 /// directory, because a rename across mount points is a copy and not a rename.
 ///
-/// The directory itself is deliberately not flushed. Doing so would make the
+/// The directory itself is not flushed here. Doing so would make the
 /// *rename* durable across a power cut as well; without it, a crash can leave
-/// the old file in place — which is the older of the two consistent states,
-/// and consistent is the whole of what is promised here.
+/// the old file in place — the older of the two consistent states of this one
+/// file. The slot's journal flushes the directory where its order depends on
+/// it.
 pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut name = path.as_os_str().to_os_string();
     name.push(".tmp");

@@ -216,13 +216,16 @@ Five slots, 701 to 705, and **`CTRL` is the menu**: there is no module 650. A
 click in the strip at the top right becomes one of `CTRL`'s own key codes — 317
 above the middle, 318 below — and each puts a `REQUEST` box up over text table
 6, which holds *Spielstand sichern*, *Spielstand laden* and the five slot
-labels *A* to *E*. Saving runs `PUT`, `PUTANIM` and `=>PUTAS` over the slot
-number; loading probes first, `706 701 DO I =>EXIST … LOOP` into `_LOADTABLE`,
-and offers only what answered.
+labels *A* to *E*. Saving runs `DUP 700 + 2 AO ROT PUT`, `DUP PUTANIM`,
+`DUP =>PUTAS` on the answer *n* (module 100, cells 176–184), so the location
+goes into `(700+n).blk` and the display and module images into `n.anm` and
+`n.FRZ`: slot A is `701.blk`, `001.anm` and `001.FRZ`. Loading probes first,
+`706 701 DO I =>EXIST … LOOP` into `_LOADTABLE`, offers only what answered,
+and reads back under the same two numbers.
 
-The file names are the engine's — `701.blk`, `701.anm`, `701.FRZ` — and so is
-the layout motionvm writes, which is why the game gets a savegame directory of
-its own ([departures](../../departures.md#savegames)).
+The file names are the engine's, and so is the layout motionvm writes, which
+is why the game gets a savegame directory of its own
+([departures](../../departures.md#savegames)).
 
 ## Open questions
 

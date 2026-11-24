@@ -483,37 +483,3 @@ fn sample_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     }
     out.is_dir().then_some(out)
 }
-
-/// An absolute, symlink-free path for a directory that need not exist yet.
-///
-/// `canonicalize` is the only thing that resolves symlinks, and it refuses a
-/// path that is not there — which is no use for a save directory that is about
-/// to be created. So the deepest part that does exist is canonicalized and the
-/// rest appended. That is enough for the one question asked of it: a `..` or a
-/// symlink can only appear in the part that exists, because the part that does
-/// not is a name nobody has created yet.
-pub(crate) fn resolve(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
-    let absolute = if dir.is_absolute() {
-        dir.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map_err(|e| format!("no working directory: {e}"))?
-            .join(dir)
-    };
-    let mut here = absolute.as_path();
-    let mut rest = Vec::new();
-    while !here.exists() {
-        match (here.file_name(), here.parent()) {
-            (Some(name), Some(parent)) => {
-                rest.push(name.to_owned());
-                here = parent;
-            }
-            _ => break,
-        }
-    }
-    let mut out = here
-        .canonicalize()
-        .map_err(|e| format!("{}: {e}", here.display()))?;
-    out.extend(rest.into_iter().rev());
-    Ok(out)
-}

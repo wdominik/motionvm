@@ -598,6 +598,86 @@ fn between_two_forest_rows_the_picture_is_kept_and_rebound() {
     );
 }
 
+/// Between two forest rows the release keeps the room's `AN` entries
+/// with their working state (`0x8592`, the map's bit 4), gives their ids
+/// back (`0x87E7`) and the next row's map renames them (`0x82E5`): what an
+/// entry holds when the player walks on is what it holds in the next row.
+/// No entry of the maze runs in rows 30 and 31 — their maps name none —
+/// so a state is planted, as a run left mid-way would leave it, and found
+/// again after the walk; a jump loads the slot afresh and drops it.
+#[test]
+fn between_two_forest_rows_the_animations_are_kept() {
+    let mut g = ds1!();
+    crate::titles::Runtime::set_location_via(&mut g, 31, 100);
+    settle_in_forest(&mut g);
+    let ids = |g: &DunkleSchatten| -> Vec<i16> {
+        g.game
+            .inner
+            .anis
+            .iter()
+            .filter(|r| !r.global)
+            .map(|r| r.id)
+            .collect()
+    };
+    let row31 = ids(&g);
+    crate::titles::Runtime::set_location_via(&mut g, 30, 100);
+    settle_in_forest(&mut g);
+    let planted = (2, 4, 3, 7, 0x33);
+    let first = g
+        .game
+        .inner
+        .anis
+        .iter()
+        .position(|r| !r.global)
+        .expect("a room entry");
+    {
+        let r = &mut g.game.inner.anis[first];
+        (r.current, r.phase, r.index, r.repeat, r.delay) = planted;
+    }
+    let state = |g: &DunkleSchatten| {
+        let r = &g.game.inner.anis[first];
+        (r.current, r.phase, r.index, r.repeat, r.delay)
+    };
+    assert_eq!(click_exit(&mut g, 101), 31);
+    assert!(g.game.inner.picture_kept);
+    assert_eq!(state(&g), planted, "the entry as row 30 left it");
+    assert_eq!(ids(&g), row31, "renamed by row 31's map");
+    crate::titles::Runtime::set_location_via(&mut g, 30, 100);
+    settle_effects(&mut g);
+    assert!(!g.game.inner.picture_kept);
+    assert_ne!(state(&g), planted, "a jump starts them afresh");
+}
+
+/// The events a step leaves are taken into the diagnostics and let go
+/// once the host's step is over: what the run reports stays the same, and
+/// the list does not grow for as long as the game plays.
+#[test]
+fn the_events_are_counted_and_let_go() {
+    let mut g = ds1!();
+    crate::titles::Runtime::set_location_via(&mut g, 4, 0x7F);
+    for _ in 0..600 {
+        crate::titles::Runtime::tick(&mut g);
+    }
+    g.game.inner.events.push(Event::Unbuilt("0A9Fh:0EA6h", 0));
+    g.game.inner.events.push(Event::Unbuilt("0A9Fh:0EA6h", 1));
+    let before = crate::titles::Runtime::diagnostics(&g);
+    assert!(!before.is_empty());
+    crate::titles::Runtime::settle_events(&mut g);
+    assert!(g.game.inner.events.is_empty(), "let go");
+    assert_eq!(
+        crate::titles::Runtime::diagnostics(&g),
+        before,
+        "and still counted"
+    );
+    g.game.inner.events.push(Event::Unbuilt("0A9Fh:0EA6h", 2));
+    crate::titles::Runtime::settle_events(&mut g);
+    let after = crate::titles::Runtime::diagnostics(&g);
+    assert!(
+        after.iter().any(|d| d.detail.contains("0A9Fh:0EA6h ×3")),
+        "{after:?}"
+    );
+}
+
 /// The forest's song: entering the maze from the Ruine, a place of
 /// another kind, the entry plays the picture's song (`0x0ECA9`); from
 /// one maze row to the next nothing is stopped and nothing played —
@@ -3555,6 +3635,8 @@ fn the_father_sits_before_the_television_on_the_first_evening() {
     for tick in 1..=30000 {
         crate::titles::Runtime::tick(&mut g);
         if g.game.inner.menu.up {
+            // Into the menu's own table (`cs:11ACh`) past the pointer
+            // library's hook, which keeps a player's Enter from it.
             crate::titles::Runtime::key(&mut g, 9);
             crate::titles::Runtime::key(&mut g, 13);
         }

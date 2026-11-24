@@ -169,6 +169,70 @@ fn a_game_saved_in_one_location_comes_back_there_with_its_state() {
 
 /// A Dunkle Schatten 2 save in the slot — the same file names — is not this
 /// game's and says so instead of loading.
+/// A save that stops between its words leaves the slot it was saving over to
+/// the next run, whole.
+///
+/// The second game here gets through `PUT` and `PUTANIM` and then simply
+/// ends, as a run that crashes or is closed there would: its `.blk` names
+/// location 3 and its `.anm` is its own. A fresh game must find the first
+/// save — byte for byte, and loaded through the page into location 2 on day 3.
+#[test]
+fn a_save_that_stops_between_its_words_leaves_the_old_slot() {
+    let Some(dir) = gamedata_enviro() else {
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
+        return;
+    };
+    let saves = saves_dir("enviro-stopped");
+    let save = |game: &mut Game<Vm>, location: i32, words: &[&str]| {
+        game.set_var(601, "_LOADTABLE", location)
+            .expect("_LOADTABLE");
+        let table = game.address(601, "_LOADTABLE").expect("_LOADTABLE");
+        let table = i32::from(game.vm.mem.flat(table).expect("loaded")) + 2;
+        word16(game, "PUT", &[2, table, 701]);
+        for &word in words {
+            word16(game, word, &[701]);
+        }
+    };
+
+    let (mut game, _) = into_the_game(&dir, &saves);
+    game.request_location(2).expect("NEXTLOC");
+    frames(&mut game, 120, "settling in the location");
+    game.set_var(607, "_TAG", 3).expect("_TAG");
+    save(&mut game, 2, &["PUTANIM", "=>PUTAS"]);
+    let slots = game.saves().expect("a save directory").to_path_buf();
+    let read = || -> Vec<Vec<u8>> {
+        ["blk", "anm", "FRZ"]
+            .iter()
+            .map(|s| std::fs::read(slots.join(format!("701.{s}"))).expect("the slot"))
+            .collect()
+    };
+    let first = read();
+    drop(game);
+
+    let (mut second, _) = into_the_game(&dir, &saves);
+    second.set_var(607, "_TAG", 2).expect("_TAG");
+    save(&mut second, 3, &["PUTANIM"]);
+    let blk = std::fs::read(slots.join("701.blk")).expect("the new .blk");
+    assert_ne!(blk, first[0], "the second save had begun to write");
+    assert!(
+        slots.join("701.anm.old").exists(),
+        "and the old .anm waits aside for the save to close"
+    );
+    drop(second);
+
+    let (mut fresh, after) = into_the_game(&dir, &saves);
+    assert!(read() == first, "the slot is the first save again");
+    assert!(matches!(after, After::OnThePage), "and the page offers it");
+    click(&mut fresh, 30, 180, 60);
+    click(&mut fresh, 118, 180, 300);
+    assert_eq!(
+        fresh.get_var(601, "ACTLOC"),
+        Some(2),
+        "the first save's location"
+    );
+    assert_eq!(fresh.get_var(607, "_TAG"), Some(3), "and its day");
+}
+
 #[test]
 fn a_slot_holding_the_other_games_files_is_refused_by_name() {
     let Some(dir) = gamedata_enviro() else {
@@ -190,4 +254,47 @@ fn a_slot_holding_the_other_games_files_is_refused_by_name() {
     let text = err.to_string();
     assert!(text.contains("not a savegame file"), "{text}");
     let _ = std::fs::remove_dir_all(&saves);
+}
+
+/// A load holds the rest of its frame still: `GETANIM` leaves the frame
+/// loop's freeze cell at 1 (`08f4:1113`), and while it stands the loop runs
+/// no screen's callbacks and no controller (`016a:05ee`, `016a:0686`),
+/// until it is cleared after the frame's blit (`016a:0801`). Loaded outside
+/// a frame, as here, the hold is the next frame's: the controller does not
+/// read the mouse in that frame, and does in the one after.
+#[test]
+fn a_load_holds_the_frame_after_it_still() {
+    let Some(dir) = gamedata_enviro() else {
+        eprintln!("skipping: no Die Enviro-Kids greifen ein gamedata directory");
+        return;
+    };
+    let saves = saves_dir("enviro-hold");
+    let (mut game, _) = into_the_game(&dir, &saves);
+    game.request_location(2).expect("NEXTLOC");
+    frames(&mut game, 120, "settling in the location");
+    game.set_var(601, "_LOADTABLE", 2).expect("_LOADTABLE");
+    let table = game.address(601, "_LOADTABLE").expect("_LOADTABLE");
+    let table = i32::from(game.vm.mem.flat(table).expect("loaded")) + 2;
+    word16(&mut game, "PUT", &[2, table, 701]);
+    word16(&mut game, "PUTANIM", &[701]);
+    word16(&mut game, "=>PUTAS", &[701]);
+    word16(&mut game, "GETANIM", &[701]);
+    // `CTRL` (module 100, cell 136) takes `MOUSEX` into `_MX` (module 601)
+    // every frame it runs.
+    let before = game.get_var(601, "_MX").expect("_MX");
+    assert_ne!(before, 200);
+    game.set_input(200, 100, false, false, 0).expect("input");
+    game.step().expect("the held frame");
+    assert_eq!(
+        game.get_var(601, "_MX"),
+        Some(before),
+        "no controller in the held frame"
+    );
+    game.set_input(200, 100, false, false, 0).expect("input");
+    game.step().expect("the frame after");
+    assert_eq!(
+        game.get_var(601, "_MX"),
+        Some(200),
+        "the controller runs again after it"
+    );
 }

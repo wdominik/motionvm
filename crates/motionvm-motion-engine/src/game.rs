@@ -737,6 +737,11 @@ where
                     callback,
                     wait,
                 } => {
+                    // The cell is read as the screen's turn comes, not at the
+                    // snapshot: a load earlier in the frame holds the rest.
+                    if self.engine.hold16 {
+                        continue;
+                    }
                     if wait != 0 {
                         self.engine.count_down_on(screen, handle);
                         continue;
@@ -752,6 +757,9 @@ where
                     self.vm.call_nested(addr, &mut self.engine)?;
                 }
                 Phase16::Controller { screen, id } => {
+                    if self.engine.hold16 {
+                        continue;
+                    }
                     let Some(addr) = self.vm.callback_target(id) else {
                         continue;
                     };
@@ -778,6 +786,7 @@ where
                 }
                 Phase16::Present => {
                     self.engine.present();
+                    self.engine.hold16 = false;
                     // Last in the frame, after the blit (`LL.EXE`
                     // `0104:5756`): the rotating palette's turn, if
                     // `SETCYCLE` armed one.

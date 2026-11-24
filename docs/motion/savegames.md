@@ -5,7 +5,8 @@
 *motionvm's own — this page describes files this program writes, not files any original MOTION player wrote. Why they cannot be the original's is in [Departures](departures.md#savegames); what the original writes, and when, is under [MOTION 32-bit](README.md#motion-32-bit) and [MOTION 16-bit](README.md#motion-16-bit).*
 
 Every MOTION game with a save menu saves through the same three files per
-slot, named from the id `701 + slot`:
+slot, named from the id `701 + slot` — except that Victor Loomes names the
+`.anm` and the `.FRZ` from the slot's number alone, `001` to `005`:
 
 | File | Written by | Holds |
 |---|---|---|
@@ -37,14 +38,30 @@ a directory is a convention, and a file can be moved by hand.
 
 Each file goes to `<name>.tmp` first, is flushed to the device, and only then
 takes its name. A rename inside a directory is atomic, so a reader sees either
-every byte of the new file or every byte of the old one; a crash, a full disk
-or a pulled plug partway through a save costs the new slot and not the old.
-The original writes straight through and has no such property — a save
-interrupted there leaves a file that is neither, and still opens.
+every byte of the new file or every byte of the old one.
 
-The directory itself is deliberately not flushed. Without that a power cut can
-leave the older of the two files in place, which is the older of the two
-consistent states, and consistent is the whole of what is promised.
+That keeps a file whole, and a slot is three of them, written by three words
+in turn. So a save is also a small journal. `PUT` opens it with a note,
+`save.journal`, in the save directory. Before each of the three words replaces
+its file, the file goes into the note, with whether it existed, and an
+existing one is renamed to `<name>.old`. Once `=>PUTAS` has written, the note
+is removed — that is the moment the new save counts — and the `.old` files
+after it. A run that takes a save directory into use first looks for the note.
+A note still there is a save that stopped partway: its `.old` files go back
+over whatever it wrote, and a file it wrote that did not exist before is
+removed. The journal follows the files the words name rather than a slot
+number, because Victor Loomes writes `701.blk` beside `001.anm` and `001.FRZ`. A crash, a full disk or a closed
+window partway through a save therefore costs the new save and not the old
+slot, and a first save into an empty slot that never finished leaves no slot
+at all. The journal flushes the directory between its steps, on systems that
+can, since its order is what it rests on.
+
+Checker 2000 is outside this. Its build has no `PUTANIM`, and its one `PUT`
+writes a block that is the whole of what it keeps.
+
+The original writes straight through and has no such property. A save
+interrupted there leaves a slot that names one location and holds another's
+state, or a file that is neither, and both still open.
 
 ## The head
 
@@ -222,15 +239,15 @@ wrong:
 701.FRZ: damaged after it was written: the header says a checksum of 3735928559, the file has 2596069104
 701.anm: a savegame of enviro, and this is hfa
 701.anm: no DESC section
-=>GETAS 701: slot 701 is incomplete — 701.FRZ is missing, so the save it belongs to was interrupted while it was being written
+=>GETAS 701: slot 701 is incomplete — 701.FRZ is missing
 =>GETAS 701: module 907 appears twice, as record 4 and 11
 ```
 
 The last two are worth telling apart. A slot is *incomplete* when its `.blk`
 is there and one of the other two is not: `EXIST` answers off the `.blk` alone
 — as the original's does, at `0x66b0e` — so the game offers a slot whose state
-files may never have been written. With each file now written whole or not at
-all, that is the one way a save can still be half-made.
+files may not be there. A save that stopped partway is rolled back by the next
+run, so such a slot has had a file taken out of it by hand.
 
 ## See also
 

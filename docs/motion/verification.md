@@ -115,8 +115,11 @@ Against lossless recordings of the original under DOSBox-X:
   standing in its intro under DOSBox-X — the title animation over, the tune
   looping under the poll loop that waits for a key: 54.8 seconds, 3 640
   register writes in the recording, of which the 3 551 past the recording's
-  opening snapshot agree with the rebuilt stream write for write, and the
-  chip's 89 registers at the first note agree register for register. The
+  opening snapshot agree with the rebuilt stream write for write, and each of
+  the 89 registers the snapshot holds at the first note has the rebuilt
+  stream's value there. That holding was compared in one direction only: a
+  register the rebuilt stream sets and the snapshot leaves at zero is not
+  covered by it. The
   stream is rendered from the game's own files by `motionvm-motion-tools
   registers`, so this is the check that says the fifth build's `MUSADL.DRV`
   reading and the `MTCVTS` module's section table are right for a game two

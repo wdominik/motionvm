@@ -182,6 +182,14 @@ pub struct Engine {
     pub(crate) request: Option<request16::Request>,
     /// The error report on screen, if a run-time error has put one up.
     pub(crate) error_box: Option<error_box32::ErrorBox>,
+    /// The 16-bit frame loop's hold: the freeze cell's 1 (`DS:0x05b0`),
+    /// which `GETANIM` stores as its last act (`ENVIRO.EXE` `08f4:1113`,
+    /// image `0xa053`, the one store of 1 in the image) and the loop clears
+    /// after the frame's blit (`016a:0801`–`0808`). While it stands, a
+    /// screen's phase runs neither its callbacks (`016a:05ee`) nor its
+    /// controller (`016a:0686`–`0692`): the rest of the frame the load ran
+    /// in holds still.
+    pub(crate) hold16: bool,
     /// Set when the game asks for a redraw. A still frame is composed on
     /// demand, so this only records that it was asked for.
     pub(crate) dirty: bool,
@@ -721,6 +729,7 @@ impl Engine {
             palette_cycle: None,
             request: None,
             error_box: None,
+            hold16: false,
             dirty: false,
             rebuild: Vec::new(),
             draw_pass: 0,

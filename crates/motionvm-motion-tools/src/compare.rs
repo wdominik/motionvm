@@ -402,8 +402,8 @@ pub(crate) struct Alignment {
     /// Our write the recording resumes with.
     pub ours_at: usize,
     /// Registers the snapshot has one way and our state at `ours_at` another:
-    /// the register, the recording's value, and ours if we ever wrote it.
-    pub state_differs: Vec<(u16, u8, Option<u8>)>,
+    /// the register, the recording's value, and ours.
+    pub state_differs: Vec<(u16, u8, u8)>,
 }
 
 /// Lines a rendered stream up with a recording, both already reduced to
@@ -436,6 +436,12 @@ pub(crate) fn align(ours: &[Write], theirs: &[Write]) -> Result<Alignment, Strin
                 anchor.0, anchor.1
             )
         })?;
+    // Both sides are reduced to changes from a chip at zero, so a register
+    // neither lists holds zero on both, and one that only one lists holds
+    // zero on the other. The comparison runs over the registers either side
+    // lists: a register the recording's snapshot leaves at zero and ours sets
+    // is as much a difference as the other way round, and a walk over the
+    // recording's alone would not see it.
     let state = |writes: &[Write]| {
         let mut s = std::collections::BTreeMap::new();
         for &(r, v) in writes {
@@ -444,10 +450,16 @@ pub(crate) fn align(ours: &[Write], theirs: &[Write]) -> Result<Alignment, Strin
         s
     };
     let mine = state(&ours[..ours_at]);
-    let state_differs = state(&theirs[..resume])
+    let recorded = state(&theirs[..resume]);
+    let registers: std::collections::BTreeSet<u16> =
+        mine.keys().chain(recorded.keys()).copied().collect();
+    let state_differs = registers
         .into_iter()
-        .filter(|(r, v)| mine.get(r) != Some(v))
-        .map(|(r, v)| (r, v, mine.get(&r).copied()))
+        .map(|r| {
+            let at = |s: &std::collections::BTreeMap<u16, u8>| s.get(&r).copied().unwrap_or(0);
+            (r, at(&recorded), at(&mine))
+        })
+        .filter(|&(_, theirs, ours)| theirs != ours)
         .collect();
     Ok(Alignment {
         resume,
@@ -521,11 +533,7 @@ pub(crate) fn streams(ours_raw: &[Write], recording: &Recording) -> StreamReport
             alignment.state_differs.len()
         );
         for (r, v, mine) in &alignment.state_differs {
-            let _ = writeln!(
-                text,
-                "  {r:#05x}  {v:#04x}  {}",
-                mine.map_or_else(|| String::from("never written"), |m| format!("{m:#04x}"))
-            );
+            let _ = writeln!(text, "  {r:#05x}  {v:#04x}  {mine:#04x}");
         }
     }
     let mine = &ours[alignment.ours_at..];
@@ -867,11 +875,7 @@ mod tests {
             "{}",
             report.text
         );
-        assert!(
-            report.text.contains("0x105  0x01  never written"),
-            "{}",
-            report.text
-        );
+        assert!(report.text.contains("0x105  0x01  0x00"), "{}", report.text);
 
         let report = streams(&ours[..8], &recorded);
         assert!(
@@ -881,5 +885,43 @@ mod tests {
             "{}",
             report.text
         );
+    }
+
+    /// A register our stream sets that the recording's snapshot leaves at
+    /// zero is a difference in the chip's state, as much as the other way
+    /// round. The recorder drops a write of zero to a chip at zero, so the
+    /// snapshot does not list such a register at all, and only a comparison
+    /// over both sides' registers sees it. A stream that also leaves it at
+    /// zero, or sets it and puts it back, agrees.
+    #[test]
+    fn a_register_only_ours_sets_is_a_difference_in_the_state() {
+        let recorded = Recording {
+            hardware: 1,
+            length_ms: 300,
+            writes: vec![
+                (0, 0x020, 0x00),
+                (0, 0x0a0, 0x41),
+                (100, 0x0a0, 0x42),
+                (200, 0x0a0, 0x43),
+            ],
+        };
+        let song = [(0x0a0, 0x41), (0x0a0, 0x42), (0x0a0, 0x43)];
+        let with =
+            |before: &[Write]| -> Vec<Write> { before.iter().chain(&song).copied().collect() };
+
+        let report = streams(&with(&[(0x020, 0x00)]), &recorded);
+        assert!(report.same, "{}", report.text);
+
+        let report = streams(&with(&[(0x020, 0x07), (0x020, 0x00)]), &recorded);
+        assert!(report.same, "set and put back: {}", report.text);
+
+        let report = streams(&with(&[(0x020, 0x07)]), &recorded);
+        assert!(!report.same, "{}", report.text);
+        assert!(
+            report.text.contains("differs in 1 registers"),
+            "{}",
+            report.text
+        );
+        assert!(report.text.contains("0x020  0x00  0x07"), "{}", report.text);
     }
 }
