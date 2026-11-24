@@ -508,8 +508,10 @@ pub trait Family: Sync {
 /// # Errors
 ///
 /// When there is no working directory to take a relative path from, or the
-/// existing part cannot be canonicalized — which includes a `..` that
-/// follows a part not there yet, since there is nothing to go up from.
+/// existing part cannot be canonicalized — which on Unix includes a `..`
+/// that follows a part not there yet, since there is nothing to go up from.
+/// Windows takes such a `..` off the name before it looks, and the path
+/// resolves to where it would be written.
 pub fn resolve_dir(dir: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
     let absolute = if dir.is_absolute() {
         dir.to_path_buf()
@@ -556,11 +558,17 @@ mod tests {
             .join("saves")
             .join("x");
         assert_eq!(resolve_dir(&through).expect("resolves"), plain);
-        // A `..` after a part that does not exist has nothing to go up from:
-        // the path is refused rather than guessed at.
+        // A `..` after a part that does not exist: Unix has nothing to go up
+        // from and the path is refused; Windows takes `..` off the name
+        // before it looks, and the answer is where it would write.
         let around = base.join("other").join("..").join("game").join("saves");
         assert!(!base.join("other").exists());
-        assert!(resolve_dir(&around).is_err());
+        let resolved = resolve_dir(&around);
+        if cfg!(windows) {
+            assert_eq!(resolved.ok(), Some(real.join("game").join("saves")));
+        } else {
+            assert!(resolved.is_err(), "refused where Unix refuses it");
+        }
 
         let relative = resolve_dir(std::path::Path::new("motionvm-not-there")).expect("resolves");
         let cwd = std::env::current_dir().expect("a working directory");
