@@ -16,7 +16,10 @@ That library is PARSEC's one generation here, **`parsec1994`**, as MOTION's
 are `motion16` and `motion32`. The engine pages and the format pages
 describe it: the routines every location calls and the files they read.
 What one location's handler does, its puzzles and the game's own data
-belong to the game, and are under [Dunkle Schatten](../games/ds1/README.md).
+belong to the game, and are under [Dunkle Schatten](../games/ds1/README.md);
+the other titles' pages — [Captain Zins](../games/capzins/README.md) and
+[Bi-Fi 2](../games/bifi2/README.md) — say where their programs' builds of
+the library differ.
 
 ## The programs
 

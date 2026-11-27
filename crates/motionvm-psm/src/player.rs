@@ -364,10 +364,10 @@ impl Player {
         }
     }
 
-    /// The mixer's play entry (17) with mode 0: see [`Mixer::play`]. `None`
-    /// without the mixer installed, too.
-    pub fn play_effect(&mut self, sample: &Arc<Sample>) -> Option<usize> {
-        self.digital.as_mut()?.with(|m| m.play(sample))
+    /// The mixer's play entry (17): `sample` for `repeats + 1` passes, see
+    /// [`Mixer::play`]. `None` without the mixer installed, too.
+    pub fn play_effect(&mut self, sample: &Arc<Sample>, repeats: u16) -> Option<usize> {
+        self.digital.as_mut()?.with(|m| m.play(sample, repeats))
     }
 
     /// The mixer's `StopAll` (entry 18): see [`Mixer::stop_all`].
@@ -544,7 +544,7 @@ mod tests {
             p.mixer().unwrap().channel(7).unwrap().playing,
             "the voice event came"
         );
-        assert_eq!(p.play_effect(&tone), Some(1));
+        assert_eq!(p.play_effect(&tone, 0), Some(1));
         p.stop_effects();
         assert!(!p.mixer().unwrap().channel(7).unwrap().playing);
     }

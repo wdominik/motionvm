@@ -1,6 +1,7 @@
 //! What a verb does to an object: the generic rules, the location's own,
 //! the inventory, and the text a scene number resolves to.
 
+use super::profile::StripRange;
 use super::{Adventure, Result};
 use crate::num;
 
@@ -26,18 +27,24 @@ impl Adventure {
 
     /// The strip's loader on the carried list (`0C1Ch:000Ch`, `0x0C1CC`):
     /// the range is the whole list — or, in a build that splits it
-    /// ([`super::Profile::strip_split`]), the items below the split for the
+    /// ([`super::Profile::strip`]), the items below the split for the
     /// first strip file and the rest for the second. Then the first
     /// visible slot is put back to the range's start when it lies outside
-    /// it (`0x0C1E0`–`0x0C1F5`).
+    /// it (`0x0C1E0`–`0x0C1F5`). A build whose loader keeps no range has
+    /// the whole list and leaves the slot where it is.
     pub(crate) fn strip_range(&mut self) {
         let count = self.items.len();
-        match self.profile.strip_split {
-            None => {
+        match self.profile.strip {
+            StripRange::Whole => {
                 self.inv_lo = 0;
                 self.inv_hi = count;
             }
-            Some(split) => {
+            StripRange::Unranged => {
+                self.inv_lo = 0;
+                self.inv_hi = count;
+                return;
+            }
+            StripRange::Split(split) => {
                 let below = self.items.iter().take_while(|&&id| id < split).count();
                 if self.figure_digit != 0 {
                     self.inv_lo = below;
@@ -60,10 +67,27 @@ impl Adventure {
     /// a row, held inside the range — on, no further than a row before its
     /// end and never before its start. Then the slots are drawn again
     /// (`or word [4E8h], 0FFh`), which the strip does from the list anyway.
+    ///
+    /// A build whose arrows move a row on every click (*Bi-Fi 2*'s
+    /// `0x07C0E`–`0x07C39`) moves back while the first visible item is not
+    /// the first, and on while the list reaches `n` past it, in bytes as
+    /// the original adds them.
     pub(crate) fn scroll_strip(&mut self, way: crate::titles::panel::Scroll, by_row: bool) {
         use crate::titles::panel::Scroll;
         let row = usize::from(self.panel_widgets.arrows.row);
         let (lo, hi) = (self.inv_lo, self.inv_hi);
+        if let Some(n) = self.panel_widgets.arrows.every_click {
+            let scroll = num::byte(self.scroll);
+            let step = self.panel_widgets.arrows.row;
+            match way {
+                Scroll::Up if scroll != 0 => self.scroll = usize::from(scroll.wrapping_sub(step)),
+                Scroll::Down if usize::from(scroll) + usize::from(n) < self.items.len() => {
+                    self.scroll = usize::from(scroll.wrapping_add(step));
+                }
+                _ => {}
+            }
+            return;
+        }
         match way {
             Scroll::Up if self.scroll > lo => {
                 self.scroll = if by_row {
@@ -137,7 +161,7 @@ impl Adventure {
         let (bank, place) = if place >= 0x4000 {
             (
                 &self.dialogues.1,
-                usize::from(place - 0x4000).checked_sub(1)?,
+                usize::from(place.checked_sub(self.profile.scenes.item_base)?),
             )
         } else {
             (&self.dialogues.0, usize::from(place))
@@ -166,7 +190,7 @@ impl Adventure {
     }
 
     /// What an item is called. Ids count from one.
-    pub(super) fn item_name(&self, id: u8) -> Option<&str> {
+    pub(crate) fn item_name(&self, id: u8) -> Option<&str> {
         self.item_names
             .get(usize::from(id).checked_sub(1)?)
             .map(String::as_str)
@@ -188,7 +212,13 @@ impl Adventure {
         self.inv_hi += 1;
         let last = usize::from(self.profile.inventory_window).saturating_sub(1);
         if self.scroll > at || self.scroll + last < at {
-            self.scroll = at;
+            // By rows (Bi-Fi 2's `0x07E7B`): the start of the row
+            // before the item's, 0 for one in the first row.
+            self.scroll = match self.profile.inventory_rows.map(usize::from) {
+                Some(row) if at < row => 0,
+                Some(row) => (at - row) & !(row - 1),
+                None => at,
+            };
         }
     }
 
@@ -205,6 +235,14 @@ impl Adventure {
             self.inv_hi = self.inv_hi.saturating_sub(1);
             let window = usize::from(self.profile.inventory_window);
             if self.scroll + window <= at {
+                return;
+            }
+            // By rows (Bi-Fi 2's `0x07F23`–`0x07F44`): a row back while
+            // the first visible row lies past the count rounded down to rows.
+            if let Some(row) = self.profile.inventory_rows.map(usize::from) {
+                if self.scroll != 0 && self.scroll + row > self.items.len() & !(row - 1) {
+                    self.scroll -= row;
+                }
                 return;
             }
             if self.scroll < self.inv_hi {
@@ -306,5 +344,19 @@ mod tests {
         assert_eq!(a.scroll, 2);
         a.scroll_strip(Scroll::Up, true);
         assert_eq!(a.scroll, 0, "held at the start");
+    }
+
+    /// Captain Zins's handlers hand `~(id + 4000h)` to look at an item
+    /// (`0x10E7B`) and its lookup takes `4000h` off (`sub si, 4000h`,
+    /// `0x08A70`): item 2, the Ring, is the inventory bank's place 2.
+    #[test]
+    fn captain_zins_names_an_item_by_its_own_place() {
+        let Some(a) = crate::titles::capzins::adventure_for_test() else {
+            return;
+        };
+        let ring = a.scene_text(!(2 + 0x4000)).expect("the Ring has a line");
+        let ring = String::from_utf8_lossy(&ring).into_owned();
+        assert!(ring.contains("Metallring"), "{ring}");
+        assert_eq!(a.item_names.get(1).map(String::as_str), Some("Ring"));
     }
 }

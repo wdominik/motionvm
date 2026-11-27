@@ -2,23 +2,27 @@
 
 # The Way Out of `XP01`
 
-*PARSEC — what the game program shows after its main loop, before it exits with code 0. Dunkle Schatten's addresses are linear offsets into the unpacked `XP01.EXE` (150 096 bytes, `DGROUP` `21EFh`); Captain Zins's are marked CZ and are into its own `XP01.EXE` (`DGROUP` `1FC4h`).*
+*PARSEC — what the game program shows after its main loop, before it exits with code 0. Dunkle Schatten's addresses are linear offsets into the unpacked `XP01.EXE` (150 096 bytes, `DGROUP` `21EFh`); Captain Zins's are marked CZ and are into its own `XP01.EXE` (`DGROUP` `1FC4h`); Bi-Fi 2's are marked BF and are into its own `XP01.EXE` (164 576 bytes, `DGROUP` `250Ah`).*
 
 The main loop runs while the location word is not below zero (`0x4FE9`,
-CZ `0x007A6`). After it, the settings are written (`0x4FF0`, CZ `0x007AD`),
-and the location word the loop ended on chooses what is shown, out of
-`RESOURCE\EXTROS.DAT`:
+CZ `0x007A6`). After it, the settings are written (`0x4FF0`, CZ `0x007AD`,
+BF `0x007AD`), and in Dunkle Schatten and Captain Zins the location word
+the loop ended on chooses what is shown, out of `RESOURCE\EXTROS.DAT`.
+Bi-Fi 2 shows nothing after its loop: its end is played inside it, by
+the location that ends the game, before the settings are written:
 
-| Location | Dunkle Schatten | Captain Zins |
-|---|---|---|
-| −1 | the game's end, `12D3h:0636h` (`0x5014`) | the parade, `0E01h:068Bh` (CZ `0x007CB`) |
-| −4 | nothing (`0x4FFB`) | nothing |
-| any other below zero | the quit, `12D3h:03A7h` (`0x501B`) | nothing (CZ `0x007B2` sends only −1 on) |
+| Location | Dunkle Schatten | Captain Zins | Bi-Fi 2 |
+|---|---|---|---|
+| −1 | the game's end, `12D3h:0636h` (`0x5014`) | the parade, `0E01h:068Bh` (CZ `0x007CB`) | nothing after the loop; the Kaffee has played the end, `0D84h:0008h` (BF `0x10942`) |
+| −4 | nothing (`0x4FFB`) | nothing | nothing |
+| any other below zero | the quit, `12D3h:03A7h` (`0x501B`) | nothing (CZ `0x007B2` sends only −1 on) | nothing |
 
 Location −1 is the end of the game: in Dunkle Schatten the JZ's last
 state sets it (`0x1D7D`), and so does the F1's hook event 28h
 (`0x463E`); in Captain Zins Money's hook on the text's script event 12h
-(CZ `0x148C2`), at the end of its third scene. Quitting from the options
+(CZ `0x148C2`), at the end of its third scene; in Bi-Fi 2 the Kaffee's
+row at `DS:182Ch`, which names `FFFFh` for entry 6 (BF `0x108C5`).
+Quitting from the options
 leaves −2 (`0x12403`, CZ `0x0D73B`); −4 is a developer's key in Dunkle
 Schatten (`0x0FD00`). Afterwards the program exits with code 0
 (`0590h:095Fh`).
@@ -122,6 +126,48 @@ How many portraits there are is how many slots the group has past six
    the screen faded out as in 1., the song stopped (CZ `0x0E490`).
 
 Captain Zins has no picture after the parade and nothing for quitting.
+
+## Bi-Fi 2
+
+`_main` writes the settings after its main loop (BF `0x007AD`) and goes to
+the developer's switches or exits (BF `0x007B2`–`0x008C3`); it shows
+nothing. The end is the Kaffee's: entered on entry 6, its handler sets the
+faces back on the frames the visit set them on, holds the band's redraw,
+fades the music over 2 000 ms while the frame pass runs on alone for
+`C8h` hundredths, stops the music, lets the slot go without leaving the
+visit, sets the effects' volume to `50h`, and calls the sequence
+`0D84h:0008h` (BF `0x0D848`–`0x0DE46`, called at `0x10942`); then it
+returns with the location word at `FFFFh`, which no other path leaves.
+
+**The end**, on the screen the Kaffee left:
+
+1. The pointer hidden (BF `0x0D85F`); the status band filled with 0, the
+   strip taken off the screen; sample 0 of table A played with four
+   passes more (BF `0x0D8EB`); the strip closing in on column `0A0h` a
+   column a step, two hundredths a step at least, its colors (`0A0h`–
+   `0BFh`) dimmed with it (BF `0x0D8F3`–`0x0D9B4`).
+2. The strip blacked and the effects stopped (BF `0x0D9CB`), sample 1; the
+   room's view shrinking from the whole playfield into the window at
+   (`67h`, `11h`), `72h` by `35h`, four levels a hundredth, sample 1 again
+   a quarter of the way (BF `0x0DAAB`–`0x0DB8D`).
+3. Module 11 played endlessly; slot 6 of `INTROS.DAT` with the shrunk view
+   pasted into its window, its colors — slot 7, from `20h` — faded in a
+   level a retrace (BF `0x0DBB9`–`0x0DCEE`).
+4. The credits of `DS:0BCEh` rolled through the window, laid out by the
+   routine that lays out the Vorführraum's roll — the first line at `35h`,
+   a `c` line on by `0Eh`, an `n` by `10h`, a `p` by `14h`, in the inks
+   `66h`, `76h` and `74h` — a line a step, each step four hundredths
+   after the last and four more for each weight of pause the roll passed,
+   drawn into the back buffer and the window copied onto the screen,
+   until an event
+   (BF `0x0DD47`–`0x0DDD8`).
+5. The music faded over 2 000 ms, the whole DAC faded to black, the music
+   and the effects stopped (BF `0x0DDDB`–`0x0DE46`).
+
+Nothing skips the first three; the mouse is sampled again from the roll
+on (BF `0x0DD3D`). The routines are the library's, Dunkle Schatten's by
+their instructions: its drawing, its music and palette, its roll, its
+scaler and its palette scale.
 
 ## See also
 

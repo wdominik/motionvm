@@ -31,6 +31,10 @@
 //! at row 128 (`0C3Fh:04D2h`, `0x0C909`) with the items on it, one line of
 //! glyphs at a time (`1269h:03BEh`): ink `F8`, or `E8` — three bytes on —
 //! for the highlighted choice's lines (`0x12AFC`, `add dx, 3`).
+//! *Bi-Fi 2*'s strip redraw `0751h:04A2h` (`0x079B2`, called from task
+//! 0's menu paint at `0x09614`) also fills the line's rows with color 0
+//! (`0x07A62`) and holds the band below dark (`0x07A7C`) before the lines
+//! go on ([`super::profile::MenuBand`]).
 
 use crate::num;
 use motionvm_parsec_formats::Font;

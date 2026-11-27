@@ -581,7 +581,7 @@ fn between_two_forest_rows_the_picture_is_kept_and_rebound() {
     g.game.inner.objects[d6].scale = (0x123, 0x123);
     assert_eq!(click_exit(&mut g, 101), 31);
     settle_in_forest(&mut g);
-    assert!(g.game.inner.picture_kept);
+    assert_eq!(g.game.inner.kept, parsec1994::Kept::Room);
     assert_eq!(state(&g), fresh);
     assert_eq!(forest_exits(&g), fresh_exits);
     assert_eq!(
@@ -591,7 +591,7 @@ fn between_two_forest_rows_the_picture_is_kept_and_rebound() {
     );
     crate::titles::Runtime::set_location_via(&mut g, 30, 100);
     settle_effects(&mut g);
-    assert!(!g.game.inner.picture_kept);
+    assert_eq!(g.game.inner.kept, parsec1994::Kept::Nothing);
     assert_eq!(
         g.game.inner.objects[d6].scale, file_scale,
         "a jump loads afresh"
@@ -639,12 +639,12 @@ fn between_two_forest_rows_the_animations_are_kept() {
         (r.current, r.phase, r.index, r.repeat, r.delay)
     };
     assert_eq!(click_exit(&mut g, 101), 31);
-    assert!(g.game.inner.picture_kept);
+    assert_eq!(g.game.inner.kept, parsec1994::Kept::Room);
     assert_eq!(state(&g), planted, "the entry as row 30 left it");
     assert_eq!(ids(&g), row31, "renamed by row 31's map");
     crate::titles::Runtime::set_location_via(&mut g, 30, 100);
     settle_effects(&mut g);
-    assert!(!g.game.inner.picture_kept);
+    assert_eq!(g.game.inner.kept, parsec1994::Kept::Nothing);
     assert_ne!(state(&g), planted, "a jump starts them afresh");
 }
 
@@ -706,16 +706,16 @@ fn the_forests_song_plays_on_from_row_to_row() {
     g.game.inner.music.sent.clear();
     assert_eq!(click_exit(&mut g, 101), 31);
     settle_in_forest(&mut g);
-    // Footsteps play on the way; nothing else reaches either driver —
-    // the map's bit 2 keeps the effects as bit 3 keeps the song
-    // (`0x85D4`).
+    // Footsteps and the forest's own sounds (`0x4DC9`) play on the way;
+    // nothing else reaches either driver — the map's bit 2 keeps the
+    // effects as bit 3 keeps the song (`0x85D4`).
     assert!(
         g.game
             .inner
             .music
             .sent
             .iter()
-            .all(|r| matches!(r, parsec1994::Request::Effect { row: 0 | 1 })),
+            .all(|r| matches!(r, parsec1994::Request::Effect { .. })),
         "and plays on: {:?}",
         g.game.inner.music.sent
     );
@@ -1034,7 +1034,9 @@ fn a_click_lays_the_hover_text_again_at_the_pointer() {
 /// pass (`14DDh:0293h`, `0x1535F`). So while the transition out of the
 /// Zimmer plays, the DAC's room range is still the Zimmer's, and the
 /// Küche's is there once the effects are over — with the DAC then
-/// what a fresh build for the Küche gives.
+/// what a fresh build for the Küche gives. The Küche's bank starts at
+/// register 0, so the pass loads it with its first color black
+/// (`0x1532F`).
 #[test]
 fn the_exit_effect_plays_in_the_old_rooms_colors() {
     let mut g = ds1!();
@@ -1056,6 +1058,9 @@ fn the_exit_effect_plays_in_the_old_rooms_colors() {
         .room
         .palette_rgb
         .clone();
+    let mut kueche = kueche;
+    assert_eq!(range(&g).0, 0, "the Küche's bank starts at register 0");
+    kueche[..3].fill(0);
     assert_ne!(zimmer, kueche, "two rooms, two palettes");
     assert_eq!(
         g.game.inner.palette().raw[a..b],
@@ -1326,9 +1331,12 @@ fn a_caption_has_eleven_styles_and_one_flattening_rule() {
     assert_eq!(g.game.inner.styles[0].ink, 248);
     assert_eq!(g.game.inner.styles[0].panel, 232);
     assert_eq!(g.game.inner.styles[1].panel, 238);
-    assert_eq!(g.game.inner.flatten.to, 192);
-    assert_eq!(g.game.inner.flatten.first, 192);
-    assert_eq!(g.game.inner.flatten.count, 16);
+    let crate::titles::xp1994::Flatten::Table(flatten) = g.game.inner.flatten else {
+        panic!("Dunkle Schatten flattens through a table");
+    };
+    assert_eq!(flatten.to, 192);
+    assert_eq!(flatten.first, 192);
+    assert_eq!(flatten.count, 16);
 }
 
 /// A verb and a hotspot produce a caption, and while it is up a
@@ -4283,7 +4291,7 @@ fn the_dissolve_draws_the_machines_count_from_the_games_generator() {
 }
 
 /// On the reference machine the start options leave the generator
-/// where the original's left it there: `7698h:E605h` at `1EB5h:0006h`
+/// where the original's left it there: `A414h:AD4Bh` at `1EB5h:0006h`
 /// after the loop, from `0000:0000` before it.
 #[test]
 fn the_start_options_leave_the_seed_the_reference_machine_left() {
@@ -4293,7 +4301,7 @@ fn the_start_options_leave_the_seed_the_reference_machine_left() {
     };
     assert_eq!(g.game.inner.seed_for_test(), (0, 0));
     until_the_options_take_input(&mut g);
-    assert_eq!(g.game.inner.seed_for_test(), (0xE605, 0x7698));
+    assert_eq!(g.game.inner.seed_for_test(), (0xAD4B, 0xA414));
 }
 
 /// The entry's pass with no ticks (`0x0EC50`) steps the bed, whose
@@ -5485,7 +5493,7 @@ fn the_game_runs_the_same_with_sound_and_without() {
         fn effect_volume(&mut self, _: u16) {
             self.one();
         }
-        fn play_effect(&mut self, _: u16, _: &[u8]) {
+        fn play_effect(&mut self, _: u16, _: &[u8], _: u16) {
             self.one();
         }
         fn stop_effects(&mut self) {
@@ -5581,4 +5589,53 @@ fn the_zimmer_plays_module_1_and_the_kueche_module_10() {
     let ticks: Vec<u32> = sent.iter().map(|s| s.0).collect();
     assert_eq!(ticks, [109, 3081, 3198, 3198, 3306]);
     assert_eq!(g.game.inner.location(), 3);
+}
+
+/// F3's fade: while `[1952h]` is 1 the frame loop steps DAC entry 42h up
+/// through the room's palette, one color a tenth of a second
+/// (`0x496C`–`0x499C`), the palette found behind the room's header — its
+/// `+1Ch` cel table, whose entry 0 is the palette record (`0x0487B`).
+#[test]
+fn f3_fades_its_light_through_the_room_s_palette() {
+    let mut g = ds1!();
+    crate::titles::Runtime::set_location_via(&mut g, 29, 0x7F);
+    for _ in 0..50 {
+        crate::titles::Runtime::tick(&mut g);
+    }
+    assert_eq!(g.game.inner.here_word, 29, "in F3");
+    let rgb = g
+        .game
+        .inner
+        .room()
+        .expect("a room")
+        .room
+        .palette_rgb
+        .clone();
+    g.game.inner.events.clear();
+    Api::set_word(&mut g.game.inner, 0x1952, 1);
+    let color = |n: usize| rgb[n * 3..n * 3 + 3].to_vec();
+    let mut n = 0;
+    while g.game.inner.dac_for_test().raw[0x42 * 3..0x42 * 3 + 3] != color(3)[..] {
+        crate::titles::Runtime::tick(&mut g);
+        n += 1;
+        assert!(n < 2_000, "the fade's first step");
+    }
+    while Api::word(&g.game.inner, 0x1952) != 0 {
+        crate::titles::Runtime::tick(&mut g);
+        n += 1;
+        assert!(n < 20_000, "the fade's end");
+    }
+    assert_eq!(
+        &g.game.inner.dac_for_test().raw[0x42 * 3..0x42 * 3 + 3],
+        &color(15)[..],
+        "color 15"
+    );
+    assert!(
+        !g.game
+            .inner
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Unbuilt(..))),
+        "nothing unbuilt"
+    );
 }

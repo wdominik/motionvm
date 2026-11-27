@@ -20,7 +20,7 @@ sign-off, or, where the files say nothing, the published record named as such.
 Jeff Jet's year is its launcher's sign-off; its shipped files are re-stamped
 1998-04-10.
 
-**Two of the seven name the engine**, at the two ends of the corpus. Victor
+**Two of them name the engine**, at the two ends of the corpus. Victor
 Loomes' credits close on *Erstellt unter · Motion 1.0 · Michel "Babe" Stigler
 · EGO Software* (text table 8), and Dunkle Schatten 2 names it in its
 programming entry: *Basierend auf: … "Motion"-Präsentations-System von
@@ -45,7 +45,7 @@ binary. A game made with it is *data* — compiled Forth script modules plus
 sprites, palettes, fonts, texts and music in resource containers. The engine
 binary reads that data and runs it.
 
-Those seven were built with two generations of that system, and so was the
+The games motionvm plays were built with two generations of that system, and so was the
 [one other MOTION game](games/others.md) on hand — *Compaq* — whose files the
 readers open and the format pages measure over, and which no page describes
 as a game. The generations

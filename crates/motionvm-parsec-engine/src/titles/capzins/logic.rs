@@ -123,6 +123,8 @@ pub(crate) const TABLE: LogicTable = LogicTable {
     onward: onward::LOGIC,
     segments: SEGMENTS,
     global: global_rules::rule,
+    gate: crate::titles::parsec1994::logic::no_gate,
+    record_hook: crate::titles::parsec1994::logic::no_record_hook,
 };
 
 #[cfg(test)]

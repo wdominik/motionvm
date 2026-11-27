@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn a_play_from_rest_is_heard_at_once() {
         let mut o = output();
-        o.with(|m| m.play(&sample(4000)));
+        o.with(|m| m.play(&sample(4000), 0));
         assert!(o.playing());
         assert_eq!(onset(&mut o, 10), Some(0));
     }
@@ -172,9 +172,9 @@ mod tests {
             period: 100,
             pcm: vec![0x80; 4000],
         });
-        o.with(|m| m.play(&quiet));
+        o.with(|m| m.play(&quiet, 0));
         assert_eq!(onset(&mut o, 120), None);
-        o.with(|m| m.play(&sample(4000)));
+        o.with(|m| m.play(&sample(4000), 0));
         assert_eq!(onset(&mut o, 1000), Some(648));
     }
 
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn stop_all_ends_with_the_block_playing() {
         let mut o = output();
-        o.with(|m| m.play(&sample(4000)));
+        o.with(|m| m.play(&sample(4000), 0));
         let mut buf = vec![0i16; 30 * 2];
         o.render(&mut buf);
         o.with(Mixer::stop_all);
@@ -192,7 +192,7 @@ mod tests {
         let heard = buf.chunks(2).take_while(|f| f[0] != 0).count();
         assert_eq!(heard, 128 * 3 - 30, "the rest of block 0");
         assert!(!o.playing());
-        o.with(|m| m.play(&sample(4000)));
+        o.with(|m| m.play(&sample(4000), 0));
         assert_eq!(onset(&mut o, 4), Some(0));
     }
 
@@ -205,7 +205,7 @@ mod tests {
         for rate in [44_100u32, 48_000, 62_500] {
             let d = DmaDriver::parse(&file()).expect("the driver");
             let mut o = Output::new(Mixer::new(&d, 6), d.time_constant, rate);
-            o.with(|m| m.play(&sample(1000)));
+            o.with(|m| m.play(&sample(1000), 0));
             let mut frames = 0u64;
             let mut buf = [0i16; 2];
             while o.playing() {

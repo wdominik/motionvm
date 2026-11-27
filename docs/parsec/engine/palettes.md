@@ -32,7 +32,11 @@ variants (`0x0C3E8`), the gray ramp and the transition ramp all call it
 alone.
 
 A room's banks are loaded by the entry pass `14DDh:0293h`, one
-`0590:0A1F` each (`0x15313`–`0x1535F`). The visit's setup that runs that
+`0590:0A1F` each (`0x15313`–`0x1535F`). A bank that starts at register 0
+has its first color blacked before it is loaded, `cmp byte es:[bx], 0 ;
+jnz` and three byte stores of 0 (`0x1532F`), so color 0 is black whatever
+the room's file holds there — the same test stands in Captain Zins's pass
+(`0x10746`) and Bi-Fi 2's (`0x0F980`). The visit's setup that runs that
 pass comes after the leaving has played its exit effect synchronously
 (`0x0ED4F`), so the exit's picture is colored by the old room's bank, and
 the new room's reaches the DAC only once the exit is over.

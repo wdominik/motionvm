@@ -15,6 +15,8 @@
 //!   copy finds it. A machine without the game skips, it does not fail.
 //! - `MOTIONVM_GAMEDATA_CAPZINS` — the same for *Captain Zins*, falling
 //!   back to `../games/CAPZINS`.
+//! - `MOTIONVM_GAMEDATA_BIFI2` — the same for *Bi-Fi 2*, falling back to
+//!   `../games/BIFI2`.
 //! - `MOTIONVM_SAVES` — the directory the games' own save directories are
 //!   under: the `saves/` the program writes, not `saves/ds1/`, because that
 //!   is what the engine is pointed at and it puts the game's slug on itself.
@@ -32,7 +34,8 @@
 //!   until after a push. `just check-nodata`.
 //!
 //! A game is recognized by its own room container — `DSROOM.DAT`,
-//! `CZROOM.DAT` — not by `XP01.EXE`: that is a name, not a signature.
+//! `CZROOM.DAT`, `BFROOM.DAT` — not by `XP01.EXE`: that is a name, not a
+//! signature.
 //!
 //! The reference digests the suites hold their register streams and the
 //! location logic's cases to are in [`digest`].
@@ -117,6 +120,17 @@ pub fn gamedata_capzins() -> Option<PathBuf> {
         fallback: "../../../games/CAPZINS",
         probe: "CZROOM.DAT",
         name: "Captain Zins",
+    })
+}
+
+/// *Bi-Fi 2* (1994), or `None` when there is none to test.
+/// Panics on a `MOTIONVM_GAMEDATA_BIFI2` that names another directory.
+pub fn gamedata_bifi2() -> Option<PathBuf> {
+    title(&Install {
+        var: "MOTIONVM_GAMEDATA_BIFI2",
+        fallback: "../../../games/BIFI2",
+        probe: "BFROOM.DAT",
+        name: "Bi-Fi 2",
     })
 }
 

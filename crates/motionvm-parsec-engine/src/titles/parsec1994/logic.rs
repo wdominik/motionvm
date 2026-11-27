@@ -11,6 +11,10 @@
 use super::{Adventure, Api, Far};
 use crate::num;
 
+/// A row's record hook: the record, and 0 from the animator or 1 from
+/// the drawer.
+pub(crate) type RecordHook = fn(&mut dyn Api, Far, u16);
+
 /// One location's logic.
 #[derive(Clone, Copy)]
 pub(crate) struct Logic {
@@ -38,6 +42,30 @@ pub(crate) struct LogicTable {
     /// The global rules' handlers, by far address: the ones no location's
     /// segment holds.
     pub global: fn(&mut Adventure, (u16, u16), u16) -> Option<i16>,
+    /// A gate of a location's own, by its far address `(segment, offset)`,
+    /// asked with `arg`: its answer, or `None` for one the title does not
+    /// re-express.
+    pub gate: fn(&mut dyn Api, (u16, u16), i16) -> Option<i16>,
+    /// The row's record hook, by location: the far pointer the shared
+    /// entry copies out of the row into the word the animator and the
+    /// drawer call for a record they have no arm of their own for
+    /// (*Bi-Fi 2*'s `+47h` into `[2D1Ch]`, `0x09E95`–`0x09EA3`; *Dunkle
+    /// Schatten*'s `+37h` into `[2871h]`, `0x0EECB`–`0x0EED9`; Captain
+    /// Zins's `+2Fh` into `[1E3Ch]`, `0x0A36F`–`0x0A37D`). The copy is
+    /// the word's only store in each program, and it has no default: a
+    /// null row leaves the word null.
+    pub record_hook: fn(u16) -> Option<RecordHook>,
+}
+
+/// The record hook table of a title none of whose rows names one.
+pub(crate) fn no_record_hook(_loc: u16) -> Option<RecordHook> {
+    None
+}
+
+/// The gate table of a title none of whose locations installs a gate of
+/// its own.
+pub(crate) fn no_gate(_api: &mut dyn Api, _far: (u16, u16), _arg: i16) -> Option<i16> {
+    None
 }
 
 impl LogicTable {
@@ -53,6 +81,19 @@ impl LogicTable {
     pub(crate) fn anim_hook(&self, adv: &mut Adventure, rec: Far, code: u16) {
         if let Some(hook) = (self.logic)(num::low16(adv.hook_location)).and_then(|l| l.anim_hook) {
             hook(adv, rec, code);
+        }
+    }
+
+    /// The record hook of the location the runtime last entered, called
+    /// with `rec` and `code`; `false` when its row names none, which
+    /// leaves the caller to its own arm.
+    pub(crate) fn record_hook(&self, adv: &mut Adventure, rec: Far, code: u16) -> bool {
+        match (self.record_hook)(num::low16(adv.hook_location)) {
+            Some(hook) => {
+                hook(adv, rec, code);
+                true
+            }
+            None => false,
         }
     }
 
@@ -103,9 +144,14 @@ impl Visit {
         let loc = adv.location_word;
         let walks = usize::from(loc) >= adv.locations.count
             || adv.locations.kind(&adv.image, usize::from(loc)) == Some(adv.kinds.passage);
-        let logic = (table.logic)(loc)
-            .filter(|_| !walks)
-            .unwrap_or(table.onward);
+        let built = (table.logic)(loc);
+        if built.is_none() && !walks {
+            // A row whose handler this runtime has not re-expressed walks
+            // on, and says so.
+            adv.events
+                .push(super::Event::Unbuilt("location logic", u32::from(loc)));
+        }
+        let logic = built.filter(|_| !walks).unwrap_or(table.onward);
         // A fresh call of a handler: a fresh stack frame.
         adv.handler_locals = [0; 8];
         (logic.enter)(adv);

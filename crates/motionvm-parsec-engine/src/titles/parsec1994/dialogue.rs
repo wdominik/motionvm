@@ -148,6 +148,21 @@ impl Adventure {
     pub(crate) fn ambient_load(&mut self, lo: i16, hi: i16, flags: u16) -> u16 {
         self.tasks.t[1].range = (lo, hi);
         let n = num::signed(self.roll(num::unsigned(lo), num::unsigned(hi)));
+        self.ambient_bind(n, flags)
+    }
+
+    /// `0CFDh:194Bh(n, flags)`: scene `n` bound to task 1 as
+    /// [`Self::ambient_load`] binds a rolled one, without the roll — both
+    /// ends of the range are `n` (`0x0E921`, `0x0E925`), and the rest is
+    /// the same instruction for instruction (`0x0E929`–`0x0E970`).
+    pub(crate) fn ambient_load_one(&mut self, n: i16, flags: u16) -> u16 {
+        self.tasks.t[1].range = (n, n);
+        self.ambient_bind(n, flags)
+    }
+
+    /// The tail [`Self::ambient_load`] and [`Self::ambient_load_one`]
+    /// share, from the bind on (`0x0E993`, `0x0E929`).
+    fn ambient_bind(&mut self, n: i16, flags: u16) -> u16 {
         if !self.scene_bind(n, 1) {
             return 0;
         }
@@ -164,13 +179,28 @@ impl Adventure {
             .map_or(0, |d| num::word(d.len()))
     }
 
+    /// `0CFDh:1B55h`: the speakers of the tasks above 0 that play — here
+    /// task 1 alone, the loop running `dx` from 1 down (`0x0EB25`) — the
+    /// bits of each whose kind is 4 or more (`cmp word [bx+..], 4 ; jl`)
+    /// or'ed together, else 0.
+    pub(crate) fn ambient_speakers(&self) -> u16 {
+        self.tasks.t[1..2]
+            .iter()
+            .filter(|t| num::signed(t.kind) >= 4)
+            .fold(0, |bits, t| bits | t.speakers)
+    }
+
     /// `0CFDh:059Eh`: which place scene `n` names, bound to task `i`.
     ///
     /// A negative number is a place (`0x0D5D6`, its complement): below 4000h in
-    /// bank 999 (`0x0D5DC`), from 4000h up in bank 2, less 4001h (`0x0D5F0`). A
-    /// number that is not negative indexes the location's own bank while it is
-    /// below the count `[1EEAh]` (`0x0D5EA`). When nothing is found, place 13h of
-    /// bank 999 stands in (`0x0D5FD`).
+    /// bank 999 (`0x0D5DC`), from 4000h up in bank 2, less 4001h (`0x0D5F0`) —
+    /// less the build's base ([`super::profile::SceneLookup`]). A number that
+    /// is not negative indexes the location's own bank while it is below the
+    /// count `[1EEAh]` (`0x0D5EA`). When nothing is found, place 13h of bank
+    /// 999 stands in (`0x0D5FD`), in a build that falls back.
+    ///
+    /// A build that holds no count (*Bi-Fi 2*'s `0x08639`) reads past a
+    /// bank's end whatever lies there; the runtime finds nothing there.
     ///
     /// The place-13h fallback is skipped when `[1EDCh]` bit 8 is set — the
     /// `/TEST` switch — which a plain start never sets. Then `0CFDh:0094h`
@@ -189,7 +219,8 @@ impl Adventure {
                     place: usize::from(p),
                 })
             } else {
-                let p = usize::from(p - 0x4001);
+                let base = self.profile.scenes.item_base;
+                let p = usize::from(p.checked_sub(base).unwrap_or(u16::MAX));
                 (p < self.dialogues.1.len()).then_some(DialogueRef {
                     bank: BankId::G2,
                     place: p,
@@ -205,7 +236,7 @@ impl Adventure {
         // A place the directory keeps as `NULLPTR` binds nothing: the far
         // pointer the resolver reads is null there (`0x0D615`).
         let mut place = place.filter(|r| self.dialogue_of(*r).is_some());
-        if place.is_none() && self.dialogues.0.len() > 0x13 {
+        if place.is_none() && self.profile.scenes.falls_back && self.dialogues.0.len() > 0x13 {
             place = Some(DialogueRef {
                 bank: BankId::G999,
                 place: 0x13,
@@ -270,7 +301,10 @@ impl Adventure {
         let t = &mut self.tasks.t[0];
         t.scratch = scratch;
         t.slot = 0;
-        t.speakers = 1;
+        // A build whose routine leaves them (Bi-Fi 2's `0x098BD`–`0x098C3`).
+        if self.profile.own_line_sets_speakers {
+            t.speakers = 1;
+        }
         t.style = self.styles.first().copied();
         t.resolved = (x, y - ((scale * 0x28) >> 8));
         t.request = 3;
@@ -321,12 +355,14 @@ impl Adventure {
 
     /// `0CFDh:1A3Fh`: start an armed task.
     ///
-    /// Only an armed task starts (`[bx+1DB8h]` bit 15, `0x0EA0F`): the bit is
+    /// Only an armed task starts (`[bx+1DB8h]` bit 15, `0x0EA0F`) — in a
+    /// build whose start tests it ([`super::Profile::task_start_needs_armed`];
+    /// *Bi-Fi 2*'s starts any task, `0x09A1B`): the bit is
     /// cleared (`0x0EA28`), `+1Ch` bit 0 set, running (`0x0EA33`), the page
     /// composed again if the speaker moved (`0x0EA38`), and the hook `[1E32h]`
     /// told code 10 with the slot and the task (`0x0EA4A`).
     pub(crate) fn task_start(&mut self, i: usize) {
-        if self.tasks.t[i].flags & ARMED == 0 {
+        if self.profile.task_start_needs_armed && self.tasks.t[i].flags & ARMED == 0 {
             return;
         }
         self.tasks.t[i].flags &= !ARMED;

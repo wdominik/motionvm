@@ -149,7 +149,7 @@ A third kind, weaker than either but the only one that runs on every machine
 and on every change. For every scene the test suites compose and every tune
 they play, the suite keeps a **digest** — an FNV-1a 64 of the composed indexed
 frame, or of the register stream in the order the chip would have seen it — and
-holds each run against the one before, across all seven games: each game's
+holds each run against the one before, across every game it plays: each game's
 intro, the room it starts in, four of Dunkle Schatten 2's densest scenes,
 Checker 2000's registration in two states, its main menu and a page of its
 information book, and every tune each game ships.
@@ -197,7 +197,7 @@ business over the undamaged files.
 ## What has not been compared
 
 Interaction, dialogue, walking, savegames, the verb menu and most locations of
-all seven games have never been differentially compared against a recording —
+every game it plays have never been differentially compared against a recording —
 Checker 2000's story scenes past the schoolyard and its twenty mini-games
 among them, its speech only as far as its three first files' frames, and its
 sound effects — the samples that sound beside the voice, and the two the

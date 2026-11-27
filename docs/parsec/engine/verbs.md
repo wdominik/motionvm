@@ -96,7 +96,12 @@ is an arrival (`0x0F519`): `0EB9h:087Fh` runs the rules with flag 4 for
 modes 4 and 5 (`0x0F446`) and with `20h` for mode 6 (`0x0F4B6`); a figure
 that stopped short of its node runs them with `1080h` and then `80h`
 (`0x0F4D3`). Mode 7 becomes 8 (`0x0F51E`); in mode 8 the gate is asked
-with 0 (`0x0F567`).
+with 0 (`0x0F567`), and then the status line's age `[28C3h]` is set to
+`0Ah` (`0x0F56D`), so the status line's gate composes the line afresh
+once the scene or the talk that held the machine is over
+([the status line](#the-status-line)). Captain Zins's step (`0A01h:09E0h`, `0x0AA62`) and Bi-Fi 2's
+(`09B6h:098Dh`, `0x0A55F`) go straight on from the gate to the door that
+was come through and leave the age as it stands.
 
 The dispatcher's tail (`0x0FDE1` to `0x0FFEF`) is the pointer's own
 effect, while nothing is busy. The same record under the pointer as last
@@ -122,8 +127,15 @@ The search `13D0h:009Ch(flags)` takes the location's list first
 complemented (`0x13DBC`), and for object 0 (`0x13DD5`); then the global
 table the same way (`0x13DDC`); then both lists from their first rule for
 any object (`0x13E04`, `0x13E13`). A rule takes part when its flags meet
-the search's (`0x13E54`) and its verb is this one or any (`0x13E5E`); its
-handler is called with the flags (`0x13EB3`). An answer of 0 keeps
+the search's (`0x13E54`) and its verb is this one or any (`0x13E5E`). A
+search for two objects — flags `10h` or `20h`, without `2000h` — also
+holds the rule's second object against the one chosen (`0x13E6B`–`0x13E90`):
+the object itself, its class complemented, 0 or `FFFFh` match, and a rule
+whose second is any other is passed over, so a two-object rule answers
+only for its own second; the search with flag 1 asks neither the verb nor
+the second (`0x13E58`). Captain Zins's matcher (`0x0F2C7`) and Bi-Fi 2's
+(`0x0E577`) hold it the same way. The handler is called with the flags
+(`0x13EB3`). An answer of 0 keeps
 looking (`0x13EBD`), −1 starts over (`0x13E32`), and nothing found
 answers −1 (`0x13E3A`).
 
@@ -175,7 +187,10 @@ templates are a row of sixteen far pointers at `DS:1084h`, one per verb,
 each a format with `%c` ink controls — *`%cBetrachte %c%s`*,
 *`%cBenutze %c%s%c mit %c%s`* — and the composer picks the inks by the
 mode (`0x10056`–`0x10092`). `[28C3h]` is the age that says when it is
-composed again.
+composed again: while the age is not 0 and the bits `[289Bh]` hold
+neither 1 nor 4, the line's gate counts it up and composes the line once
+it was above 3 (`0x101EB`) — above 2 in Captain Zins's gate (`0x0B63F`)
+and in Bi-Fi 2's (`0x0B105`).
 
 ## See also
 

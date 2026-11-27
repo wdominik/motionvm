@@ -31,6 +31,7 @@ PARSEC:
 | *Falsches Spiel mit Eddie M.* | 1994 | Gruner + Jahr, for the magazine *Stern* | via productions ag, by the published record | **MOTION 16-bit** — `STERN.EXE` |
 | *Dunkle Schatten* | 1994 | Bundesministerium des Innern | The Art Department WA GmbH, Bochum | **PARSEC** — `XP00.EXE` and `XP01.EXE` |
 | *Captain Zins* | 1994 | Dresdner Bank | the files name people, not a studio | **PARSEC** — `XP00.EXE` and `XP01.EXE` |
+| *Bi-Fi 2 - Action in Hollywood* | 1994 | the files name only the brand of the title, Bi-Fi | the files name people, not a studio | **PARSEC** — `XP00.EXE` and `XP01.EXE` |
 
 All of them are commissioned work — advergames, edutainment and campaign
 titles — which is why each has a client as well as a studio; each entry
@@ -43,7 +44,9 @@ Every one of them boots, enters each location it has and draws it, plays
 its music, and saves and loads through the game's own pages. Captain Zins,
 the second PARSEC title, plays from its title program to its end, its
 location logic held routine by routine against the original's, and its
-title program and its end against recordings of it. What is particular
+title program and its end against recordings of it. Bi-Fi 2, the third,
+plays the same way, from its title program through the studio's floors
+to the credits at its end, on an older build of the same library. What is particular
 to each one is on its own pages in its family's documentation —
 [MOTION's](docs/motion/README.md#documentation-map) and
 [PARSEC's](docs/parsec/README.md#documentation-map).
@@ -152,6 +155,7 @@ Nothing else in an installation is ever opened, so a copy can be this small:
 | Falsches Spiel mit Eddie M. | `DATA.-1-`, `DATA.-2-`, `DATA.-3-`, `STERN.EXE` | `MUSADL.DRV` | 2.8 MB |
 | Dunkle Schatten | `XP00.EXE`, `XP01.EXE`; in `RESOURCE/`: `DSROOM.DAT`, `INTROS.DAT`, `EXTROS.DAT`, `DIALOG.DAT`, `PANELS.DAT`, `CMBMOU.DAT`, `PLAY00.DAT` | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | 1.4 MB |
 | Captain Zins | `XP00.EXE`, `XP01.EXE`; in `RESOURCE/`: `CZROOM.DAT`, `INTROS.DAT`, `EXTROS.DAT`, `DIALOG.DAT`, `PANEL0.DAT`, `PANEL1.DAT`, `CMBMOU.DAT`, `PLAY00.DAT`, `PLAY01.DAT` | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | 1.5 MB |
+| Bi-Fi 2 | `XP00.EXE`, `XP01.EXE`; in `RESOURCE/`: `BFROOM.DAT`, `INTROS.DAT`, `DIALOG.DAT`, `PANELS.DAT`, `CMBMOU.DAT`, `PLAYER.DAT` | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | 1.3 MB |
 
 The MOTION lines of that were established by taking the file away and
 seeing what happened, not by reading the loader; the PARSEC lines are the
@@ -251,7 +255,7 @@ started from:
 
 Underneath it, one directory per game: `saves/ds2/`, `saves/checker/`,
 `saves/enviro/`, `saves/jeffjet/`, `saves/hfa/`, `saves/vloomes/`,
-`saves/eddiem/`, `saves/ds1/` and `saves/capzins/`. Each game looks for its own at start-up;
+`saves/eddiem/`, `saves/ds1/`, `saves/capzins/` and `saves/bifi2/`. Each game looks for its own at start-up;
 the directory is created then if it is not there and its path is printed,
 so a fresh install needs no setup and a savegame is an ordinary file to copy
 or back up.
@@ -260,8 +264,9 @@ or back up.
 no slots, and writes them as its own program does — `SAVEGAME.SAV` and the
 settings in `SAVEGAME.CFG`, with the program's layout, magic and check
 values. A saved game of Dunkle Schatten moves between motionvm and the
-original in both directions; Captain Zins's files are written to its
-program's layout, and have not yet been carried over to the original. What
+original in both directions; Captain Zins's and Bi-Fi 2's files are
+written to their programs' layouts, and have not yet been carried over to
+the original. What
 follows here is the MOTION games' own format.
 
 The MOTION games name their slots alike. Each file is written whole or not
@@ -340,7 +345,8 @@ against the original's own, traced on the same inputs; its maze matches a
 recording frame for frame, and its title song a register capture write for
 write. Captain Zins's location logic is held the same way; its title
 program's animation and intro match a recording pixel for pixel, and so do
-909 frames of its closing parade. Those recordings cannot
+909 frames of its closing parade. Bi-Fi 2's title program, its options
+and their confirmations match a recording pixel for pixel. Those recordings cannot
 ship, so what the test suite keeps
 instead is a digest of every scene it composes and every tune it plays — a change that moves a pixel or a register write is a failing
 test on any machine that has the game.
@@ -403,7 +409,7 @@ not.
 
 | Where | What is in it |
 |---|---|
-| [`docs/README.md`](docs/README.md) | The map of the technical documentation — one tree per engine family; MOTION's covers every file format, both virtual machines, the engine's subsystems, and a page per game and per script module; PARSEC's covers Dunkle Schatten's programs, its formats and the engine's subsystems, and Captain Zins on the same library |
+| [`docs/README.md`](docs/README.md) | The map of the technical documentation — one tree per engine family; MOTION's covers every file format, both virtual machines, the engine's subsystems, and a page per game and per script module; PARSEC's covers Dunkle Schatten's programs, its formats and the engine's subsystems, and Captain Zins and Bi-Fi 2 on the same library |
 | [`docs/motion/tools.md`](docs/motion/tools.md) | `motionvm-motion-tools`, which reads a game's containers and writes out what it finds as ordinary files |
 | [`docs/parsec/tools.md`](docs/parsec/tools.md) | `motionvm-parsec-tools`, the same for the PARSEC games' `RESOURCE/` files |
 | [`docs/motion/verification.md`](docs/motion/verification.md) | What is checked against the original engine's own output, and what is only checked against the games' files |

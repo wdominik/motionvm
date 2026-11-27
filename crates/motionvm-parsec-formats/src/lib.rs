@@ -53,7 +53,7 @@ pub use hotspot::{Hotspot, HotspotTable, MouseObject};
 pub use omp::{MapEntry, ObjectMap};
 pub use p2l::P2l;
 pub use picture::Picture;
-pub use rdv::{MapDefaults, Overlay, Room, RoomFile, RoomLayer, WalkGraph, WalkNode};
+pub use rdv::{MapDefaults, Overlay, Room, RoomFile, RoomLayer, RowParts, WalkGraph, WalkNode};
 pub use rib::Rib;
 
 pub(crate) use cursor::Cursor;

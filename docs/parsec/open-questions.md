@@ -2,7 +2,7 @@
 
 # Open Questions
 
-*PARSEC, and the games motionvm plays on it, Dunkle Schatten and Captain Zins — the one ledger of what is not yet known about the original. Deliberate divergences are a different record and live in [departures](departures.md).*
+*PARSEC, and the games motionvm plays on it — Dunkle Schatten, Captain Zins and Bi-Fi 2 among them — the one ledger of what is not yet known about the original. Deliberate divergences are a different record and live in [departures](departures.md).*
 
 What is documented as unknown, unverified or not yet read about the
 original programs, in one place. A topic page that has something open
@@ -63,6 +63,35 @@ settled:
   mouse's word it tests first (`0x9803`–`0x980E`) stands at a value that
   passes the keys by, which is not read. A click does end them. The
   runtime ends them on either.
+
+## Bi-Fi 2
+
+**What the generator decides in the first rooms.** The DOSBox-X
+recordings of Bi-Fi 2 at hand were made with `core = dynamic` and
+`cycles = max`, so how many draws the options' dissolve took in them, and
+with it the generator's state from then on, cannot be reproduced. Against
+them, the title program, the options and their confirmations agree pixel
+for pixel, and in the Pforte and the corridors every frame of the
+recording has a matching frame of the runtime within a few
+frames of where the replay takes it. What still differs depends on the
+generator alone: the people at the table in the Kaffee, whose animation
+rolls its course and comes out otherwise for another dissolve count, and
+the tint of a location's exit effect, one of six the leaving rolls
+(`push 6 ; push 1 ; call far 203Dh:0024h`, `0x09D30`–`0x09D34`, in
+`09B6h:018Eh`; Dunkle Schatten's `0x0ED42`). The runtime
+takes the count measured with the game started through `BIFI.BAT` on
+`core = normal`, `cycles = fixed 25000` ([departures](departures.md)).
+Recordings made that way, started through `BIFI.BAT`, would settle it.
+
+**What the held band keeps off the screen before the end.** Entered on
+entry 6, the Kaffee holds the band's redraw for its owner 1
+(`0751h:0635h`, `0x1090E`) and lets the frame pass run alone for `C8h`
+hundredths before the end's sequence begins
+([the way out](engine/ending.md#bi-fi-2)). Which redraws of the strip and
+the band the hold keeps back in those two seconds is not read. The runtime
+records the hold, and draws the strip and the band whole every frame. A
+recording of the original's end, or a reading of what the strip's painter
+does with the held owners, would settle it.
 
 ## The way out of `XP01`
 

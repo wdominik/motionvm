@@ -52,6 +52,7 @@ use super::objects::{
     HIDDEN, LIVE, MIRROR, STATE_FIGURE_ANIM, STATE_HEAD, STATE_NPC_ANIM, STATE_PART, STATE_SINGLE,
 };
 use super::{Adventure, Event, Far, scaled};
+use crate::titles::walker::Walker;
 
 /// What an entry is bound to: the record the interpreter reads its frame
 /// into and counts its waits on (`+70h` of the entry).
@@ -65,6 +66,11 @@ pub(crate) enum Body {
     /// No `AN` entry is ever bound to one (`14DDh:0007h` binds only the
     /// 32-byte objects, `0x14DD7`), so it is a body of the chains alone.
     Mover(usize),
+    /// A record in the program's own memory, by its address, which a
+    /// location's logic linked into a chain (`05DCh:0D6Ah`): its fields
+    /// are the image's bytes ([`super::image_records`]). No `AN` entry is
+    /// bound to one.
+    Data(Far),
 }
 
 /// The working state of one `AN` entry — the bytes from `+5` to `+73h`
@@ -260,6 +266,7 @@ impl Adventure {
             Body::Object(i) => self.objects.get(i).map_or(0, |o| o.countdown),
             Body::Figure => self.walker.as_ref().map_or(0, |w| w.anim_acc),
             Body::Mover(i) => self.movers.get(i).map_or(0, |m| m.walker.anim_acc),
+            Body::Data(rec) => i32::from(num::signed(self.image_word(rec, 0x16))),
         }
     }
 
@@ -280,6 +287,7 @@ impl Adventure {
                     m.walker.anim_acc = v;
                 }
             }
+            Body::Data(rec) => self.set_image_word(rec, 0x16, num::low16(v)),
         }
     }
 
@@ -296,6 +304,7 @@ impl Adventure {
                 }
             }
             Body::Mover(i) => self.movers.get(i).map_or(0, |m| m.flags()),
+            Body::Data(rec) => self.image_byte(rec, 2),
         }
     }
 
@@ -316,6 +325,10 @@ impl Adventure {
                     m.walker.mirror = on;
                 }
             }
+            Body::Data(rec) => {
+                let f = self.image_byte(rec, 2);
+                self.set_image_byte(rec, 2, (f & !MIRROR) | if on { MIRROR } else { 0 });
+            }
         }
     }
 
@@ -324,6 +337,7 @@ impl Adventure {
             Body::Object(i) => self.objects.get(i).map_or(0, |o| o.id),
             Body::Figure => PLAYER_OBJECT,
             Body::Mover(i) => self.movers.get(i).map_or(0, |m| m.id),
+            Body::Data(rec) => self.image_byte(rec, 0x13),
         }
     }
 
@@ -363,6 +377,11 @@ impl Adventure {
     fn chain_member_tick(&mut self, body: Body, delta: i32) {
         match body {
             Body::Figure => {
+                // `0x08BBC`: not while its record's live bit is clear, as
+                // Bi-Fi 2's Dino Zoo leaves it (`0x14532`).
+                if self.ds[usize::from(self.ds_map.walker) + 2] & LIVE == 0 {
+                    return;
+                }
                 let Some((state, acc, walking)) = self
                     .walker
                     .as_ref()
@@ -383,13 +402,39 @@ impl Adventure {
                     }
                 }
             }
+            // A walking record as the figure: an animation counts its
+            // ticks and steps (`0x08BBC`–`0x08BCB`), a walk steps the walk.
             Body::Mover(i) => {
-                if let Some(m) = self.movers.get_mut(i)
-                    && m.flags() & LIVE != 0
-                {
-                    for k in m.walker.animate_walk(delta) {
+                let Some((state, acc)) = self
+                    .movers
+                    .get(i)
+                    .filter(|m| m.flags() & LIVE != 0)
+                    .map(|m| (m.walker.state, m.walker.anim_acc))
+                else {
+                    return;
+                };
+                if state != 0 {
+                    self.movers[i].walker.anim_acc = acc - delta;
+                    if state == STATE_NPC_ANIM || acc - delta <= 0 {
+                        self.object_step(Body::Mover(i));
+                    }
+                } else {
+                    for k in self.movers[i].walker.animate_walk(delta) {
                         self.effect_1949(k);
                     }
+                }
+            }
+            // A record in the image (*Bi-Fi 2*'s `0x042C4`–`0x042DF`): live
+            // and with a state, the ticks off its countdown word, and a
+            // step when none are left.
+            Body::Data(rec) => {
+                if self.image_byte(rec, 2) & LIVE == 0 || self.image_byte(rec, 0x12) == 0 {
+                    return;
+                }
+                let left = self.body_countdown(body) - delta;
+                self.set_body_countdown(body, left);
+                if self.body_countdown(body) <= 0 {
+                    self.object_step(body);
                 }
             }
             Body::Object(_) => {}
@@ -402,10 +447,27 @@ impl Adventure {
     ///
     /// By state: 7 runs the entry's stream, then its frame (`0x08A71`); 8 the
     /// same, then the chain (`0x08A82`); 9, a part, never steps — its countdown
-    /// is set to `7FFFh` (`0x08A8A`); `0Ah` takes the mover's position
-    /// (`0A9Fh:0B4Ch`, `0x08A98`) and then runs the stream (`0x08AAF`). The
-    /// tail puts the interval back on the countdown (`0x08AF7`) and goes round
-    /// again while none is left (`0x08B02`).
+    /// is set to `7FFFh` (`0x08A8A`); `0Ah`, a walking record's animation,
+    /// runs the stream and its frame (`0x08AC2`); `0Bh`, a kind-8 record's,
+    /// takes the walk's position (`0A9Fh:0B4Ch`, `0x08A98`) and runs the
+    /// stream once its countdown is out (`0x08AAF`). The table at
+    /// `cs:02EDh` names the arms. The tail puts the interval back on the
+    /// countdown (`0x08AF7`) and goes round again while none is left
+    /// (`0x08B02`).
+    ///
+    /// An object whose file gives it a state of its own steps its frames
+    /// by it, with its interval `+14h` (`0x0896D`): 1 round and round, 2
+    /// there and back, 3 at random ([`Self::cycle_object`]); 4 and 5 end
+    /// it (`0x08AEC`).
+    ///
+    /// The switch is bounded first (`cmp bx, 0Bh ; jna`, `0x0897D`; in a
+    /// build of its own [`super::Profile::anim_arms`]): a record in a
+    /// state above the bound goes to the record hook its row installed,
+    /// with code 0, and without one its state is cleared (`0x08AD2`–
+    /// `0x08AEF`; *Bi-Fi 2*'s `0x041E0`–`0x041FD`); either way the
+    /// record's own interval `+14h` goes on its countdown. A record of
+    /// the image in a state with an arm is told as not built: none is
+    /// bound to an entry.
     fn object_step(&mut self, body: Body) {
         // The tail loops while the countdown stays at or below zero; every
         // arm the animator owns puts a wait on it or ends the animation
@@ -414,47 +476,62 @@ impl Adventure {
         for _ in 0..64 {
             let state = match body {
                 Body::Object(i) => self.objects[i].state,
-                Body::Figure => self.walker.as_ref().map_or(0, |w| w.state),
-                // Its walk is [`Walker::animate_walk`]'s; nothing else
-                // steps it.
-                Body::Mover(_) => return,
+                Body::Figure | Body::Mover(_) => self.body_walker(body).map_or(0, |w| w.state),
+                Body::Data(rec) => self.image_byte(rec, 0x12),
             };
             let before = self.body_countdown(body);
-            let interval = match state {
-                STATE_SINGLE => {
+            let interval = match (state, body) {
+                (s, _) if s > self.profile.anim_arms => self.beyond_the_arms(body),
+                (_, Body::Data(rec)) => {
+                    self.events.push(Event::Unbuilt(
+                        "0883h:012Ah on a record in the image",
+                        (u32::from(rec.seg) << 16) | u32::from(rec.off),
+                    ));
+                    return;
+                }
+                (1..=3, Body::Object(i)) => self.cycle_object(i, state),
+                (4 | 5, Body::Object(i)) => {
+                    self.objects[i].state = 0;
+                    i32::from(self.objects[i].interval)
+                }
+                (STATE_SINGLE, _) => {
                     self.run_stream_then_frame(body);
                     0
                 }
-                STATE_HEAD => {
+                (STATE_HEAD, _) => {
                     self.run_stream(body);
                     if let Some(ai) = self.body_ani(body) {
                         self.apply_chain(ai);
                     }
                     0
                 }
-                STATE_PART => {
+                (STATE_PART, _) => {
                     self.set_body_countdown(body, 0x7FFF);
                     0
                 }
-                STATE_FIGURE_ANIM => {
-                    // `0A9Fh:0B4Ch` copies the mover's position into the
-                    // record, which the walker keeps for itself here.
+                // `0x08AC2`: the stream, then its frame, and no interval
+                // (`xor si, si`, `0x08ACE`); *Bi-Fi 2*'s `0x041D0`.
+                (STATE_FIGURE_ANIM, _) => {
+                    self.run_stream_then_frame(body);
+                    0
+                }
+                // `0x08A92`, a kind-8 record, stepped every tick: while
+                // its countdown lasts nothing (`0x08AA9`); else the stream,
+                // and when it put no wait on the record the record's own
+                // interval `+14h` (`0x08AB8`). `0A9Fh:0B4Ch` copies the
+                // walk's position into the record first (`0x08A98`), which
+                // the walker keeps for itself here.
+                (STATE_NPC_ANIM, _) => {
                     if self.body_countdown(body) > 0 {
                         0
                     } else {
                         self.run_stream_then_frame(body);
-                        // `0x08AB8`: a stream that put no wait on the
-                        // record leaves the walker's interval to do it.
                         if self.body_countdown(body) == before {
-                            self.walker.as_ref().map_or(0, |w| w.gait.speed)
+                            self.body_walker(body).map_or(0, |w| w.gait.speed)
                         } else {
                             0
                         }
                     }
-                }
-                STATE_NPC_ANIM => {
-                    self.run_stream_then_frame(body);
-                    0
                 }
                 _ => return,
             };
@@ -466,11 +543,84 @@ impl Adventure {
         }
     }
 
+    /// The step's arm past its bound (`0x08AD2`; *Bi-Fi 2*'s `0x041E0`):
+    /// the record hook called with the record and code 0 (`push 0 ; push
+    /// seg ; push off ; call far [2871h]`, `0x08ADB`–`0x08AE3`), or, with
+    /// none, the state cleared (`mov byte es:[bx+12h], 0`, `0x08AEF`); the
+    /// interval it waits is the record's `+14h`, read before the switch
+    /// (`0x0896D`) and put on the countdown by the tail (`0x08AF7`).
+    fn beyond_the_arms(&mut self, body: Body) -> i32 {
+        let interval = match body {
+            Body::Object(i) => self.objects.get(i).map_or(0, |o| i32::from(o.interval)),
+            Body::Figure | Body::Mover(_) => self.body_walker(body).map_or(0, |w| w.gait.speed),
+            Body::Data(rec) => i32::from(self.image_byte(rec, 0x14)),
+        };
+        let far = self.body_far(body);
+        let hooked = match self.logic_table {
+            Some(table) => table.record_hook(self, far, 0),
+            None => false,
+        };
+        if !hooked {
+            match body {
+                Body::Object(i) => {
+                    if let Some(o) = self.objects.get_mut(i) {
+                        o.state = 0;
+                    }
+                }
+                Body::Figure | Body::Mover(_) => {
+                    if let Some(w) = self.body_walker_mut(body) {
+                        w.state = 0;
+                    }
+                }
+                Body::Data(rec) => self.set_image_byte(rec, 0x12, 0),
+            }
+        }
+        interval
+    }
+
+    /// `0x0899A`–`0x08A6A`: one step of an object in state 1, 2 or 3, and
+    /// the interval it waits for the next. Its frame `+9` goes up and
+    /// back to 0 at its count `+15h`; state 1 shows it (`+0Ah` is `+0Ch`
+    /// plus the frame, `0x089B2`), state 2 shows the first half going and
+    /// the second coming back (`+0Ch` plus the count less the frame from
+    /// half the count on, `0x089F4`–`0x08A0F`). State 3 rolls the interval
+    /// up by `0..=interval / 2 + 1` (`0x08A13`–`0x08A23`) and steps forward
+    /// when that is odd, back when even, from 0 to the last frame
+    /// (`0x08A4C`–`0x08A66`).
+    fn cycle_object(&mut self, i: usize, state: u8) -> i32 {
+        let mut interval = u16::from(self.objects[i].interval);
+        let forward = if state == 3 {
+            let r = self.roll(0, interval.wrapping_shr(1).wrapping_add(1));
+            interval = interval.wrapping_add(r);
+            interval & 1 != 0
+        } else {
+            true
+        };
+        let o = &mut self.objects[i];
+        if forward {
+            o.frame = o.frame.wrapping_add(1);
+            if o.frame >= o.phases {
+                o.frame = 0;
+            }
+        } else if o.frame == 0 {
+            o.frame = o.phases.wrapping_sub(1);
+        } else {
+            o.frame -= 1;
+        }
+        let shown = if state == 2 && i32::from(o.frame) >= i32::from(o.phases >> 1) {
+            u16::from(o.phases).wrapping_sub(u16::from(o.frame))
+        } else {
+            u16::from(o.frame)
+        };
+        o.cel = o.cel_base.wrapping_add(shown);
+        i32::from(num::signed(interval))
+    }
+
     fn body_ani(&self, body: Body) -> Option<usize> {
         match body {
             Body::Object(i) => self.objects.get(i)?.ani,
-            Body::Figure => self.walker.as_ref()?.ani,
-            Body::Mover(_) => None,
+            Body::Figure | Body::Mover(_) => self.body_walker(body)?.ani,
+            Body::Data(_) => None,
         }
     }
 
@@ -494,13 +644,36 @@ impl Adventure {
                     o.cel = o.cel_base.wrapping_add(u16::from(frame));
                 }
             }
-            Body::Figure => {
-                if let Some(w) = &mut self.walker {
+            // A walking record as an object: `FFh` sets its hidden bit and
+            // leaves `+9` (`0x0951E`), any other frame clears it
+            // (`0x0955C`).
+            Body::Figure | Body::Mover(_) => {
+                self.set_walker_hidden(body, frame == 0xFF);
+                if frame != 0xFF
+                    && let Some(w) = self.body_walker_mut(body)
+                {
                     w.anim_frame = frame;
                     w.cel_held = None;
                 }
             }
-            Body::Mover(_) => {}
+            Body::Data(_) => {}
+        }
+    }
+
+    /// A walking record's hidden bit `+2` bit 1: the player's in its
+    /// record's bytes, another's in its flags.
+    fn set_walker_hidden(&mut self, body: Body, on: bool) {
+        match body {
+            Body::Figure => {
+                let at = usize::from(self.ds_map.walker) + 2;
+                self.ds[at] = (self.ds[at] & !HIDDEN) | if on { HIDDEN } else { 0 };
+            }
+            Body::Mover(i) => {
+                if let Some(m) = self.movers.get_mut(i) {
+                    m.flags = (m.flags & !HIDDEN) | if on { HIDDEN } else { 0 };
+                }
+            }
+            Body::Object(_) | Body::Data(_) => {}
         }
     }
 
@@ -1275,6 +1448,10 @@ impl Adventure {
                 .movers
                 .get(i)
                 .map_or((0, 0), |m| (m.walker.x, m.walker.y)),
+            Body::Data(rec) => (
+                i32::from(num::signed(self.image_word(rec, 4))),
+                i32::from(num::signed(self.image_word(rec, 6))),
+            ),
         }
     }
 
@@ -1299,6 +1476,10 @@ impl Adventure {
                     m.walker.x = to.0;
                     m.walker.y = to.1;
                 }
+            }
+            Body::Data(rec) => {
+                self.set_image_word(rec, 4, num::low16(to.0));
+                self.set_image_word(rec, 6, num::low16(to.1));
             }
         }
         if self.anis[ai].chain != 0 {
@@ -1645,35 +1826,70 @@ impl Adventure {
         }
     }
 
-    /// `0883h:20D9h(1693h, k)`: animation `k` on the figure — bound to
-    /// its entry first when it has none (`14DDh:0098h`), then as an
-    /// object's. Answers `k + 1`, or 1 for a fresh start, or 0 when there
-    /// is no entry for the figure at all.
+    /// The walker a body is: the player's, or a walking record's.
+    pub(super) fn body_walker(&self, body: Body) -> Option<&Walker> {
+        match body {
+            Body::Figure => self.walker.as_ref(),
+            Body::Mover(i) => self.movers.get(i).map(|m| &m.walker),
+            Body::Object(_) | Body::Data(_) => None,
+        }
+    }
+
+    pub(super) fn body_walker_mut(&mut self, body: Body) -> Option<&mut Walker> {
+        match body {
+            Body::Figure => self.walker.as_mut(),
+            Body::Mover(i) => self.movers.get_mut(i).map(|m| &mut m.walker),
+            Body::Object(_) | Body::Data(_) => None,
+        }
+    }
+
+    /// The entry id that names a walking body, its `+13h` negated
+    /// (`0x14E6F`–`0x14E75`).
+    fn body_entry_id(&self, body: Body) -> i16 {
+        match body {
+            Body::Figure => -PLAYER_ID,
+            _ => -i16::from(self.body_id(body)),
+        }
+    }
+
+    /// `0883h:20D9h(1693h, k)`: animation `k` on the figure.
     pub(crate) fn anim_player(&mut self, k: i16) -> i16 {
         self.events.push(Event::FigureAnim(k));
+        self.anim_walker(Body::Figure, k)
+    }
+
+    /// `0883h:20D9h(rec, k)`: animation `k` on a walking record, the
+    /// player's or another — bound to its entry first when it has none
+    /// (`14DDh:0098h`), then as an object's. Answers `k + 1`, or 1 for a
+    /// fresh start, or 0 when there is no entry for the record at all.
+    ///
+    /// A record in state `0Bh` is bound again when it has no entry yet
+    /// (`0x0A92D`) in a build that keeps kind-8 records apart; *Bi-Fi
+    /// 2*'s start has no such arm and answers 0 for it (`0x05D3D`).
+    pub(crate) fn anim_walker(&mut self, body: Body, k: i16) -> i16 {
         let Ok(k) = u8::try_from(k) else {
             return 0;
         };
         // `+12h` as one byte (`0x0A91E`): a walk's 6 answers 0.
-        let state = self.walker.as_ref().map_or(0, |w| {
+        let state = self.body_walker(body).map_or(0, |w| {
             if w.walking && w.state == 0 {
                 6
             } else {
                 w.state
             }
         });
-        let bound = self.walker.as_ref().is_some_and(|w| w.ani.is_some());
+        let bound = self.body_walker(body).is_some_and(|w| w.ani.is_some());
         let ok = match state {
-            0 => self.bind_figure(),
+            0 => self.bind_walker(body),
             STATE_FIGURE_ANIM => true,
-            STATE_NPC_ANIM => bound || self.bind_figure(),
+            STATE_NPC_ANIM if self.profile.kind8_records => bound || self.bind_walker(body),
             _ => false,
         };
         if !ok {
             return 0;
         }
-        let Some(ai) = self.walker.as_ref().and_then(|w| w.ani) else {
-            if let Some(w) = &mut self.walker {
+        let Some(ai) = self.body_walker(body).and_then(|w| w.ani) else {
+            if let Some(w) = self.body_walker_mut(body) {
                 w.state = 0;
             }
             return 0;
@@ -1683,7 +1899,7 @@ impl Adventure {
         };
         if self.anis[ai].phase == 0 {
             let started = self.anim_start(ai, &block, k);
-            if let Some(w) = &mut self.walker {
+            if let Some(w) = self.body_walker_mut(body) {
                 w.anim_acc = 0;
             }
             return i16::from(started);
@@ -1691,7 +1907,7 @@ impl Adventure {
         self.anis[ai].next = k.wrapping_add(1);
         if self.anim_ready(ai, &block) != 0 {
             let cap = i32::from(self.anis[ai].cap);
-            if let Some(w) = &mut self.walker
+            if let Some(w) = self.body_walker_mut(body)
                 && cap < w.anim_acc
             {
                 w.anim_acc = cap;
@@ -1700,20 +1916,25 @@ impl Adventure {
         i16::from(k) + 1
     }
 
-    /// `14DDh:0098h(1693h)`: the figure bound to the entry that names it
-    /// negated — the room's block first, the global one after
-    /// (`0x14E82`, `0x14ECF`) — and put into state `0Ah`. `+2Eh` keeps
-    /// `+0Ch`, then `+0Ch` goes down by the block and `+9` up by it
-    /// (`0x14F47`–`0x14F70`): for a record whose `+0Ch` is its block, the
-    /// cel base becomes the file's first cel, and the streams' frames are
-    /// cels of the player's file counted from it.
+    /// `14DDh:0098h(rec)`: a walking record bound to the entry that names
+    /// it negated — the room's block first, the global one after
+    /// (`0x14E82`, `0x14ECF`).
+    ///
+    /// A record of kind 8, in a build that keeps them apart
+    /// ([`super::profile::Profile::kind8_records`]), gives the entry its
+    /// frame `+9` and takes state `0Bh` (`0x14F0D`–`0x14F3D`). Any other
+    /// is put into state `0Ah`: `+2Eh` keeps `+0Ch`, then `+0Ch` goes down
+    /// by the block and `+9` up by it (`0x14F47`–`0x14F70`): for a record
+    /// whose `+0Ch` is its block, the cel base becomes the file's first
+    /// cel, and the streams' frames are cels of the record's file counted
+    /// from it.
     ///
     /// `0x14F4B` copies `+0Ch` into `+2Eh`; the block is `+2Ch` (`0x14F4F`),
     /// or one block when the mirror bit `+2` bit 6 is set (`0x14F53`); it is
     /// subtracted from `+0Ch` (`0x14F66`) and added to `+15h` plus one for `+9`
     /// (`0x14F5A`, `0x14F6E`), and the state set to `0Ah` (`0x14F9A`).
-    fn bind_figure(&mut self) -> bool {
-        let want = -PLAYER_ID;
+    fn bind_walker(&mut self, body: Body) -> bool {
+        let want = self.body_entry_id(body);
         let Some(ai) = self
             .anis
             .iter()
@@ -1722,27 +1943,45 @@ impl Adventure {
         else {
             return false;
         };
-        let Some(w) = &mut self.walker else {
+        let kind8 = self.profile.kind8_records;
+        let Some(w) = self.body_walker_mut(body) else {
             return false;
         };
-        w.final_facing = num::signed(w.base);
-        let d = if w.mirror {
-            u16::from(w.gait.phases) + 1
+        let frame = if kind8 && w.kind == 8 {
+            let frame = if w.state == STATE_FIGURE_ANIM {
+                w.anim_frame
+            } else {
+                w.phase
+            };
+            w.anim_frame = frame;
+            w.state = STATE_NPC_ANIM;
+            frame
         } else {
-            num::unsigned(w.block)
+            w.final_facing = num::signed(w.base);
+            let d = if w.mirror {
+                u16::from(w.gait.phases) + 1
+            } else {
+                num::unsigned(w.block)
+            };
+            w.base = w.base.wrapping_sub(d);
+            let frame = w.phase.wrapping_add(num::low8(d));
+            w.anim_frame = frame;
+            w.state = STATE_FIGURE_ANIM;
+            frame
         };
-        w.base = w.base.wrapping_sub(d);
-        let frame = w.phase.wrapping_add(num::low8(d));
-        w.anim_frame = frame;
         w.ani = Some(ai);
-        w.state = STATE_FIGURE_ANIM;
         self.anis[ai].frame = frame;
-        self.anis[ai].head = Some(Body::Figure);
+        self.anis[ai].head = Some(body);
         true
     }
 
-    /// `14DDh:01D4h(1693h)`: a running animation on the figure stopped —
-    /// the entry idled, the record back on its standing cel, and the
+    /// `14DDh:01D4h(1693h)`: a running animation on the figure stopped.
+    pub(crate) fn stop_player_anim(&mut self) {
+        self.stop_walker_anim(Body::Figure);
+    }
+
+    /// `14DDh:01D4h(rec)`: a running animation on a walking record stopped
+    /// — the entry idled, the record back on its standing cel, and the
     /// block what the mirror bit says: mirrored, block 3 and `+0Ch` up by
     /// one block; else block 3 becomes block 1 and `+0Ch` goes up by the
     /// block (`0x14FEE`–`0x15055`).
@@ -1752,8 +1991,9 @@ impl Adventure {
     /// block to `+0Ch` (`0x1501B`) or turns block 3 into block 1 (`0x15029`) and
     /// adds the block (`0x1503A`); `+9` and `+0Ah` become the standing cel out
     /// of `+15h` (`0x15041`).
-    pub(crate) fn stop_player_anim(&mut self) {
-        let Some(w) = &mut self.walker else {
+    pub(crate) fn stop_walker_anim(&mut self, body: Body) {
+        let want = self.body_entry_id(body);
+        let Some(w) = self.body_walker_mut(body) else {
             return;
         };
         if w.state != STATE_FIGURE_ANIM {
@@ -1775,7 +2015,7 @@ impl Adventure {
         w.phase = w.gait.phases;
         w.cel_held = None;
         if let Some(ai) = ai
-            && self.anis[ai].id == -PLAYER_ID
+            && self.anis[ai].id == want
         {
             self.anis[ai].phase = 0;
         }
@@ -1804,24 +2044,30 @@ impl Adventure {
     /// animation in `[1E50h]` (`0x10988`). The code the machine waits for,
     /// `[28C1h]`, is compared (`0x109A8`), and the location's own hook
     /// `[1E60h]` is called (`0x109BB`).
+    ///
+    /// That is Dunkle Schatten's; what each code does in the build opened
+    /// is read off its own routine ([`super::profile::Profile::signal`]).
     fn anim_signal(&mut self, body: Body, code: u16) {
+        use super::signal::SignalAct;
         let object = self.body_id(body);
         self.events.push(Event::AnimCode { object, code });
-        match code {
-            1 => self.page_release(1),
-            3 => self.effect_1949(4),
-            5 => self.task_arm(0),
-            6 => self.task_start(0),
-            8 => self.effect_1949(3),
-            11 | 12 => {
-                self.script.figure_animation = self.script.pending_animation;
-                if self.script.figure_animation >= 0 {
-                    let k = self.script.figure_animation;
-                    self.anim_player(k);
+        let acts: Vec<SignalAct> = self.profile.signal.acts(code, object).collect();
+        for act in acts {
+            match act {
+                SignalAct::Release(k) => self.page_release(k),
+                SignalAct::Sample(k) => self.effect_1949(num::low8(k)),
+                SignalAct::TaskArm(k) => self.task_arm(usize::from(k)),
+                SignalAct::TaskStart(k) => self.task_start(usize::from(k)),
+                SignalAct::BandRelease(k) => self.panel_release(k),
+                SignalAct::FigureAnimation => {
+                    self.script.figure_animation = self.script.pending_animation;
+                    if self.script.figure_animation >= 0 {
+                        let k = self.script.figure_animation;
+                        self.anim_player(k);
+                    }
+                    self.script.pending_animation = -1;
                 }
-                self.script.pending_animation = -1;
             }
-            _ => {}
         }
         if code == self.anim_wait {
             self.anim_wait = 0;
@@ -1893,6 +2139,7 @@ mod tests {
             state: STATE_SINGLE,
             id: 1,
             phases: 3,
+            interval: 0,
             countdown: 0,
             ani: Some(0),
             defaults: Default::default(),
@@ -1918,6 +2165,91 @@ mod tests {
             }
         }
         None
+    }
+
+    /// An object in a state of its own steps its frames with its interval:
+    /// state 1 round and round (`0x0899A`), state 2 there and back
+    /// (`0x089CB`), and state 4 ends it (`0x08AEC`).
+    #[test]
+    fn an_object_s_own_state_steps_its_frames() {
+        let Some(mut g) = rig(&[0x00]) else {
+            return;
+        };
+        let o = &mut g.objects[0];
+        (o.ani, o.phases, o.interval, o.countdown, o.frame) = (None, 4, 2, 0, 0);
+        o.state = 1;
+        let mut cels = Vec::new();
+        for _ in 0..8 {
+            g.animator_tick(1);
+            cels.push(g.objects[0].cel);
+        }
+        assert_eq!(
+            cels,
+            [6, 7, 7, 8, 8, 5, 5, 6],
+            "state 1, a step each time the countdown is out"
+        );
+        let o = &mut g.objects[0];
+        (o.state, o.frame, o.countdown) = (2, 0, 0);
+        let mut cels = Vec::new();
+        for _ in 0..4 {
+            g.animator_tick(2);
+            cels.push(g.objects[0].cel);
+        }
+        assert_eq!(cels, [7, 6, 5, 6], "state 2, there and back");
+        g.objects[0].state = 4;
+        g.animator_tick(2);
+        assert_eq!(g.objects[0].state, 0, "state 4 ends it");
+    }
+
+    /// The object's own states against the original: Dunkle Schatten's
+    /// `0883h:012Ah` run in the 8086 sandbox on a record of four frames,
+    /// cel base 5, the generator's seed 0, its countdown put back to 0
+    /// before each of twelve steps. Each entry is frame, cel, countdown
+    /// and state after the step. Bi-Fi 2's `03F7h:011Ch` gives the same
+    /// table.
+    #[test]
+    fn an_object_s_own_states_step_as_the_original_does() {
+        const ORIGINAL: [(u8, u8, &str); 6] = [
+            (
+                1,
+                7,
+                "1/6/7/1 2/7/7/1 3/8/7/1 0/5/7/1 1/6/7/1 2/7/7/1 3/8/7/1 0/5/7/1 1/6/7/1 2/7/7/1 3/8/7/1 0/5/7/1",
+            ),
+            (
+                2,
+                7,
+                "1/6/7/2 2/7/7/2 3/6/7/2 0/5/7/2 1/6/7/2 2/7/7/2 3/6/7/2 0/5/7/2 1/6/7/2 2/7/7/2 3/6/7/2 0/5/7/2",
+            ),
+            (
+                3,
+                7,
+                "1/6/11/3 0/5/8/3 1/6/9/3 2/7/11/3 3/8/7/3 2/7/8/3 1/6/10/3 0/5/10/3 3/8/8/3 0/5/9/3 1/6/7/3 2/7/7/3",
+            ),
+            (
+                3,
+                30,
+                "1/6/41/3 0/5/36/3 1/6/33/3 2/7/45/3 1/6/36/3 2/7/45/3 3/8/45/3 0/5/45/3 3/8/40/3 2/7/30/3 3/8/39/3 0/5/41/3",
+            ),
+            (4, 7, "0/5/7/0"),
+            (5, 7, "0/5/7/0"),
+        ];
+        let Some(mut g) = rig(&[0x00]) else {
+            return;
+        };
+        for (state, interval, want) in ORIGINAL {
+            g.rng = crate::titles::rng::LcRng::default();
+            let o = &mut g.objects[0];
+            (o.ani, o.flags, o.frame, o.cel, o.cel_base) = (None, LIVE, 0, 5, 5);
+            (o.state, o.interval, o.phases) = (state, interval, 4);
+            let mut got = Vec::new();
+            for _ in want.split(' ') {
+                g.objects[0].countdown = 0;
+                g.object_step(Body::Object(0));
+                let o = &g.objects[0];
+                got.push(format!("{}/{}/{}/{}", o.frame, o.cel, o.countdown, o.state));
+            }
+            assert_eq!(got.join(" "), want, "state {state}, interval {interval}");
+        }
     }
 
     #[test]

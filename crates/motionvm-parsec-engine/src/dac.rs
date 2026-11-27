@@ -6,7 +6,7 @@
 //! registers is the neutral one. This is the write between the two — a
 //! port `3C8h`/`3C9h` run per blob, leaving every other register as it was.
 
-use motionvm_parsec_formats::{RoomFile, pal};
+use motionvm_parsec_formats::pal;
 use motionvm_render::Palette;
 
 /// One palette blob written over a palette.
@@ -22,11 +22,4 @@ impl Apply for Palette {
             self.load(bank.start, bank.rgb);
         }
     }
-}
-
-/// A room's own bank, as a fresh DAC.
-pub(crate) fn of_room(room: &RoomFile) -> Palette {
-    let mut p = Palette::default();
-    p.load(room.room.palette_start, &room.room.palette_rgb);
-    p
 }

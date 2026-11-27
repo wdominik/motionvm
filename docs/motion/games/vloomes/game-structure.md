@@ -71,8 +71,8 @@ other game in the corpus does:
 drawn on a screen three times as wide as its window and scrolled. `RUN`
 then selects the room with `_MS @ ACTSCR`.
 
-That `SCRCTRL` belongs to a screen and not to the engine is this game's
-finding: read as one id for the whole engine, the last call wins, that call is
+That `SCRCTRL` belongs to a screen and not to the engine is what this
+game shows: read as one id for the whole engine, the last call wins, that call is
 the inventory bar's `-1 SCRCTRL`, and `ANIMPLAY` finds no controller at all
 ([`LL.EXE`](../../motion16/engine/ll-exe.md)).
 

@@ -41,9 +41,10 @@ pub trait MusicSink: Send {
     fn install_digital(&mut self, effects: u16);
     /// Entry 22: the default volume an effect plays at.
     fn effect_volume(&mut self, volume: u16);
-    /// Entry 17 with mode 0: `sample`, the `SM8` block of row `row` of the
-    /// library's table A, played once on a mixer channel.
-    fn play_effect(&mut self, row: u16, sample: &[u8]);
+    /// Entry 17: `sample`, the `SM8` block of row `row` of the library's
+    /// table A, played on a mixer channel, and then `repeats` times more —
+    /// the entry's argument, 0 at every call but one.
+    fn play_effect(&mut self, row: u16, sample: &[u8], repeats: u16);
     /// Entry 18: every effect and every digital voice cut, the mixer
     /// stopped.
     fn stop_effects(&mut self);

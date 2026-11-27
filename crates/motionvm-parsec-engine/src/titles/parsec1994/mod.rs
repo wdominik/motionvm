@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use motionvm_parsec_formats::fgroup::{Dat, Slot, open_dat};
 use motionvm_parsec_formats::{
-    Animations, Bank, Font, ObjectMap, P2l, Picture, Rib, RoomFile, find_ci,
+    Animations, Bank, Font, ObjectMap, P2l, Picture, Rib, RoomFile, RowParts, find_ci,
 };
 use motionvm_render::{Framebuffer, Palette};
 
@@ -36,6 +36,7 @@ use crate::titles::rng::LcRng;
 use crate::titles::subject::{Subject, Subjects, align_point, scaled};
 use crate::titles::walker::{Gait, Walker};
 use crate::titles::xp1994::{Flatten, Locations, Rule, Style, Timing};
+use profile::EntryEffect;
 
 mod anim;
 mod api;
@@ -44,6 +45,7 @@ pub(crate) mod cursor;
 mod dialogue;
 mod effects;
 mod frame;
+pub(crate) mod image_records;
 mod input;
 pub(crate) mod install;
 pub(crate) mod keyboard;
@@ -63,6 +65,7 @@ pub(crate) mod restore;
 mod rules;
 mod savegame;
 mod script;
+pub(crate) mod signal;
 mod tasks;
 pub(crate) mod title;
 #[cfg(test)]
@@ -78,6 +81,8 @@ use logic::LogicTable;
 #[cfg(test)]
 pub(crate) use menu::prepare_menu_text;
 pub(crate) use menu::{MenuKey, MenuShape};
+#[cfg(test)]
+pub(crate) use mode::LOCKED;
 pub(crate) use mode::{Gate, GateMap, TWIN};
 pub(crate) use movers::MoverRt;
 pub(crate) use music::{MusicMap, Request};
@@ -175,16 +180,6 @@ const SCREEN_W: u16 = 320;
 /// `CMBMOU.DAT`.
 const FONT_RESOURCE: usize = 15;
 
-/// The ink the status line is set in (`0x0C750`, `mov byte es:[bx+4],
-/// 0F4h` on the font record).
-const STATUS_INK: u8 = 0xF4;
-
-/// The status painter's own controls, the table at `cs:04C2h` (image
-/// `0x0C8B2`) and its arms: `09h` sets the ink to `0FAh` (`0x0C788`),
-/// `0Ah` to `0FCh` (`0x0C793`), `0Dh` back to `0F4h` (`0x0C79E`); `00h`
-/// ends the line (`0x0C7D2`).
-const STATUS_INKS: [(u8, u8); 3] = [(0x09, 0xFA), (0x0A, 0xFC), (0x0D, 0xF4)];
-
 /// The entry twin a room carries for a door the player should walk in
 /// through (`0x0EF4F`).
 const ENTRY_TWIN: i32 = 0x7D0;
@@ -196,8 +191,8 @@ const FALLBACK_NODE: i32 = 0x7F;
 
 /// The alignment the player's walker record carries (`+3` of `DS:1693h`).
 ///
-/// Read rather than assumed for the drawing already: the figure is centered
-/// on its `x` and stands on its `y`. The resolver's arm for it moves the
+/// The drawing reads it: the figure is centered on its `x` and stands on
+/// its `y`. The resolver's arm for it moves the
 /// point differently from the drawer's — it only lifts by the height — so
 /// the two are written out separately (`0x0D3B7`).
 const WALKER_ALIGN: u8 = 2;
@@ -237,6 +232,22 @@ pub(crate) struct Kinds {
     pub restore: u16,
 }
 
+/// What a visit's setup kept of the last row's instead of loading it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kept {
+    /// Nothing: the row's slot loaded afresh.
+    Nothing,
+    /// The song and the effects: between two rows of the kind that keeps
+    /// the sound, the loader skips them (`or dx, dx ; jne`, *Dunkle
+    /// Schatten*'s `0x7809`) and loads the rest.
+    Sound,
+    /// The whole room: between two rows of a shared slot the loader
+    /// loads nothing (`or dx, dx ; jg`, `0x7802`), and what it would load
+    /// — the slot's song (`0x780D`) and its dialogue bank (`0x7B0D`) —
+    /// stays as the last row left it.
+    Room,
+}
+
 /// One loaded install of a parsec1994 game: the program, its locations,
 /// and its pictures.
 pub(crate) struct Adventure {
@@ -253,8 +264,14 @@ pub(crate) struct Adventure {
     pub panel: Picture,
     /// The palette banks laid over a location's own palette, in order.
     pub banks: Vec<Vec<u8>>,
-    /// The row the strip is drawn on, read out of the program.
+    /// The first row of the area the program reserves for the band and
+    /// the strip, read out of the program: where the pointer's hit test
+    /// takes the strip's widgets from.
     pub panel_y: i32,
+    /// The row the strip's picture is drawn on: the area's first row, or
+    /// the painter's own where the picture is shorter than the area
+    /// ([`program::PanelReading::strip_row`]).
+    pub strip_row: i32,
     /// The strip's widgets: the verb buttons, the arrows, the slots.
     pub panel_widgets: Panel,
     /// The font the status line is set in — `CMBMOU.DAT` resource 15.
@@ -359,6 +376,12 @@ pub(crate) struct Adventure {
     /// ([`LogicTable`]). Without one no hook does anything and no handler
     /// is read.
     pub logic_table: Option<LogicTable>,
+    /// The roll the library's `0284h` routines keep, while a location has
+    /// one laid out ([`image_records::RoomRoll`]).
+    pub room_roll: Option<image_records::RoomRoll>,
+    /// The record the drawer's pass is at while it calls the record hook
+    /// ([`Adventure::custom_draw_pass`]).
+    drawing: Option<Body>,
     /// Each location's own dialogue bank, by slot.
     ///
     /// It is resource **3** of the slot: the room loader takes the far
@@ -371,6 +394,9 @@ pub(crate) struct Adventure {
     /// Every slot's object map, resource 2 — see [`ObjectMap`]. Only the
     /// Wald's and the maze's slots carry one.
     object_maps: Vec<Option<ObjectMap>>,
+    /// Each slot's hotspots, walk graphs and `AN` block, for a row whose
+    /// map takes them from its own slot.
+    row_parts: Vec<Option<RowParts>>,
     /// The current row's object map as the loader bound it, while the row
     /// is a forest row — see [`objects::BoundMap`].
     pub(crate) bound_map: Option<objects::BoundMap>,
@@ -385,11 +411,9 @@ pub(crate) struct Adventure {
     /// only the next row's own slot and binds its map onto the records as
     /// they are (`0x7806`).
     slot_kept: bool,
-    /// Whether the current location's setup kept the last row's picture
-    /// rather than load its slot: what the loader skips then — the slot's
-    /// song (`0x780D`) and its dialogue bank (`0x7B0D`) — stays as the last
-    /// row left it.
-    pub(crate) picture_kept: bool,
+    /// What the current location's setup kept of the last row's rather
+    /// than load it from its slot.
+    pub(crate) kept: Kept,
     /// The objects of the current location as the program has them now
     /// — the 32-byte records it writes into the loaded room, which this
     /// engine keeps beside the parsed room and rebuilds on every arrival
@@ -590,6 +614,7 @@ impl Adventure {
         let rooms = load_rooms(res, files.rooms)?;
         let own_banks = load_own_banks(res, files.rooms)?;
         let object_maps = load_object_maps(res, files.rooms)?;
+        let row_parts = load_row_parts(res, files.rooms)?;
         // The music library. A copy without it, or with one that will not
         // read, plays no music rather than refusing the game: the program
         // would end at its init (`0x13F00`, `0x13F3D`), and everything but
@@ -632,7 +657,15 @@ impl Adventure {
             .map(|&d| {
                 Ok((
                     d,
-                    FigureFiles::load(res, &image, &files, item_count, d, digits.len() > 1)?,
+                    FigureFiles::load(
+                        res,
+                        &image,
+                        &files,
+                        item_count,
+                        d,
+                        digits.len() > 1,
+                        profile.figure_first,
+                    )?,
                 ))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -738,6 +771,7 @@ impl Adventure {
             panel,
             banks,
             panel_y,
+            strip_row: panel_y,
             panel_widgets,
             font,
             verb: 0,
@@ -768,12 +802,15 @@ impl Adventure {
             button: input::BUTTON_FIRST,
             subjects: Subjects::default(),
             logic_table: None,
+            room_roll: None,
+            drawing: None,
             own_banks,
             object_maps,
+            row_parts,
             bound_map: None,
             edited_room: None,
             slot_kept: false,
-            picture_kept: false,
+            kept: Kept::Nothing,
             objects: Vec::new(),
             hotspots_rt: Vec::new(),
             anis: Vec::new(),
@@ -987,6 +1024,32 @@ impl Adventure {
         self.scene_load(scene);
     }
 
+    /// `0EB9h:1703h(id, facing, counter, scenes…, −1)` (`0x10293`): the
+    /// list read as [`Self::scene_sequence`] reads it, but the counter
+    /// byte counts on while it is below the count (`0x102DD`), not the
+    /// last index — so it rests one past the last scene, which plays from
+    /// then on (`0x102EB`); the scene goes to the script's interaction
+    /// (`0EB9h:177Ah`, `0x10301`).
+    pub(crate) fn interaction_sequence(
+        &mut self,
+        id: u16,
+        facing: i16,
+        counter: usize,
+        scenes: &[i16],
+    ) {
+        let Some(&last) = scenes.last() else {
+            return;
+        };
+        let k = usize::from(self.sav_byte(counter));
+        let scene = if k < scenes.len() {
+            self.sav_set(counter, num::byte(k + 1));
+            scenes[k]
+        } else {
+            last
+        };
+        self.interaction(id, facing, scene);
+    }
+
     /// What that location calls itself, when its record names anything.
     ///
     /// An empty name is not a name: a record can carry a real pointer to
@@ -1010,17 +1073,27 @@ impl Adventure {
             n < self.locations.count && self.locations.handler(&self.image, n).is_some()
         });
         if known {
-            // The loader keeps the forest picture when the unload kept it
-            // and the place left and the place ahead are both forest rows
-            // (`14DDh:08F1h`, `0x77DA`, `0x7802`).
+            // The loader keeps the shared picture when the unload kept it
+            // and the place left and the place ahead are both rows of its
+            // kind (`14DDh:08F1h`, `0x77DA`, `0x7802`); it keeps the sound
+            // alone between two rows of the kind that keeps it.
+            let kind = u16::try_from(n)
+                .ok()
+                .and_then(|n| self.locations.kind(&self.image, usize::from(n)));
+            let pair = self.place_pair_kind();
+            let paired = kind.is_some_and(|k| k == pair);
             let kept = std::mem::take(&mut self.slot_kept)
                 && self.bound_map.is_some()
-                && u16::try_from(n).is_ok_and(|n| self.forest_row(n))
-                && self
-                    .profile
-                    .forest
-                    .is_some_and(|f| self.place_pair_kind() == f.kind);
-            self.picture_kept = kept;
+                && paired
+                && kind.is_some_and(|k| self.profile.rooms.slot(k).is_some());
+            let sound = paired && kind.is_some() && kind == self.profile.rooms.sound_kept;
+            self.kept = if kept {
+                Kept::Room
+            } else if sound {
+                Kept::Sound
+            } else {
+                Kept::Nothing
+            };
             // The release kept the `AN` entries, working state and all,
             // when the map it released had bit 4 (`0x8592`).
             let entries_kept = kept && self.bound_map.as_ref().is_some_and(|m| m.flags & 0x10 != 0);
@@ -1146,7 +1219,8 @@ impl Adventure {
         // transition (0x0ED4F), and the music stopped once it has played
         // (0x0ED55) — a second into the fade, so what still sounds dies
         // away from the level the fade has reached.
-        if Some(self.place_pair_kind()) != self.profile.leave_spares_kind {
+        let pair = self.place_pair_kind();
+        if !self.profile.leave_spares.contains(&Some(pair)) {
             self.music_call(music::Call::Fade(num::signed(self.profile.leave_fade)));
             let effect = num::low8(self.roll(1, 6));
             self.events.push(Event::Transition(effect));
@@ -1155,8 +1229,11 @@ impl Adventure {
             self.music_call(music::Call::Stop);
         }
         // `0x0ED5A`–`0x0ED68`: after the effect the line is set to the
-        // empty string at `DS:0546h` and the band painted with it.
-        self.status_line.clear();
+        // empty string at `DS:0546h` and the band painted with it — in a
+        // build whose leaving does that.
+        if self.profile.leave_clears_status {
+            self.status_line.clear();
+        }
         self.leave = None;
     }
 
@@ -1246,7 +1323,7 @@ impl Adventure {
         // two forest rows, whose bank stays loaded (`0x8547`).
         self.tasks.t = Default::default();
         self.tasks.queue_len = 0;
-        if !self.picture_kept {
+        if self.kept != Kept::Room {
             self.record_flag_writes
                 .retain(|(r, _), _| r.bank != BankId::Own);
         }
@@ -1297,18 +1374,18 @@ impl Adventure {
         // (`0x0EC50`).
         self.animator_tick(0);
         self.panel_release(4);
-        // 0x0EC63: the entry effect by the pair of places — the reveal
-        // between two forest rows or two F rows, the slide otherwise — and
-        // `si`, the room's song, cleared between two forest rows alone
-        // (`0x0EC74`).
+        // 0x0EC63: the entry effect by the location and the pair of places
+        // — in Dunkle Schatten the reveal between two forest rows or two F
+        // rows, the slide otherwise — and `si`, the room's song, cleared
+        // between two forest rows alone (`0x0EC74`).
         let picture = self.render_scene();
         let pair = self.place_pair_kind();
-        let reveals = self.profile.entry_reveals;
-        self.entry_music = reveals.is_none_or(|(silent, _)| pair != silent);
-        if reveals.is_some_and(|(silent, also)| pair == silent || pair == also) {
-            self.effects.reveal(&picture, &self.presented);
-        } else {
-            self.effects.entry(&picture, &self.presented);
+        let look = self.profile.entry_end.look(self.location_word, pair);
+        self.entry_music = look.song;
+        match look.effect {
+            Some(EntryEffect::Reveal) => self.effects.reveal(&picture, &self.presented),
+            Some(EntryEffect::Slide) => self.effects.entry(&picture, &self.presented),
+            None => {}
         }
         // 0x0EC84: the game's gray ramp, after the effect.
         if let Some((start, rgb)) = self.entry_ramp.clone() {
@@ -1386,12 +1463,7 @@ impl Adventure {
                 .unwrap_or(0)
         };
         let k = kind(b);
-        if kind(a) == k
-            && self
-                .profile
-                .forest
-                .is_some_and(|f| k == f.kind || k == f.reveal)
-        {
+        if kind(a) == k && self.profile.rooms.pairs(k) {
             k
         } else {
             0
@@ -1422,6 +1494,12 @@ impl Adventure {
         self.rng.inclusive(lo, hi)
     }
 
+    /// The DAC as it stands, for a test.
+    #[cfg(test)]
+    pub(crate) fn dac_for_test(&self) -> &Palette {
+        &self.dac
+    }
+
     /// The first visible item, for a test.
     #[cfg(test)]
     pub(crate) fn scroll_for_test(&self) -> usize {
@@ -1448,6 +1526,9 @@ impl Adventure {
     ///
     /// With the twin, `0x0EF57` snaps onto it, `0x0EF67` puts the entry
     /// into `[289Fh]` and `0x0EF6F` walks to the node with the plain id.
+    /// A build that does not fall back (*Bi-Fi 2*'s `0x09F55`) tries
+    /// only the twin and the entry.
+    ///
     /// When none of the four names a node, the figure's record stays
     /// where it was and out of every chain — which is a room without the
     /// player in it, as the Karte is.
@@ -1495,6 +1576,7 @@ impl Adventure {
             }
         } else if let Some(id) = [entry, FALLBACK_NODE, first_exit]
             .into_iter()
+            .take(if self.profile.place_falls_back { 3 } else { 1 })
             .find(|&id| has(id))
         {
             let facing = self.facing_for(room, id);
@@ -1545,26 +1627,40 @@ impl Adventure {
         self.walk_target = 0;
     }
 
-    /// `0x0EF0F`: an entry between 100 and 109 whose object is of kind 4
-    /// is a door, remembered in `[1EDEh]` and shown open — `14DDh:0A06h`
-    /// sets its live bit and puts it on frame 1 (`0x157F1`, `0x157FB`).
+    /// `0x0EF0F`: an entry inside the build's door ids (in *Dunkle
+    /// Schatten* 100 to 109) whose object is of the door kind (4) is a
+    /// door, remembered in `[1EDEh]` and shown open — `14DDh:0A06h` sets
+    /// its live bit and puts it on frame 1 (`0x157F1`, `0x157FB`). A build
+    /// may name single ids past them whose object is shown whatever its
+    /// kind ([`EntryDoor::more`](profile::EntryDoor::more)).
     fn entry_door(&mut self, entry: i16) {
-        if !(100..=109).contains(&entry) {
-            return;
-        }
         let Ok(id) = u8::try_from(entry) else {
             return;
         };
         let door = self.profile.entry_door;
-        if self
-            .object_index(id)
-            .is_some_and(|i| self.objects[i].kind == u16::from(door.kind))
-        {
-            if door.remembered {
-                self.entry_door = entry;
+        let Some(i) = self.object_index(id) else {
+            return;
+        };
+        let n = u16::from(id);
+        let remembered = if (door.ids.0..=door.ids.1).contains(&n) {
+            if self.objects[i].kind != u16::from(door.kind) {
+                return;
             }
-            self.object_show_frame(id, door.frame);
+            door.remembered
+        } else if let Some((_, r)) = door
+            .more
+            .iter()
+            .flatten()
+            .find(|m| m.0 == n && n > door.ids.1)
+        {
+            *r
+        } else {
+            return;
+        };
+        if remembered {
+            self.entry_door = entry;
         }
+        self.object_show_frame(id, door.frame);
     }
 
     /// Which way the player looks after being put on a node with a facing
@@ -1604,26 +1700,22 @@ impl Adventure {
         self.sync_links();
     }
 
-    /// Whether row `loc` is a forest row: in *Dunkle Schatten* the Wald
-    /// and the maze.
-    pub(crate) fn forest_row(&self, loc: u16) -> bool {
-        let kind = self.locations.kind(&self.image, usize::from(loc));
-        self.profile.forest.is_some_and(|f| kind == Some(f.kind))
+    /// The slot row `loc` shares with the other rows of its kind, if it
+    /// shares one: in *Dunkle Schatten* the Wald and the maze.
+    pub(crate) fn shared_slot(&self, loc: u16) -> Option<u16> {
+        let kind = self.locations.kind(&self.image, usize::from(loc))?;
+        self.profile.rooms.slot(kind)
     }
 
     /// The `DSROOM.DAT` slot the room loader (`0766h:010Ah`) takes for row
-    /// `loc`: the forest picture's slot for a forest row (in *Dunkle
-    /// Schatten* `0x077ED` reads the kind, `0x077F2` compares it with 3,
-    /// `0x077F7` takes slot 14h), and the row's own slot otherwise
+    /// `loc`: the shared slot for a row of a kind that shares one (in
+    /// *Dunkle Schatten* `0x077ED` reads the kind, `0x077F2` compares it
+    /// with 3, `0x077F7` takes slot 14h), and the row's own slot otherwise
     /// (`0x077FC`). The picture, the walk
     /// graph, the animations and the row's dialogue bank all come out of
     /// that slot.
     pub(crate) fn room_slot(&self, loc: u16) -> u16 {
-        if let Some(f) = self.profile.forest.filter(|_| self.forest_row(loc)) {
-            f.slot
-        } else {
-            loc
-        }
+        self.shared_slot(loc).unwrap_or(loc)
     }
 
     /// The slot the current location was loaded from.
@@ -1646,21 +1738,33 @@ impl Adventure {
     }
 
     /// `0766h:0D34h`, the slot of the location just left released. Between
-    /// two forest rows the picture stays and the map's bindings are undone
-    /// (`0x86CE`); the next visit's setup loads its slot over any other.
+    /// two rows of a shared slot the picture stays and the map's bindings
+    /// are undone (`0x86CE`); the next visit's setup loads its slot over
+    /// any other.
     pub(crate) fn slot_release(&mut self) {
         self.room_music_unload();
-        if self.forest_kept() {
+        if self.unload_keeps() == Some(Kept::Room) {
             self.slot_kept = self.unbind_object_map();
         }
     }
 
     /// The dialogue bank of the slot the current location was loaded from
-    /// (`0x7B0D`: `+0Ch` of the slot, its resource 3).
+    /// (`0x7B0D`: `+0Ch` of the slot, its resource 3) — or, for a row whose
+    /// own slot carries a map, that slot's bank where it holds one: the
+    /// loader takes it after the map's binding, whatever the map's flags
+    /// (*Bi-Fi 2*'s `0x03A88`, after the shared slot's at `0x03204`).
     pub(crate) fn own_bank(&self) -> Option<&Bank> {
-        self.slot()
+        let row = self
+            .bound_map
+            .as_ref()
+            .and_then(|_| usize::try_from(self.loc).ok())
             .and_then(|n| self.own_banks.get(n))
-            .and_then(Option::as_ref)
+            .and_then(Option::as_ref);
+        row.or_else(|| {
+            self.slot()
+                .and_then(|n| self.own_banks.get(n))
+                .and_then(Option::as_ref)
+        })
     }
 
     /// The palette the current picture is indexed by.
@@ -1771,14 +1875,17 @@ impl Adventure {
 
     /// Installs the panel color curves and the entry ramp. Dunkle Schatten
     /// opts in before entering its initial room.
-    pub(crate) fn enable_panel_colors(
-        &mut self,
-        curves: crate::titles::palette1994::PanelCurves,
-        ramp: (u8, Vec<u8>),
-    ) -> Result<()> {
+    pub(crate) fn enable_panel_colors(&mut self, panel: program::PanelReading) -> Result<()> {
         let bank = self.banks.first().ok_or("missing panel bank")?;
-        self.panel_colors = Some(crate::titles::palette1994::PanelColors::new(bank, curves)?);
-        self.entry_ramp = Some(ramp);
+        self.panel_colors = Some(crate::titles::palette1994::PanelColors::new(
+            bank,
+            panel.curves,
+            panel.place,
+        )?);
+        self.entry_ramp = panel.ramp;
+        if let Some(row) = panel.strip_row {
+            self.strip_row = row;
+        }
         self.flatten.enable_updates();
         self.rebuild_dac();
         self.sync_panel_colors();
@@ -1791,6 +1898,14 @@ impl Adventure {
             p.tint(mask);
         } else {
             self.status_dim |= mask;
+        }
+        self.sync_panel_colors();
+    }
+
+    /// `0x0CA29`: the band's redraw held for `mask`.
+    pub(super) fn panel_redraw_hold(&mut self, mask: u16) {
+        if let Some(p) = &mut self.panel_colors {
+            p.hold_redraw(mask);
         }
         self.sync_panel_colors();
     }
@@ -1844,6 +1959,11 @@ impl Adventure {
     /// or what a saved game restored at the start carried. Then the strip
     /// has its range.
     pub(crate) fn figure_set_at_start(&mut self) {
+        if self.profile.figure_set == profile::FigureSet::Kept {
+            // One file, in since the start, and no digit on record.
+            self.strip_range();
+            return;
+        }
         let n = u16::from_le_bytes([
             self.player_record_byte(player::FIGURE_SET),
             self.player_record_byte(player::FIGURE_SET + 1),
@@ -1876,32 +1996,63 @@ impl Adventure {
     /// player's banks, the ramp and the panel's variant — is no room's
     /// and stays as it is.
     fn load_room_palette(&mut self) {
-        let Some(room) = self.room() else {
+        let Some((start, rgb)) = self.room_bank() else {
             return;
         };
+        self.load_palette(start, &rgb);
+    }
+
+    /// The location's own bank as the entry pass loads it: its first
+    /// color black when it starts at register 0
+    /// ([`program::check_room_black_zero`]).
+    fn room_bank(&self) -> Option<(u8, Vec<u8>)> {
+        let room = self.room()?;
         let start = room.room.palette_start;
-        let rgb = room.room.palette_rgb.clone();
-        if self.flatten.table.is_some() {
-            self.flatten.load_rgb(start, &rgb);
+        let mut rgb = room.room.palette_rgb.clone();
+        if start == 0 {
+            for c in rgb.iter_mut().take(3) {
+                *c = 0;
+            }
         }
-        self.effects.dac(&mut self.dac, start, &rgb);
+        Some((start, rgb))
+    }
+
+    /// `0590h:0A1Fh` (*Bi-Fi 2*'s `0104h:090Eh`): `rgb` from DAC register
+    /// `start`, as the build's loader loads a resource's colors — through
+    /// the flattening table's lookup once its updates are on, or with the
+    /// shade's darker copy `80h` on for a record inside the lower half
+    /// (`0x01984`–`0x019B0`).
+    pub(super) fn load_palette(&mut self, start: u8, rgb: &[u8]) {
+        if self.flatten.updates() {
+            self.flatten.load_rgb(start, rgb);
+        }
+        self.effects.dac(&mut self.dac, start, rgb);
+        // The shade's darker copy, which the palette loader loads next.
+        if let Some((at, dark)) = self.flatten.mirror(start, rgb) {
+            self.effects.dac(&mut self.dac, at, &dark);
+        }
     }
 
     /// The DAC: the location's own palette, then the banks the strip, the
     /// pointer and the player load over it.
     pub(super) fn rebuild_dac(&mut self) {
-        let mut dac = self.room().map(crate::dac::of_room).unwrap_or_default();
-        if self.flatten.table.is_some()
-            && let Some(room) = self.room()
-        {
-            let start = room.room.palette_start;
-            let rgb = room.room.palette_rgb.clone();
-            self.flatten.load_rgb(start, &rgb);
+        let mut dac = Palette::default();
+        if let Some((start, rgb)) = self.room_bank() {
+            dac.load(start, &rgb);
+            if self.flatten.updates() {
+                self.flatten.load_rgb(start, &rgb);
+            }
+            if let Some((at, dark)) = self.flatten.mirror(start, &rgb) {
+                dac.load(at, &dark);
+            }
         }
         for bank in &self.banks {
             dac.apply(bank);
             if bank.len() >= 2 {
                 self.flatten.load_rgb(bank[0], &bank[2..]);
+                if let Some((at, dark)) = self.flatten.mirror(bank[0], &bank[2..]) {
+                    dac.load(at, &dark);
+                }
             }
         }
         if let Some((start, rgb)) = &self.entry_ramp {
@@ -2026,6 +2177,23 @@ fn load_object_maps(res: &Path, name: &str) -> Result<Vec<Option<ObjectMap>>> {
         .collect()
 }
 
+/// Resources 0, 1 and 4 of every slot of `name`, picture or none.
+fn load_row_parts(res: &Path, name: &str) -> Result<Vec<Option<RowParts>>> {
+    let path = find_ci(res, name).ok_or_else(|| format!("{name} not found"))?;
+    let bytes = std::fs::read(path)?;
+    let Dat::Fgroup(group) = open_dat(&bytes)? else {
+        return Err(format!("{name} is not an FGROUP").into());
+    };
+    group
+        .slots
+        .iter()
+        .map(|slot| match slot {
+            Slot::Rib(rib) => RowParts::from_1994_slot(rib).map(Some).map_err(Into::into),
+            Slot::Null | Slot::Raw(_) => Ok(None),
+        })
+        .collect()
+}
+
 fn own_bank(rib: &Rib) -> Result<Option<Bank>> {
     let Some(blob) = rib.get(3) else {
         return Ok(None);
@@ -2087,7 +2255,8 @@ impl FigureFiles {
     /// The set with digit `d`: the names' `%` replaced by it (a name
     /// without one is the only set). With `several` sets an item whose
     /// resource is not a cel in this strip file has none here; with one,
-    /// that is an error.
+    /// that is an error. The figure's cels are its file's resources from
+    /// `first_cel` on.
     fn load(
         res: &Path,
         image: &Image,
@@ -2095,6 +2264,7 @@ impl FigureFiles {
         items: usize,
         d: u16,
         several: bool,
+        first_cel: usize,
     ) -> Result<Self> {
         let digit = char::from_digit(u32::from(d), 10).unwrap_or('0');
         let named = |n: &str| n.replace('%', &digit.to_string());
@@ -2132,14 +2302,15 @@ impl FigureFiles {
             })
             .collect::<Result<_>>()?;
         let player = rib(res, &named(files.player))?;
-        // Bundle 1 is the figure file from resource 1 on: the loader
-        // stores the whole file and then advances the slot by four bytes,
-        // one far pointer, which is the palette these files open with
-        // (`0x10AD0`).
+        // Bundle 1 is the figure file from `first_cel` on: Dunkle
+        // Schatten's loader stores the whole file and then advances the
+        // slot by four bytes, one far pointer, which is the palette its
+        // file opens with (`0x10AD0`); a loader that does not step keeps
+        // the file's start ([`profile::Profile::figure_first`]).
         let figure_cels = player
             .resources
             .iter()
-            .skip(1)
+            .skip(first_cel)
             .filter_map(|b| Picture::parse(b).ok())
             .collect();
         Ok(FigureFiles {
@@ -2147,7 +2318,11 @@ impl FigureFiles {
             panel_bank: panels.get(1).map(<[u8]>::to_vec),
             item_cels,
             figure_cels,
-            player_bank: player.get(0).map(<[u8]>::to_vec),
+            // Resource 0 is a bank only where the loader hands it to the
+            // palette's routine and steps past it (Dunkle Schatten's
+            // `0x10AC3`); a loader that does neither keeps it as the first
+            // cel.
+            player_bank: player.get(0).filter(|_| first_cel > 0).map(<[u8]>::to_vec),
         })
     }
 }
@@ -2155,4 +2330,73 @@ impl FigureFiles {
 fn rib(res: &Path, name: &str) -> Result<Rib> {
     let path = find_ci(res, name).ok_or_else(|| format!("{name} not found"))?;
     Ok(Rib::parse(&std::fs::read(path)?)?)
+}
+
+#[cfg(test)]
+mod row_slot_tests {
+    use super::{load_object_maps, load_own_banks, load_row_parts};
+
+    /// The rows whose slot carries an object map, and what else each such
+    /// slot holds: hotspots, walk graphs, an `AN` block, a dialogue bank.
+    fn row_slots(dir: &std::path::Path, rooms: &str) -> Vec<(usize, [bool; 4])> {
+        let res = motionvm_parsec_formats::detect::resource_dir(dir);
+        let maps = load_object_maps(&res, rooms).expect("maps");
+        let parts = load_row_parts(&res, rooms).expect("parts");
+        let banks = load_own_banks(&res, rooms).expect("banks");
+        (0..maps.len())
+            .filter(|&n| maps[n].is_some())
+            .map(|n| {
+                let p = parts[n].clone().unwrap_or_default();
+                let b = banks.get(n).is_some_and(Option::is_some);
+                (
+                    n,
+                    [
+                        p.hotspots.is_some(),
+                        !p.walks.is_empty(),
+                        p.animations.is_some(),
+                        b,
+                    ],
+                )
+            })
+            .collect()
+    }
+
+    /// Dunkle Schatten's forest rows carry their map and nothing else, so
+    /// the loader's takes from a row's own slot leave the picture's
+    /// resources as they are; Captain Zins has no row with a map.
+    #[test]
+    fn the_forest_rows_own_slots_hold_only_their_maps() {
+        if let Some(dir) = motionvm_parsec_testutil::gamedata_ds1() {
+            let rows = row_slots(&dir, "DSROOM.DAT");
+            assert!(!rows.is_empty(), "rows with a map");
+            for (n, held) in rows {
+                assert_eq!(held, [false; 4], "slot {n}");
+            }
+        }
+        if let Some(dir) = motionvm_parsec_testutil::gamedata_capzins() {
+            assert!(row_slots(&dir, "CZROOM.DAT").is_empty());
+        }
+    }
+
+    /// Bi-Fi 2's corridors and Lift carry their hotspots and `AN` block in
+    /// their own slots, beside the map; the shared slot `25h` holds the
+    /// picture alone.
+    #[test]
+    fn bi_fi_2_s_corridors_carry_their_own_parts() {
+        let Some(dir) = motionvm_parsec_testutil::gamedata_bifi2() else {
+            return;
+        };
+        let rows = row_slots(&dir, "BFROOM.DAT");
+        for n in [18, 19, 30, 31, 32, 33, 34, 35, 36] {
+            let held = rows.iter().find(|r| r.0 == n).map(|r| r.1);
+            assert!(held.is_some_and(|h| h[0] && h[2]), "slot {n}: {held:?}");
+        }
+        let res = motionvm_parsec_formats::detect::resource_dir(&dir);
+        let shared = load_row_parts(&res, "BFROOM.DAT").expect("parts")[0x25]
+            .clone()
+            .expect("slot 25h");
+        assert!(
+            shared.hotspots.is_none() && shared.walks.is_empty() && shared.animations.is_none()
+        );
+    }
 }

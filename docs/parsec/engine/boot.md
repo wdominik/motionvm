@@ -103,6 +103,39 @@ There is no backstory. The clock of a rolling or animating step is set to
 count, wherever the retrace falls: a capture of the original rolls the
 credits 33⅓ lines a second.
 
+### Bi-Fi 2's title program
+
+`BIFI.BAT` runs `XP00` the same way. Its addresses here are offsets into
+its own unpacked `XP00.EXE`, 62 592 bytes, `DGROUP` `0DD7h`. `_main`
+(`005Ch:0008h`, `0x5C8`) reads the mouse setting (`0x6A4`), probes
+`SAVEGAME.SAV` (`0x626`–`0x646`), opens the music library (`0x651`) and
+calls the title routine `0311h:059Dh` (`0x36AD`), which runs, in order:
+
+1. the pointer hidden, `INTROS.DAT` opened;
+2. an animation, slot 8 (`0311h:0134h`, `0x3244`): its palette written at
+   once and 36 frames of deltas, five hundredths each, which nothing
+   skips;
+3. module 0 of `PSMP2L.DAT`, started endlessly as the animation ends
+   (`0x3709`, `0x371B`);
+4. two stills through the logo routine (`0311h:02C1h`, `0x33D1`, Dunkle
+   Schatten's `0x3631`), slots 0/1 and then 2/3, each by step 4 and held
+   `96h` hundredths — no wave;
+5. the title picture, slots 4/5, faded in by 2, which nothing skips;
+6. the menu (`0311h:0342h`, `0x3452`): three lines from row `9Ah`, `0Fh`
+   apart — a new game, the saved one, quitting — the second gray without
+   a saved game, Escape the third; its inks `7Eh`, `74h` hovered and
+   `70h` gray, in `CMBMOU.DAT`'s bank, which here is `60h`–`7Fh`. A line
+   chosen fades the music over 2 000 ms (`0x3812`), the picture out by 8,
+   and stops the song once it is out (`0x3860`, `0x3865`);
+7. back in `_main`: the new game deletes `SAVEGAME.SAV` (`0x66F`), without
+   looking at the probe; the first two lines leave exit code 0, the third
+   −1 (`0x68A`).
+
+The blank fills the screen with 0 (`0x2834`), where Dunkle Schatten's
+fills it with `0FEh` (`0x28F9`). With `/JUKEBOX` on the command line and a
+music driver, the third line reads *Ab geht's zur Jukebox!* (`0x61C`) and
+runs a jukebox (`0311h:0BB5h`) before the exit. There is no backstory.
+
 ## How `XP01` begins
 
 `_main` runs from `0x4F19` to the options (`0x4F87`):
@@ -126,6 +159,11 @@ credits 33⅓ lines a second.
 5. The main loop (`0x4FC0`, [game loop](game-loop.md)), which runs while
    `[1F4Ah]` is not below zero (`0x4FE9`). Quitting from the options sets
    it to −2 (`0x12403`).
+
+The pointer the options come up with stands at (160, 100), where the
+pointer library's image puts it: nothing the mouse did while `XP00` ran
+reaches `XP01` ([the pointer](cursors.md)). Captain Zins's and Bi-Fi 2's
+`XP01` begin with the pointer there too.
 
 ## See also
 

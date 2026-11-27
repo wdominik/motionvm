@@ -179,7 +179,7 @@ impl Keyboard {
     ///
     /// `179Eh:1483h` writes a code up to and including 60h (`0x18E84`,
     /// `ja`), and 60h lands one past the table, on the switch itself; the
-    /// lists both titles hand it stop at 51h.
+    /// lists *Dunkle Schatten* and *Captain Zins* hand it stop at 51h.
     pub(crate) fn load(map: &KeyMap, ds: &[u8], image: &[u8]) -> Self {
         let mut on = image.get(map.switch).is_some_and(|&b| b != 0);
         let mut slots = [0; 0x60];
@@ -340,7 +340,7 @@ mod tests {
         }
     }
 
-    /// Both titles' maps point at the twelve keys and the words the
+    /// *Dunkle Schatten*'s and *Captain Zins*'s maps point at the twelve keys and the words the
     /// programs ship: the list their setup call hands over, the switch on,
     /// and the speeds, multiplier and divisors as the images hold them.
     #[test]
@@ -353,6 +353,10 @@ mod tests {
             (
                 motionvm_parsec_testutil::gamedata_capzins(),
                 crate::titles::capzins::build::POINTER.keys,
+            ),
+            (
+                motionvm_parsec_testutil::gamedata_bifi2(),
+                crate::titles::bifi2::build::POINTER.keys,
             ),
         ];
         for (dir, map) in titles {

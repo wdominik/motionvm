@@ -47,17 +47,56 @@
 //!   skipped. The length counts down by the move, and reaching zero or
 //!   passing it ends the sample.
 //!
-//! **What is not taken.** The play entry's mode argument is the number of
-//! further passes; every play here is a single pass, the mode 0 a host
-//! passes, and the repeat branch is not built — its restart on the held
-//! path (`0x1a83` → `0x19e3`) fetches without counting the output it
-//! fetches for, so a channel writes a 129th word past the accumulator, onto
-//! the play cursor at `0x1180`. A period of 0 sends the routine through
-//! `0x1a52` without the `pop bx` its frame needs, and a length of 0 counts
-//! down past zero; samples with either are refused. A header volume of 0
-//! or below takes the direct path (`0x2028`), as does every play with one
-//! channel installed while the mixer stands; that path is
-//! [`Voice`](crate::Voice)'s, and the mixer refuses such a play. The
+//! **Passes** (`[1806h]`): the play entry's argument plus one (`0x20a2`), a
+//! wrapping word, so `0xffff` is 65 536 passes. At a sample's end the routine
+//! counts the pass (`0x1a4c`, `0x1aae`); with passes left it starts over at
+//! the header's first byte with the header's length (`0x1a83`, `0x1a63`)
+//! and goes on in the same block, the fraction where the end left it.
+//!
+//! - Fast, the restart (`0x1a63` → `0x1a18`) counts the output that ended
+//!   the pass, and the next output takes byte 0. The end left the fraction
+//!   in `dx` (`0x1aa0`), so a restart on a block's last output writes the
+//!   fraction back as the held contribution (`0x19bc`).
+//! - Held, the restart (`0x1a83` → `0x19e3`) jumps straight to the fetch:
+//!   byte 0 goes into the next output without the fraction stepping, and
+//!   the output that ended the pass is not counted (`0x19f4` leaves before
+//!   `0x19fa`). The routine then writes 129 outputs for the block: the
+//!   first 128 into the accumulator at `0x1080`, the 129th past it onto the
+//!   play cursor at `0x1180`, which takes that output's contribution, summed
+//!   over every such block until a play sets the cursor again.
+//!
+//! **The cursor off the round.** A cursor that is no longer a channel's
+//! word sends the next play's search off the round (`0x204c`–`0x206a`): it
+//! probes its start, goes on through channels 1 to `n` until one is idle,
+//! and comes back to its start only from a channel's word — with every
+//! channel busy it waits for a block to end one. The rebuild searches as
+//! the driver does over the rows it keeps: an odd word reads a priority
+//! byte and a routine word that straddles two rows, `0x..19`, never the
+//! idle routine; an even word past the rows kept reads a row the driver
+//! never switches on. It refuses the play where the driver would wait, and
+//! where the cursor has run past the 32 rows of the driver's tables
+//! (`0x15c6`–`0x1605`), whose first probe reads cells the rebuild does not
+//! hold — and since nothing but a play sets the cursor, every play after
+//! it. A word that names a song's voice channel which is switched on and
+//! idle gets the effect, as in the driver, and the cursor goes back to 2.
+//! That voice's next event points the read position into its own sample
+//! while the channel's header (`[16C6h]`, which only the song's start sets)
+//! still names the effect, and the routine reads that offset in the
+//! effect's segment (`0x1992`, `0x24dc`–`0x24eb`) — memory the rebuild does
+//! not hold, so the voice stays silent until the song starts again. Two
+//! restarts in one block would run past the cursor onto the channel count
+//! (`[1182h]`) and the driver's pointers behind it; a held pass of 128
+//! bytes or fewer can end twice in a block, and the mixer refuses to play
+//! such a sample more than once.
+//!
+//! **What is not taken.** A period of 0 sends the routine through `0x1a52`
+//! without the `pop bx` its frame needs, and a length of 0 counts down past
+//! zero; samples with either are refused. A header volume of 0 or below
+//! takes the direct path (`0x2028`), as does every play with one channel
+//! installed while the mixer stands; that path is [`Voice`](crate::Voice)'s,
+//! and the mixer refuses such a play. The direct path keeps its own count
+//! of passes from the same argument (`0x0611`–`0x061c`, `[1590h]`), which
+//! [`Voice`](crate::Voice) does not build: it plays a sample once. The
 //! mixer's overload handling (`0x1b41`) never acts here: it needs an
 //! interrupt to arrive while a block is still being mixed (`0x07f2`,
 //! `0x1b35`), and a block here is mixed whole before time moves on. The
@@ -79,6 +118,14 @@ pub const MAX_EFFECTS: u16 = 8;
 /// song's voices behind them.
 const CHANNELS: usize = 1 + 8 + MDH_VOICES;
 
+/// Rows in the driver's tables (`0x15c6`–`0x1605`, 32 words), and the words
+/// a play's search can read from them.
+const TABLE_WORDS: u16 = 2 * 32;
+
+/// The longest held sample the mixer plays more than once: a pass of 128
+/// bytes or fewer can end twice in one block.
+const SHORT: usize = BLOCK;
+
 /// One row of the driver's channel tables.
 #[derive(Debug, Clone, Default)]
 struct Channel {
@@ -94,7 +141,8 @@ struct Channel {
     /// The routine (`[1686h]`): the sample routine `0x196b` when set, the
     /// idle `0x1965` otherwise.
     playing: bool,
-    /// The sample header (`[16C6h]`), whose period the routine reads.
+    /// The sample header (`[16C6h]`), whose period the routine reads and
+    /// whose segment it reads the bytes in.
     sample: Option<Arc<Sample>>,
     /// Bytes left (`[1746h]`).
     rest: u16,
@@ -242,8 +290,9 @@ pub struct Mixer {
     /// Channels mixed (`[15C2h]`): the effects and channel 0, and the
     /// song's voices while one plays.
     top: usize,
-    /// The channel the next play tries first (`[1180h]` / 2).
-    cursor: usize,
+    /// The play cursor (`[1180h]`): twice the channel the next play tries
+    /// first, as long as no block has written past the accumulator onto it.
+    cursor: u16,
     /// The default volume (`[1888h]`).
     default_volume: u16,
     /// The scale shift (`[284h]`).
@@ -304,7 +353,7 @@ impl Mixer {
             effects,
             first_voice: effects + 1,
             top: effects + 1,
-            cursor: usize::from(driver.cursor / 2),
+            cursor: driver.cursor,
             default_volume: driver.volume,
             shift: driver.shift,
             period: driver.period,
@@ -339,61 +388,48 @@ impl Mixer {
         old
     }
 
-    /// Entry 17 with mode 0 (`0x200c`): the sample on an effect channel, and
-    /// the mixer started if it stands. Answers the channel, or `None` where
-    /// the driver would take a path the rebuild does not build — the
-    /// direct path, or a sample the routine cannot step (the module's
-    /// words on what is not taken).
+    /// Entry 17 (`0x1fcf` → `0x200c`): the sample on an effect channel for
+    /// `repeats + 1` passes, and the mixer started if it stands. Answers the
+    /// channel, or `None` where the driver would take a path the rebuild
+    /// does not build — the direct path, a sample the routine cannot step,
+    /// a held sample of 128 bytes or fewer played more than once, or a
+    /// search the cursor has sent off the round with every channel busy
+    /// (the module's words on passes and on what is not taken).
     ///
     /// The channel: from the cursor round, the first switched-on channel
     /// whose routine is idle (`0x2045`–`0x206a`); with none, the one at the
     /// cursor is taken from whatever plays on it, or channel 1 if the
     /// cursor's is switched off (`0x206c`–`0x207c`). Only the effect
-    /// channels are searched. The cursor moves past the channel taken
-    /// (`0x207e`–`0x208b`). The channel gets the default volume where the
-    /// header says `0x0100`, and `0x0100` for any other positive word — the
-    /// entry loads `0x100` (`0x2090`) and replaces it only with the default
-    /// (`0x2098`), never with the word ([`Sample::volume`]); one pass;
-    /// nothing held; the fraction at
-    /// `0xffff` (`0x2090`–`0x20e0`).
-    pub fn play(&mut self, sample: &Arc<Sample>) -> Option<usize> {
+    /// channels are searched while the cursor is a channel's word. The
+    /// cursor moves past the channel taken (`0x207e`–`0x208b`). The channel
+    /// gets the default volume where the header says `0x0100`, and `0x0100`
+    /// for any other positive word — the entry loads `0x100` (`0x2090`) and
+    /// replaces it only with the default (`0x2098`), never with the word
+    /// ([`Sample::volume`]); the passes (`0x20a2`); nothing held; the
+    /// fraction at `0xffff` (`0x2090`–`0x20e0`).
+    pub fn play(&mut self, sample: &Arc<Sample>, repeats: u16) -> Option<usize> {
         if !playable(sample) || num::signed(sample.volume) <= 0 {
             return None;
         }
         if !self.running && self.effects == 1 {
             return None;
         }
-        let effects = self.effects;
-        let next = |k: usize| if k < effects { k + 1 } else { 1 };
-        let start = self.cursor;
-        let mut k = start;
-        let mut free = None;
-        loop {
-            let ch = &self.channels[k];
-            if ch.switch != 0 && !ch.playing {
-                free = Some(k);
-                break;
-            }
-            k = next(k);
-            if k == start {
-                break;
-            }
+        let passes = repeats.wrapping_add(1);
+        if passes != 1 && self.held(sample) && sample.pcm.len() <= SHORT {
+            return None;
         }
-        let k = match free {
-            Some(k) => k,
-            None if self.channels[start].switch != 0 => start,
-            None if self.channels[1].switch != 0 => 1,
-            None => return None,
-        };
-        self.cursor = next(k);
+        let w = self.search()?;
+        let limit = self.limit();
+        self.cursor = if w < limit { w + 2 } else { 2 };
         let volume = if sample.volume == 0x100 {
             self.default_volume
         } else {
             0x100
         };
+        let k = usize::from(w / 2);
         let ch = &mut self.channels[k];
         ch.volume = volume;
-        ch.count = 1;
+        ch.count = passes;
         ch.held = 0;
         ch.fraction = 0xffff;
         ch.touched = 0xff;
@@ -404,6 +440,69 @@ impl Mixer {
         self.live = 1;
         self.start_or_wait();
         Some(k)
+    }
+
+    /// The last effect channel's word (`[1182h]`).
+    fn limit(&self) -> u16 {
+        u16::try_from(2 * self.effects).unwrap_or(u16::MAX)
+    }
+
+    /// Whether the routine holds `sample`'s bytes: its period above the
+    /// mixer's whole part (`0x199e`).
+    fn held(&self, sample: &Sample) -> bool {
+        num::split(self.period)[1] < sample.period
+    }
+
+    /// The test at `0x204c`–`0x205b` for the word `w`: a channel switched on
+    /// whose routine is idle. An odd word reads a priority byte and a
+    /// routine word that straddles two rows, its low byte `0x19`, never
+    /// `0x1965`; an even word past the rows kept is a row the driver never
+    /// switches on.
+    fn idle_at(&self, w: u16) -> bool {
+        if !w.is_multiple_of(2) {
+            return false;
+        }
+        self.channels
+            .get(usize::from(w / 2))
+            .is_some_and(|c| c.switch != 0 && !c.playing)
+    }
+
+    /// The channel word the play takes (`0x2045`–`0x207c`), or `None` for
+    /// the direct path and for the cases the rebuild refuses.
+    fn search(&self) -> Option<u16> {
+        let limit = self.limit();
+        let next = |w: u16| if w < limit { w + 2 } else { 2 };
+        let start = self.cursor;
+        if start >= TABLE_WORDS {
+            return None;
+        }
+        let round = start.is_multiple_of(2) && (2..=limit).contains(&start);
+        if !round {
+            // Off the round: the start, then channels 1 to `n` until one is
+            // idle; the loop never comes back to its start.
+            return std::iter::once(start)
+                .chain((2..=limit).step_by(2))
+                .find(|&w| self.idle_at(w));
+        }
+        let mut w = start;
+        loop {
+            if self.idle_at(w) {
+                return Some(w);
+            }
+            w = next(w);
+            if w == start {
+                break;
+            }
+        }
+        let on = |w: u16| self.channels[usize::from(w / 2)].switch != 0;
+        if on(start) {
+            Some(start)
+        } else if on(2) {
+            // `mov bl, 2`: the cursor's high byte is 0 on the round.
+            Some(2)
+        } else {
+            None
+        }
     }
 
     /// Entry 18 (`0x2121` → `0x2104`, `0x0794`): every channel mixed set
@@ -481,8 +580,9 @@ impl Mixer {
     /// A voice event sets the voice's channel volume from the level it names
     /// and the voice's scale, and starts its sample from the beginning
     /// (`0x24c8`): nothing held, the fraction at `0xffff`, one pass. A voice
-    /// without a sample goes idle instead (`0x24c1`). An event does not
-    /// start the mixer.
+    /// without a sample goes idle instead (`0x24c1`), and so does one whose
+    /// channel an effect has taken since the song started (the module's
+    /// words on passes). An event does not start the mixer.
     pub fn music_step(&mut self, skip: u8) -> u16 {
         self.skip = skip;
         if self.streaming == 0 {
@@ -584,8 +684,15 @@ impl Mixer {
             .map_or(0, |s| u16::try_from(s.pcm.len()).unwrap_or(u16::MAX));
         let on = voice.state == 2;
         let ch = &mut self.channels[self.first_voice + v];
+        // The header is the voice's unless a play took the channel since
+        // the song started; then the bytes would be read at the voice's
+        // offset in the effect's segment, and the voice stays silent.
+        let own = match (&ch.sample, &voice.sample) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
         ch.volume = volume;
-        if !on {
+        if !on || !own {
             ch.playing = false;
             return;
         }
@@ -679,8 +786,10 @@ impl Mixer {
         self.running
     }
 
-    /// The channel the next play tries first.
-    pub fn cursor(&self) -> usize {
+    /// The play cursor (`[1180h]`): twice the channel the next play tries
+    /// first — or, after a restart on the held path, whatever the 129th
+    /// words have made of it.
+    pub fn cursor(&self) -> u16 {
         self.cursor
     }
 
@@ -738,11 +847,13 @@ impl Mixer {
         }
     }
 
-    /// The sample routine (`0x196b`) for channel `k`, into the accumulator.
+    /// The sample routine (`0x196b`) for channel `k`, into the accumulator
+    /// and, for a restart on the held path, one word past it — the cursor.
     fn run(&mut self, k: usize, acc: &mut [u16; BLOCK]) {
         self.live = self.live.wrapping_add(1);
         let [lo, hi] = num::split(self.period);
         let ch = &mut self.channels[k];
+        let cursor = &mut self.cursor;
         ch.touched = 0;
         let Some(sample) = ch.sample.clone() else {
             ch.playing = false;
@@ -754,26 +865,50 @@ impl Mixer {
             return;
         }
         let pcm = &sample.pcm;
+        let len = u16::try_from(pcm.len()).unwrap_or(u16::MAX);
         let byte = |at: u16| pcm.get(usize::from(at)).copied().unwrap_or(0x80);
+        // `add [di], dx` at the output `di`: past the 128 words, the play
+        // cursor. A second word past them is the channel count, which the
+        // refusal of short held samples keeps out of reach.
+        let mut put = |di: usize, v: u16| match acc.get_mut(di) {
+            Some(slot) => *slot = slot.wrapping_add(v),
+            None => *cursor = cursor.wrapping_add(v),
+        };
         let volume = ch.volume;
         let (mut rest, mut read, mut fraction, mut held) = (ch.rest, ch.read, ch.fraction, ch.held);
+        // Outputs left to count (`cx`) and the output written next (`di`).
+        let mut left = BLOCK;
+        let mut di = 0;
         if hi < p {
             // `0x19a2`: held.
             let step = num::low(((u32::from(hi) << 16) | u32::from(lo)) / u32::from(p));
-            for slot in acc.iter_mut() {
+            loop {
                 let (f, carry) = fraction.overflowing_add(step);
                 fraction = f;
                 if carry {
-                    held = contribution(byte(read), volume);
-                    read = read.wrapping_add(1);
-                    *slot = slot.wrapping_add(held);
-                    rest = rest.wrapping_sub(1);
-                    if rest == 0 {
-                        end(ch);
-                        return;
+                    // `0x19e3`: a fetch, and after a restart the next.
+                    loop {
+                        held = contribution(byte(read), volume);
+                        read = read.wrapping_add(1);
+                        put(di, held);
+                        di += 1;
+                        rest = rest.wrapping_sub(1);
+                        if rest != 0 {
+                            break;
+                        }
+                        if !pass_over(ch) {
+                            return;
+                        }
+                        // `0x1a83` → `0x19e3`: the output is not counted.
+                        (read, rest) = (0, len);
                     }
                 } else {
-                    *slot = slot.wrapping_add(held);
+                    put(di, held);
+                    di += 1;
+                }
+                left -= 1;
+                if left == 0 {
+                    break;
                 }
             }
         } else {
@@ -783,18 +918,26 @@ impl Mixer {
             } else {
                 0xffff
             };
-            for slot in acc.iter_mut() {
+            loop {
                 held = contribution(byte(read), volume);
-                *slot = slot.wrapping_add(held);
+                put(di, held);
+                di += 1;
                 let (f, carry) = fraction.overflowing_add(step);
                 fraction = f;
                 let advance = 1 + u16::from(carry);
                 read = read.wrapping_add(advance);
-                let (left, borrow) = rest.overflowing_sub(advance);
-                rest = left;
-                if borrow || left == 0 {
-                    end(ch);
-                    return;
+                let (rest_left, borrow) = rest.overflowing_sub(advance);
+                rest = rest_left;
+                if borrow || rest_left == 0 {
+                    if !pass_over(ch) {
+                        return;
+                    }
+                    // `0x1a63`: `dx` holds the fraction (`0x1aa0`).
+                    (read, rest, held) = (0, len, fraction);
+                }
+                left -= 1;
+                if left == 0 {
+                    break;
                 }
             }
         }
@@ -807,11 +950,18 @@ impl Mixer {
 }
 
 /// The sample is over inside a block (`0x1a3e`, `0x1aa0`): the pass is
-/// counted and the routine goes idle — every play here is a single pass —
-/// and nothing of the block's state is written back.
-fn end(ch: &mut Channel) {
+/// counted. With none left the routine goes idle and nothing of the
+/// block's state is written back (`0x1a52`, `0x1ab4`); with passes left the
+/// read position goes back to the header's first byte at once (`0x1a95`,
+/// `0x1a75`). Answers whether the sample goes on.
+fn pass_over(ch: &mut Channel) -> bool {
     ch.count = ch.count.wrapping_sub(1);
-    ch.playing = false;
+    if ch.count == 0 {
+        ch.playing = false;
+        return false;
+    }
+    ch.read = 0;
+    true
 }
 
 #[cfg(test)]
@@ -865,17 +1015,17 @@ mod tests {
     fn channels_go_round_and_the_cursor_is_stolen() {
         let mut m = Mixer::new(&driver(), 6);
         let long = sample(100, &[0x90; 4000]);
-        let taken: Vec<_> = (0..8).map(|_| m.play(&long)).collect();
+        let taken: Vec<_> = (0..8).map(|_| m.play(&long, 0)).collect();
         assert_eq!(
             taken,
             [1, 2, 3, 4, 5, 6, 1, 2].map(Some),
             "round, then stolen at the cursor"
         );
-        assert_eq!(m.cursor(), 3);
+        assert_eq!(m.cursor(), 6, "channel 3");
         // Channel 3 ends early: the search from the cursor finds it idle.
         m.channels[4].playing = false;
-        assert_eq!(m.play(&long), Some(4), "the first idle from the cursor");
-        assert_eq!(m.cursor(), 5);
+        assert_eq!(m.play(&long, 0), Some(4), "the first idle from the cursor");
+        assert_eq!(m.cursor(), 10, "channel 5");
     }
 
     /// A sample slower than the mixer is held: byte 0 lands in output 0,
@@ -891,7 +1041,7 @@ mod tests {
         let mut m = Mixer::new(&d, 6);
         m.set_volume(0x3c);
         let s = sample(115, &[0x80 + 64, 0x80 - 64, 0xff]);
-        assert_eq!(m.play(&s), Some(1));
+        assert_eq!(m.play(&s, 0), Some(1));
         let a = &m.buffer()[..BLOCK];
         // 64 × 60 >> 8 = 15; −64 × 60 >> 8 = −15; 127 × 60 >> 8 = 29.
         let (up, down) = (0x80 + 15, 0x80 - 15);
@@ -911,7 +1061,7 @@ mod tests {
         let mut m = Mixer::new(&driver(), 6);
         m.set_volume(0x100);
         let pcm: Vec<u8> = (1..=40).map(|i| 0x80 + i).collect();
-        m.play(&sample(54, &pcm));
+        m.play(&sample(54, &pcm), 0);
         let a = &m.buffer()[..BLOCK];
         assert_eq!(&a[..4], &[0x81, 0x83, 0x84, 0x85]);
         let played: Vec<u8> = a.iter().copied().take_while(|&b| b != 0x80).collect();
@@ -935,7 +1085,7 @@ mod tests {
         let mut m = Mixer::new(&driver(), 8);
         m.set_volume(0x400);
         let loud = sample(200, &[0xff; 300]);
-        m.play(&loud);
+        m.play(&loud, 0);
         // 127 × 0x400 >> 8 = 508.
         assert_eq!(m.buffer()[0], 0xff);
     }
@@ -948,7 +1098,7 @@ mod tests {
         let mut m = Mixer::new(&driver(), 6);
         // About 1.75 outputs a byte: 200 bytes end in the third block.
         let s = sample(100, &[0xa0; 200]);
-        m.play(&s);
+        m.play(&s, 0);
         assert!(m.take_start());
         assert!(m.running());
         assert_eq!(m.irq(), Irq::Next);
@@ -958,21 +1108,171 @@ mod tests {
         assert_eq!(m.irq(), Irq::End);
         // Before the first interrupt after a start, a stop leaves nothing for
         // a play to wait for.
-        m.play(&s);
+        m.play(&s, 0);
         assert!(m.take_start());
         m.stop_all();
-        m.play(&s);
+        m.play(&s, 0);
         assert!(m.take_start());
         // Once an interrupt has seen it run, a play after a stop waits.
         assert_eq!(m.irq(), Irq::Next);
-        let k = m.cursor();
+        let k = usize::from(m.cursor() / 2);
         m.stop_all();
         assert!((1..=6).all(|k| !m.channel(k).unwrap().playing));
-        assert_eq!(m.play(&s), Some(k));
+        assert_eq!(m.play(&s, 0), Some(k));
         assert!(!m.take_start());
         assert_eq!(m.irq(), Irq::Restart);
         assert_eq!(m.half(), BLOCK, "the restart mixed both halves");
         assert_ne!(m.buffer()[0], 0x80);
+    }
+
+    /// A mixer at `M.m` = 57.5 against `P` = 115 — a step of exactly
+    /// `0x8000`, byte `k` held for outputs `2k` and `2k + 1` — already running
+    /// on channel 1 with a silent sample, so a play mixes nothing until the
+    /// next interrupt; contributions are the bytes less `0x80`.
+    fn running(period: u32) -> Mixer {
+        let mut d = driver();
+        d.period = period;
+        let mut m = Mixer::new(&d, 6);
+        m.set_volume(0x100);
+        assert_eq!(m.play(&sample(115, &[0x80; 30_000]), 0), Some(1));
+        m
+    }
+
+    /// The bytes `0x81`, `0x82`, … of a test sample: byte `k` adds `k + 1`.
+    fn ramp(len: usize) -> Vec<u8> {
+        (0..len)
+            .map(|k| 0x81 + u8::try_from(k % 100).unwrap())
+            .collect()
+    }
+
+    /// The held restart (`0x1a83` → `0x19e3`): the last byte (128) ends the
+    /// pass at output 256, byte 0 follows in the very next output without
+    /// the fraction stepping, and the ending output is not counted — the
+    /// block's 129th output, byte 63, lands on the play cursor.
+    #[test]
+    fn a_held_restart_writes_its_129th_output_onto_the_cursor() {
+        let mut m = running((57 << 16) | 0x8000);
+        let s = Arc::new(Sample {
+            volume: 0x100,
+            period: 115,
+            pcm: ramp(129),
+        });
+        assert_eq!(m.play(&s, 1), Some(2));
+        assert_eq!(m.channel(2).unwrap().count, 2);
+        assert_eq!(m.cursor(), 6);
+        let out = |m: &Mixer| m.buffer()[m.half()..m.half() + BLOCK].to_vec();
+        m.irq();
+        let a = out(&m);
+        assert_eq!(&a[..4], &[0x81, 0x81, 0x82, 0x82]);
+        m.irq();
+        m.irq();
+        let c = out(&m);
+        // Output 256 is byte 128 (adds 29); then byte 0 twice, byte 1 twice.
+        assert_eq!(&c[..6], &[0x80 + 29, 0x81, 0x81, 0x82, 0x82, 0x83]);
+        // Slot 127 is byte 63's first output; its second is the 129th.
+        assert_eq!(c[127], 0x80 + 64);
+        assert_eq!(m.cursor(), 6 + 64);
+        let ch = m.channel(2).unwrap();
+        assert_eq!((ch.count, ch.read, ch.rest), (1, 64, 129 - 64));
+        assert_eq!(ch.fraction, 0xffff, "byte 63 is held: no carry since");
+        // The next pass ends the sample; the cursor keeps what it took.
+        for _ in 0..3 {
+            m.irq();
+        }
+        assert!(!m.channel(2).unwrap().playing);
+        assert_eq!(m.cursor(), 70);
+    }
+
+    /// The fast restart (`0x1a63` → `0x1a18`) counts its output: `P` 57
+    /// against `M` 57.25 steps by 287, so after the first carry each output
+    /// moves one byte, and 129 bytes end on the block's last output. The
+    /// end left the fraction in `dx` (`0x1aa0`), and it goes back as the
+    /// held contribution; the next block starts at byte 0.
+    #[test]
+    fn a_fast_restart_on_the_last_output_writes_the_fraction_back() {
+        let mut m = running((57 << 16) | 0x4000);
+        let s = Arc::new(Sample {
+            volume: 0x100,
+            period: 57,
+            pcm: ramp(129),
+        });
+        assert_eq!(m.play(&s, 2), Some(2));
+        m.irq();
+        let fraction = 0xffffu16.wrapping_add(128 * 287);
+        let ch = m.channel(2).unwrap();
+        assert_eq!(
+            (ch.count, ch.read, ch.rest, ch.fraction, ch.held),
+            (2, 0, 129, fraction, fraction)
+        );
+        assert_eq!(m.cursor(), 6, "the fast path writes no 129th word");
+        m.irq();
+        let b = &m.buffer()[m.half()..m.half() + 3];
+        assert_eq!(b, &[0x81, 0x82, 0x83]);
+    }
+
+    /// The passes are the argument plus one, wrapping: `0xffff` sets 0,
+    /// which the first end takes to `0xffff` and plays on. A held sample of
+    /// 128 bytes or fewer plays once, never more.
+    #[test]
+    fn the_passes_wrap_and_short_held_samples_play_once() {
+        let mut m = running((57 << 16) | 0x4000);
+        let s = sample(54, &[0x90, 0x70, 0xa0]);
+        assert_eq!(m.play(&s, 0xffff), Some(2));
+        assert_eq!(m.channel(2).unwrap().count, 0);
+        m.irq();
+        let ch = m.channel(2).unwrap();
+        assert!(ch.playing);
+        // Two outputs for the first pass (the first step carries), then
+        // three a pass, two where the step of 3944 carries: 44 ends.
+        assert_eq!(ch.count, 0u16.wrapping_sub(44));
+        let short = sample(115, &[0x90; 128]);
+        assert_eq!(m.play(&short, 1), None);
+        assert_eq!(m.play(&short, 0), Some(3));
+        assert_eq!(m.play(&sample(115, &[0x90; 129]), 1), Some(4));
+    }
+
+    /// An odd cursor never comes back to its start: the search takes the
+    /// first idle channel from channel 1, and with all six busy the driver
+    /// waits there for a block, which the mixer refuses.
+    #[test]
+    fn an_odd_cursor_searches_from_channel_1() {
+        let mut m = running((57 << 16) | 0x4000);
+        let long = sample(115, &[0x90; 30_000]);
+        m.play(&long, 0);
+        m.cursor = 7;
+        assert_eq!(m.play(&long, 0), Some(3), "1 and 2 are busy");
+        assert_eq!(m.cursor(), 8);
+        for _ in 0..3 {
+            m.play(&long, 0);
+        }
+        m.cursor = 9;
+        assert_eq!(m.play(&long, 0), None);
+        m.cursor = 0xfff9;
+        m.stop_all();
+        assert_eq!(m.play(&long, 0), None, "past the tables");
+    }
+
+    /// A cursor on a song's voice channel, switched on and idle, gives it
+    /// the effect, and the cursor goes back to 2; the voice's next event
+    /// leaves it silent, its header the effect's, until the song starts
+    /// again.
+    #[test]
+    fn a_cursor_on_a_voice_gives_it_the_effect() {
+        let mut m = Mixer::new(&driver(), 6);
+        let a = sample(100, &[0x90; 3000]);
+        let stream = [0x00, 0x82, 0x00, 0x82, 0x20, 0x00];
+        m.set_music(Some(music(&stream, vec![Some(a), None])));
+        m.music_start(0, 0x100);
+        m.stop_all();
+        m.cursor = 14;
+        let effect = sample(100, &[0xa0; 500]);
+        assert_eq!(m.play(&effect, 0), Some(7));
+        assert_eq!(m.cursor(), 2);
+        assert_eq!(m.music_step(0), 4);
+        assert!(!m.channel(7).unwrap().playing, "the voice stays silent");
+        m.music_start(0, 0x100);
+        m.music_step(0);
+        assert!(m.channel(7).unwrap().playing, "the song's start set it");
     }
 
     fn music(stream: &[u8], samples: Vec<Option<Arc<Sample>>>) -> Arc<Music> {
@@ -1050,7 +1350,7 @@ mod tests {
         assert_eq!(m.music_step(0), 4, "the stream runs on");
         assert!(!m.take_start(), "an event does not start the mixer");
         assert!(m.channel(7).unwrap().playing);
-        m.play(&a);
+        m.play(&a, 0);
         assert!(m.take_start());
         assert!(m.buffer()[..BLOCK].iter().any(|&b| b != 0x80));
     }

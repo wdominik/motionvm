@@ -181,7 +181,14 @@ mod tests {
     #[test]
     fn the_roster_lists_what_plays() {
         let names: Vec<&str> = PARSEC.games().iter().map(|c| c.name).collect();
-        assert_eq!(names, ["Dunkle Schatten", "Captain Zins"]);
+        assert_eq!(
+            names,
+            [
+                "Dunkle Schatten",
+                "Captain Zins",
+                "Bi-Fi 2 - Action in Hollywood"
+            ]
+        );
     }
 
     #[test]
@@ -198,6 +205,14 @@ mod tests {
         let found = PARSEC.detect(&dir).expect("claimed");
         assert_eq!(found.short, "Captain Zins");
         assert_eq!(found.needs, "RESOURCE/CZROOM.DAT beside XP01.EXE");
+    }
+
+    #[test]
+    fn the_third_title_s_room_container_is_claimed() {
+        let dir = holding("bifi2", &["BFROOM.DAT"]);
+        let found = PARSEC.detect(&dir).expect("claimed");
+        assert_eq!(found.short, "Bi-Fi 2");
+        assert_eq!(found.needs, "RESOURCE/BFROOM.DAT beside XP01.EXE");
     }
 
     #[test]

@@ -102,7 +102,7 @@ measured size.
 `DEFTDT ( a b c d e f g font n -- )` fills template `n` (1–9) of an
 18-byte-per-entry table at `0xF2594`. The game defines all nine
 templates identically as `8 2 2 -1 -1 -1 -1 <font 6> n DEFTDT`, and
-every value now has a meaning:
+every value has a meaning:
 
 | Template field | From the game's tuple | Meaning |
 |---|---|---|

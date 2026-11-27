@@ -10,8 +10,9 @@
 # Abenteuer InfoHighway, GAMEDATA_HFA at your copy of Hilfe für Amajambere,
 # GAMEDATA_VLOOMES at your copy of Victor Loomes – Das Spiel, GAMEDATA_EDDIEM
 # at your copy of Falsches Spiel mit Eddie M., GAMEDATA_CHECKER at your copy
-# of Checker 2000, GAMEDATA_DS1 at your copy of Dunkle Schatten and
-# GAMEDATA_CAPZINS at your copy of Captain Zins — the
+# of Checker 2000, GAMEDATA_DS1 at your copy of Dunkle Schatten,
+# GAMEDATA_CAPZINS at your copy of Captain Zins and GAMEDATA_BIFI2 at your
+# copy of Bi-Fi 2 - Action in Hollywood — the
 # defaults are directories next to this one, which is where a checkout beside
 # installed copies of the games finds them. Tests
 # that need data and cannot find it skip themselves; a *wrong* path panics
@@ -34,6 +35,8 @@ DEFAULT_GAMEDATA_DS1 := justfile_directory() / ".." / "games" / "DS1"
 GAMEDATA_DS1 := DEFAULT_GAMEDATA_DS1
 DEFAULT_GAMEDATA_CAPZINS := justfile_directory() / ".." / "games" / "CAPZINS"
 GAMEDATA_CAPZINS := DEFAULT_GAMEDATA_CAPZINS
+DEFAULT_GAMEDATA_BIFI2 := justfile_directory() / ".." / "games" / "BIFI2"
+GAMEDATA_BIFI2 := DEFAULT_GAMEDATA_BIFI2
 
 # What actually reaches the suite.
 #
@@ -75,6 +78,9 @@ _DATA_DS1 := if GAMEDATA_DS1 != DEFAULT_GAMEDATA_DS1 { GAMEDATA_DS1 } \
 _DATA_CAPZINS := if GAMEDATA_CAPZINS != DEFAULT_GAMEDATA_CAPZINS { GAMEDATA_CAPZINS } \
     else if path_exists(GAMEDATA_CAPZINS / "RESOURCE" / "CZROOM.DAT") == "true" { GAMEDATA_CAPZINS } \
     else { "" }
+_DATA_BIFI2 := if GAMEDATA_BIFI2 != DEFAULT_GAMEDATA_BIFI2 { GAMEDATA_BIFI2 } \
+    else if path_exists(GAMEDATA_BIFI2 / "RESOURCE" / "BFROOM.DAT") == "true" { GAMEDATA_BIFI2 } \
+    else { "" }
 
 # Savegames cannot be reconstructed, only played to, and never enter the
 # repository. They are kept the way the games are: a directory beside this one,
@@ -104,6 +110,7 @@ _GAMES := 'MOTIONVM_GAMEDATA_DS2="' + _DATA_DS2 + '" ' + \
     'MOTIONVM_GAMEDATA_CHECKER="' + _DATA_CHECKER + '" ' + \
     'MOTIONVM_GAMEDATA_DS1="' + _DATA_DS1 + '" ' + \
     'MOTIONVM_GAMEDATA_CAPZINS="' + _DATA_CAPZINS + '" ' + \
+    'MOTIONVM_GAMEDATA_BIFI2="' + _DATA_BIFI2 + '" ' + \
     'MOTIONVM_SAVES="' + _SAVES + '"'
 
 _default:
@@ -130,12 +137,14 @@ test:
 check-nodata:
     MOTIONVM_NO_GAMEDATA=1 RUSTFLAGS="-D warnings" cargo test --workspace
 
-# Captain Zins played from its first scene to its end through the host's
-# input. It runs for minutes of game time, so `just check` skips it.
+# Captain Zins and Bi-Fi 2 played from their first scene to their end
+# through the host's input. They run for minutes of game time, so `just
+# check` skips them.
 #
-# Captain Zins played to its end, in release.
+# Captain Zins and Bi-Fi 2 played to their end, in release.
 playthrough:
     {{ _GAMES }} cargo test --release -p motionvm-parsec-engine captain_zins_can_be_played_to_its_end -- --ignored --nocapture
+    {{ _GAMES }} cargo test --release -p motionvm-parsec-engine bi_fi_2_can_be_played_to_its_end -- --ignored --nocapture
 
 # One test target, e.g. `just test-one ds2_scenes` or `just test-one enviro_psm`.
 test-one target:
@@ -294,7 +303,8 @@ run GAME *ARGS:
         checker) dir='{{ GAMEDATA_CHECKER }}' ;;
         ds1)     dir='{{ GAMEDATA_DS1 }}' ;;
         capzins) dir='{{ GAMEDATA_CAPZINS }}' ;;
-        *) echo "just run <ds2|checker|enviro|jeffjet|hfa|vloomes|eddiem|ds1|capzins> [args]" >&2; exit 2 ;;
+        bifi2)   dir='{{ GAMEDATA_BIFI2 }}' ;;
+        *) echo "just run <ds2|checker|enviro|jeffjet|hfa|vloomes|eddiem|ds1|capzins|bifi2> [args]" >&2; exit 2 ;;
     esac
     cargo run --release -p motionvm-app -- "$dir" {{ ARGS }}
 

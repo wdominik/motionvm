@@ -489,7 +489,7 @@ fn every_parsec_game_has_a_module_of_its_own() {
         .join("motionvm-parsec-engine")
         .join("src")
         .join("titles");
-    let games = ["capzins", "ds1"];
+    let games = ["bifi2", "capzins", "ds1"];
     for slug in games {
         let path = dir.join(slug).join("mod.rs");
         assert!(

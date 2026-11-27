@@ -197,7 +197,7 @@ fn every_effect_mixes_as_the_driver_mixes_it() {
         let sample = Arc::new(Sample::parse(&library.sample(row).expect("a sample")).expect("SM8"));
         let mut m = mixer(&dir);
         let mut d = Digest::new();
-        assert_eq!(m.play(&sample), Some(1), "effect {row} takes channel 1");
+        assert_eq!(m.play(&sample, 0), Some(1), "effect {row} takes channel 1");
         started(&mut m, &mut d);
         let mut blocks = 0;
         while m.running() {

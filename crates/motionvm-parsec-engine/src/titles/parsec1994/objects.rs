@@ -26,6 +26,7 @@
 use crate::num;
 use motionvm_parsec_formats::{MapDefaults, MapEntry, Overlay, RoomFile};
 
+use super::profile::{ExitForm, MapExits, RecordCodes};
 use super::{Adventure, Body, Event, Far, Picture};
 
 /// Bit 0 of `+2`: the object is live — drawn, clickable, animated.
@@ -47,7 +48,8 @@ pub(crate) const STATE_PART: u8 = 9;
 /// (`0x14F9A`).
 pub(crate) const STATE_FIGURE_ANIM: u8 = 0x0A;
 /// State `+12h` a kind-8 record takes instead (`0x14F3D`); no such record
-/// stands in Dunkle Schatten's rooms.
+/// stands in Dunkle Schatten's rooms, and Captain Zins' Schranke has one,
+/// the walking record `C8h`.
 pub(crate) const STATE_NPC_ANIM: u8 = 0x0B;
 
 /// One 32-byte object record as the program writes it.
@@ -82,6 +84,8 @@ pub(crate) struct ObjectRt {
     pub id: u8,
     /// `+15h`: how many cels the object's block holds.
     pub phases: u8,
+    /// `+14h`: the ticks a step of states 1 to 3 waits (`0x0896D`).
+    pub interval: u8,
     /// `+16h`: the ticks until the animator looks at it again.
     pub countdown: i32,
     /// `+18h`: the `AN` entry it is bound to, as an index into the
@@ -100,7 +104,10 @@ pub(crate) struct ObjectRt {
 impl ObjectRt {
     /// The record as the loader leaves it: the file's bytes, and `+1` set
     /// from `+15h` the way `0563h:0220h`'s caller does (`0x7994` region,
-    /// "`+1 := (+15h > 1)`").
+    /// "`+1 := (+15h > 1)`"). The state `+12h` stays as the file has it
+    /// but for 7, 8 and 9, which the loader clears (`0x07F73`–`0x07F92`;
+    /// Captain Zins' `0x035CD`, Bi-Fi 2's `0x03694`): those are the
+    /// animation entries' to set.
     pub(crate) fn from_file(o: &Overlay) -> Self {
         ObjectRt {
             kind: o.kind,
@@ -113,10 +120,15 @@ impl ObjectRt {
             cel: o.cel_index,
             cel_base: o.cel_base,
             scale: o.scale,
-            state: 0,
+            state: if matches!(o.state, STATE_SINGLE | STATE_HEAD | STATE_PART) {
+                0
+            } else {
+                o.state
+            },
             id: o.id,
             phases: o.init,
-            countdown: 0,
+            interval: o.interval,
+            countdown: i32::from(o.countdown),
             ani: None,
             defaults: o.map,
             layer: o.layer,
@@ -144,6 +156,19 @@ pub(crate) struct HotspotRt {
     pub w: i32,
     /// See [`Self::x`].
     pub h: i32,
+}
+
+impl HotspotRt {
+    /// A hotspot as the file has it: its active bit and its rectangle.
+    fn from_file(h: &motionvm_parsec_formats::hotspot::Hotspot) -> Self {
+        HotspotRt {
+            active: h.active & 1 == 1,
+            x: i32::from(h.x),
+            y: i32::from(h.y),
+            w: i32::from(h.w),
+            h: i32::from(h.h),
+        }
+    }
 }
 
 /// A forest row's object map as the room loader bound it: the picture's
@@ -201,13 +226,7 @@ impl Adventure {
                 room.hotspots
                     .spots
                     .iter()
-                    .map(|h| HotspotRt {
-                        active: h.active & 1 == 1,
-                        x: i32::from(h.x),
-                        y: i32::from(h.y),
-                        w: i32::from(h.w),
-                        h: i32::from(h.h),
-                    })
+                    .map(HotspotRt::from_file)
                     .collect(),
             ),
             None => (Vec::new(), Vec::new()),
@@ -255,8 +274,10 @@ impl Adventure {
     /// new id (`0x81BA`); bit 4 every entry of the `AN` block without a
     /// chain (`0x826A`, `0x8296`), which takes the new id as the object it
     /// animates (`0x82E5`). A flag left clear takes that resource from the
-    /// row's own slot instead (`0x80A2`, `0x81E9`, `0x8310`), which holds
-    /// none: the picture's stays as it is.
+    /// row's own slot instead (`0x80A2`, `0x81E9`, `0x830F`) where the slot
+    /// holds one — *Bi-Fi 2*'s corridors, Lift and maze carry their
+    /// hotspots, graph and `AN` block there — and leaves the picture's
+    /// where it holds none, as every forest row of Dunkle Schatten's does.
     ///
     /// The byte at `+6` goes into the object's `+1` (`0x7EB9`), which only
     /// `0883h:000Fh` reads, to leave a still single-cel record's rectangle
@@ -279,8 +300,13 @@ impl Adventure {
             return;
         };
         let mut entries = map.entries;
-        if self.forest_row(loc) {
-            self.write_exits(loc, &mut entries);
+        if let Some(exits) = self
+            .profile
+            .rooms
+            .exits
+            .filter(|x| self.locations.kind(&self.image, usize::from(loc)) == Some(x.kind))
+        {
+            self.write_exits(loc, exits, &mut entries);
         }
         let mut bound: Vec<Binding> = entries
             .iter()
@@ -291,11 +317,31 @@ impl Adventure {
             })
             .collect();
         self.bind_map_objects(&mut entries, &mut bound);
+        // A resource the map does not rename the loader takes from the
+        // row's own slot, where that holds one: the hotspots (`0x80A2`,
+        // Bi-Fi 2's `0x037C3`), the walk graph (`0x81E9`, `0x0390A`) and the
+        // `AN` block (`0x830F`, `0x03A31`), each fresh from the file.
+        let own = self
+            .row_parts
+            .get(usize::from(loc))
+            .cloned()
+            .flatten()
+            .unwrap_or_default();
         if map.flags & 1 != 0 {
             self.bind_map_hotspots(&mut room, &entries, &mut bound);
+        } else if let Some(h) = own.hotspots {
+            self.hotspots_rt = h.spots.iter().map(HotspotRt::from_file).collect();
+            room.hotspots = h;
         }
         if map.flags & 0x20 != 0 {
             bind_map_nodes(&mut room, &entries);
+        } else if !own.walks.is_empty() {
+            room.walks = own.walks;
+        }
+        if map.flags & 0x10 == 0
+            && let Some(a) = own.animations
+        {
+            room.animations = Some(a);
         }
         let mut ani_ids = Vec::new();
         if map.flags & 0x10 != 0
@@ -329,12 +375,12 @@ impl Adventure {
 
     /// `0x7CA7`–`0x7D7D`: a forest row's exits written into its map; see
     /// [`Self::bind_object_map`].
-    fn write_exits(&self, loc: u16, entries: &mut [MapEntry]) {
+    fn write_exits(&self, loc: u16, exits: MapExits, entries: &mut [MapEntry]) {
         let row = usize::from(self.locations.table) * 16
             + usize::from(loc) * self.locations.stride
-            + self.locations.exits;
+            + usize::from(exits.first);
         for i in 0..4 {
-            let exit = self.image.bytes().get(row + 1 + i).copied().unwrap_or(0);
+            let exit = self.image.bytes().get(row + i).copied().unwrap_or(0);
             let mut set = |k: usize, id: u16, cel: Option<i16>| {
                 if let Some(e) = entries.get_mut(k) {
                     e.new_id = id;
@@ -343,12 +389,26 @@ impl Adventure {
                     }
                 }
             };
-            set(i, u16::from(exit), (exit == 0).then_some(-1));
-            if exit == 0 {
-                set(i + 8, 2000, Some(-1));
-            } else {
-                set(i + 4, 0, Some(-1));
-                set(i + 8, u16::from(exit) + 2000, None);
+            match exits.form {
+                ExitForm::Cleared => {
+                    set(i, u16::from(exit), (exit == 0).then_some(-1));
+                    if exit == 0 {
+                        set(i + 8, 2000, Some(-1));
+                    } else {
+                        set(i + 4, 0, Some(-1));
+                        set(i + 8, u16::from(exit) + 2000, None);
+                    }
+                }
+                ExitForm::Offset(n) => {
+                    set(i, u16::from(exit), (exit == 0).then_some(-1));
+                    if exit == 0 {
+                        set(i + 4, 0, Some(-1));
+                        set(i + 8, 2000, Some(-1));
+                    } else {
+                        set(i + 4, u16::from(exit).wrapping_add(n), None);
+                        set(i + 8, u16::from(exit) + 2000, None);
+                    }
+                }
             }
         }
     }
@@ -418,6 +478,12 @@ impl Adventure {
                 h.y = i32::from(num::low16(h.y).wrapping_add(num::unsigned(e.dy)));
             }
         }
+    }
+
+    /// Whether slot `n` carries an object map, for a test.
+    #[cfg(test)]
+    pub(crate) fn has_object_map(&self, n: usize) -> bool {
+        self.object_maps.get(n).is_some_and(Option::is_some)
     }
 
     /// The slot unload between two forest rows, `0x86CE`–`0x87F6`: every
@@ -528,10 +594,12 @@ impl Adventure {
     /// its live bit.
     ///
     /// For an object of kind 0 a remembered byte of 1 or 2 is its flags
-    /// byte plus one (`0x15218`, `0x15221`). For kinds 1 and 5 a 1 is not
-    /// live, a 2 live and hidden (`0x15235`, `0x1524E`), and anything above
-    /// live (`0x15258`) on the frame the byte names less three
-    /// (`0x15262`). An object in state 7 that is live and hidden shows no
+    /// byte plus one (`0x15218`, `0x15221`). For the kinds the build reads
+    /// back ([`super::profile::Records`]: Dunkle Schatten's 1 and 5,
+    /// Captain Zins's 1, 4 and 5) a 1 is not live, a 2 live and hidden
+    /// (`0x15235`, `0x1524E`), and anything above live (`0x15258`) on the
+    /// frame the byte names less three (`0x15262`) — with the plain codes
+    /// no byte means hidden, and the frame is the byte less two. An object in state 7 that is live and hidden shows no
     /// frame, `+9` set to `FFh` (`0x152C9`), and a state the binding left
     /// behind is cleared (`0x15302`).
     ///
@@ -541,9 +609,11 @@ impl Adventure {
         let here = usize::try_from(self.loc).unwrap_or(usize::MAX);
         let record = self.location_records.get(here).copied().unwrap_or([0; 32]);
         let mut at = 0usize;
+        let records = self.profile.records;
+        let hidden = records.codes == RecordCodes::Hidden;
         for i in 0..self.objects.len() {
             let kind = self.objects[i].kind;
-            if matches!(kind, 0 | 1 | 5) {
+            if kind == 0 || records.reads(kind) {
                 // The record is thirty-two bytes and the original does
                 // not stop at its end; no shipped room has that many.
                 let b = record.get(at).copied().unwrap_or(0);
@@ -553,18 +623,25 @@ impl Adventure {
                     (0, 1 | 2) => o.flags = b - 1,
                     (0, _) | (_, 0) => {}
                     (_, 1) => o.flags = 0,
-                    (_, 2) => o.flags = LIVE | HIDDEN,
+                    (_, 2) if hidden => o.flags = LIVE | HIDDEN,
                     (_, b) => {
                         o.flags = LIVE;
-                        o.frame = b.wrapping_sub(3);
+                        o.frame = b.wrapping_sub(if hidden { 3 } else { 2 });
                         o.cel = o.cel_base.wrapping_add(u16::from(o.frame));
                     }
                 }
+            } else if records.fresh == Some(kind) && self.objects[i].frame == 0 {
+                // Bi-Fi 2's `0x0F88B`–`0x0F8DB`: live on frame 1, no
+                // byte taken.
+                let o = &mut self.objects[i];
+                o.flags = LIVE;
+                o.frame = 1;
+                o.cel = o.cel_base.wrapping_add(1);
             }
             let o = self.objects[i].clone();
             match (o.state, o.ani) {
                 (STATE_SINGLE, Some(ai)) => {
-                    self.anis[ai].frame = if o.flags & (LIVE | HIDDEN) == LIVE | HIDDEN {
+                    self.anis[ai].frame = if hidden && o.flags & (LIVE | HIDDEN) == LIVE | HIDDEN {
                         0xFF
                     } else {
                         o.frame
@@ -583,7 +660,8 @@ impl Adventure {
     /// one (`0x154B8`); for kinds 1 and 5 a 1 when it is not live
     /// (`0x154CE`), a 2 when it is hidden (`0x154D5`), and its frame plus
     /// three otherwise (`0x154EA`) — what [`Self::settle_objects`] reads
-    /// back.
+    /// back. A build with the plain codes writes 1 when the flags are clear
+    /// and the frame plus two otherwise (*Bi-Fi 2*'s `0x0FB04`).
     pub(super) fn store_location_record(&mut self, loc: i32) {
         let Some(slot) = usize::try_from(loc)
             .ok()
@@ -595,6 +673,16 @@ impl Adventure {
         for o in &self.objects {
             let b = match o.kind {
                 0 => (o.flags & LIVE) + 1,
+                k if k < 8
+                    && u16::from(self.profile.tri_state_kinds) & (1 << k) != 0
+                    && self.profile.records.codes == RecordCodes::Plain =>
+                {
+                    if o.flags == 0 {
+                        1
+                    } else {
+                        o.frame.wrapping_add(2)
+                    }
+                }
                 k if k < 8 && u16::from(self.profile.tri_state_kinds) & (1 << k) != 0 => {
                     if o.flags & LIVE == 0 {
                         1
@@ -616,14 +704,15 @@ impl Adventure {
     /// `14DDh:074Bh(obj)`: the hotspot whose verb mask ends in the object's
     /// id takes the object's live bit as its own (`0x155B6`, `0x155C0`).
     /// The key is the id with bit 15 set (`0x15529`), matched against a
-    /// mask's id and bit 15 (`0x15572`); objects of kinds 1 to 4 and 9 have
-    /// no hotspot to move (`0x1553C`). A live object makes its hotspot
+    /// mask's id and bit 15 (`0x15572`); objects of the kinds the build
+    /// keeps — Dunkle Schatten's 1 to 4 and 9 — have no hotspot to move
+    /// (`0x1553C`, [`super::Profile::hotspot_kept`]). A live object makes its hotspot
     /// active, bit 0 of `+4` (`0x15586`), any other inactive (`0x15590`).
     pub(crate) fn hotspot_follows(&mut self, i: usize) {
         let Some(o) = self.objects.get(i) else {
             return;
         };
-        if o.id == 0 || matches!(o.kind, 1..=4 | 9) {
+        if o.id == 0 || (o.kind < 16 && self.profile.hotspot_kept & (1 << o.kind) != 0) {
             return;
         }
         let key = u16::from(o.id) | 0x8000;
@@ -660,7 +749,13 @@ impl Adventure {
                     if let Some(p) = self.object_index(num::low8(node.id))
                         && self.objects[p].flags & LIVE == 0
                     {
-                        self.objects[p].flags |= LIVE | HIDDEN;
+                        // Live alone in a build that does not hide them
+                        // (Bi-Fi 2's `0x0FC64`).
+                        self.objects[p].flags |= if self.profile.show_hides_parts {
+                            LIVE | HIDDEN
+                        } else {
+                            LIVE
+                        };
                     }
                     at = usize::from(node.next);
                 }
@@ -691,7 +786,11 @@ impl Adventure {
                 at = usize::from(node.next);
             }
         }
-        self.objects[i].flags &= !LIVE;
+        // A chain head stays live in a build whose hide jumps past it
+        // (Bi-Fi 2's `0x0FDB2`).
+        if self.objects[i].state != STATE_HEAD || self.profile.hide_clears_head {
+            self.objects[i].flags &= !LIVE;
+        }
         self.events.push(Event::ObjectHidden(id));
         self.hotspot_follows(i);
     }

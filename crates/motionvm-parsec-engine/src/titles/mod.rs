@@ -26,6 +26,7 @@ use std::time::Duration;
 use motionvm_parsec_formats::Title;
 use motionvm_render::{Framebuffer, Palette};
 
+pub(crate) mod bifi2;
 pub(crate) mod caption;
 pub(crate) mod capzins;
 pub(crate) mod ds1;
@@ -199,6 +200,7 @@ mod tests {
     fn every_runtime_and_the_game_may_move_to_another_thread() {
         send::<super::ds1::DunkleSchatten>();
         send::<super::capzins::CaptainZins>();
+        send::<super::bifi2::BiFi2>();
         send::<Box<dyn super::Runtime>>();
         send::<crate::Game>();
     }

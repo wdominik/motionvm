@@ -9,7 +9,7 @@
 use super::hook;
 use super::logic::{self, SAVE_BUFFER, WALKER};
 use super::xp01data::{self, ExeText};
-use crate::titles::parsec1994::program::{Build, Names, Reading, Sound};
+use crate::titles::parsec1994::program::{Build, Names, PanelReading, Reading, Sound};
 use crate::titles::parsec1994::{
     Block, DsMap, GateMap, KeyMap, Kinds, LibraryMap, MusicMap, OptionInks, OptionsMap, PointerMap,
     SaveMap,
@@ -29,10 +29,27 @@ pub(crate) static BUILD: Build = Build {
         // `DS:0A06h`, the drivers' RIB (`0x5B7B`).
         drivers: "PSMDRV.DAT",
     },
-    // The seed at `1EB5h:0006h` stands at `0000:0000` before the loop
-    // (`11A0h:0686h`) and at `7698h:E605h` after it (`11A0h:06D5h`): 158 213
-    // steps of the generator, started through `SCHATTEN.BAT`.
-    dissolve_draws: 158_213,
+    // The options' dissolve loop is
+    // `0x12086` (`mov word [1C82h], 0`) to `0x120D3` (`jc` back after
+    // `cmp word [1C82h], 64h`, `0x120CE`); each pass draws once from
+    // `1EB5h:0028h` with `push 5000h ; push 0` (`0x1208C`–`0x1208F`) and
+    // keeps the draw in `di` (`0x12099`). The generator's seed is the
+    // code-segment pair `1EB5h:0006h` (low) / `1EB5h:0008h` (high), set by
+    // `1EB5h:000Ah` (`0x1EB6C`, `0x1EB71`). Count the steps between the
+    // seed before and after the loop of the options `XP01` opens at its
+    // start, on DOSBox-X `core = normal`, `cycles = fixed 25000`, the game
+    // started the way `SCHATTEN.BAT` starts it, `XP00` and then `XP01`
+    // after a new game (clicked by the resident `DOSINPUT.COM`, with which
+    // `XP01` started on its own takes 157 517 against 157 519 without):
+    // `0000:0000` before, `A414h:AD4Bh` after, 158 215 steps
+    // of the generator. Nothing hands `XP01` a seed: `XP00` leaves it its
+    // exit code and deletes `SAVEGAME.SAV` for a new game (its
+    // `0x625`–`0x649`), and has no generator of its own; the only callers
+    // of `1EB5h:000Ah` are the settings' check value (`0x147BF`), which the
+    // start's reader and the settings' writer call (`0x148A6`, `0x14B8C`),
+    // the start's reader of the saved game (`0x14935`) and the saver
+    // (`0x14A2D`); and the seed's two words ship as zero (`0x1EB56`).
+    dissolve_draws: 158_215,
     library: LIBRARY,
     kinds: KINDS,
     save: SAVE,
@@ -48,43 +65,71 @@ pub(crate) static BUILD: Build = Build {
     logic: logic::TABLE,
     hook: hook::answer,
     ending: super::ending::open,
+    // `_main` writes the settings (`0x4FF0`) and then shows the end
+    // (`0x5014`).
+    settings_after_ending: false,
     callbacks: &[],
 };
 
 /// Where `XP01.EXE` keeps the library routines the runtime reads its build
-/// off. Each is the far target a call names: hover off at `0x15E44`
+/// off, as `(segment, offset)`, with the image offset beside each. Each is
+/// the far target a call names: hover off at `0x15E44`
 /// (the script's exit gate calls it first), the task start at `0x0FB7F`
 /// (the dispatcher's head), the script's exit gate in the global rules'
 /// segment, and the two visit routines every location handler calls —
 /// the Zimmer's at `0x009B8` and `0x00A02`.
 const LIBRARY: LibraryMap = LibraryMap {
-    input_lock: (0x0EB9, 0x188A),
-    input_unlock: (0x0EB9, 0x18A4),
-    hover_off: (0x0EB9, 0x18F4),
-    task_start: (0x0CFD, 0x1A3F),
-    script_exit: (0x1586, 0x05E1),
-    visit_finish_entry: (0x0EB9, 0x00B8),
-    visit_leave: (0x0EB9, 0x017A),
-    hover_on: (0x0EB9, 0x1917),
-    obj_state: (0x14DD, 0x07E7),
-    walk_to_node: (0x14DD, 0x0A56),
-    obj_anim: (0x0883, 0x1F82),
-    objs_save_state: (0x14DD, 0x068A),
-    dispatch: (0x0EB9, 0x0FCE),
-    mode_reset: (0x0EB9, 0x003F),
-    room_loader: (0x0766, 0x010A),
-    place_pair: (0x14DD, 0x08F1),
-    slot_unload: (0x0766, 0x0D34),
-    visit_enter: (0x0EB9, 0x0207),
-    inv_take: (0x0C3F, 0x09E1),
-    visit_setup: (0x0EB9, 0x0001),
-    slot_resolve: (0x0CFD, 0x02C0),
-    effects_load: (0x1458, 0x00F7),
-    slot_song: (0x1197, 0x0035),
-    strip_load: (0x0C1C, 0x000C),
-    text_scan: (0x0CFD, 0x01BE),
-    task_query: (0x0CFD, 0x0FD9),
-    status_paint: (0x0C3F, 0x005C), // 0x0C44C
+    input_lock: (0x0EB9, 0x188A),         // 0x1041A
+    input_unlock: (0x0EB9, 0x18A4),       // 0x10434
+    hover_off: (0x0EB9, 0x18F4),          // 0x10484
+    task_start: (0x0CFD, 0x1A3F),         // 0x0EA0F
+    scene_bind: (0x0CFD, 0x059E),         // 0x0D56E
+    script_exit: (0x1586, 0x05E1),        // 0x15E41
+    visit_finish_entry: (0x0EB9, 0x00B8), // 0x0EC48
+    // `0x0EC76`, `0x0EC7F`: the two effects the entry's end calls.
+    entry_reveal: (0x10B8, 0x03BA),       // 0x10F3A
+    entry_slide: (0x10B8, 0x0CAB),        // 0x1182B
+    visit_leave: (0x0EB9, 0x017A),        // 0x0ED0A
+    hover_on: (0x0EB9, 0x1917),           // 0x104A7
+    obj_state: (0x14DD, 0x07E7),          // 0x155B7
+    walk_to_node: Some((0x14DD, 0x0A56)), // 0x15826
+    obj_anim: (0x0883, 0x1F82),           // 0x0A7B2
+    objs_save_state: (0x14DD, 0x068A),    // 0x1545A
+    // `0x0EBC6`: the visit's setup hands it the location's state row.
+    objs_load_state: (0x14DD, 0x0293), // 0x15063
+    hotspot_follow: (0x14DD, 0x074B),  // 0x1551B
+    obj_show: (0x14DD, 0x084A),        // 0x1561A
+    obj_hide: (0x14DD, 0x096B),        // 0x1573B
+    say_text: (0x0CFD, 0x18C2),        // 0x0E892
+    options_gate: (0x0EB9, 0x0489),    // 0x0F019
+    dispatch: (0x0EB9, 0x0FCE),        // 0x0FB5E
+    mode_reset: (0x0EB9, 0x003F),      // 0x0EBCF
+    second_wanted: (0x0EB9, 0x0776),   // 0x0F306
+    room_loader: (0x0766, 0x010A),     // 0x0776A
+    place_pair: (0x14DD, 0x08F1),      // 0x156C1
+    slot_unload: (0x0766, 0x0D34),     // 0x08394
+    visit_enter: (0x0EB9, 0x0207),     // 0x0ED97
+    inv_take: (0x0C3F, 0x09E1),        // 0x0CDD1
+    inv_give: (0x0C3F, 0x095C),        // 0x0CD4C
+    visit_setup: (0x0EB9, 0x0001),     // 0x0EB91
+    slot_resolve: (0x0CFD, 0x02C0),    // 0x0D290
+    effects_load: (0x1458, 0x00F7),    // 0x14677
+    slot_song: (0x1197, 0x0035),       // 0x119A5
+    strip_load: (0x0C1C, 0x000C),      // 0x0C1CC
+    text_scan: (0x0CFD, 0x01BE),       // 0x0D18E
+    task_query: (0x0CFD, 0x0FD9),      // 0x0DFA9
+    status_paint: (0x0C3F, 0x005C),    // 0x0C44C
+    status_gate: (0x0EB9, 0x163E),     // 0x101CE
+    mode_step: (0x0EB9, 0x0965),       // 0x0F4F5
+    // Its one caller is task 0's menu paint (`0x0E607`).
+    menu_strip: (0x0C3F, 0x04D2),    // 0x0C8C2
+    anim_signal: (0x0EB9, 0x1D97),   // 0x10927
+    task_arm: (0x0CFD, 0x1A2E),      // 0x0E9FE
+    page_release: (0x0CFD, 0x1BA2),  // 0x0EB72
+    play_sample: (0x0EB9, 0x1949),   // 0x104D9
+    interaction: (0x0EB9, 0x177A),   // 0x1030A
+    figure_bind: (0x14DD, 0x0098),   // 0x14E68
+    animator_step: (0x0883, 0x012A), // 0x0895A
 };
 
 /// What the runtime takes from this title's own reading of its program.
@@ -103,8 +148,12 @@ pub(crate) fn reading(text: &ExeText, locations: &Locations) -> Reading {
             .collect(),
         initial_items: text.initial_items.clone(),
         initial_scroll: text.initial_scroll,
-        panel_curves: text.panel_curves,
-        gray_ramp: text.gray_ramp.clone(),
+        panel: PanelReading {
+            curves: text.panel_curves,
+            place: crate::titles::palette1994::PanelPlace::Over,
+            ramp: Some(text.gray_ramp.clone()),
+            strip_row: None,
+        },
         start: text.start,
     }
 }
@@ -221,6 +270,15 @@ pub(crate) const OPTIONS: OptionsMap = OptionsMap {
         no: 0x11D83,
         hover: 0x12214,
     },
+    // 0x11A1E: `push 0C1h`, the playfield (`push 80h ; push 140h ; push 0
+    // ; push 0 ; call far`); 0x11A33: `push 0C0h`, the band from row 0Fh,
+    // 62h rows high.
+    grounds: [0x11A1E, 0x11A33],
+    // 0x11C46: `push 0FEh`, 0x11C6C: `push 0FFh`, 0x11D23 (and 0x11D46):
+    // `push 0EEh`.
+    box_inks: [0x11C46, 0x11C6C, 0x11D23],
+    // The hold comes before the picture is presented.
+    paint_before_hold: false,
 };
 
 /// Where `XP01.EXE` keeps the pointer's words and tables.
@@ -315,6 +373,15 @@ pub(crate) fn ds_map(locations: &Locations, inventory: (u16, u16, u16)) -> DsMap
         // `0x0F1FE`: `call far [28BBh]`, the gate the machine asks; the
         // Wald's rule takes it down (`0x3F2A`).
         gate: 0x28BB,
+        // `0x0FD50`: `mov word [288Fh], 7`; `0x0FD4A`: `and word [289Bh], 0FE0Fh` (Escape's arm).
+        mode: 0x288F,
+        bits: 0x289B,
+        // `0x0FC78`: `mov [289Dh], ax ; mov [288Dh], ax` as a verb is chosen.
+        verb_chosen: 0x289D,
+        two_object: 0x2899,
+        // `0x15878`: `mov word [288Dh], 0Ah` in the door's gate; `0x15E08` in
+        // the script exit's.
+        walk_verb: 0x0A,
         // `0x7A0C`: the room's header the loader keeps; F3 reads its
         // palette through it (`0x487B`).
         room_header: 0x2851,
@@ -326,6 +393,7 @@ pub(crate) fn ds_map(locations: &Locations, inventory: (u16, u16, u16)) -> DsMap
         walk_target: 0x289F,
         // `mov word [28C1h], 3`, the eighth verb's door (`0x15CC9`).
         anim_wait: 0x28C1,
+        status_age: 0x28C3,
         // `0x0F5C4`: `mov al, [si+0527h]`; all zero in the image.
         item_classes: 0x0527,
         // `0x0CD67`, `0x0CABC`, `0x0CD71`.
@@ -340,13 +408,13 @@ pub(crate) fn ds_map(locations: &Locations, inventory: (u16, u16, u16)) -> DsMap
         // arm clears (`0x10515`–`0x10527`) and the rest of it reads and
         // writes, and `[1ED0h]`, which its event 111 sets (`0x1082A`) and
         // the dispatcher's head reads (`0x0FB69`).
-        script: hook::W1E50,
+        script: Some(hook::W1E50),
         script_start: Some(hook::W1ED0),
         gates: GateMap {
             // `0x15E4F`: a script exit installs `1586h:059Fh`.
             script_exit: (0x1586, 0x059F),
             // `0x15B52`: the walk verb's rule installs `1586h:0000h`.
-            door: (0x1586, 0x0000),
+            door: Some((0x1586, 0x0000)),
             // `0x0F056` (the sixth verb's rule) and `0x0FD3E` (Escape):
             // `0EB9h:0489h`, the game options.
             options: (0x0EB9, 0x0489),
@@ -358,6 +426,18 @@ pub(crate) fn ds_map(locations: &Locations, inventory: (u16, u16, u16)) -> DsMap
 mod tests {
     use super::*;
     use crate::titles::parsec1994::onward::Table;
+
+    /// The options' dissolve leaves the generator where the original's left
+    /// it on the reference machine: `A414h:AD4Bh` at `1EB5h:0006h` after
+    /// the loop, from `0000:0000` before it.
+    #[test]
+    fn the_dissolve_draws_are_the_reference_machine_s_count() {
+        let mut rng = crate::titles::rng::LcRng::default();
+        for _ in 0..BUILD.dissolve_draws {
+            rng.inclusive(0, 0x5000);
+        }
+        assert_eq!((rng.hi, rng.lo), (0xA414, 0xAD4B));
+    }
 
     /// Each of the options' inks is where its routine sets it: a
     /// `mov byte es:[bx+4], ink` (`26 C6 47 04`) on the font record, and the
@@ -377,11 +457,124 @@ mod tests {
             })
             .collect();
         assert_eq!(inks, [0xF4, 0xFE, 0xF8, 0xFA, 0xFE]);
+        // The grounds and the confirmation's inks, each `push imm16`.
+        let b = adv.image.bytes();
+        let pushed: Vec<u8> = OPTIONS
+            .grounds
+            .into_iter()
+            .chain(OPTIONS.box_inks)
+            .map(|at| {
+                assert_eq!((b[at], b[at + 2]), (0x68, 0), "{at:#x}");
+                b[at + 1]
+            })
+            .collect();
+        assert_eq!(pushed, [0xC1, 0xC0, 0xFE, 0xFF, 0xEE]);
+    }
+
+    /// What the visit's routines do with the objects, the tasks, Escape,
+    /// the verbs, the entry and the strip, read off them.
+    #[test]
+    fn the_visit_s_routines_are_read() {
+        let Some(adv) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        use crate::titles::parsec1994::profile::{Profile, RecordCodes, SecondWanted};
+        let p = Profile::read(&adv.image, &LIBRARY).expect("reads");
+        assert_eq!(p.tri_state_kinds, 0b10_0010);
+        assert!(p.task_start_needs_armed);
+        assert_eq!(p.escape_verb, 6);
+        assert!(p.verb6_arm);
+        assert_eq!(p.second_wanted, SecondWanted::Verbs);
+        assert!(p.place_falls_back);
+        assert!(p.show_hides_parts && p.hide_clears_head);
+        assert!(p.own_line_sets_speakers);
+        assert_eq!(p.status_after, 3);
+        assert_eq!((p.interaction.items_end, p.interaction.verb), (0x17, 2));
+        assert!(p.kind8_records);
+        assert_eq!(p.anim_arms, 0x0B);
+        {
+            // `0EB9h:1D97h`, the table at `cs:1E35h` (`0x109C5`).
+            use crate::titles::parsec1994::signal::SignalAct::{
+                FigureAnimation, Release, Sample, TaskArm, TaskStart,
+            };
+            let n = vec![];
+            assert_eq!(
+                crate::titles::parsec1994::signal::tests::listed(&p.signal),
+                [
+                    (1, vec![Release(1)], n.clone()),
+                    (2, vec![], n.clone()),
+                    (3, vec![Sample(4)], n.clone()),
+                    (4, vec![], n.clone()),
+                    (5, vec![TaskArm(0)], n.clone()),
+                    (6, vec![TaskStart(0)], n.clone()),
+                    (7, vec![], n.clone()),
+                    (8, vec![Sample(3)], n.clone()),
+                    (9, vec![], n.clone()),
+                    (10, vec![], n.clone()),
+                    (11, vec![FigureAnimation], n.clone()),
+                    (12, vec![FigureAnimation], n),
+                ]
+            );
+        }
+        {
+            use crate::titles::parsec1994::profile::OptionsGate;
+            assert_eq!(
+                p.options_gate,
+                OptionsGate {
+                    drops_ticks: true,
+                    held: None
+                }
+            );
+        }
+        assert_eq!(p.inventory_rows, None);
+        let sc = p.scenes;
+        assert_eq!(
+            (sc.item_base, sc.bounded, sc.falls_back),
+            (0x4001, true, true)
+        );
+        assert_eq!(p.hotspot_kept, 0b10_0001_1110);
+        assert_eq!(
+            (p.records.codes, p.records.read, p.records.fresh),
+            (RecordCodes::Hidden, [Some(1), Some(5), None], None)
+        );
+    }
+
+    /// The record hook is never installed: the entry copies it from the
+    /// row's `+37h` into `[2871h]` (`0x0EECB`–`0x0EED9`, the word's only
+    /// store), and every row is null there. Nor does a room file hold a
+    /// record the animator or the drawer would hand it — a state above
+    /// the step's arms, or bit 4 of `+2` — so the arms past them are
+    /// never taken.
+    #[test]
+    fn no_record_reaches_the_record_hook() {
+        let Some(adv) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        use crate::titles::parsec1994::image_records::tests::{hooked_records, row_far_pointers};
+        assert_eq!(row_far_pointers(&adv, 0x37), []);
+        assert_eq!(hooked_records(&adv, adv.profile.anim_arms), []);
+    }
+
+    /// The status line's inks, the band under a choice menu and the age
+    /// mode 8 sets, read off the status painter, the menu's strip redraw
+    /// and the mode's step.
+    #[test]
+    fn the_status_band_is_the_one_the_runtime_was_read_from() {
+        let Some(adv) = crate::titles::ds1::adventure_for_test() else {
+            return;
+        };
+        let p = crate::titles::parsec1994::Profile::read(&adv.image, &LIBRARY).expect("reads");
+        assert_eq!(
+            (p.status_inks.ink, p.status_inks.controls),
+            (0xF4, [(0x09, 0xFA), (0x0A, 0xFC), (0x0D, 0xF4)]),
+            "`0x0C750`, `0x0C8B2`"
+        );
+        assert_eq!(p.menu_band, None, "`0x0C8C2`–`0x0C970` holds nothing dark");
+        assert!(p.mode_step_ages_status, "`0x0F56D`");
     }
 
     /// The library build `XP01.EXE` is linked against, read off its
-    /// routines: every capability the generation had as fixed before the
-    /// build was read.
+    /// routines: every capability as this build has it.
     #[test]
     fn the_library_build_is_the_one_the_runtime_was_read_from() {
         let Some(adv) = crate::titles::ds1::adventure_for_test() else {
@@ -394,18 +587,57 @@ mod tests {
         assert!(p.task_start_tells_hook);
         assert!(p.script_exit_hovers_off);
         assert_eq!(p.leave_fade, 0x05DC);
-        let forest = p.forest.expect("this build has a forest");
-        assert_eq!((forest.kind, forest.slot, forest.reveal), (3, 0x14, 5));
-        assert_eq!(p.leave_spares_kind, Some(forest.kind));
-        assert_eq!(p.entry_reveals, Some((forest.kind, forest.reveal)));
+        use crate::titles::parsec1994::profile::{ExitForm, MapExits, SharedRooms};
+        assert_eq!(
+            p.rooms,
+            SharedRooms {
+                pairs: [Some(3), Some(5), None],
+                shared: [Some((3, 0x14)), None],
+                sound_kept: None,
+                sound_flags: 0x0C,
+                exits: Some(MapExits {
+                    kind: 3,
+                    first: 0x0A,
+                    form: ExitForm::Cleared,
+                }),
+            }
+        );
+        assert_eq!(
+            (p.leave_spares, p.leave_clears_status),
+            ([Some(3), None, None], true)
+        );
+        {
+            use crate::titles::parsec1994::profile::{EntryEffect, EntryEnd, EntryLook};
+            let look = |effect, song| EntryLook {
+                effect: Some(effect),
+                song,
+            };
+            assert_eq!(
+                p.entry_end,
+                EntryEnd {
+                    location_word: None,
+                    locations: [None; 2],
+                    pairs: [
+                        Some((3, look(EntryEffect::Reveal, false))),
+                        Some((5, look(EntryEffect::Reveal, true))),
+                        None
+                    ],
+                    otherwise: look(EntryEffect::Slide, true),
+                }
+            );
+        }
         assert_eq!(p.entry_fade_in, None);
         assert!(p.hover_on_forgets_hover);
         assert!(p.hover_on_polls);
-        assert!(p.kind4_live_when_mode_one);
+        assert_eq!(
+            p.object_state,
+            crate::titles::parsec1994::profile::ObjectState::Modes {
+                when_mode_one: true
+            }
+        );
         assert!(p.walk_to_node_remembers);
         assert!(p.anim_checks_count);
         assert_eq!(p.anim_wakes_only_kind, Some(4));
-        assert_eq!(p.tri_state_kinds, 0b10_0010);
         assert!(p.dispatch_starts_asked_task);
         assert!(!p.forgotten_hover_is_nothing);
         assert!(p.room_click_forgets_hover);
@@ -418,8 +650,9 @@ mod tests {
         assert_eq!((s.slot, s.code, s.x, s.y), (10, 0x53, 160, 64));
         let door = p.entry_door;
         assert_eq!((door.kind, door.remembered, door.frame), (4, true, 1));
+        assert_eq!((door.ids, door.more), ((100, 109), [None; 3]));
         assert_eq!(p.inventory_window, 8);
-        assert_eq!(p.status_row, 128);
+        assert_eq!((p.status_row, p.status_band), (128, 12));
         assert_eq!(p.callback, None);
         assert_eq!(p.slot_style, None);
         let e = p.effects;
@@ -430,7 +663,11 @@ mod tests {
         assert_eq!(p.song_slots, 30);
         assert_eq!(p.figure_set.digits(), [0], "one set of strip and figure");
         assert_eq!(p.figure_set.digit_for(40), 0);
-        assert_eq!(p.strip_split, None);
+        assert_eq!(p.figure_first, 1, "the palette stepped past, `0x10AD0`");
+        assert_eq!(
+            p.strip,
+            crate::titles::parsec1994::profile::StripRange::Whole
+        );
         assert_eq!(
             p.text_flags,
             crate::titles::parsec1994::profile::TextFlags {
@@ -465,16 +702,17 @@ mod tests {
         let imm = |at: usize| adv.image.word(at + 1).unwrap();
         // The forest's are the library's and read with its build: the
         // runtime's reading is the program's immediates too.
-        let forest = adv.profile.forest.expect("this build has a forest");
+        let rooms = adv.profile.rooms;
+        let (forest, slot) = rooms.shared[0].expect("this build has a forest");
         for at in [0x077F2, 0x083F6, 0x1571B, 0x0EC68, 0x0ED34] {
-            assert_eq!(imm(at), forest.kind, "{at:#x}");
+            assert_eq!(imm(at), forest, "{at:#x}");
         }
         for at in [0x15720, 0x0EC6D] {
-            assert_eq!(imm(at), forest.reveal, "{at:#x}");
+            assert_eq!(Some(imm(at)), rooms.pairs[1], "{at:#x}");
         }
         assert_eq!(imm(0x053CB), KINDS.restore);
         for at in [0x077F7, 0x083FB] {
-            assert_eq!(imm(at), forest.slot, "{at:#x}");
+            assert_eq!(imm(at), slot, "{at:#x}");
         }
         // `mov word [1F4Ah], 3Ch`, the load sending the main loop on.
         assert_eq!(adv.image.word(0x14CC3).unwrap(), SAVE.restore_row);

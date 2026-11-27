@@ -74,12 +74,48 @@ pub(crate) struct Reading {
     pub initial_items: Vec<u8>,
     /// See [`Self::initial_items`].
     pub initial_scroll: usize,
-    /// The panel's colour curves and the gray ramp.
-    pub panel_curves: PanelCurves,
-    /// See [`Self::panel_curves`].
-    pub gray_ramp: (u8, Vec<u8>),
+    /// The panel's colour curves, where its variants go, and the gray ramp
+    /// the entry restores, for a title that has one.
+    pub panel: PanelReading,
     /// The location and the entry a fresh game starts at.
     pub start: (u16, u16),
+}
+
+/// The entry pass's test before it loads one of the room's banks through
+/// the palette loader: a bank that starts at register 0 has its first
+/// color blacked, `cmp byte es:[bx], 0 ; jnz ; mov byte es:[bx+2], 0 ;
+/// mov byte es:[bx+4], 0 ; mov byte es:[bx+3], 0` (*Dunkle Schatten*
+/// `0x1532F`, *Captain Zins* `0x10746`, *Bi-Fi 2* `0x0F980`). The runtime
+/// loads a room's bank that way; a build whose pass reads otherwise is
+/// refused.
+const ROOM_BLACK_ZERO: [u8; 21] = [
+    0x26, 0x80, 0x3F, 0x00, 0x75, 0x0F, 0x26, 0xC6, 0x47, 0x02, 0x00, 0x26, 0xC6, 0x47, 0x04, 0x00,
+    0x26, 0xC6, 0x47, 0x03, 0x00,
+];
+
+/// Checks that the entry pass at image offset `at` blacks a bank's first
+/// color ([`ROOM_BLACK_ZERO`]).
+pub(crate) fn check_room_black_zero(img: &Image, at: usize) -> Result<()> {
+    if img.bytes().get(at..at + ROOM_BLACK_ZERO.len()) == Some(&ROOM_BLACK_ZERO[..]) {
+        Ok(())
+    } else {
+        Err("the entry pass does not black a bank's first color".into())
+    }
+}
+
+/// What the runtime takes for the panel's colours.
+pub(crate) struct PanelReading {
+    /// The two variants' channel curves.
+    pub curves: PanelCurves,
+    /// Where the variants go.
+    pub place: crate::titles::palette1994::PanelPlace,
+    /// The gray ramp the entry restores after its effect, and its first
+    /// DAC entry; `None` for a build whose entry has none.
+    pub ramp: Option<(u8, Vec<u8>)>,
+    /// The row the status painter blits a strip shorter than the area the
+    /// program reserves on, read off that blit; `None` for a build whose
+    /// strip is the whole area and goes on its first row.
+    pub strip_row: Option<i32>,
 }
 
 /// What one parsec1994 title hands the generation's runtime.
@@ -126,6 +162,11 @@ pub(crate) struct Build {
     /// What the program shows after its main loop, by the location word
     /// it ended on.
     pub ending: Endings,
+    /// Whether the program shows that before it writes the settings: a
+    /// sequence called from inside the main loop, by a location's handler,
+    /// comes before `_main` writes them; one `_main` calls after the loop
+    /// comes after.
+    pub settings_after_ending: bool,
 }
 
 /// One install's game program.
@@ -152,6 +193,9 @@ pub(crate) struct Program {
     /// Whether the program has ended: its main loop, and the sequence
     /// after it.
     pub over: bool,
+    /// The settings still to be written once the sequence after the main
+    /// loop is over ([`Build::settings_after_ending`]).
+    settings_pending: bool,
     /// Where a fresh game starts.
     start: (u16, u16),
 }
@@ -195,7 +239,7 @@ impl Program {
         inner.dissolve_draws = build.dissolve_draws;
         inner.substitutions = reading.substitutions;
         inner.initialize_inventory(&reading.initial_items, reading.initial_scroll)?;
-        inner.enable_panel_colors(reading.panel_curves, reading.gray_ramp)?;
+        inner.enable_panel_colors(reading.panel)?;
         if (build.logic.logic)(reading.start.0).is_none() {
             return Err(format!(
                 "the program opens at location {} and that location cannot be entered",
@@ -211,6 +255,7 @@ impl Program {
             saves: None,
             started: false,
             ending: None,
+            settings_pending: false,
             findings: Findings::default(),
             over: false,
             start: reading.start,
@@ -351,10 +396,8 @@ impl Program {
     /// location word the loop ended on, and the exit with code 0 — at once
     /// when it shows nothing, or its sequence cannot be read.
     fn finish(&mut self) {
-        let map = self.build.save;
-        let tick = self.inner.bios.count();
-        if let Some(cfg) = self.inner.cfg_0373(&map, tick) {
-            self.write_save(map.cfg_name, &cfg);
+        if !self.build.settings_after_ending {
+            self.write_settings();
         }
         let res = resource_dir(&self.game_dir);
         let a = &self.inner;
@@ -374,6 +417,24 @@ impl Program {
             }
         };
         self.over = self.ending.is_none();
+        if self.build.settings_after_ending {
+            if self.over {
+                self.write_settings();
+            } else {
+                self.settings_pending = true;
+            }
+        }
+    }
+
+    /// `147Ah:0373h` (`0x14B13`): the settings file, when a setting
+    /// changed, stamped with the time it is written.
+    fn write_settings(&mut self) {
+        self.settings_pending = false;
+        let map = self.build.save;
+        let tick = self.inner.bios.count();
+        if let Some(cfg) = self.inner.cfg_0373(&map, tick) {
+            self.write_save(map.cfg_name, &cfg);
+        }
     }
 
     /// Where this run fell short of the program, for the host: the events
@@ -404,6 +465,8 @@ impl Program {
         if self.ending.take().is_some() {
             self.inner.music.send(Request::Stop);
         }
+        // The settings stay changed for the next end of the main loop.
+        self.settings_pending = false;
     }
 
     /// Whether the sequence after the main loop is playing.
@@ -420,11 +483,14 @@ impl Program {
         };
         let going = e.tick();
         for request in e.take_music() {
-            self.inner.music.send(request);
+            self.inner.ending_music(request);
         }
         if !going {
             self.ending = None;
             self.over = true;
+            if self.settings_pending {
+                self.write_settings();
+            }
         }
     }
 

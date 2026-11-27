@@ -233,13 +233,13 @@ something the others do not. What is open:
   ([PSM 2 music](motion16/formats/psm-music.md))
 - **What *Motion 1.0* is, and who Michel "Babe" Stigler and EGO Software
   are.** Victor Loomes' credits close on *Erstellt unter · Motion 1.0 ·
-  Michel "Babe" Stigler · EGO Software*. Two of the seven games name the
+  Michel "Babe" Stigler · EGO Software*. Two of the games motionvm plays name the
   engine — Dunkle Schatten 2's credits carry *"Motion"-Präsentations-System
   von S. Hoffmann* — but only this one gives it a version, and `1.0` sits
   three years before the builds this documentation is written from. Whether
   the two names after the version belong to the engine or to the game is not
   something the flat credits list says: the same table gives `Graphik` two
-  values. One thing is no longer open — a *Michael Stigler* is credited in
+  values. One thing is settled — a *Michael Stigler* is credited in
   Jeff Jet, the same studio's next game, for the bulk of its dialogue and for
   support, so the name is one Promotion Software worked with rather than an
   outside attribution of the tool. That does not say which of the two the

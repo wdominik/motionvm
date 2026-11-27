@@ -216,7 +216,7 @@ impl Adventure {
                     self.verb_chosen = u16::from(v);
                     // `0x0FC7E`: the sixth verb takes the same road as from
                     // the other modes (`0x0FC86`, to `0x0FC3A`).
-                    if v == 6 {
+                    if v == 6 && self.profile.verb6_arm {
                         self.two_object = 3;
                         self.mode = 5;
                         self.walk_target = 0;
@@ -235,7 +235,7 @@ impl Adventure {
                 self.object1 = 0;
                 self.object2 = 0;
                 // Verb 6 is not like the others (`0x0FC3A`).
-                if v == 6 {
+                if v == 6 && self.profile.verb6_arm {
                     self.two_object = 3;
                     self.mode = 5;
                     self.walk_target = 0;

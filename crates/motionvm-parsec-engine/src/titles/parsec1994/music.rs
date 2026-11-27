@@ -35,7 +35,7 @@
 //! | `0590h:07A5h(song, loops, ms)` `0x60A5` | the same with `PlayFade(ms, loops)` (`0x619D`) |
 //! | `0590h:08A9h(ms)` `0x61A9` | with the switch on, `FadeOut(ms)`; `[216h:218h]` := null either way (`0x61EC`) |
 //! | `0590h:08FAh` `0x61FA` | `Stop`, then entry 21 with nothing (`0x6207`), `[216h:218h]` := null |
-//! | `0590h:091Ch(sample, 0)` `0x621C` | with the switch and a DAC, entry 17: the effect played |
+//! | `0590h:091Ch(sample, 0, repeats)` `0x621C` | with the switch and a DAC, entry 17 with `repeats` (`[bp+0Ch]`, `0x6235`): the effect played, then `repeats` times more; the one call passes 0 (`0x104DC`) |
 //! | `0590h:0948h` `0x6248` | with the switch and a DAC, entry 18: every effect and voice cut |
 //!
 //! **The effects** are 21 slots of far pointers at `DS:1EF4h`, one per
@@ -59,8 +59,8 @@
 //! call behind the effect, as it carries the DAC writes — a sound effect
 //! and a `StopAll` too, with what they found when they were called.
 
-use super::Adventure;
 use super::api::{Api, Far};
+use super::{Adventure, Kept};
 use crate::music_sink::MusicSink;
 use motionvm_parsec_formats::P2l;
 
@@ -124,8 +124,14 @@ pub(crate) enum Request {
     /// The digital driver's entry 21: module `piece`'s digital part for the
     /// song about to start, or none.
     Digital(Option<u16>),
-    /// The digital driver's entry 17 with mode 0: row `row` of table A.
-    Effect { row: u16 },
+    /// The digital driver's entry 17: row `row` of table A, played and then
+    /// `repeats` times more.
+    Effect {
+        /// The row of table A.
+        row: u16,
+        /// The entry's argument: the passes after the first.
+        repeats: u16,
+    },
     /// The digital driver's entry 18: every effect and voice cut.
     StopEffects,
     /// The digital driver's entry 22: the effects' default volume.
@@ -163,8 +169,8 @@ pub(crate) enum Call {
     Fade(i16),
     /// `0590h:08FAh`.
     Stop,
-    /// `0590h:091Ch(sample, 0)` with the gate passed when it was called:
-    /// the row of table A the slot held.
+    /// `0590h:091Ch(sample, 0, 0)` with the gate passed when it was
+    /// called: the row of table A the slot held, played once.
     Effect(u16),
     /// `0590h:0948h` with the gate passed when it was called.
     StopEffects,
@@ -177,6 +183,9 @@ pub(crate) struct Music {
     library: Result<P2l, String>,
     /// `[210h]`: a digital driver installed.
     pub(crate) digital: bool,
+    /// The effects' volume the digital driver was last given, as its
+    /// entry 22 answers it back.
+    volume: u16,
     /// The slots at `DS:1EF4h`: the row of table A each holds, `None` for a
     /// null pointer — as many as the build keeps
     /// ([`super::Profile::effects`]).
@@ -207,6 +216,7 @@ impl Music {
     pub(crate) fn new(library: Result<P2l, String>, map: MusicMap, slots: usize) -> Self {
         Self {
             digital: library.is_ok(),
+            volume: 0,
             library,
             slots: vec![None; slots],
             sink: None,
@@ -220,6 +230,22 @@ impl Music {
     /// library opened.
     pub(crate) fn card(&self) -> bool {
         self.library.is_ok()
+    }
+
+    /// The digital driver's entry 22 (*Dunkle Schatten*'s `18FDh:044Ah`):
+    /// a volume from 1 to `2001h` taken for the effects, and the one it
+    /// replaces answered (`0x1f37`, `docs/psm/drivers.md`); without a
+    /// digital driver the stub answers 0 (`xor ax, ax ; cwd`, *Bi-Fi 2*'s
+    /// `0x19860`).
+    pub(crate) fn effect_volume(&mut self, v: u16) -> u16 {
+        if !self.dac() {
+            return 0;
+        }
+        let old = self.volume;
+        if (1..=0x2001).contains(&v) {
+            self.send(Request::EffectVolume(v));
+        }
+        old
     }
 
     /// Whether the digital driver is installed: `[210h]` (`0x5C1B`).
@@ -258,6 +284,12 @@ impl Music {
     /// entries are the stubs of a driver that is not installed, and reach
     /// nothing.
     pub(crate) fn send(&mut self, request: Request) {
+        if let Request::EffectVolume(v) = request
+            && self.dac()
+            && (1..=0x2001).contains(&v)
+        {
+            self.volume = v;
+        }
         let digital = matches!(
             request,
             Request::Digital(_)
@@ -312,9 +344,9 @@ impl Music {
                     None => sink.set_digital(None),
                 }
             }
-            Request::Effect { row } => {
+            Request::Effect { row, repeats } => {
                 if let Some(bytes) = library.and_then(|p| p.sample(usize::from(row)).ok()) {
-                    sink.play_effect(row, &bytes);
+                    sink.play_effect(row, &bytes, repeats);
                 }
             }
             Request::StopEffects => sink.stop_effects(),
@@ -345,6 +377,14 @@ fn piece(song: Far) -> Option<u16> {
     (song.seg == SONG_HANDLE).then_some(song.off)
 }
 
+/// The handle of module `piece`, as [`Music::load`] gives it out.
+fn song(piece: u16) -> Far {
+    Far {
+        off: piece,
+        seg: SONG_HANDLE,
+    }
+}
+
 impl Adventure {
     /// A library routine called: at once, or behind the screen effect
     /// that is playing.
@@ -363,13 +403,14 @@ impl Adventure {
             Call::PlayFade { song, loops, ms } => self.music_play_06a9(song, loops, Some(ms)),
             Call::Fade(ms) => self.music_fade_08a9(ms),
             Call::Stop => self.music_stop_08fa(),
-            Call::Effect(row) => self.music.send(Request::Effect { row }),
+            Call::Effect(row) => self.music.send(Request::Effect { row, repeats: 0 }),
             Call::StopEffects => self.music.send(Request::StopEffects),
         }
     }
 
-    /// `0EB9h:1949h(k)` (`0x104D9`): the effect in slot `k` played through
-    /// `0590h:091Ch(slot, 0)`, which plays only with the switch `[212h]` on,
+    /// `0EB9h:1949h(k)` (`0x104D9`): the effect in slot `k` played once
+    /// through `0590h:091Ch(slot, 0, 0)` (`0x104DC`–`0x104EE`), which plays
+    /// only with the switch `[212h]` on,
     /// a digital driver `[210h]` and a slot that holds a sample
     /// (`0x621F`–`0x6233`). Every caller names a slot of the 21; past them
     /// the word `[1EF4h + 4k]` is other data, which no call reaches, and is
@@ -516,6 +557,32 @@ impl Adventure {
         self.set_word(m.kept.wrapping_add(2), 0);
     }
 
+    /// A request of the sequence after the main loop, through the library
+    /// routine that makes it, as the sequence calls them (*Dunkle
+    /// Schatten*'s `0x13558`–`0x13584`; *Bi-Fi 2*'s `0104h` is the same
+    /// library, `0x0169C`–`0x01849`): a song's play, its fade-in and its
+    /// fade-out only with the switch on ([`Self::music_play_06a9`],
+    /// [`Self::music_fade_08a9`]), the stop whatever the switch, an effect
+    /// and the cut of every effect only with the switch on (`0x621C`,
+    /// `0x6248`). The switch is the one the player left the options on.
+    pub(crate) fn ending_music(&mut self, request: Request) {
+        let on = self.word(self.music.map.switch) != 0;
+        match request {
+            Request::Play { piece, loops } => self.music_play_06a9(song(piece), loops, None),
+            Request::PlayFade { piece, loops, ms } => {
+                self.music_play_06a9(song(piece), loops, Some(ms));
+            }
+            Request::FadeOut(ms) => self.music_fade_08a9(crate::num::signed(ms)),
+            Request::Stop => self.music_stop_08fa(),
+            Request::Effect { .. } | Request::StopEffects => {
+                if on {
+                    self.music.send(request);
+                }
+            }
+            _ => self.music.send(request),
+        }
+    }
+
     /// `1197h:0035h(slot)` (`0x119A5`): a room slot's song — the table's
     /// entry for a slot below 30 that is not negative — loaded.
     fn slot_song(&self, slot: u16) -> Far {
@@ -537,7 +604,9 @@ impl Adventure {
     /// row the loader drops that answer (`0x7800`). The program's unload
     /// and loader read the same two words, so the room is kept for both
     /// or for neither; here the loader goes by what the unload kept
-    /// ([`Adventure::picture_kept`]).
+    /// ([`Adventure::kept`]); between two rows of the kind that keeps the
+    /// sound the word and the effects stay as well (`0x02F11`–`0x02F29`
+    /// in *Bi-Fi 2*).
     ///
     /// A forest row's map keeps the word as the binding finds it
     /// (`0x7C50`), and with bit 3 of its flags clear the row's own song
@@ -546,7 +615,7 @@ impl Adventure {
     pub(crate) fn room_music_load(&mut self) {
         let loc = self.location_word;
         let at = self.music.map.room_song;
-        if !self.picture_kept {
+        if self.kept == Kept::Nothing {
             let slot = self.room_slot(loc);
             let song = self.slot_song(slot);
             self.set_word(at, song.off);
@@ -585,20 +654,25 @@ impl Adventure {
     pub(crate) fn room_music_unload(&mut self) {
         // `0x85D4`–`0x85DF`: unless the kept room's map holds bit 2, the
         // digital driver's `StopAll` and the room's effects freed.
-        let keeps_effects =
-            self.forest_kept() && self.bound_map.as_ref().is_some_and(|m| m.flags & 4 != 0);
-        if !keeps_effects {
+        // `di`, the flags the unload works by (`0x8416`–`0x8425`): the kept
+        // room's map's, the kept sound's fixed ones, else none.
+        let keeps = self.unload_keeps();
+        let room = (keeps == Some(Kept::Room))
+            .then(|| self.bound_map.as_ref().map(|m| (m.flags, m.song)))
+            .flatten();
+        let flags = match keeps {
+            Some(Kept::Room) => room.map_or(0, |m| m.0),
+            Some(Kept::Sound) => self.profile.rooms.sound_flags,
+            _ => 0,
+        };
+        if flags & 4 == 0 {
             self.effects_stop_0948();
             self.effects_release();
         }
-        let kept = self
-            .forest_kept()
-            .then_some(self.bound_map.as_ref())
-            .flatten();
-        if kept.is_some_and(|m| m.flags & 8 != 0) {
+        if flags & 8 != 0 {
             return;
         }
-        let back = kept.map_or(Far::NULL, |m| m.song);
+        let back = room.map_or(Far::NULL, |m| m.1);
         let at = self.music.map.room_song;
         if self.word(at) | self.word(at.wrapping_add(2)) != 0 {
             self.music_call(Call::Stop);
@@ -607,23 +681,28 @@ impl Adventure {
         self.set_word(at.wrapping_add(2), back.seg);
     }
 
-    /// `0x8394`–`0x83FB`: whether the place left and the place ahead are
-    /// both forest rows — two different locations of the table (in *Dunkle
-    /// Schatten* 0 to 60, `cmp …, 3Dh`) of the forest's kind — so the loader
-    /// will keep the slot.
-    pub(crate) fn forest_kept(&self) -> bool {
+    /// `0x8394`–`0x83FB`: what the unload keeps for the loader — the room
+    /// when the place left and the place ahead are two different locations
+    /// of the table (in *Dunkle Schatten* 0 to 60, `cmp …, 3Dh`) of a kind
+    /// that shares a slot, the sound when they are of the kind that keeps
+    /// it, else nothing.
+    pub(crate) fn unload_keeps(&self) -> Option<Kept> {
         let (a, b) = (self.here_word, self.location_word);
         let kind = |n: u16| self.locations.kind(&self.image, usize::from(n));
         let rows = crate::num::word(self.locations.count);
-        a != b
-            && crate::num::signed(a) >= 0
-            && a < rows
-            && crate::num::signed(b) >= 0
-            && b < rows
-            && self
-                .profile
-                .forest
-                .is_some_and(|f| kind(a) == Some(f.kind) && kind(b) == Some(f.kind))
+        let inside = |n: u16| crate::num::signed(n) >= 0 && n < rows;
+        if a == b || !inside(a) || !inside(b) {
+            return None;
+        }
+        let k = kind(a).filter(|&k| kind(b) == Some(k))?;
+        let rooms = &self.profile.rooms;
+        if rooms.slot(k).is_some() {
+            Some(Kept::Room)
+        } else if rooms.sound_kept == Some(k) {
+            Some(Kept::Sound)
+        } else {
+            None
+        }
     }
 
     /// The music switch flipped by the options (`0x12304`): off, the
@@ -788,7 +867,7 @@ mod tests {
                 .all(Option::is_some)
         );
         a.location_word = 4;
-        a.picture_kept = false;
+        a.kept = Kept::Nothing;
         a.effects_load(4);
         let room: Vec<usize> = (a.profile.effects.room_first..a.profile.effects.slots)
             .filter(|&k| a.music.slots[k].is_some())
@@ -807,7 +886,13 @@ mod tests {
         a.set_word(a.music.map.switch, 0);
         a.effect_1949(13);
         a.effects_stop_0948();
-        assert_eq!(a.music.sent, [Request::Effect { row: 13 }]);
+        assert_eq!(
+            a.music.sent,
+            [Request::Effect {
+                row: 13,
+                repeats: 0
+            }]
+        );
         let asked: Vec<_> = a
             .events
             .iter()

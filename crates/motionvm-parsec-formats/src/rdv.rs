@@ -225,6 +225,14 @@ pub struct Overlay {
     pub id: u8,
     /// Byte at +15h. The loader copies `>1` into byte +1.
     pub init: u8,
+    /// Byte at +12h: the animator's state, as the record stands in the
+    /// file.
+    pub state: u8,
+    /// Byte at +14h: the animator's interval, the ticks a step of states
+    /// 1 to 3 waits (*Dunkle Schatten*'s `0x0896D`).
+    pub interval: u8,
+    /// Word at +16h: the ticks until the animator first looks at it.
+    pub countdown: i16,
     /// Byte at +3, the anchor mode: 1 centers the box on the position, 2
     /// stands it on the point.
     pub align: u8,
@@ -763,6 +771,9 @@ fn overlay_objects(data: &[u8], dirs: &[[u8; 20]], table: &[Option<Picture>]) ->
                 cel_base: o.u16::<0x0C>(),
                 id: o.u8::<0x13>(),
                 init: o.u8::<0x15>(),
+                state: o.u8::<0x12>(),
+                interval: o.u8::<0x14>(),
+                countdown: o.i16::<0x16>(),
                 align: o.u8::<3>(),
                 scale: (o.u16::<0x0E>(), o.u16::<0x10>()),
                 layer,
@@ -887,6 +898,35 @@ impl RoomFile {
                 animations,
             })
         })())
+    }
+}
+
+/// What a slot holds beside a picture: its hotspots, walk graphs and `AN`
+/// block, each `None` (the graphs empty) where the resource is the
+/// empty-slot literal. A row that shares another slot's picture can carry
+/// these in its own slot, and the room loader takes each one the row's
+/// object map does not rename from there (*Bi-Fi 2*'s `0x037C3`,
+/// `0x0390A`, `0x03A31`).
+#[derive(Debug, Clone, Default)]
+pub struct RowParts {
+    /// Resource 4.
+    pub hotspots: Option<HotspotTable>,
+    /// Resource 0.
+    pub walks: Vec<WalkGraph>,
+    /// Resource 1.
+    pub animations: Option<crate::ani::Animations>,
+}
+
+impl RowParts {
+    /// Reads resources 0, 1 and 4 of one slot, whether or not it holds a
+    /// picture.
+    pub fn from_1994_slot(rib: &Rib) -> Result<Self> {
+        let real = |i: usize| rib.get(i).filter(|b| !b.starts_with(crate::NULLPTR));
+        Ok(RowParts {
+            hotspots: real(4).map(HotspotTable::parse).transpose()?,
+            walks: rib.get(0).map(WalkGraph::parse_all).unwrap_or_default(),
+            animations: real(1).map(crate::ani::Animations::parse).transpose()?,
+        })
     }
 }
 

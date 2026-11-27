@@ -54,7 +54,7 @@ enum Command {
     Reinstall,
     Install(u16),
     EffectVolume(u16),
-    Effect(Arc<Sample>),
+    Effect(Arc<Sample>, u16),
     StopEffects,
     Digital(Option<Arc<motionvm_psm::Music>>),
 }
@@ -93,8 +93,8 @@ impl AudioSource for Backend {
                 Command::EffectVolume(v) => {
                     self.player.set_effect_volume(v);
                 }
-                Command::Effect(sample) => {
-                    self.player.play_effect(&sample);
+                Command::Effect(sample, repeats) => {
+                    self.player.play_effect(&sample, repeats);
                 }
                 Command::StopEffects => self.player.stop_effects(),
                 Command::Digital(music) => self.player.set_music(music),
@@ -177,7 +177,7 @@ impl MusicSink for Music {
         let _ = self.tx.send(Command::EffectVolume(volume));
     }
 
-    fn play_effect(&mut self, row: u16, sample: &[u8]) {
+    fn play_effect(&mut self, row: u16, sample: &[u8], repeats: u16) {
         let sample = match self.effects.get(&row) {
             Some(s) => Arc::clone(s),
             None => {
@@ -187,7 +187,7 @@ impl MusicSink for Music {
                 s
             }
         };
-        let _ = self.tx.send(Command::Effect(sample));
+        let _ = self.tx.send(Command::Effect(sample, repeats));
     }
 
     fn stop_effects(&mut self) {
@@ -275,7 +275,7 @@ mod tests {
             sink.effect_volume(0x50);
             sink.effect_volume(0x3C);
             if play {
-                sink.play_effect(2, &effect);
+                sink.play_effect(2, &effect, 0);
             }
             peak(source.as_mut(), 4410)
         };
@@ -309,5 +309,35 @@ mod tests {
             buf
         };
         assert_ne!(render(true), render(false));
+    }
+
+    /// Bi-Fi 2's sound under the closing band (row 0, 10 629 bytes at a
+    /// period of 157: a pass of 1.4 s), played with the four passes more
+    /// the program asks for, still sounds where a single pass is over.
+    #[test]
+    fn an_effect_plays_the_passes_it_is_asked_for() {
+        let Some(dir) = motionvm_parsec_testutil::gamedata_bifi2() else {
+            eprintln!("skipping: no Bi-Fi 2 gamedata directory");
+            return;
+        };
+        let res = resource_dir(&dir);
+        let read = |n: &str| std::fs::read(find_ci(&res, n).expect(n)).expect(n);
+        let drv = read("PSMDRV.DAT");
+        let musadl = p2l::driver(&drv, p2l::AD_LIB).expect("MUSADL.DRV");
+        let dmablast = p2l::driver(&drv, p2l::DMABLAST).expect("DMABLAST.DRV");
+        let library = P2l::parse(read("PSMP2L.DAT")).expect("PSMP2L.DAT");
+        let effect = library.sample(0).expect("row 0");
+        let after_one_pass = |repeats: u16| {
+            let (mut source, mut sink) =
+                open_music(&musadl, Some(dmablast.clone()), 44_100).expect("the sound");
+            sink.install_digital(6);
+            sink.effect_volume(0x50);
+            sink.effect_volume(0x3C);
+            sink.play_effect(0, &effect, repeats);
+            peak(source.as_mut(), 66_150);
+            peak(source.as_mut(), 4410)
+        };
+        let (once, again) = (after_one_pass(0), after_one_pass(4));
+        assert!(again > once + 1000, "once {once}, with four more {again}");
     }
 }

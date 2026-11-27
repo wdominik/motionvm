@@ -7,7 +7,7 @@
 A point-and-click adventure about a boy's school holidays, in which a group
 of friends builds a youth center for their town and others try to wreck
 it. Every address in the PARSEC documentation is an address in one of its
-programs.
+programs, unless a sentence names another title.
 
 ## At a glance
 

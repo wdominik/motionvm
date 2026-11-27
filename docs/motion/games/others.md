@@ -4,16 +4,16 @@
 
 *One MOTION game whose files the readers open and measure, and which no page here describes and the player does not play: Compaq, on the 16-bit engine. What is on this page is what the files say and what `motionvm-motion-tools` reads out of them, with the game's own directory name as its key; nothing here was played.*
 
-MOTION made more games than the seven motionvm plays, and one more is on
+MOTION made more games than the ones motionvm plays, and one more is on
 hand. It matters to this documentation twice over. The format pages measure
 over its container, which is how a claim about a *generation* rather than
 about one game is made at all — the two framings of the 16-bit container,
 which segments are packed, where a volume's items begin. And it is a case
 the openers refuse: a directory that has the generation's shape and is not
-one of the seven is exactly what the detection has to say no to, by name.
+one of the games it plays is exactly what the detection has to say no to,
+by name.
 
-Checker 2000 stood on this page until it was played; it has
-[pages of its own](checker/README.md) now, and its binary
+Checker 2000 has [pages of its own](checker/README.md), and its binary
 [a page](../motion32/engine/engine-r78.md) beside Dunkle Schatten 2's.
 
 ## Compaq — `COMPAQ`
@@ -48,7 +48,7 @@ No page describes it as a game — its story, its locations, its modules —
 and motionvm does not open it: the 16-bit opener claims a directory by the
 player beside its container, which this is not. What it is is evidence: a
 claim on a format page that names a generation was measured over it as well
-as over the seven, and a reader that reads it is a reader that reads the
+as over the games motionvm plays, and a reader that reads it is a reader that reads the
 format rather than one game's use of it.
 
 ## See also

@@ -1,6 +1,6 @@
 //! `motionvm-parsec-tools` — inspect and extract the resources of a PARSEC
-//! game: *Dunkle Schatten* or *Captain Zins*, told apart by the room
-//! container the install ships.
+//! game: *Dunkle Schatten*, *Captain Zins* or *Bi-Fi 2*, told apart by the
+//! room container the install ships.
 //!
 //! ```text
 //! motionvm-parsec-tools info    <gamedata>                 summary of every DAT file
@@ -31,7 +31,8 @@ usage: motionvm-parsec-tools <command> [arguments]
 
   info    <gamedata>                 every DAT file, with RIB counts and sizes
   extract <gamedata> [--out DIR]     every room playfield of the room
-                                     container (DSROOM.DAT, CZROOM.DAT) as a
+                                     container (DSROOM.DAT, CZROOM.DAT,
+                                     BFROOM.DAT) as a
                                      PNG with its sizes and hotspot list
                                      beside it, and the pictures of the
                                      strip files (PANEL*.DAT) and CMBMOU.DAT
@@ -710,7 +711,8 @@ mod tests {
         assert_eq!(
             refusal(Path::new("/games/DS2")),
             "/games/DS2: no PARSEC game here — Dunkle Schatten (RESOURCE/DSROOM.DAT beside \
-             XP01.EXE), Captain Zins (RESOURCE/CZROOM.DAT beside XP01.EXE)"
+             XP01.EXE), Captain Zins (RESOURCE/CZROOM.DAT beside XP01.EXE), Bi-Fi 2 - \
+             Action in Hollywood (RESOURCE/BFROOM.DAT beside XP01.EXE)"
         );
     }
 }

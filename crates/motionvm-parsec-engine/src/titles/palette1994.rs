@@ -7,6 +7,7 @@ use crate::num;
 use motionvm_render::Palette;
 
 use crate::error::Result;
+use crate::exe::Image;
 
 /// Three channel curves for each of the two transformed panel variants.
 /// Each curve is `(start, divisor)` for `0724:0360`.
@@ -36,16 +37,34 @@ pub(crate) struct PanelColors {
     frozen: u16,
     /// `DS:04F6h`: panel refresh calls remaining, not elapsed PIT ticks.
     refresh: u16,
+    /// Whether the variants go to the upper half of the palette, where the
+    /// band held dark shows them, and the refresh never selects the
+    /// original back ([`PanelPlace::Upper`]).
+    upper: bool,
+}
+
+/// Where a build keeps the panel's variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PanelPlace {
+    /// Over the panel's own colours, the original selected back when the
+    /// owners let go (*Dunkle Schatten*'s `0x0C4A1`).
+    Over,
+    /// `80h` past them, the half the band's bit 7 shows: the loader puts
+    /// variant 0 there (*Bi-Fi 2*'s `add ax, 80h`, `0x0744A`, and
+    /// `0x074D2`), and the refresh selects nothing (`0x075A9`–`0x075C5`).
+    Upper,
 }
 
 impl PanelColors {
     /// Builds the two transformed buffers that `0x0C32E..0x0C36A`
     /// derives from the panel resource, retaining the original as variant 2.
-    pub(crate) fn new(bank: &[u8], curves: PanelCurves) -> Result<Self> {
+    pub(crate) fn new(bank: &[u8], curves: PanelCurves, place: PanelPlace) -> Result<Self> {
+        let upper = place == PanelPlace::Upper;
+        let shift = if upper { 0x80 } else { 0 };
         if bank.len() < 2
             || bank[1] == 0
             || bank.len() != 2 + usize::from(bank[1]) * 3
-            || usize::from(bank[0]) + usize::from(bank[1]) > 256
+            || usize::from(bank[0]) + usize::from(bank[1]) + shift > 256
             || bank[2..].iter().any(|&c| c > 63)
         {
             return Err("invalid panel palette bank".into());
@@ -62,15 +81,16 @@ impl PanelColors {
                 .collect();
         }
         Ok(Self {
-            start: bank[0],
+            start: bank[0].wrapping_add(num::byte(shift)),
             variants,
-            selected: 2,
+            selected: if upper { 0 } else { 2 },
             mask: 0,
             release: 0,
             held: 0,
             release_held: 0,
             frozen: 0,
             refresh: 0,
+            upper,
         })
     }
 
@@ -106,6 +126,15 @@ impl PanelColors {
         }
     }
 
+    /// `0x0CA29` (*Bi-Fi 2*'s `0x07B45`): the owner holds the redraw, its
+    /// pending release of the hold is cancelled, and the countdown stops
+    /// (`mov word [4F6h], 0`). The variant shown stays as it is.
+    pub(crate) fn hold_redraw(&mut self, mask: u16) {
+        self.held |= mask;
+        self.release_held &= !mask;
+        self.refresh = 0;
+    }
+
     /// `0x0CA49`: release is deferred by three panel refresh calls.
     pub(crate) fn release(&mut self, mask: u16) {
         self.frozen &= !mask;
@@ -125,7 +154,7 @@ impl PanelColors {
             self.release_held = 0;
             self.mask &= !self.release;
             self.release = 0;
-            if self.held == 0 {
+            if self.held == 0 && !self.upper {
                 self.selected = if self.mask == 0 { 2 } else { 0 };
             }
         }
@@ -135,6 +164,49 @@ impl PanelColors {
     pub(crate) fn apply(&self, dac: &mut Palette) {
         dac.load(self.start, &self.variants[self.selected]);
     }
+}
+
+/// The panel's two variants as the program builds them: channel rows 1
+/// to 3, each by `push divisor ; push start ; push row ; call far` at
+/// `channel_rows` (the far call row zero's at `row_zero` makes, eight
+/// bytes on), and the variants' `push b ; push g ; push r` of row numbers
+/// at `variants`. Captain Zins's rows are at `0x010F1`, `0x010FF`,
+/// `0x0110D`, its variants at `0x077EF`, `0x07811`.
+pub(crate) fn read_panel_curves(
+    img: &Image,
+    row_zero: usize,
+    channel_rows: [(u8, usize); 3],
+    variants: [usize; 2],
+) -> Result<PanelCurves> {
+    let push = |at: usize| -> Result<u8> {
+        let b = img
+            .bytes()
+            .get(at..at + 2)
+            .ok_or("truncated palette argument")?;
+        if b[0] != 0x6A || b[1] >= 0x80 {
+            return Err(format!("expected positive push imm8 at {at:#x}").into());
+        }
+        Ok(b[1])
+    };
+    let builder = img.bytes().get(row_zero + 8..row_zero + 13);
+    let mut rows = [[0; 2]; 4];
+    for (slot, at) in channel_rows {
+        if push(at + 4)? != slot || img.bytes().get(at + 6..at + 11) != builder {
+            return Err("unexpected panel channel initialization".into());
+        }
+        rows[usize::from(slot)] = [push(at + 2)?, push(at)?];
+    }
+    let mut out = [[[0; 2]; 3]; 2];
+    for (variant, at) in variants.into_iter().enumerate() {
+        for (channel, curve) in out[variant].iter_mut().enumerate() {
+            let slot = usize::from(push(at + (2 - channel) * 2)?);
+            if !(1..=3).contains(&slot) {
+                return Err("unread panel channel row".into());
+            }
+            *curve = rows[slot];
+        }
+    }
+    Ok(out)
 }
 
 /// Literal countdown arithmetic of `XP01.EXE`'s `0x075A0..0x075EE`. A
@@ -168,6 +240,7 @@ mod tests {
         PanelColors::new(
             &[160, 2, 0, 0, 0, 63, 63, 63],
             [[[3, 30], [1, 25], [1, 25]], [[0, 8]; 3]],
+            PanelPlace::Over,
         )
         .unwrap()
     }

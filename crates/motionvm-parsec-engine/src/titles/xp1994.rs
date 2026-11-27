@@ -299,9 +299,9 @@ impl Style {
 /// Dunkle Schatten calls it with `(0C0h, 10h)`: everything becomes color
 /// **192** except colors 192–207, which stay as they are. This describes
 /// only initialization: `0724h:01E1h` updates entries from loaded RGB
-/// using weights 5:9:2; [`Flatten::enable_updates`] turns those on.
+/// using weights 5:9:2; [`FlattenTable::enable_updates`] turns those on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Flatten {
+pub(crate) struct FlattenTable {
     /// What every other color becomes.
     pub to: u8,
     /// The first color of the run that is left alone.
@@ -313,7 +313,7 @@ pub(crate) struct Flatten {
     pub table: Option<[u8; 256]>,
 }
 
-impl Flatten {
+impl FlattenTable {
     /// The table builder's initial fill (`0x073E6` in `XP01.EXE`), before
     /// any resource RGB updates. The destination run maps to itself.
     pub(crate) fn enable_updates(&mut self) {
@@ -379,12 +379,204 @@ impl Flatten {
             })
             .ok_or("nothing calls the flattening table's builder")?;
         let color = img.word(site - 2)?;
-        Ok(Flatten {
+        Ok(FlattenTable {
             to: num::low8(color),
             first: num::low8(color),
             count: b[site - 4],
             table: None,
         })
+    }
+}
+
+/// How a build darkens what lies under a box or a band held dark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Flatten {
+    /// Through the flattening table (*Dunkle Schatten*, *Captain Zins*).
+    Table(FlattenTable),
+    /// By the pixel's bit 7, against the upper half of the palette
+    /// (*Bi-Fi 2*).
+    Shade(Shade),
+}
+
+impl Flatten {
+    /// The build's form: the table's builder if the program has one, else
+    /// the shade's ramps.
+    pub(crate) fn read(img: &Image) -> Result<Self> {
+        match FlattenTable::read(img) {
+            Ok(t) => Ok(Flatten::Table(t)),
+            Err(table) => Shade::read(img)
+                .map(Flatten::Shade)
+                .map_err(|shade| format!("{table}; {shade}").into()),
+        }
+    }
+
+    /// A pixel darkened.
+    pub(crate) fn map(&self, pixel: u8) -> u8 {
+        match self {
+            Flatten::Table(t) => t.map(pixel),
+            Flatten::Shade(_) => pixel | 0x80,
+        }
+    }
+
+    /// The table's updates turned on; the shade has none.
+    pub(crate) fn enable_updates(&mut self) {
+        if let Flatten::Table(t) = self {
+            t.enable_updates();
+        }
+    }
+
+    /// Whether a resource's colors change the darkening.
+    pub(crate) fn updates(&self) -> bool {
+        matches!(self, Flatten::Table(t) if t.table.is_some())
+    }
+
+    /// A resource's colors loaded: into the table's lookup once updates
+    /// are on.
+    pub(crate) fn load_rgb(&mut self, start: u8, rgb: &[u8]) {
+        if let Flatten::Table(t) = self {
+            t.load_rgb(start, rgb);
+        }
+    }
+
+    /// The shade's four ramps, as `xlat` reads them from `cs:00A0h`;
+    /// `None` for a build whose start builds none.
+    pub(crate) fn ramps(&self) -> Option<&[u8; 256]> {
+        match self {
+            Flatten::Table(_) => None,
+            Flatten::Shade(s) => Some(&s.ramps),
+        }
+    }
+
+    /// The shade's half of a palette record the program loads: for a
+    /// record that lies inside the lower half, its colors converted, to
+    /// be loaded `80h` further on. `None` for the table, or a record that
+    /// reaches past the lower half.
+    pub(crate) fn mirror(&self, start: u8, rgb: &[u8]) -> Option<(u8, Vec<u8>)> {
+        match self {
+            Flatten::Table(_) => None,
+            Flatten::Shade(s) => s.mirror(start, rgb),
+        }
+    }
+}
+
+/// *Bi-Fi 2*'s darkening: the band or the box gets bit 7 on every
+/// pixel (`0DE4h:0123h`, `or byte es:[di], 80h` at `0x0DF88`), and the
+/// upper half of the palette is a darker copy of the lower.
+///
+/// The palette loader `0104h:090Eh` (`0x0194E`) loads a record of `n`
+/// colors from `start` (`0` meaning 256, `0x01970`), and when `start + n`
+/// is at most `80h` (`cmp ax, 80h ; jg`, `0x01988`) converts each of its
+/// bytes through ramp 0 (`02AFh:01EFh`, `xlat` from `cs:00A0h`, `0x02CF8`)
+/// and loads the result at `start + 80h` (`0x019A5`). The start builds
+/// four ramps of 64 bytes at `cs:00A0h` with `02AFh:01A0h(n, from,
+/// divisor)` (`0x010D3`–`0x0110A`); ramp 0's divisor is `[2BAh]`, 14h in
+/// the image, which only the switch `/TEXT:<n>` changes (`0x00643`), and
+/// the runtime is started without it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Shade {
+    /// The four ramps, one after the other, as `xlat` reads them.
+    pub ramps: [u8; 256],
+}
+
+impl Shade {
+    /// `02AFh:01A0h`'s body from `mov bx, sp` on (`0x02C90`).
+    const BUILDER: [u8; 15] = [
+        0x8B, 0xDC, 0x57, 0x8C, 0xCF, 0x8E, 0xC7, 0x36, 0x8B, 0x7F, 0x04, 0x83, 0xFF, 0x03, 0x77,
+    ];
+    /// `02AFh:01EFh`'s conversion loop: `mov bx, 0A0h ; cld ; lodsb ; xlat
+    /// cs: ; stosb` (`0x02CF8`).
+    const CONVERT: [u8; 7] = [0xBB, 0xA0, 0x00, 0xFC, 0xAC, 0x2E, 0xD7];
+
+    /// The ramps the start builds, each call read off its three pushes:
+    /// `push divisor ; push from ; push n` with `push imm8` (`6A`) or, for
+    /// the divisor, `push word [m16]` (`FF 36`), read from the image's data
+    /// segment.
+    pub(crate) fn read(img: &Image) -> Result<Self> {
+        let b = img.bytes();
+        let at = (0..b.len().saturating_sub(Self::BUILDER.len()))
+            .find(|&i| b[i..i + Self::BUILDER.len()] == Self::BUILDER)
+            .ok_or("nothing builds a shade's ramps in this program")?;
+        if !b.windows(Self::CONVERT.len()).any(|w| w == Self::CONVERT) {
+            return Err("nothing converts colors through a shade's ramp".into());
+        }
+        let dgroup = img.at(0);
+        // The ramps lie at `00A0h` in the builder's own segment, as the
+        // image ships them until the start builds them.
+        let mut ramps = [0u8; 256];
+        let mut built = [false; 4];
+        let mut seg = None;
+        for i in 9..b.len().saturating_sub(5) {
+            if b[i] != 0x9A
+                || usize::from(img.word(i + 3).unwrap_or(0)) * 16
+                    + usize::from(img.word(i + 1).unwrap_or(0))
+                    != at
+            {
+                continue;
+            }
+            let at_seg = usize::from(img.word(i + 3)?);
+            if seg.replace(at_seg).is_none() {
+                let shipped = b
+                    .get(at_seg * 16 + 0xA0..at_seg * 16 + 0x1A0)
+                    .ok_or("the shade's ramps lie outside the program")?;
+                ramps.copy_from_slice(shipped);
+            }
+            let [0x6A, from, 0x6A, n] = b[i - 4..i] else {
+                return Err("a shade's ramp is built from what is not a constant".into());
+            };
+            let divisor = match b[i - 8..i - 4] {
+                [_, _, 0x6A, d] => u16::from(d),
+                [0xFF, 0x36, lo, hi] => {
+                    img.word(dgroup + usize::from(u16::from_le_bytes([lo, hi])))?
+                }
+                _ => return Err("a shade's ramp is built from what is not a constant".into()),
+            };
+            let k = usize::from(n);
+            let ramp = ramps
+                .get_mut(k * 64..k * 64 + 64)
+                .ok_or("a shade's ramp past the fourth")?;
+            Self::build(ramp, from, divisor);
+            built[k] = true;
+        }
+        if !built[0] {
+            return Err("nothing builds the shade's first ramp".into());
+        }
+        Ok(Shade { ramps })
+    }
+
+    /// `02AFh:01A0h(n, from, divisor)` (`0x02C90`–`0x02CDE`): nothing for
+    /// a ramp past the fourth, a start past `3Fh` or a divisor of 0 or past
+    /// 40h; else 64 bytes from `from`, each run one longer than the last
+    /// by `step / divisor`, up to `3Fh`.
+    fn build(ramp: &mut [u8], from: u8, divisor: u16) {
+        let Ok(div) = u8::try_from(divisor) else {
+            return;
+        };
+        if from > 0x3F || div == 0 || div > 0x40 {
+            return;
+        }
+        let (mut al, mut ah, mut bh) = (from, 0u8, from);
+        for (dx, out) in (0u16..).zip(ramp.iter_mut()) {
+            *out = al; // stosb
+            ah = ah.wrapping_sub(1);
+            if ah & 0x80 != 0 {
+                bh = bh.wrapping_add(1);
+                ah = num::low8(dx / u16::from(div));
+                al = bh.min(0x3F);
+            }
+        }
+    }
+
+    /// The loader's second load (`0x01984`–`0x019B0`).
+    pub(crate) fn mirror(&self, start: u8, rgb: &[u8]) -> Option<(u8, Vec<u8>)> {
+        let n = rgb.len() / 3;
+        if usize::from(start) + n > 0x80 {
+            return None;
+        }
+        let out = rgb[..n * 3]
+            .iter()
+            .map(|&c| self.ramps[usize::from(c)])
+            .collect();
+        Some((start + 0x80, out))
     }
 }
 
@@ -972,7 +1164,7 @@ mod resource_tests {
     /// target run and untouched banks retain their previous mappings.
     #[test]
     fn resource_rgb_updates_only_its_flatten_lookup_range() {
-        let mut f = Flatten {
+        let mut f = FlattenTable {
             to: 192,
             first: 192,
             count: 16,

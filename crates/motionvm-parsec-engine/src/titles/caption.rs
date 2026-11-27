@@ -399,12 +399,12 @@ mod tests {
     /// of them.
     #[test]
     fn a_box_is_filled_one_way_or_flattened_the_other() {
-        let flatten = Flatten {
+        let flatten = Flatten::Table(crate::titles::xp1994::FlattenTable {
             to: 192,
             first: 192,
             count: 16,
             table: None,
-        };
+        });
         let style = Style {
             ink: 248,
             middle: 234,

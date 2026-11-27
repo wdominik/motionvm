@@ -3,7 +3,8 @@
 //! Identification is by the file the original opens, not by a version
 //! string: the games ship packed `XP0n.EXE` binaries and a `RESOURCE/`
 //! folder, and each one's room container — `RESOURCE/DSROOM.DAT` for
-//! *Dunkle Schatten*, `RESOURCE/CZROOM.DAT` for *Captain Zins* — is what
+//! *Dunkle Schatten*, `RESOURCE/CZROOM.DAT` for *Captain Zins*,
+//! `RESOURCE/BFROOM.DAT` for *Bi-Fi 2* — is what
 //! tells a copy of it from any other directory. `XP01.EXE` alone does not:
 //! every one of them ships one, so it is a name, not a signature.
 //!
@@ -23,11 +24,14 @@ pub enum Title {
     /// *Captain Zins* (1994). `CZROOM.DAT` contains the room resources, in
     /// the same container as *Dunkle Schatten*'s.
     CaptainZins,
+    /// *Bi-Fi 2 - Action in Hollywood* (1994). `BFROOM.DAT` contains the
+    /// room resources, in the same container.
+    BiFi2,
 }
 
 impl Title {
     /// Every game, in the order [`identify`] looks for their room containers.
-    pub const ALL: [Title; 2] = [Self::DunkleSchatten, Self::CaptainZins];
+    pub const ALL: [Title; 3] = [Self::DunkleSchatten, Self::CaptainZins, Self::BiFi2];
 
     /// The key the game's files are found under, never a word in a
     /// sentence: the folder its install is usually unpacked into, in lower
@@ -39,21 +43,26 @@ impl Title {
         match self {
             Self::DunkleSchatten => "ds1",
             Self::CaptainZins => "capzins",
+            Self::BiFi2 => "bifi2",
         }
     }
 
-    /// The original German title, as the box and the BAT file spell it.
+    /// The original German title, as the box and the BAT file spell it —
+    /// for *Bi-Fi 2*, as its own `LIESMICH.DOK` and `BIFI.DOK` do.
     pub fn name(self) -> &'static str {
         match self {
             Self::DunkleSchatten => "Dunkle Schatten",
             Self::CaptainZins => "Captain Zins",
+            Self::BiFi2 => "Bi-Fi 2 - Action in Hollywood",
         }
     }
 
-    /// The title without a subtitle — what prose calls it. Neither game
-    /// carries one, so it is the name.
+    /// The title without a subtitle — what prose calls it.
     pub fn short(self) -> &'static str {
-        self.name()
+        match self {
+            Self::BiFi2 => "Bi-Fi 2",
+            _ => self.name(),
+        }
     }
 
     /// The room container the game ships, in `RESOURCE/`: the file that
@@ -62,6 +71,7 @@ impl Title {
         match self {
             Self::DunkleSchatten => "DSROOM.DAT",
             Self::CaptainZins => "CZROOM.DAT",
+            Self::BiFi2 => "BFROOM.DAT",
         }
     }
 
@@ -71,6 +81,7 @@ impl Title {
         match self {
             Self::DunkleSchatten => "RESOURCE/DSROOM.DAT beside XP01.EXE",
             Self::CaptainZins => "RESOURCE/CZROOM.DAT beside XP01.EXE",
+            Self::BiFi2 => "RESOURCE/BFROOM.DAT beside XP01.EXE",
         }
     }
 }
@@ -129,6 +140,8 @@ mod tests {
         assert_eq!(identify(&dir), Some(Title::DunkleSchatten));
         let dir = holding("second", &["CZROOM.DAT"]);
         assert_eq!(identify(&dir), Some(Title::CaptainZins));
+        let dir = holding("third", &["BFROOM.DAT"]);
+        assert_eq!(identify(&dir), Some(Title::BiFi2));
         let dir = holding("none", &["PANELS.DAT"]);
         assert_eq!(identify(&dir), None);
     }

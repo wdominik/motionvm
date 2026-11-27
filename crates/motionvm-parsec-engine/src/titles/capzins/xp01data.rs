@@ -111,6 +111,8 @@ impl ExeText {
             .ok_or("initial inventory out of range")?
             .to_vec();
         let initial_scroll = usize::from(read_byte(scroll_at)?);
+        // The entry pass blacks a bank's first color (`0x10746`).
+        crate::titles::parsec1994::program::check_room_black_zero(&xp01, 0x10746)?;
 
         Ok(ExeText {
             panel_curves: panel_curves(&xp01)?,
@@ -166,35 +168,7 @@ fn start(img: &Image, locations: &Locations) -> Result<(u16, u16)> {
 /// Row zero uses a setting of its own and is not one of them. Every row is
 /// built by one far call, the one row zero's is built by.
 fn panel_curves(img: &Image) -> Result<crate::titles::palette1994::PanelCurves> {
-    let push = |at: usize| -> Result<u8> {
-        let b = img
-            .bytes()
-            .get(at..at + 2)
-            .ok_or("truncated palette argument")?;
-        if b[0] != 0x6A || b[1] >= 0x80 {
-            return Err(format!("expected positive push imm8 at {at:#x}").into());
-        }
-        Ok(b[1])
-    };
-    let builder = img.bytes().get(ROW_ZERO + 8..ROW_ZERO + 13);
-    let mut rows = [[0; 2]; 4];
-    for (slot, at) in CHANNEL_ROWS {
-        if push(at + 4)? != slot || img.bytes().get(at + 6..at + 11) != builder {
-            return Err("unexpected panel channel initialization".into());
-        }
-        rows[usize::from(slot)] = [push(at + 2)?, push(at)?];
-    }
-    let mut variants = [[[0; 2]; 3]; 2];
-    for (variant, at) in PANEL_VARIANTS.into_iter().enumerate() {
-        for (channel, curve) in variants[variant].iter_mut().enumerate() {
-            let slot = usize::from(push(at + (2 - channel) * 2)?);
-            if !(1..=3).contains(&slot) {
-                return Err("unread panel channel row".into());
-            }
-            *curve = rows[slot];
-        }
-    }
-    Ok(variants)
+    crate::titles::palette1994::read_panel_curves(img, ROW_ZERO, CHANNEL_ROWS, PANEL_VARIANTS)
 }
 
 /// `0x0293D..0x02976` builds RGB values backwards from `3Fh` in steps of

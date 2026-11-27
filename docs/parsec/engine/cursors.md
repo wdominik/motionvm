@@ -91,6 +91,16 @@ movement (`179Eh:0AF9h`, `0x184A3`) and the shape (`179Eh:0C1Bh`,
 — x min, y min, x max, y max — (`0x185B2`–`0x185C1`, `0x185F1`–`0x18602`),
 and the cel is drawn at the mouse plus the descriptor's offset, `[3EEh]`.
 
+The pointer starts at (160, 100), the two position words as the library's
+image holds them (`0x222D6`). The library's init resets the mouse driver
+(INT 33h function 0) and reads its motion counters once without keeping
+them (function 0Bh), and its other calls keep only the buttons and ask for
+no position (`0x183FC`–`0x18D04`). So nothing the mouse did while `XP00`
+ran reaches `XP01`: its pointer stands at (160, 100) when the game
+begins. Captain Zins's library does the same (its words at `0x1FFBC`,
+the calls `0x1705C`–`0x17964`), and so does Bi-Fi 2's (`0x25526`, the
+init at `0x18E2C` and `0x18E3A`).
+
 ## Animation
 
 `0x187C6`–`0x18895` steps the shown descriptor by the units. A static one
@@ -206,11 +216,17 @@ addresses — the switch `cs:04C2h`, the speeds at `[138Ah]`, `[35Eh]` for
 `[3C8h]`, `[36Eh]` for `[3D8h]`, `[370h]` for `[3DAh]`. Its handler passes
 an `E0h` prefix on to the BIOS where Dunkle Schatten's swallows it
 (`0x18E19`); the key after it is the one with the slot either way.
+Bi-Fi 2's `XP01.EXE` carries Captain Zins's library at `1819h`, every site
+`1DD0h` further on, and hands it its keys from `DS:02C8h` (`0x01643`), the
+switch at `cs:04C2h` and the speeds at `[198Ch]`.
 
-Both title programs, `XP00.EXE`, carry the same library at their own
-addresses — Dunkle Schatten's at `08E6h`, Captain Zins's at `0970h` —
-hand it the same twelve keys (`0x0CDF`, `DS:00BCh`) and register its
-timer slot with the same two hundredths (`0x0CAF`, `[1A8h]`). Both read
+Dunkle Schatten's and Captain Zins's title programs, `XP00.EXE`, carry the
+same library at their own addresses — Dunkle Schatten's at `08E6h`,
+Captain Zins's at `0970h` — hand it the same twelve keys (`0x0CDF`,
+`DS:00BCh`) and register its timer slot with the same two hundredths
+(`0x0CAF`, `[1A8h]`). Bi-Fi 2's carries Captain Zins's at `0888h`, its
+code `0E80h` bytes below, and hands it its keys from `DS:00B2h` (XP00
+`0x0D21`). Dunkle Schatten's and Captain Zins's read
 the settings file at their start for the mouse setting alone and set the
 divisors by `XP01`'s table (`0x69E`–`0x700`). Held for eight BIOS ticks in
 Dunkle Schatten's title menu under DOSBox-X, Down takes the arrow from

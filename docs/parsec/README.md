@@ -4,7 +4,7 @@
 
 Reverse-engineering documentation for **PARSEC**, the DOS adventure engine
 Norbert Schmidt wrote, and for [*Dunkle Schatten*](games/ds1/README.md)
-(1994), the first game built with it: commissioned by the Bundesministerium des
+(1994), a game built with it, whose programs these pages are written from: commissioned by the Bundesministerium des
 Innern, made by The Art Department WA GmbH, Bochum, on a concept by Platzer
 Kommunikation GmbH, München. Its programs are `XP00.EXE`, the title
 program, and `XP01.EXE`, the game — both 1994-10-24.
@@ -15,17 +15,19 @@ Schmidt*, and the music system beside him, *PSM 2.00 Soundsystem ·
 Copyright (C) 1988-1994 · Norbert Schmidt & Jochen Heß*. The game's page
 carries who made it and how each entry is evidenced.
 
-A second title is built on the same library: [*Captain
-Zins*](games/capzins/README.md) (1994), whose `XP01.EXE` is linked against
+Other titles are built on the same library: [*Captain
+Zins*](games/capzins/README.md) (1994) and [*Bi-Fi 2 - Action in
+Hollywood*](games/bifi2/README.md) (1994), each `XP01.EXE` linked against
 another build of it. The pages below are written from Dunkle Schatten's
 programs, and their addresses are that build's unless a sentence names
-Captain Zins.
+another title; each title's page says how its build differs.
 
 The game is installed here into `DS1`, and that name in lower case, `ds1`,
 is a key rather than a name: what is kept for the game is filed under it —
 `MOTIONVM_GAMEDATA_DS1`, `saves/ds1/`, `docs/parsec/games/ds1/` — while
 prose calls the game by its title. Captain Zins is installed into
-`CAPZINS`, and its key is `capzins`.
+`CAPZINS`, and its key is `capzins`; Bi-Fi 2 into `BIFI2`, and its key is
+`bifi2`.
 
 ## The engine
 
@@ -100,7 +102,7 @@ its tables and its strings — and what it does is what its code says.
 | [The pointer](engine/cursors.md) | The pointer library: descriptor selection, the random animation, the mouse timer and the input state |
 | [Options and the saved game](engine/options.md) | The game options, the confirmations, `SAVEGAME.SAV` and `SAVEGAME.CFG` with the player's record, location 60 |
 | [Music](engine/music.md) | What the program asks of the PSM 2 driver: the piece per location, play on entry, the fade on exit, the music switch, the title program's piece |
-| [The way out](engine/ending.md) | What `XP01` shows after its main loop: Dunkle Schatten's end and quit, Captain Zins's parade |
+| [The way out](engine/ending.md) | What `XP01` shows after its main loop: Dunkle Schatten's end and quit, Captain Zins's parade, and Bi-Fi 2's end, played from inside the loop |
 | [Palettes](engine/palettes.md) | Palette state, the DAC banks per resource, the panel's colors and the transition ramps |
 
 ### Dunkle Schatten
@@ -116,6 +118,12 @@ its tables and its strings — and what it does is what its code says.
 | Page | Covers |
 |---|---|
 | [The game](games/capzins/README.md) | The program, its library build, the start, what is built and what is not |
+
+### Bi-Fi 2
+
+| Page | Covers |
+|---|---|
+| [The game](games/bifi2/README.md) | The programs, the locations and their kinds, the start, its library build, the end, what is built and what is not |
 
 ### Reference
 
@@ -156,3 +164,17 @@ Captain Zins ships the same kinds of file, its own where the names differ:
 | `RESOURCE/DIALOG.DAT` | [Dialogue](formats/dialogue.md) — the global banks |
 | `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | [Audio](formats/audio.md) — the music library and the sound drivers |
 | `ZINS.BAT` | The launcher ([the game](games/capzins/README.md#the-program)) |
+
+Bi-Fi 2 ships these, its own where the names differ:
+
+| File(s) | Format |
+|---|---|
+| `XP00.EXE`, `XP01.EXE` | [The title program and the game](games/bifi2/README.md#the-program) |
+| `LIESMICH.DOK`, `BIFI.DOK` | Texts beside the programs ([the game](games/bifi2/README.md#the-program)) |
+| `RESOURCE/BFROOM.DAT` | [Rooms](formats/rooms.md) — every location, in the FGROUP container `DSROOM.DAT` is |
+| `RESOURCE/INTROS.DAT` | [Containers](formats/containers.md) — the title program's pictures, and the picture the end's credits roll over ([the way out](engine/ending.md#bi-fi-2)) |
+| `RESOURCE/PANELS.DAT`, `RESOURCE/PLAYER.DAT` | [Graphics](formats/graphics.md) — the verb strip and the player's cels, one set ([its library build](games/bifi2/README.md#its-library-build)) |
+| `RESOURCE/CMBMOU.DAT` | [Graphics](formats/graphics.md) — the pointers and the font |
+| `RESOURCE/DIALOG.DAT` | [Dialogue](formats/dialogue.md) — the global banks |
+| `RESOURCE/PSMP2L.DAT`, `RESOURCE/PSMDRV.DAT` | [Audio](formats/audio.md) — the music library and the sound drivers |
+| `BIFI.BAT` | The launcher ([the game](games/bifi2/README.md#the-program)) |

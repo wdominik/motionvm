@@ -91,8 +91,8 @@ rather than drawing something plausible.
   — cut at every length through the header, bytes flipped where a seeded
   generator says — and asserts that a reader answers rather than crashes.
 - **The rigs.** `just bench` runs two `#[ignore]`d release-mode measurements:
-  where a frame's time goes in Dunkle Schatten 2, and how fast each of the
-  seven games' machines runs — cells per second, host words per second, and
+  where a frame's time goes in Dunkle Schatten 2, and how fast the machine of
+  each game it plays runs — cells per second, host words per second, and
   the step and the draw timed apart. They assert nothing; they exist so a
   number quoted about the cost of anything here can be reproduced.
 

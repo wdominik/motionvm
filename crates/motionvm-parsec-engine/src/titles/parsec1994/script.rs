@@ -5,6 +5,7 @@
 //! engine has them. The walk itself and the exit are the mode machine's
 //! ([`super::mode`]).
 
+use super::anim::Body;
 use super::{Adventure, Api, Event, Walker};
 use crate::num;
 
@@ -20,12 +21,23 @@ impl Adventure {
     /// direction, and `02CFh` on the figure's record is `01B9h`, which
     /// picks the block of cels by it.
     pub(crate) fn face_player(&mut self, dir: i16) {
+        self.face_walker(Body::Figure, dir);
+    }
+
+    /// `0A9Fh:0C0Ch(rec, dir)`: a walking record, the player's or another,
+    /// faces direction `dir`, as [`Self::face_player`] says. A record of
+    /// kind 8 is let alone (`0x0B613`) in a build that keeps them apart;
+    /// *Bi-Fi 2*'s turn has no such test (`0x06916`).
+    pub(crate) fn face_walker(&mut self, body: Body, dir: i16) {
         if self.room().and_then(|r| r.walk()).is_none() {
             return;
         }
+        if self.profile.kind8_records && self.body_walker(body).is_some_and(|w| w.kind == 8) {
+            return;
+        }
         self.effect_1949(2);
-        self.stop_player_anim();
-        if let Some(w) = &mut self.walker {
+        self.stop_walker_anim(body);
+        if let Some(w) = self.body_walker_mut(body) {
             w.face(dir);
         }
     }

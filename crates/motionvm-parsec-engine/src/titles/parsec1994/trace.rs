@@ -52,6 +52,7 @@ pub(crate) struct Routines {
     pub input_poll: &'static str,
     pub pointer_hide: &'static str,
     pub pointer_unfreeze: &'static str,
+    pub pointer_show: &'static str,
     pub key_flush: &'static str,
     pub scene_play: &'static str,
     pub task_arm: &'static str,
@@ -65,6 +66,7 @@ pub(crate) struct Routines {
     pub obj_show: &'static str,
     pub obj_anim: &'static str,
     pub obj_anim_id: &'static str,
+    pub obj_frame: &'static str,
     pub obj_hide: &'static str,
     pub obj_state: &'static str,
     pub objs_save_state: &'static str,
@@ -90,7 +92,13 @@ pub(crate) struct Routines {
     pub walker_unlink: &'static str,
     pub scene_enqueue: &'static str,
     pub ambient_play: &'static str,
+    pub ambient_play_one: &'static str,
+    pub ambient_speakers: &'static str,
     pub pal_set: &'static str,
+    pub pal_load: &'static str,
+    pub pal_ramps: &'static str,
+    pub digital_stop: &'static str,
+    pub effect_volume: &'static str,
     pub song_load: &'static str,
     pub music_play: &'static str,
     pub music_play_fade: &'static str,
@@ -116,9 +124,19 @@ pub(crate) struct Routines {
     pub task_stop: &'static str,
     pub page_release: &'static str,
     pub band_hold: &'static str,
+    pub band_redraw_hold: &'static str,
     pub node_block: &'static str,
     pub node_open: &'static str,
     pub interaction: &'static str,
+    pub interaction_sequence: &'static str,
+    pub record_link: &'static str,
+    /// The roll's routines; `None` for a program whose library has none.
+    pub roll_layout: Option<&'static str>,
+    pub roll_seek: Option<&'static str>,
+    pub roll_draw: Option<&'static str>,
+    pub roll_free: Option<&'static str>,
+    pub tiles_mark: &'static str,
+    pub tiles_dirty: &'static str,
     /// The word that points at the hotspot the object was chosen
     /// through, whose lines [`Api::hotspot_own_text`] reads.
     pub chosen_hotspot: u16,
@@ -460,6 +478,9 @@ impl Api for Recording {
     fn pointer_hide(&mut self) {
         self.call(self.routines.pointer_hide, &[]);
     }
+    fn pointer_show(&mut self) {
+        self.call(self.routines.pointer_show, &[]);
+    }
     fn pointer_unfreeze(&mut self) {
         self.call(self.routines.pointer_unfreeze, &[]);
     }
@@ -513,6 +534,12 @@ impl Api for Recording {
     }
     fn obj_anim_id(&mut self, id: u16, k: i16) {
         self.call(self.routines.obj_anim_id, &[id, num::unsigned(k)]);
+    }
+    fn obj_frame(&mut self, rec: Far, k: i16) {
+        self.call(
+            self.routines.obj_frame,
+            &[rec.off, rec.seg, num::unsigned(k)],
+        );
     }
     fn obj_hide(&mut self, id: u16) -> Far {
         self.record(self.routines.obj_hide, id, &[id])
@@ -642,8 +669,35 @@ impl Api for Recording {
             &[num::unsigned(lo), num::unsigned(hi), flags],
         )
     }
+    fn ambient_play_one(&mut self, n: i16, flags: u16) -> u16 {
+        self.call(self.routines.ambient_play_one, &[num::unsigned(n), flags])
+    }
+    fn ambient_speakers(&mut self) -> u16 {
+        self.call(self.routines.ambient_speakers, &[])
+    }
     fn pal_set(&mut self, rgb: Far, start: u16, count: u16) {
         self.call(self.routines.pal_set, &[rgb.off, rgb.seg, start, count]);
+    }
+    fn pal_load(&mut self, rec: Far) {
+        self.call(self.routines.pal_load, &[rec.off, rec.seg]);
+    }
+    fn pal_load_local(&mut self, rec: &[u8]) {
+        let words: Vec<u16> = rec.iter().map(|&b| u16::from(b)).collect();
+        self.call(self.routines.pal_load, &words);
+    }
+    fn pal_ramps(&mut self, src: Far, dst: Far, ramps: [u16; 3], n: u16) {
+        self.call(
+            self.routines.pal_ramps,
+            &[
+                src.off, src.seg, dst.off, dst.seg, ramps[0], ramps[1], ramps[2], n,
+            ],
+        );
+    }
+    fn effect_volume(&mut self, v: u16) -> u16 {
+        self.call(self.routines.effect_volume, &[v])
+    }
+    fn digital_stop(&mut self, wait: u16) {
+        self.call(self.routines.digital_stop, &[wait]);
     }
     fn song_load(&mut self, n: u16) -> Far {
         let ax = self.call(self.routines.song_load, &[n]);
@@ -736,6 +790,24 @@ impl Api for Recording {
     fn say_text(&mut self, text: Far) {
         self.call(self.routines.say_text, &[text.off, text.seg]);
     }
+    fn chosen_hotspot_off(&mut self) -> bool {
+        // The logic reads the record pointer and writes its word itself.
+        let at = self.routines.chosen_hotspot;
+        let rec = Far {
+            off: self.word(at),
+            seg: self.word(at.wrapping_add(2)),
+        };
+        if rec == Far::NULL {
+            return false;
+        }
+        let flags = Far {
+            off: rec.off.wrapping_add(4),
+            seg: rec.seg,
+        };
+        let w = self.far_word(flags);
+        self.set_far_word(flags, w & 0xFFFE);
+        true
+    }
     fn hotspot_own_text(&mut self, k: u16) -> Far {
         // The logic reads the record pointer and the line's far pointer
         // itself; nothing is called.
@@ -801,6 +873,9 @@ impl Api for Recording {
     fn band_hold(&mut self, owner: u16) {
         self.call(self.routines.band_hold, &[owner]);
     }
+    fn band_redraw_hold(&mut self, owner: u16) {
+        self.call(self.routines.band_redraw_hold, &[owner]);
+    }
     fn node_block(&mut self, rec: Far, node: u16) {
         self.call(self.routines.node_block, &[rec.off, rec.seg, node]);
     }
@@ -812,6 +887,35 @@ impl Api for Recording {
             self.routines.interaction,
             &[id, num::unsigned(facing), num::unsigned(scene)],
         );
+    }
+    fn interaction_sequence(&mut self, id: u16, facing: i16, counter: Far, scenes: &[i16]) {
+        let mut args = vec![id, num::unsigned(facing), counter.off, counter.seg];
+        args.extend(scenes.iter().map(|&n| num::unsigned(n)));
+        args.push(0xFFFF);
+        self.call(self.routines.interaction_sequence, &args);
+    }
+    fn record_link(&mut self, rec: Far) {
+        self.call(self.routines.record_link, &[rec.off, rec.seg]);
+    }
+    // A program without the roll's routines names none, and no trace of
+    // it has their calls.
+    fn roll_layout(&mut self, _row: Far, _spec: &super::title::roll::RollSpec) -> u16 {
+        self.call(self.routines.roll_layout.unwrap_or("none"), &[])
+    }
+    fn roll_seek(&mut self, pos: u16) -> u16 {
+        self.call(self.routines.roll_seek.unwrap_or("none"), &[pos])
+    }
+    fn roll_draw(&mut self) {
+        self.call(self.routines.roll_draw.unwrap_or("none"), &[]);
+    }
+    fn roll_free(&mut self) {
+        self.call(self.routines.roll_free.unwrap_or("none"), &[]);
+    }
+    fn tiles_mark(&mut self, x: u16, y: u16, w: u16, h: u16) {
+        self.call(self.routines.tiles_mark, &[x, y, w, h]);
+    }
+    fn tiles_dirty(&mut self, x: u16, y: u16, w: u16, h: u16) -> bool {
+        self.call(self.routines.tiles_dirty, &[x, y, w, h]) != 0
     }
     fn inv_give(&mut self, id: u16) -> i16 {
         num::signed(self.call(self.routines.inv_give, &[id]))

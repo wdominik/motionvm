@@ -2,7 +2,7 @@
 
 # Departures from the Original
 
-*PARSEC, and the games motionvm plays on it, Dunkle Schatten and Captain Zins — the one ledger of where motionvm knowingly does something else, and why. What is not yet known about the original is a different record and lives in [open questions](open-questions.md).*
+*PARSEC, and the games motionvm plays on it — Dunkle Schatten, Captain Zins and Bi-Fi 2 among them — the one ledger of where motionvm knowingly does something else, and why. What is not yet known about the original is a different record and lives in [open questions](open-questions.md).*
 
 The rest of this documentation describes the original programs. This page
 is the single ledger of the places where **motionvm knowingly does
@@ -86,12 +86,14 @@ from the game's generator until the hundredths word `[1C82h]` reaches 100
 (`0x1208C`–`0x120D3`), so how many draws it makes is how many passes the
 machine fits into a second, and the program does not say. The count is
 measured on the original: on DOSBox-X with `core = normal` and `cycles =
-fixed 25000`, the generator's seed (`1EB5h:0006h`) stands at `0000:0000`
-before the dissolve of the options `XP01` opens at its start and at
-`7698h:E605h` after it in Dunkle Schatten, which is 158 213 steps, and at
-`815Ch:96FFh` in Captain Zins (its seed at `1D77h:0004h`), 157 491 steps:
-its loop costs more per pass.
-Every dissolve here takes its title's count, the one at the start and the
+fixed 25000`, each game started the way its batch file starts it (`XP00`,
+a new game, then `XP01`), the generator's seed (`1EB5h:0006h`) stands at
+`0000:0000` before the dissolve of the options `XP01` opens at its start and
+at `A414h:AD4Bh` after it in Dunkle Schatten, which is 158 215 steps; at
+`C799h:5296h` in Captain Zins (its seed at `1D77h:0004h`), 158 282 steps;
+and at `336Eh:4008h` in Bi-Fi 2 (its seed at `203Dh:0002h`), 158 808
+steps. Nothing hands `XP01` a seed: in each the seed's two words ship as
+zero. Every dissolve here takes its title's count, the one at the start and the
 ones in game. The pattern is the
 reference machine's; what the generator rolls after it — every random
 choice the game makes later — follows from it as it does there.
@@ -130,6 +132,12 @@ record unchecked (`0x15BDB`, `0x15CAF`); for an object the lookup finds no
 record of, that is a read through a null pointer, and what follows depends
 on the machine's interrupt table. Here both rules answer 1 for such an
 object and play no sample.
+
+**A read through a null pointer answers 0, and is said.** A far read
+through `0000h:0000h` reads the interrupt table below the program, whose
+vectors the machine and the program's start-up set; no byte of the
+program's image is there. Here such a read answers 0 and the runtime
+reports it. The paths played to the games' ends read through none.
 
 **A music library that will not read plays no sound.** The original ends
 at its init when `PSMP2L.DAT` cannot be opened or does not carry its

@@ -75,6 +75,10 @@ pub(crate) struct Arrows {
     pub down: u16,
     /// How far a click with the second button scrolls: a row.
     pub row: u8,
+    /// For a build whose arrows move a row on every click, whichever the
+    /// button, how far past the first visible item the list must still
+    /// reach for the arrow on to move: `scroll + n < count`.
+    pub every_click: Option<u8>,
 }
 
 /// Which way an arrow scrolls.
@@ -187,22 +191,41 @@ impl Panel {
     /// mov ax, y0 ; jmp ; mov ax, y1 ; push ax ; mov ax, [bp-2] ; mov bx,
     /// c ; cwd ; idiv bx` (`83 7E FE c 7D 05 B8 y0 EB 03 B8 y1 50 8B 46 FE
     /// BB c 00 99 F7 FB`), then `imul dx, dx, step` (`6B D2 step`) or `shl
-    /// dx, k` (`C1 E2 k`), then `add dx, x` (`81 C2 x`). Dunkle Schatten's
-    /// is at `0x0C550`: four columns 27 pixels apart from `0C8h`, rows
-    /// `92h` and `0ADh`.
+    /// dx, k` (`C1 E2 k`), then `add dx, x` (`81 C2 x`) — or, for `c` a
+    /// power of two, `and ax, c − 1 ; imul ax, ax, step ; add ax, x` (`25
+    /// c−1 00 6B C0 step 05 x`). Dunkle Schatten's is at `0x0C550`: four
+    /// columns 27 pixels apart from `0C8h`, rows `92h` and `0ADh`; *Bi-Fi
+    /// Roll 2*'s at `0x076FF`: four columns 30 apart from `0B5h`, rows
+    /// `91h` and `0AEh`.
     fn read_grid(b: &[u8]) -> Result<Grid> {
         let w = |i: usize| word(b, i);
+        let head = |i: usize| {
+            b[i..i + 3] == [0x83, 0x7E, 0xFE]
+                && b[i + 4..i + 7] == [0x7D, 0x05, 0xB8]
+                && b[i + 9..i + 12] == [0xEB, 0x03, 0xB8]
+                && b[i + 14..i + 18] == [0x50, 0x8B, 0x46, 0xFE]
+        };
+        let divides = |i: usize| {
+            b[i + 18] == 0xBB && b[i + 19] == b[i + 3] && b[i + 21..i + 24] == [0x99, 0xF7, 0xFB]
+        };
+        let masks = |i: usize| {
+            let c = b[i + 3];
+            c.is_power_of_two()
+                && b[i + 18..i + 21] == [0x25, c - 1, 0x00]
+                && b[i + 21..i + 23] == [0x6B, 0xC0]
+                && b[i + 24] == 0x05
+        };
         let at = (0..b.len().saturating_sub(40))
-            .find(|&i| {
-                b[i..i + 3] == [0x83, 0x7E, 0xFE]
-                    && b[i + 4..i + 7] == [0x7D, 0x05, 0xB8]
-                    && b[i + 9..i + 12] == [0xEB, 0x03, 0xB8]
-                    && b[i + 14..i + 18] == [0x50, 0x8B, 0x46, 0xFE]
-                    && b[i + 18] == 0xBB
-                    && b[i + 19] == b[i + 3]
-                    && b[i + 21..i + 24] == [0x99, 0xF7, 0xFB]
-            })
+            .find(|&i| head(i) && (divides(i) || masks(i)))
             .ok_or("no drawing of the strip's slots in this program")?;
+        if masks(at) {
+            return Ok(Grid {
+                columns: u16::from(b[at + 3]),
+                step: u16::from(b[at + 23]),
+                x: w(at + 25),
+                rows: (w(at + 7), w(at + 12)),
+            });
+        }
         let t = &b[at + 24..];
         let (step, add) = match t {
             [0x6B, 0xD2, s, rest @ ..] => (u16::from(*s), rest),
@@ -225,7 +248,12 @@ impl Panel {
     /// program; the back arrow's arm, with the second button, moves the
     /// first visible item a row back: `cmp word [event], 6 ; jne ; add al,
     /// −row` (`83 3E lo hi 06 75 r 04 −row`). Dunkle Schatten's is at
-    /// `0x0CAE3`, a row of four; Captain Zins's at `0x07FA0`, three.
+    /// `0x0CAE3`, a row of four; Captain Zins's at `0x07FA0`, three. A build
+    /// whose arms test no event moves a row on every click: back, `mov al,
+    /// [scroll] ; add al, −row` (`A0 lo hi 04 −row`) while the first
+    /// visible item is not the first; on, while `mov al, [scroll] ; mov ah,
+    /// 0 ; add ax, n` (`A0 lo hi B4 00 05 n 00`) is below the count —
+    /// *Bi-Fi 2*'s at `0x07C01`, a row of four and `n` 8.
     fn read_arrows(b: &[u8]) -> Result<Arrows> {
         let hits: Vec<usize> = (0..b.len().saturating_sub(10))
             .filter(|&i| b[i] == 0x3D && b[i + 3] == 0x74 && b[i + 5] == 0x3D && b[i + 8] == 0x74)
@@ -236,18 +264,34 @@ impl Panel {
                 format!("{} tests of the strip's arrows in this program", hits.len()).into(),
             );
         };
-        let row = b
-            .get(at + 10..at + 0x40)
-            .and_then(|t| {
-                t.windows(9)
-                    .find(|w| w[..2] == [0x83, 0x3E] && w[4..6] == [0x06, 0x75] && w[7] == 0x04)
-                    .map(|w| w[8].wrapping_neg())
-            })
-            .ok_or("the strip's back arrow scrolls in an unread way")?;
+        let arms = b.get(at + 10..at + 0x40).unwrap_or_default();
+        let by_event = arms
+            .windows(9)
+            .find(|w| w[..2] == [0x83, 0x3E] && w[4..6] == [0x06, 0x75] && w[7] == 0x04)
+            .map(|w| w[8].wrapping_neg());
+        let (row, every_click) = if let Some(row) = by_event {
+            (row, None)
+        } else {
+            let back = arms
+                .windows(5)
+                .find(|w| w[0] == 0xA0 && w[3] == 0x04)
+                .map(|w| w[4].wrapping_neg());
+            let on = arms
+                .windows(8)
+                .find(|w| w[0] == 0xA0 && w[3..6] == [0xB4, 0x00, 0x05] && w[7] == 0)
+                .map(|w| w[6]);
+            match (back, on) {
+                (Some(row), Some(n)) if !arms.windows(2).any(|w| w == [0x83, 0x3E]) => {
+                    (row, Some(n))
+                }
+                _ => return Err("the strip's back arrow scrolls in an unread way".into()),
+            }
+        };
         Ok(Arrows {
             up: word(b, at + 1),
             down: word(b, at + 6),
             row,
+            every_click,
         })
     }
 

@@ -27,8 +27,8 @@ pub(crate) const INK_HOVER: u8 = 0xF4;
 pub(crate) const INK_GREY: u8 = 0xF0;
 /// The column the lines are centered on (Dunkle Schatten's `0x3931`).
 const CX: i32 = 0xA0;
-/// The fade out's step.
-const OUT_STEP: i32 = -4;
+/// The fade out's step in Dunkle Schatten and Captain Zins.
+pub(crate) const OUT_STEP: i32 = -4;
 
 /// What a title's menu is.
 #[derive(Debug, Clone)]
@@ -41,8 +41,9 @@ pub(crate) struct MenuSpec {
     /// The line drawn gray, its box off, without a saved game: the one
     /// that continues it.
     pub grey: usize,
-    /// The song started once the menu has faded in.
-    pub song: u16,
+    /// The song started once the menu has faded in; `None` for a menu
+    /// whose song the title started before it.
+    pub song: Option<u16>,
     /// The fade in's step.
     pub step: i32,
     /// Captain Zins's wait and dim between the fade and the lines: up to
@@ -51,7 +52,23 @@ pub(crate) struct MenuSpec {
     pub wait_dim: Option<(u64, i32)>,
     /// What Escape answers: the box value of the quitting line.
     pub escape: u16,
+    /// The inks: idle, hovered, and the line that cannot be chosen.
+    pub inks: [u8; 3],
+    /// How far a line's box reaches above the line, and how much taller
+    /// than the font's line it is.
+    pub box_up: i32,
+    pub box_taller: i32,
+    /// The fade out's step.
+    pub out_step: i32,
+    /// Whether the menu blanks the screen before its picture, and whether
+    /// it takes the input afresh only after its lines are drawn.
+    pub blank: bool,
+    pub afresh_after_lines: bool,
 }
+
+/// Dunkle Schatten's and Captain Zins's inks ([`INK_IDLE`], [`INK_HOVER`],
+/// [`INK_GREY`]).
+pub(crate) const INKS: [u8; 3] = [INK_IDLE, INK_HOVER, INK_GREY];
 
 /// Where the menu is.
 #[derive(Debug, Clone, Copy)]
@@ -115,9 +132,9 @@ impl Menu {
         let w = lib.width(&self.spec.lines[i]) + 2;
         (
             (SURFACE_W - w) >> 1,
-            self.line_y(i),
+            self.line_y(i) - self.spec.box_up,
             w,
-            i32::from(lib.common.font.line_height),
+            i32::from(lib.common.font.line_height) + self.spec.box_taller,
         )
     }
 
@@ -134,7 +151,9 @@ impl Menu {
                 // the slots; 0x37FE the picture; 0x380A the idle ink;
                 // 0x3818 none lit.
                 lib.shown = false;
-                lib.blank();
+                if self.spec.blank {
+                    lib.blank();
+                }
                 draw::blit_masked(&mut lib.screen, &self.picture, 0, 0, None);
                 self.lit.iter_mut().for_each(|l| *l = false);
                 self.stage = Stage::In(Fade::full(self.pal, self.spec.step));
@@ -155,11 +174,12 @@ impl Menu {
                 // Dunkle Schatten's 0x384C–0x3854: the song, loaded as the
                 // menu was built, endlessly. 0254h:0A37h: the input taken
                 // afresh, the pointer drawn.
-                lib.music.push(Request::Play {
-                    piece: self.spec.song,
-                    loops: -1,
-                });
-                lib.input_afresh();
+                if let Some(piece) = self.spec.song {
+                    lib.music.push(Request::Play { piece, loops: -1 });
+                }
+                if !self.spec.afresh_after_lines {
+                    lib.input_afresh();
+                }
                 self.stage = match self.spec.wait_dim {
                     Some(_) => Stage::Wait { since: lib.now() },
                     None => Stage::Lines,
@@ -201,6 +221,10 @@ impl Menu {
             },
             Stage::Lines => {
                 self.lines(lib);
+                if self.spec.afresh_after_lines {
+                    // Bi-Fi 2's 0x357F: after the lines.
+                    lib.input_afresh();
+                }
                 self.stage = Stage::Run;
                 Step::Next
             }
@@ -208,14 +232,7 @@ impl Menu {
                 // Every event waiting is taken this retrace, one a pass.
                 loop {
                     if let Some(value) = self.pass(lib) {
-                        // Dunkle Schatten's 0x3A92: hidden, the boxes gone;
-                        // 0x3AA2: the music faded; 0x3AB2: the picture
-                        // again, without the lines.
-                        lib.shown = false;
-                        lib.music.push(Request::FadeOut(MUSIC_FADE));
-                        draw::blit_masked(&mut lib.screen, &self.picture, 0, 0, None);
-                        let from = self.spec.wait_dim.map_or(super::FULL, |(_, dim)| dim);
-                        self.stage = Stage::Out(Fade::between(self.pal, from, 0, OUT_STEP), value);
+                        self.chosen(lib, value);
                         return Step::Next;
                     }
                     if lib.idle() {
@@ -241,6 +258,18 @@ impl Menu {
         }
     }
 
+    /// A line chosen (Dunkle Schatten's `0x3A92`): hidden, the boxes gone;
+    /// `0x3AA2`: the music faded; `0x3AB2`: the picture again, without the
+    /// lines; then the fade out.
+    fn chosen(&mut self, lib: &mut Lib, value: u16) {
+        lib.shown = false;
+        lib.music.push(Request::FadeOut(MUSIC_FADE));
+        draw::blit_masked(&mut lib.screen, &self.picture, 0, 0, None);
+        let from = self.spec.wait_dim.map_or(super::FULL, |(_, dim)| dim);
+        let step = self.spec.out_step;
+        self.stage = Stage::Out(Fade::between(self.pal, from, 0, step), value);
+    }
+
     /// The lines in the idle ink, and the line that continues a saved
     /// game again in gray when there is none (Dunkle Schatten's
     /// `0x3870`–`0x3979`, Captain Zins's `0x3BEE`–`0x3CF7`); the pointer
@@ -253,7 +282,7 @@ impl Menu {
                 text,
                 CX,
                 self.line_y(i),
-                INK_IDLE,
+                self.spec.inks[0],
             );
         }
         if !lib.saved {
@@ -264,7 +293,7 @@ impl Menu {
                 &self.spec.lines[g],
                 CX,
                 self.line_y(g),
-                INK_GREY,
+                self.spec.inks[2],
             );
         }
         lib.shown = true;
@@ -301,10 +330,10 @@ impl Menu {
             for di in (0..self.lit.len()).rev() {
                 let ink = if num::count(di) != si && self.lit[di] {
                     self.lit[di] = false;
-                    INK_IDLE
+                    self.spec.inks[0]
                 } else if num::count(di) == si && !self.lit[di] {
                     self.lit[di] = true;
-                    INK_HOVER
+                    self.spec.inks[1]
                 } else {
                     continue;
                 };

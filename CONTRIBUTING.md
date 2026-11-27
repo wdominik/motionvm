@@ -11,8 +11,9 @@ its earlier build, V0.04.15/R78), *Die Enviro-Kids greifen ein* (on the
 Spiel* (on `LL.EXE`, 1993-05-20) — the last four on older builds of that
 same 16-bit engine, the last of them three years older than the first and in
 an earlier framing of the container. The second is PARSEC, Norbert
-Schmidt's adventure engine, with *Dunkle Schatten* and *Captain Zins* (both
-1994, each `XP00.EXE` and `XP01.EXE`), games that are compiled C programs
+Schmidt's adventure engine, with *Dunkle Schatten*, *Captain Zins* and
+*Bi-Fi 2* (all 1994, each `XP00.EXE` and `XP01.EXE`), games that are
+compiled C programs
 rather than data on an interpreter. motionvm runs the MOTION originals'
 compiled Forth bytecode natively and carries the PARSEC originals' location
 logic re-expressed from their programs, and one hard constraint shapes every convention in this
@@ -26,7 +27,8 @@ saves — with Jeff Jet, Hilfe für Amajambere, Victor Loomes and Falsches Spiel
 mit Eddie M. on the 16-bit one; Dunkle Schatten from its title program
 through the game, its rooms, the forest and the maze, its dialogue, options
 and saved game, and its music, to its end; and Captain Zins the same way,
-from its title program to the parade at its end. The MOTION side is written for the engine
+from its title program to the parade at its end; and Bi-Fi 2 the same
+way, from its title program to the credits at its end. The MOTION side is written for the engine
 rather than for those games: what a further MOTION game would need is its
 own file under `titles/`, and the naming rules below are what keeps that
 cost down.
@@ -75,10 +77,11 @@ plays today, one for the savegames, and one switch:
   (`DATA.-1-`, `DATA.-2-`, `DATA.-3-`, `STERN.EXE`); `GAMEDATA_DS1` — a copy
   of Dunkle Schatten's (`XP00.EXE`, `XP01.EXE` and `RESOURCE/`);
   `GAMEDATA_CAPZINS` — a copy of Captain Zins's (`XP00.EXE`, `XP01.EXE` and
-  `RESOURCE/`). Each defaults to a sibling directory of this checkout
+  `RESOURCE/`); `GAMEDATA_BIFI2` — a copy of Bi-Fi 2's (`XP00.EXE`,
+  `XP01.EXE` and `RESOURCE/`). Each defaults to a sibling directory of this checkout
   (`../games/DS2`, `../games/CHECKER`, `../games/ENVIRO`, `../games/JEFFJET`,
   `../games/HFA`, `../games/VLOOMES`, `../games/EDDIEM`, `../games/DS1`,
-  `../games/CAPZINS`), and that default is only passed on when the data is
+  `../games/CAPZINS`, `../games/BIFI2`), and that default is only passed on when the data is
   really there — so `just check` is green on a machine with no copy of a
   game, with that game's data-dependent tests skipping. A path you name
   yourself is always passed on, so a typo panics instead of quietly skipping
@@ -112,7 +115,7 @@ from a run that passes everything, so a mistyped path would otherwise report
 green without executing a line.
 
 **Running.** `just run ds2`, and the same for `checker`, `enviro`, `jeffjet`,
-`hfa`, `vloomes`, `eddiem`, `ds1` and `capzins`. The slug is required: no game is the one you
+`hfa`, `vloomes`, `eddiem`, `ds1`, `capzins` and `bifi2`. The slug is required: no game is the one you
 get for saying `just run`. This builds in release mode, and that is not
 optional ceremony: the frontend is a software renderer that walks every
 physical window pixel on the CPU, and at opt-level 0 the result is a
@@ -483,7 +486,7 @@ PARSEC has one generation, `parsec1994`, so its rule has two kinds rather
 than three: with one generation read, there is no level above it whose
 claims would have to hold for another. What belongs to **the game** is
 code under `titles/<slug>/` in `motionvm-parsec-engine` — `titles/ds1/`,
-`titles/capzins/` — its build in
+`titles/capzins/`, `titles/bifi2/` — its build in
 `build.rs` (the values of every map the generation reads, the file names,
 the kinds of its location table, which logic each row has), where its
 program keeps a fresh game's start and the status-line templates, a module
@@ -821,8 +824,9 @@ should know.
   test's doc comment carries it.
 - **Every test file documents what it verifies and against which evidence** —
   the same evidence discipline as the code.
-- **Fixtures come from your own game install**, located through the
-  family's testutil crate, never checked in. Remember the rule from setup:
+- **Game data comes from your own game install**, located through the
+  family's testutil crate, never checked in; what a test checks in is a
+  measurement, not the game's pictures (see [License](#license)). Remember the rule from setup:
   missing data skips loudly, a wrong path panics.
 - **A test that needs a game's files says which game.** It asks
   `motionvm-motion-testutil` for that game — `gamedata_ds2()`,
@@ -988,5 +992,8 @@ a tag.
 
 motionvm is MIT-licensed; contributions are accepted under the same license.
 `NOTICE` records third-party obligations. The game's data files are
-copyrighted and must never enter the repository — that includes captures,
-screenshots, and any fixture derived from them.
+copyrighted and must never enter the repository, and neither may their
+pictures: no captures, no screenshots, no frames or sets of them taken from
+a game. What a test may carry is what it measures — a table of numbers an
+original routine produced, a digest, a small excerpt a check needs — kept
+to the size the check needs.

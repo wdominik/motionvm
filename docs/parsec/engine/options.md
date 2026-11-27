@@ -31,9 +31,11 @@ byte `n` and its mirror `9FFFh − n` from the back buffer to the screen,
 `[1C82h]` has counted a hundred hundredths (`0x120CE`), and then the whole
 picture. How many draws that is depends on how fast the machine runs the
 loop and is not in the program: on DOSBox-X with `core = normal` and
-`cycles = fixed 25000` it is 158 213, measured on the generator's seed
-before and after the loop. Keys typed during the dissolve are flushed
-(`0x12106`).
+`cycles = fixed 25000`, the game started through its batch file, it is
+158 215, measured on the generator's seed before and after the loop —
+158 282 in Captain Zins and 158 808 in Bi-Fi 2, measured the same way
+([departures](../departures.md)). Keys
+typed during the dissolve are flushed (`0x12106`).
 
 Each pass of the loop then polls the input once, follows the pointer and
 takes at most one event (`0x1210B`–`0x125D4`): the row left is redrawn in

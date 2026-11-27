@@ -45,6 +45,7 @@
 use crate::num;
 use crate::titles::panel::Panel;
 
+use super::profile::{ObjectState, SecondWanted};
 use super::{Adventure, Api, Event, KEY_ESCAPE, Opened};
 
 /// `[28BBh]`/`[28BDh]`: which far routine the machine asks.
@@ -60,6 +61,10 @@ pub(crate) enum Gate {
     /// The game options', installed by the sixth verb's rule and by
     /// Escape.
     Options,
+    /// A far routine of the program's own, `(segment, offset)`: a
+    /// location's, which the title's logic answers
+    /// ([`super::logic::LogicTable::gate`]).
+    Own(u16, u16),
 }
 
 /// Where a build links the three routines a [`Gate`] names, as the far
@@ -68,8 +73,9 @@ pub(crate) enum Gate {
 pub(crate) struct GateMap {
     /// [`Gate::ScriptExit`].
     pub script_exit: (u16, u16),
-    /// [`Gate::Door`].
-    pub door: (u16, u16),
+    /// [`Gate::Door`]; `None` for a build whose door gate is its own code,
+    /// which its logic answers as [`Gate::Own`].
+    pub door: Option<(u16, u16)>,
     /// [`Gate::Options`].
     pub options: (u16, u16),
 }
@@ -80,8 +86,9 @@ impl GateMap {
         match gate {
             Gate::None => (0, 0),
             Gate::ScriptExit => self.script_exit,
-            Gate::Door => self.door,
+            Gate::Door => self.door.unwrap_or((0, 0)),
             Gate::Options => self.options,
+            Gate::Own(seg, off) => (seg, off),
         }
     }
 
@@ -93,6 +100,7 @@ impl GateMap {
         }
         [Gate::ScriptExit, Gate::Door, Gate::Options]
             .into_iter()
+            .filter(|&g| g != Gate::Door || self.door.is_some())
             .find(|&g| self.far(g) == far)
     }
 }
@@ -191,7 +199,8 @@ impl Adventure {
     /// (`0x0F50E`), with nothing busy (`0x0F515`) is an arrival (`0x0F519`,
     /// the near call to `087Fh`). Mode 7 becomes 8 (`0x0F51E`). In mode 8 what
     /// is waited for in `[289Bh]` is looked at (`0x0F526`), then the gate is
-    /// asked with 0 (`0x0F567`), the status age set to `0Ah` (`0x0F56D`), and
+    /// asked with 0 (`0x0F567`), the status age set to `0Ah` (`0x0F56D`) in
+    /// a build whose step sets it ([`super::profile::Profile::mode_step_ages_status`]), and
     /// the door that was come through, `[1EDEh]`, looked at (`0x0F573`).
     fn mode_step(&mut self, busy: i16) {
         match self.mode {
@@ -215,7 +224,9 @@ impl Adventure {
                         // when the menu closes.
                         return;
                     }
-                    self.status_refresh_age = 0x0A;
+                    if self.profile.mode_step_ages_status {
+                        self.status_refresh_age = 0x0A;
+                    }
                 }
             }
             _ => {}
@@ -357,31 +368,31 @@ impl Adventure {
     /// taken again.
     pub(super) fn ask_gate(&mut self, arg: i16) -> i16 {
         let mut answer = 1;
-        if self.mode >= 4 && self.gate == Gate::None {
-            // A far routine in `[28BBh]` that is none of the engine's.
-            let m = self.ds_map;
-            let off = self.ds_word(m.gate);
-            let seg = self.ds_word(m.gate.wrapping_add(2));
-            if (seg, off) != (0, 0) {
-                self.events.push(Event::Unbuilt(
-                    "gate",
-                    (u32::from(seg) << 16) | u32::from(off),
-                ));
-            }
-        }
         if self.mode >= 4 && self.gate != Gate::None {
             answer = match self.gate {
                 Gate::None => 1,
+                Gate::Own(seg, off) => {
+                    let table = self.logic_table;
+                    match table.and_then(|t| (t.gate)(self, (seg, off), arg)) {
+                        Some(a) => a,
+                        None => {
+                            // A routine of the program's own no logic has.
+                            self.events.push(Event::Unbuilt(
+                                "gate",
+                                (u32::from(seg) << 16) | u32::from(off),
+                            ));
+                            1
+                        }
+                    }
+                }
                 Gate::ScriptExit => self.gate_script_exit(arg),
                 Gate::Door => self.gate_door(arg),
-                Gate::Options => {
-                    if self.gate_options(arg) {
-                        // The menu is up and the rest of this call runs
-                        // when it closes (`Adventure::options_gate_close`).
-                        return 1;
-                    }
-                    0
-                }
+                Gate::Options => match self.gate_options(arg) {
+                    // The menu is up and the rest of this call runs when it
+                    // closes (`Adventure::options_gate_close`).
+                    None => return 1,
+                    Some(answer) => answer,
+                },
             };
         }
         if answer != 0 {
@@ -430,8 +441,9 @@ impl Adventure {
         if arg != 0 {
             return 0;
         }
-        self.verb_chosen = 0x0A;
-        self.verb = 0x0A;
+        let walk = self.ds_map.walk_verb;
+        self.verb_chosen = u16::from(walk);
+        self.verb = walk;
         self.mode = 4;
         self.bits |= WALK;
         let object = num::signed(self.object1);
@@ -461,7 +473,7 @@ impl Adventure {
         }
         self.input_locked();
         self.hover_forgotten();
-        self.verb = 0x0A;
+        self.verb = self.ds_map.walk_verb;
         let object = num::signed(self.object1);
         if self.walk_target < TWIN && self.walk_to_object(object + TWIN, -1) > 0 {
             self.walk_target = object + TWIN;
@@ -544,6 +556,15 @@ impl Adventure {
                         if flags & 1 == 0 && r.verb != verb && r.verb != 0 {
                             continue;
                         }
+                        // A rule's second (`0x13E6B`–`0x13E90`): phase 1
+                        // asks neither the verb nor the second (`0x13E58`).
+                        if flags & 1 == 0
+                            && flags & 0x30 != 0
+                            && flags & 0x2000 == 0
+                            && !self.second_matches(r.object2)
+                        {
+                            continue;
+                        }
                         if flags & 0x3000 != 0 {
                             answer = Some(0);
                             break 'lists;
@@ -563,6 +584,17 @@ impl Adventure {
             }
         }
         -1
+    }
+
+    /// A rule's second, `+8`, against the second object chosen and its
+    /// class (`0x13E77`–`0x13E90`; *Captain Zins*'s `0x0F2C7`, *Bi-Fi 2*'s
+    /// `0x0E577`): the object itself, its class stored complemented, 0 or
+    /// `FFFFh` match. For a phase with `10h` or `20h` and without `2000h`
+    /// a rule whose second matches none of them is passed over.
+    fn second_matches(&self, second: i16) -> bool {
+        let (id, class) = self.second_object;
+        let s = num::unsigned(second);
+        s == id || !s == class || s == 0 || s == 0xFFFF
     }
 
     /// The handler a rule names, by its far address. Which routine an
@@ -602,7 +634,8 @@ impl Adventure {
     /// (`0x10374`); an item, `0 < id <` the items' end, by its name row
     /// (`0x10395`). Found, it is the first object with the two-object flag
     /// 3 (`0x103AE`); not found, nothing is (`0x103BB`). Either way the
-    /// machine goes to mode 7 with verb 2, the walk bit cleared, bit `10h`
+    /// machine goes to mode 7 with verb 2 (the build's own,
+    /// [`super::profile::Interaction`]; *Bi-Fi 2*'s 3), the walk bit cleared, bit `10h`
     /// set among the wait bits and the status line asked for at once
     /// (`0x103D8`–`0x103EF`). Then, for any id, the figure walks to it
     /// (`0A9Fh:0617h`, `0x103FD`), which is put on record when it starts
@@ -611,7 +644,7 @@ impl Adventure {
         let sid = num::signed(id);
         if sid < 0x100 {
             let mut found = 0u16;
-            if sid >= num::signed(self.items_end()) {
+            if sid >= num::signed(self.profile.interaction.items_end) {
                 let spot = self.room().map(|r| {
                     r.hotspots
                         .spots
@@ -638,7 +671,7 @@ impl Adventure {
                 self.object1 = 0;
             }
             self.mode = 7;
-            self.verb = 2;
+            self.verb = num::low8(self.profile.interaction.verb);
             self.bits = (self.bits & 0xFE0F) | 0x10;
             self.status_refresh_age = 1;
         }
@@ -822,10 +855,15 @@ impl Adventure {
         }
     }
 
-    /// `0EB9h:0776h`: a verb that wants a second object — 5 and 9 — puts
-    /// the machine into mode 3 and clears the second (`0x0F313`).
+    /// `0EB9h:0776h`: an object that wants a second puts the machine into
+    /// mode 3 and clears the second (`0x0F313`). What wants one is the
+    /// build's ([`SecondWanted`]): in *Dunkle Schatten* a verb 5 or 9.
     fn two_object_verb(&mut self) -> bool {
-        if !matches!(self.verb, 5 | 9) {
+        let wants = match self.profile.second_wanted {
+            SecondWanted::Verbs => matches!(self.verb, 5 | 9),
+            SecondWanted::Rules => self.second_wanted_by_rules(),
+        };
+        if !wants {
             return false;
         }
         self.mode = 3;
@@ -834,6 +872,33 @@ impl Adventure {
         self.second_object = (0, 0);
         self.second_spot = None;
         self.status_refresh_age = 1;
+        true
+    }
+
+    /// *Bi-Fi 2*'s `09B6h:0768h`: the rules with phase 8 (`0x0A2CB`). An
+    /// answer of 0 takes the verb one on (`0x0A2D8`, `0x0A308`); −1 or 2,
+    /// with verb 4, probes for a verb-5 rule with phase `2030h`, the verb
+    /// put back to 4 after it (`0x0A2E1`–`0x0A2FE`), and one found takes the
+    /// verb one on too; −1 or 2 with any other verb, or nothing found, wants
+    /// none (`0x0A34B`). Any other answer wants a second with the verb as it
+    /// is (`0x0A30C`).
+    fn second_wanted_by_rules(&mut self) -> bool {
+        match self.rule_search(8) {
+            -1 | 2 => {
+                if self.verb != 4 {
+                    return false;
+                }
+                self.verb = 5;
+                let found = self.rule_search(0x2030) == 0;
+                self.verb = 4;
+                if !found {
+                    return false;
+                }
+                self.verb += 1;
+            }
+            0 => self.verb += 1,
+            _ => {}
+        }
         true
     }
 
@@ -1114,9 +1179,10 @@ impl Adventure {
         let Some(o) = self.object_index(id).and_then(|i| self.objects.get(i)) else {
             return true;
         };
-        match o.kind {
-            1 | 2 => o.flags & 1 == 1,
-            4 => (o.flags & 3 == 1) == self.profile.kind4_live_when_mode_one,
+        match (self.profile.object_state, o.kind) {
+            (ObjectState::Modes { .. }, 1 | 2) => o.flags & 1 == 1,
+            (ObjectState::Modes { when_mode_one }, 4) => (o.flags & 3 == 1) == when_mode_one,
+            (ObjectState::Bit1, 4) => o.flags & 2 != 0,
             _ => true,
         }
     }
@@ -1219,30 +1285,59 @@ impl Adventure {
     /// input is let go (`0EB9h:18A4h`, `0x0F045`), and the answer is 1
     /// (`0x0F048`).
     ///
-    /// Answers whether the menu is up; what follows the call runs at its
-    /// close, [`Adventure::options_gate_close`].
-    fn gate_options(&mut self, arg: i16) -> bool {
+    /// A build whose gate tests a wait bit first
+    /// ([`super::profile::OptionsGate::held`]) opens no menu while it is
+    /// set: in its one location the gate goes on as after the menu, without
+    /// one, and answers 1; anywhere else it plays a scene, waits for the
+    /// tasks, lets the gate and the input go and answers 0 (*Bi-Fi 2*'s
+    /// `0x09FDA`–`0x0A025`).
+    ///
+    /// Answers `None` while the menu is up — what follows the call runs at
+    /// its close, [`Adventure::options_gate_close`] — else the gate's
+    /// answer.
+    fn gate_options(&mut self, arg: i16) -> Option<i16> {
         if arg != 0 {
-            return false;
+            return Some(0);
         }
         self.task_stop(0);
+        if let Some(h) = self.profile.options_gate.held
+            && self.bits & h.bit != 0
+        {
+            if self.here_word == h.silent_at {
+                // 0x0A016–0x0A025: the machine reset and, staying, the
+                // input let go; the answer 1, no menu and no ticks dropped.
+                self.mode_reset();
+                if self.entry_word == 0 {
+                    self.input_unlocked();
+                }
+                return Some(1);
+            }
+            self.scene_load(h.scene);
+            self.bits = (self.bits & KEEP) | h.wait;
+            self.gate_clear();
+            self.input_unlocked();
+            return Some(0);
+        }
         if self.options_map.is_none() {
             self.events.push(Event::Unbuilt("11A0h:0451h", 0));
-            return false;
+            return Some(0);
         }
         self.options_open(Opened::Gate);
-        true
+        None
     }
 
     /// The rest of the gate once the menu has closed, and the rest of the
     /// `0EB9h:0654h` that asked it, in the original's order: the machine
     /// reset, `[1C76h]` zero, the input let go when no exit was asked for;
     /// then the answer 1's clearing up (`0x0F209`); then the step's
-    /// `[28C3h] = 0Ah` (`0x0F56D`).
+    /// `[28C3h] = 0Ah` (`0x0F56D`), in a build whose step sets it.
     pub(crate) fn options_gate_close(&mut self) {
         self.mode_reset();
-        // `0x0F036`: the ticks the menu was up for are dropped.
-        self.clock.ticks = 0;
+        // `0x0F036`: the ticks the menu was up for are dropped — in a build
+        // whose gate drops them.
+        if self.profile.options_gate.drops_ticks {
+            self.clock.ticks = 0;
+        }
         if self.entry_word == 0 {
             self.input_unlocked();
         }
@@ -1250,7 +1345,9 @@ impl Adventure {
         self.gate_clear();
         self.pointer_resync();
         self.mode_reset();
-        self.status_refresh_age = 0x0A;
+        if self.profile.mode_step_ages_status {
+            self.status_refresh_age = 0x0A;
+        }
     }
 
     /// A key, as the dispatcher's head and its event table take it.
@@ -1280,7 +1377,8 @@ impl Adventure {
     /// `0EB9h:1190h` (`0x0FD20`): Escape puts the options' gate up.
     ///
     /// The gate in place is asked with 1 (`0x0FD20`) and the input locked
-    /// (`0EB9h:188Ah`, `0x0FD2F`). Then the verb is 6 (`0x0FD32`), the gate
+    /// (`0EB9h:188Ah`, `0x0FD2F`). Then the verb is the build's — 6
+    /// (`0x0FD32`), Bi-Fi 2's 0Eh — the gate
     /// `0EB9h:0489h` (`0x0FD38`, `0x0FD3E`), the status age 3 (`0x0FD44`), the
     /// wait bits clear, `[289Bh]` masked with `FE0Fh` (`0x0FD4A`), and the mode
     /// 7 (`0x0FD50`); with the figure walking, `[16BBh]` not `FFFFh`
@@ -1290,7 +1388,7 @@ impl Adventure {
             return;
         }
         self.input_locked();
-        self.verb = 6;
+        self.verb = self.profile.escape_verb;
         self.gate = Gate::Options;
         self.status_refresh_age = 3;
         self.bits &= KEEP;
@@ -1298,5 +1396,42 @@ impl Adventure {
         if self.player_node_id() == -1 {
             self.bits |= WAIT_FIGURE;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::titles::parsec1994::Event;
+
+    /// The first handler the rule search asks, for verb 5 with the
+    /// object and second given, at a location of *Dunkle Schatten*:
+    /// without the title's logic every handler is told as unread.
+    fn first_asked(loc: i32, object: u16, second: u16) -> Option<(u16, u16)> {
+        let mut adv = crate::titles::ds1::adventure_for_test()?;
+        adv.logic_table = None;
+        adv.loc = loc;
+        adv.verb = 5;
+        adv.object1 = object;
+        adv.object2 = 0;
+        adv.second_object = (second, 0);
+        adv.events.clear();
+        let _ = adv.rule_search(0x20);
+        adv.events.iter().find_map(|e| match e {
+            Event::UnreadRule { far, .. } => Some(*far),
+            _ => None,
+        })
+    }
+
+    /// A two-object rule answers only for its own second
+    /// (`0x13E6B`–`0x13E90`): location 21's row for object 4 names the
+    /// second 10 and handler `03D2h:005Ah`; with another second the row
+    /// is passed over.
+    #[test]
+    fn a_two_object_rule_answers_for_its_own_second() {
+        let Some(with_its_own) = first_asked(21, 4, 10) else {
+            return;
+        };
+        assert_eq!(with_its_own, (0x03D2, 0x005A));
+        assert_ne!(first_asked(21, 4, 11), Some((0x03D2, 0x005A)));
     }
 }

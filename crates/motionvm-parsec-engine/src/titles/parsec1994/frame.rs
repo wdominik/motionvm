@@ -42,9 +42,10 @@ impl Adventure {
     /// Nothing is pending while the age `[28C3h]` is 0 (`0x101D5`), and the
     /// line is held while `[289Bh]` has bit 0 or 2 set — a walk for the
     /// machine, or a line a script set (`0x101DC`). Otherwise the age goes
-    /// up by one frame (`0x101E7`), and once it was above 3 (`0x101EB`) the
-    /// composer at `0x10051` runs (`0x101F0`), which ends by clearing the
-    /// age (`0x101B3`).
+    /// up by one frame (`0x101E7`), and once it was above 3 (`0x101EB`;
+    /// in a build of its own [`super::Profile::status_after`]) the composer
+    /// at `0x10051` runs (`0x101F0`), which ends by clearing the age
+    /// (`0x101B3`).
     ///
     /// This is the composer's only caller, and the line it sets holds
     /// until the next composition: the painter draws the buffer every
@@ -55,7 +56,7 @@ impl Adventure {
             return;
         }
         self.status_refresh_age = age.wrapping_add(1);
-        if num::signed(age) > 3 {
+        if num::signed(age) > self.profile.status_after {
             self.status_line = self.status_bytes();
             self.status_refresh_age = 0;
         }
@@ -111,6 +112,8 @@ impl Adventure {
         }
         self.panel_frame();
         self.frame_tasks();
+        // The drawer's calls of the record hook (`0BB6h:027Ah`).
+        self.custom_draw_pass();
         // `10B8:0009` (0x0ED8C): the picture presented — what the screen
         // holds when an effect starts drawing over it.
         self.presented = self.render_live();

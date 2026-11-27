@@ -16,6 +16,7 @@ use motionvm_render::{Frame, Framebuffer};
 
 use crate::draw::{DISPLAY_H, DISPLAY_W};
 use crate::music_sink::MusicSink;
+use crate::titles::bifi2::BiFi2;
 use crate::titles::capzins::CaptainZins;
 use crate::titles::ds1::DunkleSchatten;
 use crate::titles::{Runtime as Program, Start};
@@ -42,6 +43,7 @@ fn build_of(title: Title) -> &'static crate::titles::parsec1994::program::Build 
     match title {
         Title::DunkleSchatten => &crate::titles::ds1::build::BUILD,
         Title::CaptainZins => &crate::titles::capzins::build::BUILD,
+        Title::BiFi2 => &crate::titles::bifi2::build::BUILD,
     }
 }
 
@@ -67,7 +69,7 @@ pub fn missing_data(dir: &Path) -> Vec<(&'static str, &'static str)> {
     let Some(title) = detect::identify(dir) else {
         return vec![(
             "a PARSEC game",
-            "XP00.EXE / XP01.EXE and RESOURCE/*.DAT (DSROOM.DAT or CZROOM.DAT)",
+            "XP00.EXE / XP01.EXE and RESOURCE/*.DAT (DSROOM.DAT, CZROOM.DAT or BFROOM.DAT)",
         )];
     };
     let res = detect::resource_dir(dir);
@@ -154,6 +156,7 @@ impl Game {
         let inner: Box<dyn Program> = match title {
             Title::DunkleSchatten => Box::new(DunkleSchatten::open(dir)?),
             Title::CaptainZins => Box::new(CaptainZins::open(dir)?),
+            Title::BiFi2 => Box::new(BiFi2::open(dir)?),
         };
         Ok(Game {
             inner,

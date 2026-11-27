@@ -10,8 +10,8 @@
 //! byte with Dunkle Schatten's and 94 more but for their addresses. What
 //! that library does is here: the machine the program runs on ([`Lib`]:
 //! the screen, the DAC, the clock, the pointer, the poll), the fades, the
-//! intro both programs play ([`intro`]), the menu routine both are built
-//! around ([`menu`]) and the roll of credits ([`roll`]); what the program
+//! intro every title program plays ([`intro`]), the menu routine each is
+//! built around ([`menu`]) and the roll of credits ([`roll`]); what the program
 //! around them does is the title's (`titles/<title>/xp00.rs`), and how a
 //! title program hands over to `XP01` is [`host`].
 //!
@@ -39,6 +39,7 @@
 //! Every one of them is a no-op without a sound card, and the pictures and
 //! timing do not depend on them.
 
+pub(crate) mod anim;
 pub(crate) mod host;
 pub(crate) mod intro;
 pub(crate) mod menu;
@@ -202,7 +203,9 @@ pub(crate) struct Common {
     pub pointer: Picture,
     pub font: Font,
     /// The pointer's limits and where it starts, at `DS:019Eh` and
-    /// `DS:027Ah` in both programs (`XP01` `DS:030Ah`, `DS:03E6h`).
+    /// `DS:027Ah` in Dunkle Schatten's and Captain Zins's title programs,
+    /// `DS:0194h` and `DS:0270h` in Bi-Fi 2's (`XP01` `DS:030Ah`,
+    /// `DS:03E6h`).
     pub limits: [i32; 4],
     pub start: (i32, i32),
     /// The pointer library's keyboard, for a program whose library takes
@@ -216,23 +219,23 @@ pub(crate) struct Common {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TitleKeys {
     pub map: KeyMap,
-    /// `[1A8h]` in both programs, `XP01`'s `[314h]`.
+    /// `[1A8h]` in Dunkle Schatten's and Captain Zins's programs, `XP01`'s
+    /// `[314h]`.
     pub interval: u16,
+    /// Where the program keeps the pointer's four limits and its position.
+    pub limits: usize,
+    pub position: usize,
 }
-
-/// `DS:019Eh`: the pointer's four limits; `DS:027Ah`: its position.
-const LIMITS: usize = 0x019E;
-const POSITION: usize = 0x027A;
 /// `CMBMOU.DAT`'s bank, pointer and font.
 const BANK_RES: usize = 0;
 const POINTER_RES: usize = 1;
 const FONT_RES: usize = 15;
 
 impl Common {
-    /// A title program's: its limits and position where both programs
-    /// keep them.
+    /// A title program's: its limits and position where [`TitleKeys`] names
+    /// them.
     pub(crate) fn read(image: &Image, res: &Path, keys: TitleKeys) -> Result<Self> {
-        let mut common = Common::read_at(image, res, LIMITS, POSITION)?;
+        let mut common = Common::read_at(image, res, keys.limits, keys.position)?;
         let ds = image
             .bytes()
             .get(image.at(0)..)

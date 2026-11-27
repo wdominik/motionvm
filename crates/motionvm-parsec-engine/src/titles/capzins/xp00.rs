@@ -44,7 +44,7 @@ use crate::titles::parsec1994::Request;
 use crate::titles::parsec1994::title::host::TitleProgram;
 use crate::titles::parsec1994::title::intro::{Intro, Rect, copy_rect};
 use crate::titles::parsec1994::title::menu::{MUSIC_FADE, Menu, MenuSpec};
-use crate::titles::parsec1994::title::roll::{Roll, RollSpec};
+use crate::titles::parsec1994::title::roll::{CMBMOU_INKS, Roll, RollSpec, STAR_50};
 use crate::titles::parsec1994::title::{
     Choice, Common, Event, FULL, Fade, Faded, KEY_ESCAPE, Lib, Pal, Slots, Step, TitleKeys,
     fade_stage, picture_fb,
@@ -88,6 +88,8 @@ const WIN: Rect = Rect {
 const ROLL: RollSpec = RollSpec {
     start: 0xA1,
     advance: [0x0E, 0x10, 0x14],
+    star: STAR_50,
+    inks: CMBMOU_INKS,
     window: WIN,
 };
 /// `0x42C8`–`0x42DF`: a line a step each three hundredths.
@@ -241,6 +243,9 @@ const KEYS: TitleKeys = TitleKeys {
     },
     // `0x0CAF`: `push word [1A8h]`, the interval the slot is registered with.
     interval: 0x01A8,
+    // `DS:019Eh`: the pointer's four limits; `DS:027Ah`: its position.
+    limits: 0x019E,
+    position: 0x027A,
 };
 
 impl Xp00 {
@@ -294,10 +299,16 @@ impl Xp00 {
                 y: i32::from(menu_y),
                 row: MENU_ROW,
                 grey: MENU_GREY,
-                song: MENU_SONG,
+                song: Some(MENU_SONG),
                 step: MENU_STEP,
                 wait_dim: Some((MENU_WAIT, MENU_DIM)),
                 escape: MENU_ESCAPE,
+                inks: crate::titles::parsec1994::title::menu::INKS,
+                box_up: 0,
+                box_taller: 0,
+                out_step: crate::titles::parsec1994::title::menu::OUT_STEP,
+                blank: true,
+                afresh_after_lines: false,
             },
             intros.picture(MENU_PIC)?,
             menu_pal,
@@ -390,7 +401,7 @@ impl Xp00 {
                 // As the roll's: the clock set to 0 the moment the last
                 // wait ended, so a frame is ten hundredths to the count.
                 if let Some(d) = self.frames.get(k) {
-                    apply_delta(&mut self.lib.screen, d);
+                    crate::titles::parsec1994::title::anim::apply_delta(&mut self.lib.screen, d);
                     let since = if k == 0 { since } else { since + ANIM_FRAME };
                     self.stage = Stage::AnimFrame { k: k + 1, since };
                     Step::Yield
@@ -776,33 +787,6 @@ fn read_boxes(image: &Image) -> Result<[PageBox; 3]> {
         };
     }
     Ok(boxes)
-}
-
-/// `0221h:00A0h` (`0x22B0`): a frame's deltas onto the screen. After the
-/// width and height (unused), the offset on the screen and the count of
-/// runs; each run a byte to go on by after it and a byte of how many to
-/// copy (`lodsw`, `xchg ah, cl`), then those bytes.
-fn apply_delta(screen: &mut Framebuffer, d: &[u8]) {
-    let word = |at: usize| {
-        d.get(at..at + 2)
-            .map_or(0, |w| u16::from_le_bytes([w[0], w[1]]))
-    };
-    let mut di = usize::from(word(4));
-    let runs = word(6);
-    let mut si = 8;
-    for _ in 0..runs {
-        let (Some(&skip), Some(&count)) = (d.get(si), d.get(si + 1)) else {
-            return;
-        };
-        si += 2;
-        let n = usize::from(count);
-        let (Some(src), Some(dst)) = (d.get(si..si + n), screen.pixels.get_mut(di..di + n)) else {
-            return;
-        };
-        dst.copy_from_slice(src);
-        si += n;
-        di += n + usize::from(skip);
-    }
 }
 
 /// `0323h:000Ch` (`0x323C`): a line a character at a time, 6 pixels on

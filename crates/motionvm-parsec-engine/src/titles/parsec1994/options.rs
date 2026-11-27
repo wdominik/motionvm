@@ -51,6 +51,19 @@ pub(crate) struct OptionsMap {
     pub save: SaveMap,
     /// The menu's text inks, each where its routine sets it.
     pub inks: OptionInks,
+    /// Where the menu's draw pushes its two grounds, the playfield's and
+    /// the middle band's: image offsets of `push imm` (`6A ground` or `68
+    /// ground 00`), each before the rest of its fill's arguments.
+    pub grounds: [usize; 2],
+    /// Where the confirmation's build pushes its inks, the same way: the
+    /// outer frame, the inner one, and the frame around the answer under
+    /// the pointer.
+    pub box_inks: [usize; 3],
+    /// Whether the open has the status painter paint the band and the
+    /// strip before it holds them, so that the picture the menu is drawn
+    /// over shows them as they stood; a build that holds them first
+    /// presents them held.
+    pub paint_before_hold: bool,
 }
 
 /// Where the menu's routines set their text inks: image offsets of
@@ -70,10 +83,6 @@ pub(crate) struct OptionInks {
     pub hover: usize,
 }
 
-/// The menu's own grounds, immediates of the routines; its inks are the
-/// build's ([`OptionInks`]).
-const BACK_TOP: u8 = 0xC1; // 0x11A1E
-const BACK_MID: u8 = 0xC0; // 0x11A33
 /// The playfield's extent the menu covers (`0x11A0C`, `push 80h ; push
 /// 140h`).
 const W: i32 = 320;
@@ -96,9 +105,6 @@ const FADE_SPAN: u16 = 0x5000;
 const BOX_H: i32 = 60;
 const BOX_ROW: i32 = 20;
 const BOX_PAD: i32 = 16;
-const BOX_OUTER: u8 = 0xFE; // 0x11C46
-const BOX_INNER: u8 = 0xFF; // 0x11C6C
-const BOX_FRAME: u8 = 0xEE; // 0x11D23
 
 /// The input event `[184Eh]` the loop takes: `-1` a key with its mapped
 /// code in `[1852h]`, `5`/`6`/`7` a button (`cs:0C86h`, `cs:043Fh`: all
@@ -209,6 +215,23 @@ impl Adventure {
         self.image.bytes().get(at).copied().unwrap_or(0)
     }
 
+    /// What a `push imm8` or a `push imm16` of a byte pushes: the byte
+    /// after its opcode.
+    fn pushed(&self, at: usize) -> u8 {
+        self.image.bytes().get(at + 1).copied().unwrap_or(0)
+    }
+
+    /// One of the menu's grounds, as the build's draw pushes it
+    /// ([`OptionsMap::grounds`]).
+    fn option_ground(&self, which: usize) -> u8 {
+        self.pushed(self.omap().grounds[which])
+    }
+
+    /// One of the confirmation's inks ([`OptionsMap::box_inks`]).
+    fn box_ink(&self, which: usize) -> u8 {
+        self.pushed(self.omap().box_inks[which])
+    }
+
     fn omap(&self) -> OptionsMap {
         self.options_map
             .expect("a title opens the options without its OptionsMap")
@@ -300,8 +323,8 @@ impl Adventure {
     fn option_draw(&self, fb: &mut Framebuffer) {
         // 0x11A16: the playfield flattened first, then covered whole.
         Caption::flatten_rect(fb, 0, 0, W, H, self.flatten);
-        crate::draw::fill_rect(fb, 0, 0, W, H, BACK_TOP);
-        crate::draw::fill_rect(fb, 0, MID_Y, W, MID_H, BACK_MID);
+        crate::draw::fill_rect(fb, 0, 0, W, H, self.option_ground(0));
+        crate::draw::fill_rect(fb, 0, MID_Y, W, MID_H, self.option_ground(1));
         let title = self.far_text(Far {
             off: self.omap().title,
             seg: self.dgroup,
@@ -334,17 +357,31 @@ impl Adventure {
         // 0x11E57, 0x11E5C: the pointer off, the gray ramp again.
         self.pointer_off();
         self.gray_ramp();
+        // Bi-Fi 2's `0x0CA3C`: the status painter `0751h:0067h` before
+        // the hold (`0751h:05D6h(2)`, `0x0CA43`), which freezes it
+        // (`or [586h], si`, `0x07B01`; the painter returns at once while
+        // `[586h]` is set, `0x0757C`): the band and the strip stay as it
+        // painted them, not held dark.
+        let painted = m.paint_before_hold.then(|| self.render_scene());
         // 0x11EAE–0x11EBB: the band held dark and the strip frozen.
         self.panel_tint(2);
         self.panel_dim(2);
         // 0x11ED3: the back buffer's playfield flattened, and all of it
         // presented (`1BBDh:1FC4h`, then `10B8h:0009h`).
-        let mut surface = self.render_scene();
+        let mut surface = painted.unwrap_or_else(|| self.render_scene());
         Caption::flatten_rect(&mut surface, 0, 0, W, H, self.flatten);
         let screen = surface.clone();
         // 0x11EE9: the menu's two colors.
         let rgb: Vec<u8> = (0..6).map(|i| self.byte(m.colors.0 + i)).collect();
         self.dac.load(m.colors.1, &rgb);
+        // Bi-Fi 2 loads them through the palette loader (`push ds ; push
+        // 152Ah ; call far 0104h:090Eh`, `0x0CA6D`–`0x0CA71`), which loads
+        // the shade's darker copy 80h on too: what the confirmation's box
+        // darkens the menu to (`0x0C809`). A build with a flattening table
+        // has no copy.
+        if let Some((at, dark)) = self.flatten.mirror(m.colors.1, &rgb) {
+            self.dac.load(at, &dark);
+        }
         // 0x11EF1–0x11F3D: the indices taken from the settings. The music
         // row's is not: nothing but the row itself writes it.
         let save = self.omap().save;
@@ -630,9 +667,23 @@ impl Adventure {
         let y0 = (H - BOX_H) >> 1;
         // 0x11C3E: the menu behind flattened, then the box.
         Caption::flatten_rect(&mut o.surface, 0, 0, W, H, self.flatten);
-        crate::draw::fill_rect(&mut o.surface, x0 - 2, y0 - 2, w + 4, BOX_H + 4, BOX_OUTER);
-        crate::draw::fill_rect(&mut o.surface, x0 - 1, y0 - 1, w + 2, BOX_H + 2, BOX_INNER);
-        crate::draw::fill_rect(&mut o.surface, x0, y0, w, BOX_ROW, BACK_TOP);
+        crate::draw::fill_rect(
+            &mut o.surface,
+            x0 - 2,
+            y0 - 2,
+            w + 4,
+            BOX_H + 4,
+            self.box_ink(0),
+        );
+        crate::draw::fill_rect(
+            &mut o.surface,
+            x0 - 1,
+            y0 - 1,
+            w + 2,
+            BOX_H + 2,
+            self.box_ink(1),
+        );
+        crate::draw::fill_rect(&mut o.surface, x0, y0, w, BOX_ROW, self.option_ground(0));
         self.option_line_mid(
             &mut o.surface,
             &texts[0],
@@ -684,12 +735,13 @@ impl Adventure {
                 c.y0 + BOX_ROW,
                 c.w,
                 2 * BOX_ROW,
-                BACK_MID,
+                self.option_ground(1),
             );
             c.alt = hover;
             if hover > 0 {
                 let fy = c.y0 + 3 + i32::from(hover) * BOX_ROW;
-                crate::draw::text::frame_rect(&mut o.surface, c.x0 + 3, fy, c.w - 6, 14, BOX_FRAME);
+                let ink = self.box_ink(2);
+                crate::draw::text::frame_rect(&mut o.surface, c.x0 + 3, fy, c.w - 6, 14, ink);
             }
             self.option_line_mid(
                 &mut o.surface,

@@ -29,7 +29,7 @@ use crate::titles::parsec1994::Request;
 use crate::titles::parsec1994::title::host::{Ending, Exit};
 use crate::titles::parsec1994::title::intro::{Rect, copy_rect};
 use crate::titles::parsec1994::title::menu::MUSIC_FADE;
-use crate::titles::parsec1994::title::roll::{Roll, RollSpec};
+use crate::titles::parsec1994::title::roll::{CMBMOU_INKS, Roll, RollSpec, STAR_50};
 use crate::titles::parsec1994::title::{
     Fade, Lib, Pal, Slots, Step, fade_stage, far_lines, picture_fb,
 };
@@ -65,6 +65,8 @@ const WINDOW: Rect = Rect {
 const ROLL: RollSpec = RollSpec {
     start: 0xA0,
     advance: [0x0E, 0x0F, 0x10],
+    star: STAR_50,
+    inks: CMBMOU_INKS,
     window: WINDOW,
 };
 /// `0x12E41`: `push 0AD6h`, the credits' lines.

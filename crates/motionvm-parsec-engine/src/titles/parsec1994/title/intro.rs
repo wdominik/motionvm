@@ -7,6 +7,11 @@
 //! With `/FXOFF` on the command line the original shows a plain logo
 //! instead of the wave; no host passes it, so the wave is what plays.
 //! Any event the checks see skips the rest of the intro.
+//!
+//! *Bi-Fi 2*'s intro (`0x3723`–`0x3767`) is two stills through the same
+//! logo routine (`0311h:02C1h`, `0x33D1`, Dunkle Schatten's `0x3631`), slots
+//! 0 and 2, no wave, and its end masks the skip without hiding the pointer
+//! ([`Intro::logos`]).
 
 use motionvm_parsec_formats::{Picture, Rib};
 
@@ -57,13 +62,14 @@ enum Stage {
     /// The intro's own start: the pointer thawed, the keys flushed, the
     /// skip cleared and unmasked (Dunkle Schatten's `0x3700`).
     Begin,
-    /// `0x3631`: a logo, unless the intro is being skipped.
-    Logo,
-    LogoIn(Fade),
+    /// `0x3631`: logo `i`, unless the intro is being skipped.
+    Logo(usize),
+    LogoIn(usize, Fade),
     LogoHold {
+        i: usize,
         since: u64,
     },
-    LogoOut(Fade),
+    LogoOut(usize, Fade),
     /// `0x374B`: the wave, unless the intro is being skipped.
     WaveCheck,
     /// `0x3D62`–`0x3D73`: the logo slides in from the right.
@@ -95,8 +101,12 @@ enum Stage {
 
 /// The intro while it plays.
 pub(crate) struct Intro {
-    logo: Picture,
-    logo_pal: Pal,
+    /// The logos, each a picture and its palette, in the order they play.
+    logos: Vec<(Picture, Pal)>,
+    /// Whether the wave plays after them; without one its parts are empty.
+    has_wave: bool,
+    /// Whether the end hides the pointer (Dunkle Schatten's `0x377F`).
+    end_hides: bool,
     /// The wave slot's resource 0: entry 0 the palette, the rest one
     /// column each (Dunkle Schatten's `0x3BA3`–`0x3BF3`).
     wave_pal: Pal,
@@ -118,6 +128,7 @@ impl Intro {
     pub(crate) fn read(lib: &mut Lib, intros: &Slots, wave_slot: usize) -> Result<Self> {
         let logo = intros.picture(LOGO_SLOT)?;
         let logo_pal = lib.add_palette(intros.palette(LOGO_SLOT + 1)?);
+        let logos = vec![(logo, logo_pal)];
         let wave = intros.resources(wave_slot)?;
         let entries = |blob: &[u8]| -> Result<Vec<Vec<u8>>> {
             let dir = motionvm_parsec_formats::rib::directory(blob, "a wave resource")?
@@ -138,8 +149,9 @@ impl Intro {
             .collect::<Result<Vec<_>>>()?;
         let wave_pal = lib.add_palette(wave_palette.clone());
         Ok(Intro {
-            logo,
-            logo_pal,
+            logos,
+            has_wave: true,
+            end_hides: true,
             wave_pal,
             wave_columns,
             wave_masks,
@@ -154,10 +166,39 @@ impl Intro {
         })
     }
 
-    /// The logo's palette, for a test to compare the DAC with.
+    /// Logos alone, each picture slot with its palette the slot after it,
+    /// and no wave: *Bi-Fi 2*'s `0x3739`–`0x375B` push slots 0 and 2.
+    /// The end masks the skip and leaves the pointer as it is (`0x3761`).
+    pub(crate) fn logos(lib: &mut Lib, intros: &Slots, slots: &[usize]) -> Result<Self> {
+        let mut logos = Vec::with_capacity(slots.len());
+        for &s in slots {
+            let picture = intros.picture(s)?;
+            let pal = lib.add_palette(intros.palette(s + 1)?);
+            logos.push((picture, pal));
+        }
+        let first = logos.first().ok_or("an intro of no logos")?.1;
+        Ok(Intro {
+            logos,
+            has_wave: false,
+            end_hides: false,
+            wave_pal: first,
+            wave_columns: Vec::new(),
+            wave_masks: Vec::new(),
+            stage: Stage::Begin,
+            wave_skip: 0,
+            drawn: Rect {
+                x: 0,
+                y: 0,
+                w: SURFACE_W,
+                h: SURFACE_H,
+            },
+        })
+    }
+
+    /// The first logo's palette, for a test to compare the DAC with.
     #[cfg(test)]
     pub(crate) fn logo_pal(&self) -> Pal {
-        self.logo_pal
+        self.logos[0].1
     }
 
     /// The wave's columns, masks and palette, for a test.
@@ -173,55 +214,63 @@ impl Intro {
                 lib.flush_keys();
                 lib.skip = 0;
                 lib.skip_mask = 0xFFFF;
-                self.stage = Stage::Logo;
+                self.stage = Stage::Logo(0);
                 Step::Next
             }
-            Stage::Logo => {
+            Stage::Logo(i) => {
                 // 0x3639: skipped altogether once the intro is.
-                if lib.check() {
+                let Some(&(_, pal)) = self.logos.get(i) else {
                     self.stage = Stage::WaveCheck;
+                    return Step::Next;
+                };
+                if lib.check() {
+                    self.stage = Stage::Logo(i + 1);
                     return Step::Next;
                 }
                 // 0x35C4: the picture, then 0x35F1: the fade in.
-                draw::blit_masked(&mut lib.screen, &self.logo, 0, 0, None);
-                self.stage = Stage::LogoIn(Fade::full(self.logo_pal, LOGO_STEP));
+                draw::blit_masked(&mut lib.screen, &self.logos[i].0, 0, 0, None);
+                self.stage = Stage::LogoIn(i, Fade::full(pal, LOGO_STEP));
                 Step::Next
             }
-            Stage::LogoIn(f) => match lib.fade(f) {
+            Stage::LogoIn(i, f) => match lib.fade(f) {
                 Faded::Yield => Step::Yield,
                 Faded::On(f) => {
-                    self.stage = Stage::LogoIn(f);
+                    self.stage = Stage::LogoIn(i, f);
                     Step::Next
                 }
                 Faded::Done => {
-                    self.stage = Stage::LogoHold { since: lib.now() };
+                    self.stage = Stage::LogoHold {
+                        i,
+                        since: lib.now(),
+                    };
                     Step::Next
                 }
             },
-            Stage::LogoHold { since } => {
+            Stage::LogoHold { i, since } => {
                 // 0x3345: until the clock reaches the hold, or a skip.
                 if lib.now() - since >= LOGO_HOLD || lib.check() {
-                    self.stage = Stage::LogoOut(Fade::full(self.logo_pal, -LOGO_STEP));
+                    let pal = self.logos[i].1;
+                    self.stage = Stage::LogoOut(i, Fade::full(pal, -LOGO_STEP));
                     return Step::Next;
                 }
                 Step::Yield
             }
-            Stage::LogoOut(f) => match lib.fade(f) {
+            Stage::LogoOut(i, f) => match lib.fade(f) {
                 Faded::Yield => Step::Yield,
                 Faded::On(f) => {
-                    self.stage = Stage::LogoOut(f);
+                    self.stage = Stage::LogoOut(i, f);
                     Step::Next
                 }
                 Faded::Done => {
-                    self.stage = Stage::WaveCheck;
+                    self.stage = Stage::Logo(i + 1);
                     Step::Next
                 }
             },
             Stage::WaveCheck => {
                 // 0x372C: [94h] is 1 in the image, cleared only by
                 // `/FXOFF` (0x5FD, 0x609); 0x374B: skipped once the intro
-                // is.
-                if lib.check() {
+                // is. A title without a wave goes on to the end.
+                if !self.has_wave || lib.check() {
                     self.stage = Stage::End;
                     return Step::Next;
                 }
@@ -233,7 +282,9 @@ impl Intro {
                 // hidden.
                 lib.skip = 0;
                 lib.skip_mask = 0;
-                lib.shown = false;
+                if self.end_hides {
+                    lib.shown = false;
+                }
                 Step::Done(())
             }
             Stage::Slide { .. }

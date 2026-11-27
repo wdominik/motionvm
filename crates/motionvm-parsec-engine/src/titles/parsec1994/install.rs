@@ -83,11 +83,25 @@ impl<X: TitleProgram + Send> Runtime for Install<X> {
         }
     }
 
+    /// The title program's pointer while it runs, `XP01`'s after.
+    ///
+    /// `XP01`'s pointer starts where its library's image has it, `[486h]`/
+    /// `[488h]` = 160, 100 (*Bi-Fi 2* image `0x25526`, *Dunkle Schatten*
+    /// `0x222D6`, *Captain Zins* `0x1FFBC`). The driver's motion counters
+    /// move it (*Bi-Fi 2* `0x18F1B`, added in at `0x18FBC`–`0x19019`), and
+    /// so does the library's own `1819h:0000h(x, y)` (`0x181D8`,
+    /// `0x1822C`). Its init resets the driver (INT 33h function 0,
+    /// `0x18E2C`) and reads the counters once without keeping them
+    /// (function 0Bh, `0x18E3A`); its other calls keep only the buttons of
+    /// function 5 (`0x18F2C`, `0x19736`) and ask for no position. The
+    /// other two builds' libraries make the same calls (*Dunkle Schatten*
+    /// `0x183FC`–`0x18D04`, *Captain Zins* `0x1705C`–`0x17964`). So
+    /// nothing the mouse does while `XP00` runs reaches `XP01`.
     fn mouse_move(&mut self, x: i32, y: i32) {
-        if let Some(t) = &mut self.xp00.program {
-            t.mouse_move(x, y);
+        match &mut self.xp00.program {
+            Some(t) => t.mouse_move(x, y),
+            None => self.game.inner.mouse_move(x, y),
         }
-        self.game.inner.mouse_move(x, y);
     }
 
     /// The pointer library's keyboard hook ([`super::keyboard`]) sees the

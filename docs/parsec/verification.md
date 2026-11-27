@@ -2,7 +2,7 @@
 
 # Verification
 
-*What motionvm has been held against for the games it plays on PARSEC, Dunkle Schatten and Captain Zins. Deliberate divergences are a different record and live in [departures](departures.md).*
+*What motionvm has been held against for the games it plays on PARSEC — Dunkle Schatten, Captain Zins and Bi-Fi 2. Deliberate divergences are a different record and live in [departures](departures.md).*
 
 There are three kinds of check here, as there are for every family in this
 project, and the distinctions matter enough to be written down rather than
@@ -59,6 +59,13 @@ cases whose inputs hand the logic a null record it then writes through, and
 the options' gate, which is library code. The tracer takes the argument
 counts of the script's interaction (three words, `0x0B764`–`0x0B861`) and
 of the callback (one, `0x0A015`) from their listings.
+
+Bi-Fi 2's logic has no such table: it is read off its program's code,
+routine by routine, and held to a run that plays the game from a new
+game to its end through the host's own inputs alone — the verb buttons,
+the strip's items and arrows, the hotspots, the dialogue menus — with
+nothing on the way that the runtime reports as not built (`just
+playthrough`).
 
 What this settles is the logic: which engine routine a location calls, in
 which order, with what, and what it leaves in memory. It does not settle
@@ -124,6 +131,14 @@ Against lossless recordings of the original under DOSBox-X:
   held dark from row 130 as the program's painter does. The telephone
   call's pages agree in their text, and every text page of the capture —
   41 of them over 109 s — stands as long as the original's, within 0.1 s.
+- **Bi-Fi 2's title program and first rooms**, against DOSBox-X
+  recordings made with `core = dynamic` and `cycles = max`: the title
+  program, the options and their confirmations agree pixel for pixel; in
+  the Pforte and the corridors every frame of the recording has a matching
+  frame of the runtime within a few frames of where the replay takes it.
+  What differs depends on the generator alone, whose state those
+  recordings do not let be reproduced
+  ([open questions](open-questions.md#bi-fi-2)).
 - **The way out of `XP01`** ([the way out](engine/ending.md)), reached by
   setting the location word as the main loop begins, under the DOSBox-X
   debugger. Dunkle Schatten's quit agrees frame for frame: every level of
@@ -217,7 +232,9 @@ here loads there, and a save the original wrote there loads here.
 **The dissolve's length is the original's, measured.** The options'
 dissolve draws from the game's generator until a second is over; on the
 reference machine the generator's seed before and after it gives
-**158 213** draws, and every dissolve here takes that many
+**158 215** draws in Dunkle Schatten, **158 282** in Captain Zins and
+**158 808** in Bi-Fi 2, each started through its batch file, and every
+dissolve here takes its title's count
 ([departures](departures.md)).
 
 Those comparisons need recordings and traces of the original, and a
@@ -268,9 +285,11 @@ Most of the games' rooms have never been held against a recording of the
 original: in Dunkle Schatten the maze's row 30, the Wald's row 23, an
 answer's box in the Küche, the title program's first logo and the pointer
 with the choice menu up, in Captain Zins its title program and the first
-scenes of a new game, and in both the way out of `XP01` are what pictures
-cover. Captain Zins's rooms past those scenes are held to the logic traces
-alone. Walking, the verb strip,
+scenes of a new game, in those two the way out of `XP01`, and in Bi-Fi 2
+its title program, the options, the Pforte and the corridors are what
+pictures cover. Captain Zins's rooms past those scenes are held to the
+logic traces alone, and Bi-Fi 2's to its program's code and the run
+through the game. Walking, the verb strip,
 the options' pages and the dialogue menus are held to the logic traces and
 to the program's code, not to a capture; so is every song but the title
 program's and, up to its exit fade, the Zimmer's, which only the digests

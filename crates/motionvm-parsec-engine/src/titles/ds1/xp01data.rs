@@ -160,6 +160,8 @@ impl ExeText {
         let initial_scroll = usize::from(read_byte(scroll_at)?);
 
         let panel_curves = panel_curves(&xp01)?;
+        // The entry pass blacks a bank's first color (`0x1532F`).
+        crate::titles::parsec1994::program::check_room_black_zero(&xp01, 0x1532F)?;
 
         Ok(ExeText {
             panel_curves,

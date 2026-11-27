@@ -6,6 +6,88 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-27
+
+**Bi-Fi 2 - Action in Hollywood joins Dunkle Schatten and Captain Zins on
+PARSEC, and the runtime reads more of what differs between the games off
+their own programs.** Bi-Fi 2 plays from its title program to the credits
+at its end. Its library is an older build of the one the other two are
+linked against, and every difference the runtime makes for it is read off
+the program's own routines, never off the title's name. Reading them that
+way turned up places where Captain Zins had played Dunkle Schatten's
+behavior, and places where all the games had played what none of the
+programs do; those are fixed below. Savegames load as before: no layout
+changed.
+
+### Added
+
+- **Bi-Fi 2 - Action in Hollywood, the third PARSEC title.** An install
+  is recognized by its `RESOURCE/BFROOM.DAT`; `just run bifi2` plays it
+  and `GAMEDATA_BIFI2` points the suite at a copy. A new game plays the
+  title program — the animation, the two stills, the title and its menu —
+  then the options, the Kaffee's opening scene and the conversation at the
+  Pforte; past it the building's corridors and the Lift, every floor's
+  rooms from the Vorzimmer to the 08-15, the short scenes between them,
+  the labyrinth and Schlönstadt's Gefängnis, and the Vorführraum, whose
+  credits run in a window of the room. It ends as its program ends it:
+  the band closes, the room shrinks into a picture, and the credits roll
+  through it. The game saves and loads through `SAVEGAME.SAV` and
+  `SAVEGAME.CFG` in its program's layout, and `just playthrough` plays it
+  from its first scene to its end with clicks alone, as it does Captain
+  Zins.
+- **What the older library build does differently is read off it.** The
+  strip sits on the row its painter blits it on, below a black band; the
+  options draw in the program's own grounds and frames over the strip as
+  the painter left it; the figure's cels count from its file's first
+  resource; a choice menu stands over the band held dark; the status line
+  takes the painter's own inks; an animation's signal codes are the ones
+  its own signal routine plays, by the object's id where it asks for one.
+  Its title program and options match a recording of the original pixel
+  for pixel.
+
+### Fixed
+
+- **What the PARSEC programs do alike, the runtime now does for all of
+  them.** These hold for Dunkle Schatten and Captain Zins as they do for
+  Bi-Fi 2:
+  - A room's first color is black where its bank starts at register 0:
+    the pass that loads a room's banks blacks it before loading.
+  - The game program begins with the pointer in the middle of the
+    screen, whatever the mouse did in the title program: the library
+    resets the mouse driver and asks it for no position.
+  - A two-object rule answers only for its own second object: using one
+    thing with another passes over a rule whose second is neither the one
+    chosen, nor its class, nor any.
+  - Objects that animate on their own in the room's file do so: round
+    and round, there and back, or at random — the random ones rolling the
+    generator as the program does. The runtime had cleared every object's
+    own state when it loaded a room.
+  - A record is let go of its walk only where the room has walk graphs,
+    the player's figure as every other.
+  - The sequences after the main loop keep to the music switch: they play,
+    fade and sound an effect only with it on.
+  - The options' dissolve at `XP01`'s start draws the generator as many
+    times as it does on the original started through its batch file —
+    the title program and a new game first: 158 215 times in Dunkle
+    Schatten, 158 282 in Captain Zins, 158 808 in Bi-Fi 2. Everything the
+    generator rolls afterwards follows from it.
+- **Captain Zins plays its own program where it had played Dunkle
+  Schatten's.** Each of these is now read off its program's own routine:
+  - looking at an item describes that item, not the one before it — its
+    handlers name the line from `4000h`, not `4001h`;
+  - its objects of kind 4 keep their state across visits, and those of
+    kind 9 carry their hotspot with them;
+  - its animations' signal codes play its own samples and let the band
+    go where its routine does;
+  - the status line comes up once its age is above 2, a frame sooner, and
+    stays through a scene's end, which only Dunkle Schatten's program
+    renews;
+  - the Schranke turns and moves its own walker, and a record of kind 8
+    is bound and stepped as the program's routines say.
+- **Dunkle Schatten's F3 fades its light.** The location steps the room's
+  palette into the DAC color by color, from behind the room's header,
+  which the runtime now serves.
+
 ## [0.15.0] - 2026-11-24
 
 **A save that stops partway keeps the slot it was saving over, and the
@@ -1929,7 +2011,8 @@ behaves as the engine did. See `docs/verification.md`.
   passed. CI runs formatting, lints, tests and documentation on Linux, macOS
   and Windows.
 
-[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/wdominik/motionvm/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/wdominik/motionvm/releases/tag/v0.16.0
 [0.15.0]: https://github.com/wdominik/motionvm/releases/tag/v0.15.0
 [0.14.0]: https://github.com/wdominik/motionvm/releases/tag/v0.14.0
 [0.13.0]: https://github.com/wdominik/motionvm/releases/tag/v0.13.0

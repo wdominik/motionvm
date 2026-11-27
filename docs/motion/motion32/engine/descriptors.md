@@ -20,7 +20,7 @@ the old descriptor rather than nothing. The current handle lives at
 `0xDB4C0` (read identically by `GDNR` and `?ACTDESC`), the resolved
 record separately at `0xF2AF0`.
 
-## NEWSETDESC — six arguments, now fully read
+## NEWSETDESC — six arguments
 
 ```
 x y level gfx ? callback   NEWSETDESC   ( -- handle )

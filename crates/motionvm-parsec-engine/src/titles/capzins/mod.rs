@@ -294,6 +294,84 @@ mod tests {
         assert_eq!(ring(&g.game.inner), file, "the file's edges again");
     }
 
+    /// The Schranke before the barrier is passed (`[1CF6h]` 0): the
+    /// walking record `C8h` is bound to its graph and turned
+    /// (`1254:000F`, `0x1257B`), and the animation goes to that record —
+    /// its own entry, and state `0Bh`, the record being of kind 8
+    /// (`14DDh:0098h`'s `0x14F0D`) — not to the player.
+    #[test]
+    fn the_schranke_turns_its_own_walker() {
+        use crate::titles::parsec1994::Api;
+        let Some(mut g) = capzins_or_skip() else {
+            return;
+        };
+        for _ in 0..20 {
+            g.tick();
+        }
+        g.game.inner.events.clear();
+        g.set_location_via(8, 0x7F);
+        for _ in 0..5 {
+            g.tick();
+        }
+        let a = &g.game.inner;
+        assert_eq!(Api::byte(a, 0x1CF6), 0, "the barrier not yet passed");
+        let i = a
+            .movers
+            .iter()
+            .position(|m| m.id == 0xC8)
+            .expect("the walking record C8h");
+        let w = &a.movers[i].walker;
+        assert!(w.ani.is_some(), "bound to its entry");
+        assert_eq!(w.kind, 8, "a record of kind 8");
+        assert_eq!(w.state, 0x0B, "its animation runs");
+        assert!(
+            !a.events.iter().any(|e| matches!(e, Event::FigureAnim(_))),
+            "the player is not animated"
+        );
+        // Once the entry's effect is over its frames go on, a step each
+        // time its countdown is out (`0x08A92`); its first frame is the
+        // hidden one (`FFh`, `0x0951E`), its record's `+9` kept.
+        let mut frames = std::collections::BTreeSet::new();
+        for _ in 0..3000 {
+            g.tick();
+            frames.insert(g.game.inner.movers[i].walker.anim_frame);
+            if frames.len() > 1 {
+                break;
+            }
+        }
+        assert!(frames.len() > 1, "its frames: {frames:?}");
+    }
+
+    /// The Schranke once the barrier is passed: the walking record's flags
+    /// are cleared (`0x12704`), so it is neither live nor drawn.
+    #[test]
+    fn the_schranke_s_walker_is_gone_once_passed() {
+        use crate::titles::parsec1994::Api;
+        let Some(mut g) = capzins_or_skip() else {
+            return;
+        };
+        for _ in 0..20 {
+            g.tick();
+        }
+        Api::set_byte(&mut g.game.inner, 0x1CF6, 1);
+        g.game.inner.events.clear();
+        g.set_location_via(8, 0x7F);
+        for _ in 0..5 {
+            g.tick();
+        }
+        let a = &g.game.inner;
+        let m = a
+            .movers
+            .iter()
+            .find(|m| m.id == 0xC8)
+            .expect("the walking record C8h");
+        assert_eq!(m.flags(), 0, "its flags cleared");
+        assert!(
+            !a.events.iter().any(|e| matches!(e, Event::FarWrite { .. })),
+            "no write lost"
+        );
+    }
+
     /// The program's own start, read off the walk on: row 1 on `7Fh`.
     #[test]
     fn the_start_is_the_walk_on_s_answer_from_row_0() {

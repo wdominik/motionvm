@@ -136,6 +136,9 @@ const KEYS: TitleKeys = TitleKeys {
     },
     // `0x0CAF`: `push word [1A8h]`, the interval the slot is registered with.
     interval: 0x01A8,
+    // `DS:019Eh`: the pointer's four limits; `DS:027Ah`: its position.
+    limits: 0x019E,
+    position: 0x027A,
 };
 
 impl Xp00 {
@@ -168,10 +171,16 @@ impl Xp00 {
                 y: MENU_Y,
                 row: MENU_ROW,
                 grey: MENU_GREY,
-                song: MENU_SONG,
+                song: Some(MENU_SONG),
                 step: MENU_STEP,
                 wait_dim: None,
                 escape: MENU_ESCAPE,
+                inks: crate::titles::parsec1994::title::menu::INKS,
+                box_up: 0,
+                box_taller: 0,
+                out_step: crate::titles::parsec1994::title::menu::OUT_STEP,
+                blank: true,
+                afresh_after_lines: false,
             },
             intros.picture(MENU_PIC)?,
             menu_pal,

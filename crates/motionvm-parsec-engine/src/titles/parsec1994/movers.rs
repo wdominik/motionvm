@@ -179,7 +179,10 @@ impl Adventure {
                     m.walker.pass(graph, delta);
                 }
             }
-            Body::Object(_) => {}
+            // A record in the image has no walk graph at `+24h` (the
+            // Vorführraum's `2446h:0960h` is null there), which the pass
+            // skips (`0x06640`–`0x06662`).
+            Body::Object(_) | Body::Data(_) => {}
         }
     }
 
@@ -250,6 +253,8 @@ impl Adventure {
     /// hotspot of the node's id turned round (`0x0B67D`–`0x0B6E5`), and
     /// `+2` live and shown (`0x0B796`, `0x0B79B`).
     pub(crate) fn snap_mover(&mut self, i: usize, node: u16, facing: i16) -> i16 {
+        // `0x0B671`: a running animation on the record stopped first.
+        self.stop_bound_mover_anim(i);
         let Some(room) = super::loaded_room(
             self.bound_map.as_ref(),
             self.edited_room.as_ref(),
@@ -283,6 +288,8 @@ impl Adventure {
     /// no graph would have the routine read a header through a null
     /// pointer; no call of Dunkle Schatten's does that, and this answers 0.
     pub(crate) fn walk_mover(&mut self, i: usize, node: u16, facing: i16) -> i16 {
+        // `0x0B030`: a running animation on the record stopped first.
+        self.stop_bound_mover_anim(i);
         let Some(room) = super::loaded_room(
             self.bound_map.as_ref(),
             self.edited_room.as_ref(),
@@ -374,15 +381,43 @@ impl Adventure {
         }
     }
 
+    /// `14DDh:01D4h(rec)` as the snap and the walk call it, on a record
+    /// bound to a graph of a room that has some (the tests before
+    /// `0x0B030` and `0x0B671`).
+    fn stop_bound_mover_anim(&mut self, i: usize) {
+        let bound = self.movers.get(i).is_some_and(|m| m.graph.is_some());
+        if bound && self.room().is_some_and(|r| !r.walks.is_empty()) {
+            self.stop_walker_anim(Body::Mover(i));
+        }
+    }
+
     /// `0A9Fh:0F42h(rec)` (`0x0B932`) and `0A9Fh:0E7Fh(rec)` (`0x0B86F`)
     /// on a person: out of its chain. Neither touches `+24h`, the header,
     /// or the walk — a record taken out mid-leg stays where it is, because
     /// the pass does not reach it.
     pub(crate) fn detach_mover(&mut self, i: usize) {
+        // `0x0B94C`, `0x0B880`: a running animation on the record stopped
+        // first.
+        self.stop_walker_anim(Body::Mover(i));
         if let Some(m) = self.movers.get_mut(i) {
             m.walker.detach_draw_chain();
         }
         self.sync_links();
+    }
+
+    /// A byte the logic writes into a walking record, where the engine
+    /// keeps that field: `+2`, the flags, whose bit 40h is the walker's
+    /// mirror (*Captain Zins*' Schranke clears them, `0x12704`).
+    pub(crate) fn set_mover_byte(&mut self, i: usize, field: u16, v: u8) -> Option<()> {
+        let m = self.movers.get_mut(i)?;
+        match field {
+            0x02 => {
+                m.flags = v & !MIRROR;
+                m.walker.mirror = v & MIRROR != 0;
+                Some(())
+            }
+            _ => None,
+        }
     }
 
     /// A byte of a person's record, for the fields the location logic
@@ -396,7 +431,7 @@ impl Adventure {
             let [lo, h] = num::low16(v).to_le_bytes();
             if hi { h } else { lo }
         };
-        let (cel, _) = w.cel();
+        let (cel, _) = super::render::figure_cel(w);
         Some(match field {
             0x00 => w.kind,
             0x02 => m.flags(),
@@ -404,15 +439,24 @@ impl Adventure {
             0x04 | 0x05 => word(w.x, field & 1 != 0),
             0x06 | 0x07 => word(w.y, field & 1 != 0),
             0x08 => m.bundle,
-            0x09 => w.phase,
+            0x09 => {
+                if matches!(
+                    w.state,
+                    objects::STATE_FIGURE_ANIM | objects::STATE_NPC_ANIM
+                ) {
+                    w.anim_frame
+                } else {
+                    w.phase
+                }
+            }
             0x0A | 0x0B => word(num::count(cel), field & 1 != 0),
             0x0C | 0x0D => word(i32::from(w.base), field & 1 != 0),
             0x0E..=0x11 => word(w.scale, field & 1 != 0),
             0x12 => {
-                if w.walking {
+                if w.walking && w.state == 0 {
                     6
                 } else {
-                    0
+                    w.state
                 }
             }
             0x13 => m.id,
@@ -454,7 +498,9 @@ impl Adventure {
             return;
         }
         let w = &m.walker;
-        let (cel, mirror) = w.cel();
+        // While an animation runs, the frame its entry set (as the
+        // figure's, [`super::render::figure_cel`]).
+        let (cel, mirror) = super::render::figure_cel(w);
         let Some(pic) = self.object_cel(m.bundle, num::word(cel)) else {
             return;
         };

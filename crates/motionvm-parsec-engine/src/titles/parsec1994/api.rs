@@ -93,6 +93,8 @@ pub(crate) trait Api {
     fn pointer_hide(&mut self);
     /// `179Eh:091Ah`: the frozen pointer catches up with the mouse.
     fn pointer_unfreeze(&mut self);
+    /// `179Eh:0830h`: the pointer put on the screen and unfrozen.
+    fn pointer_show(&mut self);
     /// `179Eh:071Dh`: the keyboard ring buffer emptied.
     fn key_flush(&mut self);
 
@@ -129,6 +131,9 @@ pub(crate) trait Api {
     fn obj_show_frame(&mut self, id: u16, k: i16) -> Far;
     /// `0883h:1F82h(rec, k)`: the object at `rec` set on animation `k`.
     fn obj_anim(&mut self, rec: Far, k: i16);
+    /// `0883h:03EBh(rec, k)`: the object at `rec` on frame `k`, or hidden
+    /// for a `k` below zero.
+    fn obj_frame(&mut self, rec: Far, k: i16);
     /// `0883h:2099h(id, k)`: the object set on animation `k`.
     fn obj_anim_id(&mut self, id: u16, k: i16);
     /// `14DDh:096Bh(id)`: the object hidden.
@@ -249,11 +254,29 @@ pub(crate) trait Api {
     /// `0CFDh:19A4h(lo, hi, flags)`: one of scenes `lo..=hi` rolled and
     /// bound to task 1, repeated while `flags` bit 0 is set.
     fn ambient_play(&mut self, lo: i16, hi: i16, flags: u16) -> u16;
+    /// `0CFDh:194Bh(n, flags)`: scene `n` bound to task 1 as
+    /// [`Api::ambient_play`] binds a rolled one, without the roll.
+    fn ambient_play_one(&mut self, n: i16, flags: u16) -> u16;
+    /// `0CFDh:1B55h`: the speakers of task 1 while it plays (kind 4 or
+    /// more), else 0.
+    fn ambient_speakers(&mut self) -> u16;
 
     // --- palette and music: 0590h, 1197h ------------------------------------
 
     /// `0590h:09E2h(rgb, start, count)`: `count` DAC entries from `start`.
     fn pal_set(&mut self, rgb: Far, start: u16, count: u16);
+    /// `0590h:0A1Fh(rec)` (*Bi-Fi 2*'s `0104h:090Eh`): a palette record
+    /// loaded — its first DAC register, its count (0 meaning 256) and its
+    /// colors — as the build loads a resource's colors: into the
+    /// flattening table's lookup, or with the shade's darker copy `80h` on.
+    fn pal_load(&mut self, rec: Far);
+    /// The same loader handed a record the handler built on its own stack
+    /// (`push ss ; lea ax, [bp-n]`).
+    fn pal_load_local(&mut self, rec: &[u8]);
+    /// `0724h:03D7h(src, dst, r, g, b, n)` (*Bi-Fi 2*'s `02AFh:0217h`): `n`
+    /// colors from `src` to `dst`, red through ramp `r`, green through
+    /// `g`, blue through `b` (`xlat` from `cs:00A0h + 40h·k`).
+    fn pal_ramps(&mut self, src: Far, dst: Far, ramps: [u16; 3], n: u16);
     /// `1197h:000Dh(n)`: entry `n` of `PSMP2L.DAT` loaded; null with the
     /// music off.
     fn song_load(&mut self, n: u16) -> Far;
@@ -265,6 +288,15 @@ pub(crate) trait Api {
     fn music_fade(&mut self, n: i16);
     /// `0590h:08FAh`: the music stopped.
     fn music_stop(&mut self);
+    /// The digital driver's entry 18, `StopAll(wait)` (*Dunkle
+    /// Schatten*'s `18FDh:0436h`), called with a digital driver installed
+    /// (`cmp word [2B0h], 0`, *Bi-Fi 2*'s `0x14046`) whatever the music
+    /// switch says. `wait` 1 waits for the block's interrupt; this runtime's
+    /// effects stop at once either way.
+    fn digital_stop(&mut self, wait: u16);
+    /// The digital driver's entry 22 (`18FDh:044Ah`): the effects' volume
+    /// set, the old one answered.
+    fn effect_volume(&mut self, v: u16) -> u16;
 
     /// `1EB5h:0028h(lo, hi)`: a roll of the shared generator, `lo..=hi`.
     fn random(&mut self, lo: u16, hi: u16) -> u16;
@@ -293,6 +325,10 @@ pub(crate) trait Api {
     /// `14DDh:074Bh(rec)`: the hotspot whose mask ends in the object's id
     /// takes the object's live bit as its own.
     fn hotspot_follow(&mut self, rec: Far);
+    /// The hotspot the object was chosen through (`[28B3h]` the record),
+    /// its active bit, `+4` bit 0, cleared: `and word es:[bx+4], 0FFFEh`.
+    /// Answers whether there was one.
+    fn chosen_hotspot_off(&mut self) -> bool;
     /// `0A9Fh:0C0Ch(rec, dir)`: the figure faces direction `dir`.
     fn figure_face(&mut self, rec: Far, dir: i16);
     /// `0A9Fh:10F7h(k)`: a turn animation on the figure; answers 1 when
@@ -315,6 +351,20 @@ pub(crate) trait Api {
     fn page_release(&mut self, k: u16);
     /// `0C3Fh:0581h(owner)`: the band held for `owner`'s bits.
     fn band_hold(&mut self, owner: u16);
+    /// `0C3Fh:0639h(owner)` (*Bi-Fi 2*'s `0751h:0635h`, Captain Zins's
+    /// `078Ah:0646h`): the band's redraw held for `owner`'s bits — added
+    /// to the holders (`[4F0h]`), its pending release cancelled
+    /// (`[4F2h]`), the mask the painter tests the redraw marks `[4E8h]`
+    /// against cleared (`[4EAh]`, `0x0CA3B`) and the refresh countdown
+    /// stopped (`[4F6h]`). With that mask 0 the painter leaves the band as
+    /// it stands (`0x0C4B3`–`0x0C4BC`) until a release sets it again
+    /// (`0x0CA0C`); this runtime composes the band whole each frame and
+    /// keeps no such mask. The one hold the programs make, the Kaffee's
+    /// before the game's end (*Bi-Fi 2*'s `0x1090E`), is followed by a
+    /// wait that polls no input (`0x10923`) and then by the end's
+    /// sequence, which paints over the band, so the band it composes is
+    /// the one that stands.
+    fn band_redraw_hold(&mut self, owner: u16);
     /// `0A9Fh:1002h(rec, node)`: every edge of node `node` in the graph
     /// `rec` is bound to blocked (`3FFh`), so that no walk takes it; a
     /// node the graph does not have is left alone.
@@ -326,6 +376,44 @@ pub(crate) trait Api {
     /// block set, the player sent to the node of that id facing `facing`
     /// — and scene `scene` played.
     fn interaction(&mut self, id: u16, facing: i16, scene: i16);
+    /// `0EB9h:1703h(id, facing, counter, scenes…, -1)`: the same
+    /// interaction with the next scene of a sequence; the byte at
+    /// `counter` steps up to the count of scenes, one past the last.
+    fn interaction_sequence(&mut self, id: u16, facing: i16, counter: Far, scenes: &[i16]);
+
+    // --- records in the logic's own data, the roll, the tile marks -------
+
+    /// `05DCh:0D6Ah(rec)` (*Dunkle Schatten*'s `0A9Fh:0E4Ch`, Captain
+    /// Zins's `05F2h:0DF0h`): the record's animation stopped, the record
+    /// taken out of any chain and put at the head of the one its `+2Ah`
+    /// names. *Bi-Fi 2*'s Vorführraum links a record of its own data
+    /// segment with it ([`super::image_records`]).
+    fn record_link(&mut self, rec: Far);
+    /// `0284h:015Eh` (*Dunkle Schatten*'s `12D3h:010Ah`): the roll laid
+    /// out from the far pointers at `row` by `spec`; where it ends. The
+    /// routine takes no arguments and lays out the row it names itself
+    /// (`push ds ; push 0BCEh`, `0x029A4`), which is `row`. Captain Zins's
+    /// `XP01` has no such routine.
+    fn roll_layout(&mut self, row: Far, spec: &super::title::roll::RollSpec) -> u16;
+    /// `0284h:0001h(pos)` (*Dunkle Schatten*'s `12D3h:025Ah`): the roll's
+    /// cursor taken to `pos`; the weights of the lines it passed. Captain
+    /// Zins's `XP01` has no such routine.
+    fn roll_seek(&mut self, pos: u16) -> u16;
+    /// `0284h:0079h` (*Dunkle Schatten*'s `12D3h:02D2h`): the roll drawn
+    /// from its cursor at the position last sought, clipped to its
+    /// window. Captain Zins's `XP01` has no such routine.
+    fn roll_draw(&mut self);
+    /// `0284h:029Ah` (*Dunkle Schatten*'s `12D3h:0249h`): the roll's lines
+    /// freed. Captain Zins's `XP01` has no such routine.
+    fn roll_free(&mut self);
+    /// `1C3Ch:2036h(x, y, w, h)` (*Dunkle Schatten*'s `1BBDh:2036h`,
+    /// Captain Zins's `1A81h:2036h`): the screen's tiles under the box
+    /// marked for the drawer.
+    fn tiles_mark(&mut self, x: u16, y: u16, w: u16, h: u16);
+    /// `1C3Ch:20C1h(x, y, w, h)` (*Dunkle Schatten*'s `1BBDh:20C1h`,
+    /// Captain Zins's `1A81h:20C1h`): whether any tile under the box is
+    /// marked.
+    fn tiles_dirty(&mut self, x: u16, y: u16, w: u16, h: u16) -> bool;
 }
 
 /// The segment word of a handle the engine gives out for an object record.
@@ -338,13 +426,29 @@ const OBJECT_HANDLE: u16 = 0xF0B1;
 /// that field of that record.
 const MOVER_HANDLE: u16 = 0xF0B2;
 /// The segment word of the handle for the loaded room's header. The engine
-/// keeps the room in its own shape, so what lies behind it is not served.
+/// keeps the room in its own shape and serves of it what the logic reads:
+/// the far pointer at `+1Ch` to the room's cel table
+/// ([`ROOM_TABLE_HANDLE`]).
 const ROOM_HANDLE: u16 = 0xF0B3;
+/// The segment word of the handle for the room's cel table, whose entry
+/// 0 names the room's palette record (the resource's offset 8, in front
+/// of the cels; [`ROOM_PALETTE_HANDLE`]). The cels behind it are not
+/// served.
+const ROOM_TABLE_HANDLE: u16 = 0xF0B5;
+/// The segment word of the handle for the room's palette record: its
+/// first DAC register, its count and its colors, as the file has them.
+const ROOM_PALETTE_HANDLE: u16 = 0xF0B6;
 /// The segment word of the handle for a line of the chosen hotspot; the
 /// offset word is the line's slot.
 const TEXT_HANDLE: u16 = 0xF0B4;
 
 impl Far {
+    /// Whether the segment word is one of the handles the engine gives
+    /// out for the records it keeps in its own shape.
+    pub(crate) fn is_handle(self) -> bool {
+        (OBJECT_HANDLE..=ROOM_PALETTE_HANDLE).contains(&self.seg)
+    }
+
     /// The handle for the loaded room's header.
     pub(crate) fn room() -> Far {
         Far {
@@ -445,6 +549,16 @@ pub(crate) struct DsMap {
     /// The gate the mode machine asks, a far pointer: offset, then segment
     /// (`[28BBh]`, `[28BDh]`).
     pub gate: u16,
+    /// The mode machine's mode (`[288Fh]`) and its wait bits (`[289Bh]`).
+    pub mode: u16,
+    pub bits: u16,
+    /// The verb as it was chosen (`[289Dh]`), beside the verb itself.
+    pub verb_chosen: u16,
+    /// The two-object word (`[2899h]`), which the mode reset clears second
+    /// (*Dunkle Schatten*'s `0x0EBD5`, *Bi-Fi 2*'s `0x09BA8`).
+    pub two_object: u16,
+    /// The walk verb, which the door's and the script exit's gates set.
+    pub walk_verb: u8,
     /// The loaded room's header, a far pointer (`[2851h]`).
     pub room_header: u16,
     /// The door the player came in by, until it has swung shut (`[1EDEh]`).
@@ -454,6 +568,9 @@ pub(crate) struct DsMap {
     pub walk_target: u16,
     /// The animation code the mode machine waits for (`[28C1h]`).
     pub anim_wait: u16,
+    /// The status line's age, which asks for the line to be composed again
+    /// (`[28C3h]`).
+    pub status_age: u16,
     /// The items' classes, a byte an item id: what the choice of an item
     /// puts beside it as its class (`[0527h + id]` at `0x0F5C4`).
     pub item_classes: u16,
@@ -468,8 +585,9 @@ pub(crate) struct DsMap {
     pub menu: u16,
     /// The first of the six words in a row the shared hook keeps the
     /// script's business with the figure in, [`Script`]'s `pending_animation` to
-    /// `turn_pending` in address order.
-    pub script: u16,
+    /// `turn_pending` in address order; `None` for a build whose hook keeps
+    /// no such row.
+    pub script: Option<u16>,
     /// The word the shared hook sets to ask the dispatcher's head to start
     /// task 0 once the figure is linked ([`Script`]'s `start_task_asked`); `None` for
     /// a build whose hook never asks.
@@ -477,10 +595,19 @@ pub(crate) struct DsMap {
 }
 
 use super::mode::{Gate, GateMap};
-use super::{Adventure, Event, Script, objects};
+use super::{Adventure, Body, Event, Script, objects};
 use crate::titles::subject::Subject;
 
 impl Adventure {
+    /// The walking body a record's address names: the player's record, or
+    /// one of the room's walking records.
+    fn walking_body(&self, rec: Far) -> Option<Body> {
+        if rec == self.ds(self.map().walker) {
+            Some(Body::Figure)
+        } else {
+            rec.mover_index().map(Body::Mover)
+        }
+    }
     pub(super) fn map(&self) -> DsMap {
         self.ds_map
     }
@@ -557,6 +684,12 @@ impl Api for Adventure {
             self.clock.hundredths_1c82()
         } else if addr == m.ticks_taken {
             self.clock.ticks
+        } else if addr == m.mode {
+            self.mode
+        } else if addr == m.verb_chosen {
+            self.verb_chosen
+        } else if addr == m.bits {
+            self.bits
         } else if addr == m.verb {
             u16::from(self.verb)
         } else if addr == m.object {
@@ -571,8 +704,12 @@ impl Api for Adventure {
             num::unsigned(self.entry_door)
         } else if addr == m.walk_target {
             num::unsigned(self.walk_target)
+        } else if addr == m.two_object {
+            self.two_object
         } else if addr == m.anim_wait {
             self.anim_wait
+        } else if addr == m.status_age {
+            self.status_refresh_age
         } else if addr == m.gate || addr == m.gate.wrapping_add(2) {
             let (seg, off) = m.gates.far(self.gate);
             if addr == m.gate { off } else { seg }
@@ -611,6 +748,12 @@ impl Api for Adventure {
             self.here_word = v;
         } else if addr == m.hundredths {
             self.clock.set_1c82(v);
+        } else if addr == m.verb_chosen {
+            self.verb_chosen = v;
+        } else if addr == m.mode {
+            self.mode = v;
+        } else if addr == m.bits {
+            self.bits = v;
         } else if addr == m.verb {
             self.verb = num::low8(v);
         } else if addr == m.object {
@@ -625,8 +768,12 @@ impl Api for Adventure {
             self.entry_door = num::signed(v);
         } else if addr == m.walk_target {
             self.walk_target = num::signed(v);
+        } else if addr == m.two_object {
+            self.two_object = v;
         } else if addr == m.anim_wait {
             self.anim_wait = v;
+        } else if addr == m.status_age {
+            self.status_refresh_age = v;
         } else if let Some(i) = self.script_word(addr) {
             self.script.set_word(i, v);
         } else if let Some(high) = self.callback_word(addr) {
@@ -649,7 +796,8 @@ impl Api for Adventure {
             // the gate is (`Adventure::ask_gate`).
             let off = self.ds_word(m.gate);
             let seg = self.ds_word(m.gate.wrapping_add(2));
-            self.gate = m.gates.gate((seg, off)).unwrap_or(Gate::None);
+            // A far routine none of the three: the location's own.
+            self.gate = m.gates.gate((seg, off)).unwrap_or(Gate::Own(seg, off));
         } else if addr == m.ticks_taken {
             if self.effects.busy() {
                 self.ticks_after_effect = Some(v);
@@ -726,6 +874,9 @@ impl Api for Adventure {
     }
     fn pointer_unfreeze(&mut self) {
         self.pointer_thaw();
+    }
+    fn pointer_show(&mut self) {
+        self.pointer_on();
     }
     fn key_flush(&mut self) {
         // `179Eh:0533h` empties the library's ring at `cs:450h`. Host keys
@@ -804,6 +955,14 @@ impl Api for Adventure {
     fn obj_anim_id(&mut self, id: u16, k: i16) {
         self.object_anim(num::low8(id), num::low8(num::unsigned(k)));
     }
+    fn obj_frame(&mut self, rec: Far, k: i16) {
+        if let Some(i) = rec
+            .object_id()
+            .and_then(|id| self.object_index(num::low8(id)))
+        {
+            self.object_frame(i, k);
+        }
+    }
     fn obj_hide(&mut self, id: u16) -> Far {
         let found = self.obj_find(id);
         self.object_hide(num::low8(id));
@@ -853,11 +1012,12 @@ impl Api for Adventure {
         i16::from(self.snap_player(num::signed(node), facing))
     }
     fn walker_detach(&mut self, rec: Far) {
+        // `0x0B935`: nothing without walk graphs, for any record.
+        if !self.room().is_some_and(|r| !r.walks.is_empty()) {
+            return;
+        }
         if let Some(i) = rec.mover_index() {
-            // `0x0B935`: nothing without walk graphs.
-            if self.room().is_some_and(|r| !r.walks.is_empty()) {
-                self.detach_mover(i);
-            }
+            self.detach_mover(i);
         } else if rec == self.ds(self.map().walker) {
             self.detach_player();
         }
@@ -902,8 +1062,20 @@ impl Api for Adventure {
         Adventure::script_exit(self, num::low8(k));
     }
     fn obj_invalidate(&mut self, _rec: Far) {}
-    fn figure_anim(&mut self, _rec: Far, k: i16) -> i16 {
-        self.anim_player(k)
+    fn figure_anim(&mut self, rec: Far, k: i16) -> i16 {
+        // `0x0A90E`: a null record answers 0.
+        if rec == Far::NULL {
+            return 0;
+        }
+        match self.walking_body(rec) {
+            Some(Body::Figure) => self.anim_player(k),
+            Some(body) => self.anim_walker(body, k),
+            None => {
+                self.events
+                    .push(Event::Unbuilt("0883h:20D9h", u32::from(rec.off)));
+                0
+            }
+        }
     }
     fn say_text(&mut self, text: Far) {
         if text.seg != TEXT_HANDLE {
@@ -923,6 +1095,13 @@ impl Api for Adventure {
             Far::NULL
         }
     }
+    fn chosen_hotspot_off(&mut self) -> bool {
+        let Some(h) = self.hover_spot.and_then(|i| self.hotspots_rt.get_mut(i)) else {
+            return false;
+        };
+        h.active = false;
+        true
+    }
     fn hotspot_follow(&mut self, rec: Far) {
         let Some(i) = rec
             .object_id()
@@ -932,8 +1111,17 @@ impl Api for Adventure {
         };
         self.hotspot_follows(i);
     }
-    fn figure_face(&mut self, _rec: Far, dir: i16) {
-        self.face_player(dir);
+    fn figure_face(&mut self, rec: Far, dir: i16) {
+        // `0x0B608`: a null record is let alone.
+        if rec == Far::NULL {
+            return;
+        }
+        match self.walking_body(rec) {
+            Some(body) => self.face_walker(body, dir),
+            None => self
+                .events
+                .push(Event::Unbuilt("0A9Fh:0C0Ch", u32::from(rec.off))),
+        }
     }
     fn figure_turn(&mut self, k: i16) -> i16 {
         self.turn_player(k)
@@ -961,6 +1149,9 @@ impl Api for Adventure {
     fn band_hold(&mut self, owner: u16) {
         self.panel_tint(owner);
     }
+    fn band_redraw_hold(&mut self, owner: u16) {
+        self.panel_redraw_hold(owner);
+    }
     fn node_block(&mut self, rec: Far, node: u16) {
         self.set_node_edges(rec, node, 0x03FF);
     }
@@ -969,6 +1160,40 @@ impl Api for Adventure {
     }
     fn interaction(&mut self, id: u16, facing: i16, scene: i16) {
         Adventure::interaction(self, id, facing, scene);
+    }
+    fn interaction_sequence(&mut self, id: u16, facing: i16, counter: Far, scenes: &[i16]) {
+        Adventure::interaction_sequence(self, id, facing, usize::from(counter.off), scenes);
+    }
+    fn record_link(&mut self, rec: Far) {
+        if self.is_image_record(rec) {
+            self.link_image_record(rec);
+        } else {
+            // The player and the people are linked by the walker's own
+            // calls, never by the logic's.
+            self.events.push(Event::Unbuilt(
+                "05DCh:0D6Ah",
+                (u32::from(rec.seg) << 16) | u32::from(rec.off),
+            ));
+        }
+    }
+    fn roll_layout(&mut self, row: Far, spec: &super::title::roll::RollSpec) -> u16 {
+        self.roll_layout_impl(row, spec)
+    }
+    fn roll_seek(&mut self, pos: u16) -> u16 {
+        self.roll_seek_impl(pos)
+    }
+    fn roll_draw(&mut self) {
+        self.roll_draw_impl();
+    }
+    fn roll_free(&mut self) {
+        self.room_roll = None;
+    }
+    // The runtime composes the whole picture every frame, so a mark has
+    // nothing to ask for and every tile is as good as marked — as with
+    // `obj_invalidate` and `room_redraw`.
+    fn tiles_mark(&mut self, _x: u16, _y: u16, _w: u16, _h: u16) {}
+    fn tiles_dirty(&mut self, _x: u16, _y: u16, _w: u16, _h: u16) -> bool {
+        true
     }
     fn movmem(&mut self, src: Far, dst: Far, n: u16) {
         for i in 0..n {
@@ -1054,6 +1279,8 @@ impl Api for Adventure {
             self.detach_mover(i);
         } else if rec == self.ds(self.map().walker) {
             self.detach_player();
+        } else if self.is_image_record(rec) && self.unlink_image_record(rec) {
+            // A record of the logic's own that `05DCh:0D6Ah` linked.
         } else {
             self.events
                 .push(Event::Unbuilt("0A9Fh:0E7Fh", u32::from(rec.off)));
@@ -1069,12 +1296,62 @@ impl Api for Adventure {
     fn ambient_play(&mut self, lo: i16, hi: i16, flags: u16) -> u16 {
         self.ambient_load(lo, hi, flags)
     }
+    fn ambient_play_one(&mut self, n: i16, flags: u16) -> u16 {
+        self.ambient_load_one(n, flags)
+    }
+    fn ambient_speakers(&mut self) -> u16 {
+        Adventure::ambient_speakers(self)
+    }
     fn pal_set(&mut self, rgb: Far, start: u16, count: u16) {
-        if rgb.seg == self.dgroup {
-            let bytes: Vec<u8> = (0..count * 3)
-                .map(|i| self.byte(rgb.off.wrapping_add(i)))
-                .collect();
-            self.dac.load(num::low8(start), &bytes);
+        let bytes: Vec<u8> = (0..count * 3)
+            .map(|i| {
+                self.far_byte(Far {
+                    off: rgb.off.wrapping_add(i),
+                    seg: rgb.seg,
+                })
+            })
+            .collect();
+        self.dac.load(num::low8(start), &bytes);
+    }
+    fn pal_load(&mut self, rec: Far) {
+        let at = |i: u16| Far {
+            off: rec.off.wrapping_add(i),
+            seg: rec.seg,
+        };
+        let start = self.far_byte(at(0));
+        let count = match self.far_byte(at(1)) {
+            0 => 0x100,
+            n => u16::from(n),
+        };
+        let rgb: Vec<u8> = (0..count * 3).map(|i| self.far_byte(at(2 + i))).collect();
+        self.load_palette(start, &rgb);
+    }
+    fn pal_load_local(&mut self, rec: &[u8]) {
+        if let [start, n, rgb @ ..] = rec {
+            let count = if *n == 0 { 0x100 } else { usize::from(*n) };
+            let rgb = rgb.get(..count * 3).unwrap_or(rgb).to_vec();
+            self.load_palette(*start, &rgb);
+        }
+    }
+    fn pal_ramps(&mut self, src: Far, dst: Far, ramps: [u16; 3], n: u16) {
+        let Some(table) = self.flatten.ramps().copied() else {
+            self.events
+                .push(Event::Unbuilt("0724h:03D7h", u32::from(n)));
+            return;
+        };
+        for i in 0..n.wrapping_mul(3) {
+            let at = |p: Far| Far {
+                off: p.off.wrapping_add(i),
+                seg: p.seg,
+            };
+            let v = self.far_byte(at(src));
+            let k = usize::from(ramps[usize::from(i % 3)]) * 0x40 + usize::from(v);
+            let Some(&out) = table.get(k) else {
+                self.events
+                    .push(Event::Unbuilt("0724h:03D7h past the ramps", u32::from(v)));
+                return;
+            };
+            self.set_far_byte(at(dst), out);
         }
     }
     fn song_load(&mut self, n: u16) -> Far {
@@ -1099,11 +1376,25 @@ impl Api for Adventure {
     fn music_stop(&mut self) {
         self.music_call(super::music::Call::Stop);
     }
+    fn effect_volume(&mut self, v: u16) -> u16 {
+        self.music.effect_volume(v)
+    }
+    fn digital_stop(&mut self, _wait: u16) {
+        if self.music.dac() {
+            self.music_call(super::music::Call::StopEffects);
+        }
+    }
     fn set_far_byte(&mut self, at: Far, v: u8) {
         if at.seg == self.dgroup {
             self.set_byte(at.off, v);
         } else if self.set_object_byte(at, v).is_some() {
             // A field the engine keeps, written through.
+        } else if at
+            .mover_field()
+            .and_then(|(i, field)| self.set_mover_byte(i, field, v))
+            .is_some()
+        {
+            // A walking record's field the engine keeps.
         } else if at.seg == OBJECT_HANDLE || at.seg == MOVER_HANDLE {
             // A field of a record the engine keeps in its own shape.
             self.events.push(Event::FarWrite {
@@ -1128,6 +1419,9 @@ impl Api for Adventure {
         }
     }
     fn far_byte(&mut self, at: Far) -> u8 {
+        if let Some(b) = self.room_byte(at) {
+            return b;
+        }
         if let Some(b) = at
             .mover_field()
             .and_then(|(i, field)| self.mover_byte(i, field))
@@ -1143,6 +1437,17 @@ impl Api for Adventure {
                 (u32::from(at.seg) << 16) | u32::from(at.off),
             ));
             0
+        } else if at.seg == 0 {
+            // A null pointer reads the interrupt table at `0000h:0000h`,
+            // below the program, whose vectors the machine and the
+            // program's start-up set; the image's segments count from the
+            // program's start, so none of its bytes is that. The paths played to the games' ends read
+            // through none; one that does is said.
+            self.events.push(Event::Unbuilt(
+                "far read through a null pointer",
+                u32::from(at.off),
+            ));
+            0
         } else {
             let at = usize::from(at.seg) * 16 + usize::from(at.off);
             self.image.bytes().get(at).copied().unwrap_or(0)
@@ -1151,6 +1456,51 @@ impl Api for Adventure {
 }
 
 impl Adventure {
+    /// A byte behind one of the room's handles: the header's far pointer
+    /// to the cel table (`+1Ch`, *Dunkle Schatten*'s `0x0487B`, *Bi-Fi
+    /// 2*'s `0x12D8F`), the table's entry 0, and the palette record it
+    /// names. Anything else behind them is told as not built and read as
+    /// 0. `None` for an address that is no room handle.
+    fn room_byte(&mut self, at: Far) -> Option<u8> {
+        let far = |p: Far, i: u16| -> u8 {
+            let w = if i < 2 { p.off } else { p.seg };
+            w.to_le_bytes()[usize::from(i & 1)]
+        };
+        let served = match at.seg {
+            ROOM_HANDLE => (0x1C..0x20).contains(&at.off).then(|| {
+                let table = Far {
+                    off: 0,
+                    seg: ROOM_TABLE_HANDLE,
+                };
+                far(table, at.off - 0x1C)
+            }),
+            ROOM_TABLE_HANDLE => (at.off < 4).then(|| {
+                let palette = Far {
+                    off: 0,
+                    seg: ROOM_PALETTE_HANDLE,
+                };
+                far(palette, at.off)
+            }),
+            ROOM_PALETTE_HANDLE => self.room().and_then(|r| {
+                let room = &r.room;
+                match at.off {
+                    0 => Some(room.palette_start),
+                    // The count as its byte: 256 colors are a 0.
+                    1 => Some(num::low8(num::word(room.palette_count))),
+                    k => room.palette_rgb.get(usize::from(k - 2)).copied(),
+                }
+            }),
+            _ => return None,
+        };
+        Some(served.unwrap_or_else(|| {
+            self.events.push(Event::Unbuilt(
+                "the room behind its header",
+                (u32::from(at.seg) << 16) | u32::from(at.off),
+            ));
+            0
+        }))
+    }
+
     /// A byte of an object's record, for the fields the engine keeps:
     /// the kind `+0`, the flags `+2`, the point `+4`/`+6`, the frame `+9`,
     /// the cel drawn
@@ -1206,6 +1556,12 @@ impl Adventure {
             *c = i32::from(num::signed(w));
         };
         match field {
+            // `mov byte es:[bx], k`: the kind, as *Bi-Fi 2*'s Gefängnis makes
+            // its door one for the visit (`0x17832`) and back (`0x178FD`).
+            0x00 | 0x01 => {
+                put(&mut o.kind, field == 0x01);
+                return Some(());
+            }
             0x02 => {}
             0x04 | 0x05 => {
                 put_point(&mut o.x, field == 0x05);
@@ -1225,6 +1581,12 @@ impl Adventure {
             }
             0x0C | 0x0D => {
                 put(&mut o.cel_base, field == 0x0D);
+                return Some(());
+            }
+            // `mov byte es:[bx+12h], v`: the animator's state, as Bi-Fi 2's
+            // Enterhaken - Maschinenraum writes it (`0x13875`, `0x13BCF`).
+            0x12 => {
+                o.state = v;
                 return Some(());
             }
             0x15 => {
@@ -1264,7 +1626,9 @@ impl Adventure {
             m.room_header.wrapping_add(2),
             m.entry_door,
             m.walk_target,
+            m.two_object,
             m.anim_wait,
+            m.status_age,
         ]
         .contains(&addr)
             || self.script_word(addr).is_some()
@@ -1292,7 +1656,7 @@ impl Adventure {
         if Some(addr) == m.script_start {
             return Some(Script::START);
         }
-        let d = addr.checked_sub(m.script)?;
+        let d = addr.checked_sub(m.script?)?;
         (d % 2 == 0 && d < 12).then_some(usize::from(d / 2))
     }
 }

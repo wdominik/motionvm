@@ -1,10 +1,8 @@
 //! Composing the 320×200 picture: layers, objects, the figure, the strip,
 //! the status band, a caption, the pointer.
 
-use super::{
-    Adventure, Body, Caption, Framebuffer, Picture, RoomFile, STATUS_INK, STATUS_INKS, Walker,
-    objects, scaled,
-};
+use super::image_records::CUSTOM_DRAW;
+use super::{Adventure, Body, Caption, Framebuffer, Picture, RoomFile, Walker, objects, scaled};
 use crate::num;
 
 impl Adventure {
@@ -83,7 +81,10 @@ impl Adventure {
     /// 20h-byte records its `+0Ch` points at (`0x0BFA2`–`0x0C008`), and
     /// its chain, from the head at `+10h` along `+20h`
     /// (`0x0C00A`–`0x0C074`). Objects and chain records alike are drawn
-    /// only when `(+2 & 3) == 1` (`0x0BFC2`, `0x0C020`).
+    /// only when `(+2 & 3) == 1` (`0x0BFC2`, `0x0C020`), and one with bit
+    /// 4 of `+2` set is the record hook's to draw (`0x0BFCA`, `0x0C028`):
+    /// what the hook drew at it in the frame's drawer pass is painted
+    /// there ([`Adventure::custom_draw_pass`]).
     pub(crate) fn render_scene(&self) -> Framebuffer {
         let mut fb = crate::draw::display();
         if let Some(room) = self.room() {
@@ -107,16 +108,25 @@ impl Adventure {
                 // them — and the record linked last is drawn first.
                 let mut at = self.chain_head(i);
                 while let Some(body) = at {
-                    match body {
-                        Body::Figure => self.draw_figure(&mut fb),
-                        Body::Mover(m) => self.draw_mover(&mut fb, m),
-                        Body::Object(_) => {}
+                    let flags = self.chain_record_flags(body);
+                    if flags & (objects::LIVE | objects::HIDDEN) == objects::LIVE
+                        && flags & CUSTOM_DRAW != 0
+                    {
+                        self.paint_custom(&mut fb, body);
+                    } else {
+                        match body {
+                            Body::Figure => self.draw_figure(&mut fb),
+                            Body::Mover(m) => self.draw_mover(&mut fb, m),
+                            // A record in the image with a cel of its
+                            // own (`0x0C047`): none is drawn by one.
+                            Body::Object(_) | Body::Data(_) => {}
+                        }
                     }
                     at = self.chain_next(body);
                 }
             }
         }
-        crate::draw::blit_masked(&mut fb, &self.panel, 0, self.panel_y, Some(0));
+        crate::draw::blit_masked(&mut fb, &self.panel, 0, self.strip_row, Some(0));
         self.draw_items(&mut fb);
         // `0x0DB8B` freezes the panel; `0x0E6E4` draws the menu over a
         // fresh strip (`0x0C909`). Status composition/flattening must not
@@ -132,7 +142,7 @@ impl Adventure {
                 &text,
                 (320 - width) / 2,
                 self.profile.status_row,
-                STATUS_INK,
+                self.profile.status_inks.ink,
             );
         } else if !self.menu.up {
             // The status band: twelve rows from the build's row, the line
@@ -141,10 +151,29 @@ impl Adventure {
             // `0C3Fh:005Ch`: while any part of the band is held dark, the
             // whole band is flattened after the line is set (`0x0C8A1`,
             // `0724h:0221h(0, 80h, 140h, 0Ch)`; Captain Zins's `0x07D5E`
-            // from 82h).
+            // from 82h; Bi-Fi 2's `0x07991`, 48h rows).
             if self.status_dim != 0 {
-                Caption::flatten_rect(&mut fb, 0, self.profile.status_row, 320, 12, self.flatten);
+                Caption::flatten_rect(
+                    &mut fb,
+                    0,
+                    self.profile.status_row,
+                    320,
+                    self.profile.status_band,
+                    self.flatten,
+                );
             }
+        } else if let Some(band) = self.profile.menu_band {
+            // The menu's strip redraw, past the panel and the items: the
+            // line's rows filled with color 0 and the band held dark, the
+            // menu's lines set over it after (*Bi-Fi 2*'s `0751h:04A2h`,
+            // `0x07A62` and `0x07A7C`, called from task 0's menu paint at
+            // `0x09614` before the lines, `0D22h:0345h`).
+            for y in band.row..band.row + band.cleared {
+                for x in 0..320 {
+                    fb.set(x, y, 0);
+                }
+            }
+            Caption::flatten_rect(&mut fb, 0, band.row, 320, band.dark, self.flatten);
         }
         self.paint_menu(&mut fb, &self.font);
         self.paint_tasks(&mut fb);
@@ -154,8 +183,9 @@ impl Adventure {
     /// `0x0C730`: the held status line painted, centered as
     /// `0C3Fh:0B3Eh` placed it — measured by `1601h:1465h`, which steps
     /// over the ink controls as bytes it has no glyph for — and set glyph
-    /// by glyph from ink `0F4h` (`0x0C750`), a control of the painter's
-    /// table switching the ink and drawing nothing.
+    /// by glyph from the painter's first ink
+    /// ([`super::profile::StatusInks`]), a control of the painter's table
+    /// switching the ink and drawing nothing.
     fn draw_status(&self, fb: &mut Framebuffer) {
         let line = &self.status_line;
         if line.first().is_none_or(|&b| b == 0) {
@@ -163,12 +193,13 @@ impl Adventure {
         }
         let width = i32::from(self.font.measure(line));
         let mut pen = (320 - width) / 2;
-        let mut ink = STATUS_INK;
+        let inks = self.profile.status_inks;
+        let mut ink = inks.ink;
         for &b in line {
             if b == 0 {
                 break;
             }
-            if let Some(&(_, to)) = STATUS_INKS.iter().find(|(c, _)| *c == b) {
+            if let Some(&(_, to)) = inks.controls.iter().find(|(c, _)| *c == b) {
                 ink = to;
                 continue;
             }
@@ -198,8 +229,13 @@ impl Adventure {
     /// point, 2 centers it and stands it on the point (`0x0BC4B`).
     pub(super) fn draw_objects(&self, fb: &mut Framebuffer, room: &RoomFile, layer: u8) {
         let _ = room;
-        for o in self.objects.iter() {
+        for (i, o) in self.objects.iter().enumerate() {
             if o.layer != layer || !o.visible() {
+                continue;
+            }
+            if o.flags & CUSTOM_DRAW != 0 {
+                // `0x0BFCA`: the record hook's to draw.
+                self.paint_custom(fb, Body::Object(i));
                 continue;
             }
             let Some(cel) = self.object_cel(o.bundle, o.cel) else {
@@ -251,7 +287,8 @@ impl Adventure {
         }
     }
 
-    /// The player, scaled and standing on its feet.
+    /// The player, scaled and standing on its feet, while its record's
+    /// live bit is set and its hidden bit clear.
     ///
     /// Align 2, which is what the walker record carries (`+3`):
     /// the cel is centered on `x` and its foot sits on `y`. The extent is
@@ -260,6 +297,14 @@ impl Adventure {
         let Some(p) = self.walker.as_ref() else {
             return;
         };
+        // `(+2 & 3) == 1`, as the chain's draw tests every record, the
+        // player's too (`0x0C01A`; Bi-Fi 2's `0x07243`): a figure whose
+        // live bit the logic cleared is not drawn (Bi-Fi 2's Dino Zoo,
+        // `0x14532`).
+        let flags = self.ds[usize::from(self.ds_map.walker) + 2];
+        if flags & (objects::LIVE | objects::HIDDEN) != objects::LIVE {
+            return;
+        }
         let (cel, mirror) = figure_cel(p);
         let Some(cel) = self.figure_cels.get(cel) else {
             return;
@@ -274,9 +319,14 @@ impl Adventure {
 /// The figure's `+0Ah` and mirror bit: [`Walker::cel`], or, while an
 /// animation runs, `+0Ch` plus the frame the entry set (`0x1526E`) —
 /// `14DDh:0098h` rebased `+0Ch` to the file's first cel, and the mirror
-/// bit is the stream's.
+/// bit is the stream's. A kind-8 record's animation, state `0Bh`, keeps
+/// its `+0Ch` and is drawn the same way (`0x09564`).
 pub(crate) fn figure_cel(p: &Walker) -> (usize, bool) {
-    if p.state == objects::STATE_FIGURE_ANIM && p.cel_held.is_none() {
+    if matches!(
+        p.state,
+        objects::STATE_FIGURE_ANIM | objects::STATE_NPC_ANIM
+    ) && p.cel_held.is_none()
+    {
         (
             usize::from(p.base.wrapping_add(u16::from(p.anim_frame))),
             p.mirror,
